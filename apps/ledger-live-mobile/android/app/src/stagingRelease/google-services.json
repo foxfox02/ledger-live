@@ -9,7 +9,7 @@
       "client_info": {
         "mobilesdk_app_id": "1:1008987457941:android:de51cf6ca928b8b7d6ce9c",
         "android_client_info": {
-          "package_name": "com.ledger.live.staging"
+          "package_name": "com.ledger.live"
         }
       },
       "oauth_client": [

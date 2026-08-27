@@ -5,7 +5,8 @@ import {
   makeSync,
 } from "@ledgerhq/ledger-wallet-framework/bridge/jsHelpers";
 import getAddressWrapper from "@ledgerhq/ledger-wallet-framework/bridge/getAddressWrapper";
-import { makeGetAccountShape, postSync } from "../synchronisation";
+import { postSync } from "../synchronisation";
+import { makeInjectedGetAccountShape } from "../synchronisation-injected";
 import { assignFromAccountRaw, assignToAccountRaw } from "../serialization";
 import { BitcoinAccount, Transaction, TransactionStatus } from "../types";
 import formatters from "../formatters";
@@ -39,7 +40,7 @@ export type BitcoinAccountBridge = AccountBridge<Transaction, BitcoinAccount> & 
 function buildCurrencyBridge(signerContext: SignerContext) {
   const getAddress = resolver(signerContext);
   const scanAccounts = makeScanAccounts<BitcoinAccount>({
-    getAccountShape: makeGetAccountShape(signerContext),
+    getAccountShape: makeInjectedGetAccountShape(signerContext),
     getAddressFn: getAddressWrapper(getAddress),
     postSync,
   });
@@ -51,7 +52,7 @@ function buildCurrencyBridge(signerContext: SignerContext) {
 
 function buildAccountBridge(signerContext: SignerContext) {
   const sync = makeSync<Transaction, BitcoinAccount, TransactionStatus>({
-    getAccountShape: makeGetAccountShape(signerContext),
+    getAccountShape: makeInjectedGetAccountShape(signerContext),
     postSync,
     shouldMergeOps: false,
   });
