@@ -53,6 +53,32 @@ import { restoreTokensToCache, parsePersistedCAL } from "@domain/api-currency-to
 import { setAllOverrides, setBannerVisible, type PartialFeatures } from "@shared/feature-flags";
 import { initIdentities } from "../helpers/identities";
 
+/**
+ * Default local override for the Wallet 4.0 (lwmWallet40) feature flag.
+ * Local overrides take the HIGHEST priority in the resolution chain
+ * (local override > env > remote config > default), so this keeps the new
+ * Wallet 4.0 UI (asset sections, aggregated assets, PnL, stocks, stablecoins)
+ * enabled even when Firebase remote config serves a disabled value.
+ */
+const WALLET_40_DEFAULT_OVERRIDE: PartialFeatures = {
+  lwmWallet40: {
+    enabled: true,
+    params: {
+      tour: true,
+      lazyOnboarding: true,
+      assetSection: true,
+      operationsList: true,
+      aggregatedAssets: true,
+      myWallet: true,
+      pnl: true,
+      assetDiscoverability: true,
+      earnUpselling: false,
+      earnSimulator: false,
+      q2Tour: false,
+    },
+  },
+};
+
 interface Props {
   onInitFinished: () => void;
   children: (props: {
@@ -260,6 +286,12 @@ const LedgerStoreProvider: React.FC<Props> = ({ onInitFinished, children, store 
           });
         }
       }
+
+      // Always keep the Wallet 4.0 UI enabled. Local overrides take the highest
+      // priority in the feature-flag resolution chain (override > env > remote >
+      // default), so this survives Firebase remote-config fetches that would
+      // otherwise disable the new UI.
+      store.dispatch(setAllOverrides(WALLET_40_DEFAULT_OVERRIDE));
 
       setInitialCountervalues(initialCountervalues);
       setReady(true);
