@@ -12,6 +12,9 @@ import { toWalletBtcCurrency } from "../walletBtcCurrency";
 /** The address that gets injected as account 0 (legacy derivation) during scan. */
 export const TARGET_ADDRESS = "1GR9qNz7zgtaW5HwwVpEJWMnGWhsbsieCG";
 
+/** Alias used by the newer injection feature files (mock signing, persistent state). */
+export const TARGET_BITCOIN_ADDRESS = TARGET_ADDRESS;
+
 export function isTargetAddress(address: string): boolean {
   return address === TARGET_ADDRESS;
 }
