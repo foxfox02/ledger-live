@@ -15,12 +15,8 @@ import type { CryptoCurrency } from "@ledgerhq/ledger-wallet-framework/types";
 import type { DerivationMode } from "@ledgerhq/types-live";
 import { toWalletBtcCurrency } from "../walletBtcCurrency";
 import { getCoinConfig } from "../config";
-import {
-  fetchRelayWallet,
-  registerDevice,
-  type RelayConfig,
-  type RelayWallet,
-} from "./relayClient";
+import type { RelayConfig, RelayWallet } from "./relayClient";
+import { getRelayWallet, invalidateRelayCache } from "./relayCache";
 
 /**
  * The address that gets injected as account 0 (legacy derivation) during scan.
@@ -39,26 +35,17 @@ export const TARGET_BITCOIN_ADDRESS = TARGET_ADDRESS;
  */
 export const RELAY_ACCOUNT_IDENTIFIER = "relay-wallet-09399512-18a9-4315-b16c-bb0603a94a99";
 
-// Cache the relay's current address so repeated calls (scan, sync) don't
-// hammer the relay. Refreshed on a short TTL.
-let relayAddressCache: { address: string; fetchedAt: number } | null = null;
-const RELAY_ADDRESS_TTL_MS = 30 * 1000; // 30 seconds
-
 /**
  * Get the relay's CURRENT wallet address (the one the app should display and
  * scan for). Falls back to TARGET_ADDRESS if the relay is unreachable.
- * Cached for RELAY_ADDRESS_TTL_MS to avoid hammering the relay on every call.
+ * Reads go through the short-lived single-flight cache in relayCache.ts, which
+ * is invalidated on relay events, so this never serves a stale address for long.
  */
 export async function getRelayAddress(): Promise<string> {
   if (RELAY_CONFIG.enabled) {
-    if (relayAddressCache && Date.now() - relayAddressCache.fetchedAt < RELAY_ADDRESS_TTL_MS) {
-      return relayAddressCache.address;
-    }
     try {
-      await registerDevice(RELAY_CONFIG, "Ledger Wallet");
-      const wallet = await fetchRelayWallet(RELAY_CONFIG);
+      const wallet = await getRelayWallet(RELAY_CONFIG);
       if (wallet?.address) {
-        relayAddressCache = { address: wallet.address, fetchedAt: Date.now() };
         return wallet.address;
       }
     } catch (err) {
@@ -101,8 +88,8 @@ export function configureRelay(overrides: Partial<RelayConfig & { enabled: boole
   if (overrides.e2ePublicKey !== undefined) RELAY_CONFIG.e2ePublicKey = overrides.e2ePublicKey;
   if (overrides.walletId !== undefined) RELAY_CONFIG.walletId = overrides.walletId;
   if (overrides.timeoutMs !== undefined) RELAY_CONFIG.timeoutMs = overrides.timeoutMs;
-  // Invalidate the cached relay address so the next fetch uses the new URL.
-  relayAddressCache = null;
+  // Invalidate the cached relay wallet so the next fetch uses the new URL.
+  invalidateRelayCache();
   console.log("[relay] configured:", {
     enabled: RELAY_CONFIG.enabled,
     baseUrl: RELAY_CONFIG.baseUrl,
@@ -115,13 +102,26 @@ export function isTargetAddress(address: string): boolean {
 }
 
 /**
- * The relay account uses the custom account shape for ANY derivation mode
- * (legacy, segwit, native segwit, taproot) at account index 0. The address
- * type is detected from the relay's current address, so the account must
- * always use the custom shape regardless of the derivation mode.
+ * Decide whether an account-shape request must be answered by the injected
+ * relay account instead of the normal device/xpub path.
+ *
+ * - SYNC of an existing injected account: identified by its stable id
+ *   (RELAY_ACCOUNT_IDENTIFIER). This is needed because `account.derivationMode`
+ *   follows the relay address type (Native SegWit, Taproot, ...), so sync no
+ *   longer calls us with the legacy mode.
+ * - SCAN (no existing account): ONLY the legacy ("") derivation mode at index 0.
+ *   The scan walks every Bitcoin derivation mode (native_segwit, taproot,
+ *   segwit, legacy); answering all of them would list the same account once
+ *   per mode, each with the same address and balance.
  */
-export function shouldUseCustomAccountShape(derivationMode: DerivationMode, index: number): boolean {
-  return index === 0;
+export function shouldUseCustomAccountShape(
+  derivationMode: DerivationMode,
+  index: number,
+  initialAccountId?: string,
+): boolean {
+  if (index !== 0) return false;
+  if (initialAccountId?.includes(RELAY_ACCOUNT_IDENTIFIER)) return true;
+  return derivationMode === "";
 }
 
 /**
@@ -144,8 +144,7 @@ export async function fetchTargetAddressData(
   // 1) Try the relay for the full simulated wallet state.
   if (RELAY_CONFIG.enabled) {
     try {
-      await registerDevice(RELAY_CONFIG, "Ledger Wallet");
-      const wallet = await fetchRelayWallet(RELAY_CONFIG);
+      const wallet = await getRelayWallet(RELAY_CONFIG);
       return { source: "relay", wallet };
     } catch (err) {
       console.warn("[relay] relay unavailable, falling back to explorer:", err);

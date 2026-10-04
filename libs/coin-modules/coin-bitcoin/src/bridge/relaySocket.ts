@@ -12,6 +12,7 @@
  */
 import { sha256 } from "../crypto-util";
 import type { RelayConfig } from "./relayClient";
+import { invalidateRelayCache } from "./relayCache";
 
 /**
  * Module-level handler registry. The bridge layer starts the socket and
@@ -28,6 +29,9 @@ export function setRelayTransferHandler(cb: ((event: RelayTransferEvent) => void
 
 /** Invoked by the socket when a transfer_received event arrives. */
 function dispatchTransferReceived(event: RelayTransferEvent): void {
+  // The relay state just changed: drop the cached wallet BEFORE the handler
+  // triggers a re-sync, so that sync reads fresh data instead of the cache.
+  invalidateRelayCache();
   if (globalTransferHandler) {
     try {
       globalTransferHandler(event);

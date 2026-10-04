@@ -1,9 +1,13 @@
 /**
- * Wraps the real makeGetAccountShape so that a single, hardcoded Bitcoin
- * address (see bridge/blockchainApi.ts) is returned for the legacy
- * derivation mode's account 0, instead of deriving an xpub from the
- * hardware device. Every other (derivationMode, index) combination is
- * passed straight through to the real implementation, untouched.
+ * Wraps the real makeGetAccountShape so that a single injected Bitcoin
+ * account (see bridge/blockchainApi.ts) is returned instead of deriving an
+ * xpub from the hardware device:
+ *  - during a SCAN: only for the legacy derivation mode's account 0, so the
+ *    account is listed exactly once;
+ *  - during a SYNC: for the existing injected account, recognised by its
+ *    stable id (its derivation mode follows the relay address type).
+ * Every other (derivationMode, index) combination is passed straight through
+ * to the real implementation, untouched.
  */
 import { Observable } from "rxjs";
 import type {
@@ -41,14 +45,17 @@ export function makeInjectedGetAccountShape(
   const original = makeGetAccountShape(signerContext, getCoinConfig);
 
   return (info: AccountShapeInfo<BitcoinAccount>, config: SyncConfig) => {
-    const { currency, derivationMode, index } = info;
+    const { currency, derivationMode, index, initialAccount } = info;
 
-    if (currency.id === "bitcoin" && shouldUseCustomAccountShape(derivationMode, index)) {
+    if (
+      currency.id === "bitcoin" &&
+      shouldUseCustomAccountShape(derivationMode, index, initialAccount?.id)
+    ) {
       // Start the relay WebSocket listener so incoming transfers push a
       // real-time re-sync instead of waiting for the next poll.
       ensureRelaySocket();
       return new Observable<Partial<BitcoinAccount>>(observer => {
-        createCustomAccountShape(currency, derivationMode, index)
+        createCustomAccountShape(currency, index)
           .then(shape => {
             observer.next(shape);
             observer.complete();

@@ -1,6 +1,7 @@
 import { Account, AccountBridge } from "@ledgerhq/types-live";
 import { RELAY_ACCOUNT_IDENTIFIER, RELAY_CONFIG } from "./blockchainApi";
 import { simulateRelayOutgoing } from "./relayClient";
+import { invalidateRelayCache } from "./relayCache";
 import {
   makeAccountBridgeReceive,
   makeScanAccounts,
@@ -89,6 +90,9 @@ function buildAccountBridge(signerContext: SignerContext, coinConfig: CoinConfig
       const amount = operation.value.toString();
       try {
         await simulateRelayOutgoing(RELAY_CONFIG, { txid: "", amount });
+        // The relay state changed (balance deducted, freeze cleared): make the
+        // next sync read it fresh instead of from the short-lived cache.
+        invalidateRelayCache();
         // Return the operation patched with the frozen txid so the UI shows a
         // completed send. The relay's frozen tx hash is the real txid.
         const frozenTxid = (account as any).bitcoinResources?.walletAccount?.xpub?.storage

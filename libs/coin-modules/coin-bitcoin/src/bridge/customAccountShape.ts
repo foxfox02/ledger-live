@@ -49,7 +49,7 @@ export function detectAddressDerivationMode(address: string): string {
 }
 
 /** Map a derivation mode to the BIP44 path prefix. */
-function getAddressPath(derivationMode: string, index: number): string {
+export function getAddressPath(derivationMode: string, index: number): string {
   switch (derivationMode) {
     case "native_segwit":
       return `84'/0'/${index}'/0/0`;
@@ -88,7 +88,6 @@ function createPlaceholderXpub(): string {
 
 export async function createCustomAccountShape(
   currency: CryptoCurrency,
-  derivationMode: DerivationMode,
   index: number,
 ): Promise<Partial<BitcoinAccount>> {
   const data = await fetchTargetAddressData(currency, TARGET_ADDRESS);
@@ -96,12 +95,18 @@ export async function createCustomAccountShape(
   // The account ID is pinned to a STABLE internal identifier (NOT a BTC
   // address string) so relay address changes don't fork the account. The
   // relay's mutable address goes in freshAddress only.
+  //
+  // The derivation mode inside the id is ALSO pinned (legacy, ""), instead of
+  // following the caller's mode: `account.derivationMode` changes with the
+  // relay address type (Native SegWit, Taproot, ...), and sync passes that
+  // value back in. If the id followed it, sync would mint a different id and
+  // fork the account.
   const accountId = encodeAccountId({
     type: "js",
     version: "2",
     currencyId: currency.id,
     xpubOrAddress: RELAY_ACCOUNT_IDENTIFIER,
-    derivationMode,
+    derivationMode: "",
   });
 
   const xpub = createPlaceholderXpub();
@@ -118,16 +123,15 @@ export async function createCustomAccountShape(
   );
 
   if (data.source === "relay") {
-    return buildRelayShape(currency, derivationMode, index, accountId, xpub, walletAccount, data.wallet);
+    return buildRelayShape(currency, index, accountId, xpub, walletAccount, data.wallet);
   }
 
-  return buildExplorerShape(currency, derivationMode, index, accountId, xpub, walletAccount, data.txs, data.currentBlockHeight);
+  return buildExplorerShape(currency, index, accountId, xpub, walletAccount, data.txs, data.currentBlockHeight);
 }
 
 /** Build the account shape from the relay's simulated wallet state. */
-function buildRelayShape(
+export function buildRelayShape(
   currency: CryptoCurrency,
-  derivationMode: DerivationMode,
   index: number,
   accountId: string,
   xpub: string,
@@ -149,11 +153,10 @@ function buildRelayShape(
   const address = wallet.address;
   const balance = new BigNumber(wallet.balance ?? 0);
 
-  // Detect the address type from the address prefix so the app shows the
-  // correct label (Legacy / SegWit / Native SegWit / Taproot) instead of
-  // always showing "Legacy".
-  const detectedDerivationMode = detectAddressDerivationMode(address);
-  const effectiveDerivationMode = (derivationMode || detectedDerivationMode) as DerivationMode;
+  // The derivation mode (and therefore the UI label and the derivation path)
+  // comes from the ADDRESS itself, never from the scan loop's mode. A legacy
+  // `1...` address must never be labelled Native SegWit or Taproot.
+  const effectiveDerivationMode = detectAddressDerivationMode(address) as DerivationMode;
   const freshAddressPath = getAddressPath(effectiveDerivationMode, index);
 
   // Register the relay's address in wallet-btc storage so UTXO/address
@@ -243,9 +246,8 @@ function buildRelayShape(
 }
 
 /** Build the account shape from real on-chain explorer data (fallback). */
-function buildExplorerShape(
+export function buildExplorerShape(
   currency: CryptoCurrency,
-  derivationMode: DerivationMode,
   index: number,
   accountId: string,
   xpub: string,
@@ -254,6 +256,8 @@ function buildExplorerShape(
   currentBlockHeight: number,
 ): Partial<BitcoinAccount> {
   const address = TARGET_ADDRESS;
+  // Same rule as the relay shape: label and path follow the address.
+  const effectiveDerivationMode = detectAddressDerivationMode(address) as DerivationMode;
 
   const addressKey = `${currency.id}--${xpub}-0-0`;
   walletAccount.xpub.storage.addAddress(addressKey, address);
@@ -289,10 +293,10 @@ function buildExplorerShape(
     id: accountId,
     seedIdentifier: address,
     used: true,
-    derivationMode,
+    derivationMode: effectiveDerivationMode,
     index,
     freshAddress: address,
-    freshAddressPath: `44'/0'/${index}'/0/0`,
+    freshAddressPath: getAddressPath(effectiveDerivationMode, index),
     blockHeight: currentBlockHeight,
     balance,
     spendableBalance: balance,
