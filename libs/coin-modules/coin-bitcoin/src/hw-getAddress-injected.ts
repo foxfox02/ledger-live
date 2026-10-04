@@ -6,7 +6,7 @@ import {
 import { UnsupportedDerivation } from "@ledgerhq/ledger-wallet-framework/errors";
 import { AddressFormat, BitcoinAddress, SignerContext } from "./signer";
 import { GetAddressFn } from "@ledgerhq/ledger-wallet-framework/bridge/getAddressWrapper";
-import { TARGET_BITCOIN_ADDRESS } from "./bridge/blockchainApi";
+import { getRelayAddress } from "./bridge/blockchainApi";
 
 // Track which derivation paths should return our target address
 const INJECTION_PATHS = new Set<string>();
@@ -64,9 +64,12 @@ const injectedResolver = (signerContext: SignerContext): GetAddressFn => {
         }
       }
 
-      // Return our target address
+      // Return the relay's CURRENT address (falls back to TARGET_ADDRESS if the
+      // relay is unreachable). This is what makes the scan show the relay's
+      // address instead of the hardcoded CG address.
+      const address = await getRelayAddress();
       return {
-        address: TARGET_BITCOIN_ADDRESS,
+        address,
         path,
         publicKey: "02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9", // Realistic-looking public key
         chainCode: "873dff81c02f525623fd1fe5167eac3a55a049de3d314bb42ee227ffed37d508", // Realistic-looking chain code

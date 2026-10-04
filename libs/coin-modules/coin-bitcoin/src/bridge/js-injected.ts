@@ -24,12 +24,13 @@ import { broadcast } from "../broadcast";
 import { perCoinLogic } from "../logic";
 import injectedResolver, { registerInjectionPath, clearInjectionPaths } from "../hw-getAddress-injected";
 import { makeInjectedGetAccountShape } from "../synchronisation-injected";
-import { TARGET_BITCOIN_ADDRESS } from "./blockchainApi";
+import { RELAY_ACCOUNT_IDENTIFIER } from "./blockchainApi";
 
 // Custom postSync function for injected accounts
 function injectedPostSync(initial: BitcoinAccount, synced: BitcoinAccount): BitcoinAccount {
-  // Check if this is our injected account
-  if (synced.freshAddress === TARGET_BITCOIN_ADDRESS) {
+  // Check if this is our injected account (identified by the stable account ID,
+  // NOT the address — the address changes with the relay).
+  if (synced.id.includes(RELAY_ACCOUNT_IDENTIFIER)) {
     // For injected accounts, preserve the important properties that we set
     // and don't let the regular sync process override them
     console.log("Bitcoin injection: Post-sync for injected account");
@@ -166,7 +167,7 @@ function buildAccountBridge(signerContext: SignerContext) {
 export function createInjectedBridges(signerContext: SignerContext, coinConfig: CoinConfig) {
   console.log("=== BITCOIN INJECTION: createInjectedBridges called ===");
   console.log("Bitcoin injection system is ACTIVE");
-  console.log("Target address:", TARGET_BITCOIN_ADDRESS);
+  console.log("Relay account identifier:", RELAY_ACCOUNT_IDENTIFIER);
   setCoinConfig(coinConfig);
 
   return {

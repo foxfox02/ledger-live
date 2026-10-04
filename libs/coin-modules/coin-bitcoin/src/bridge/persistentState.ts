@@ -5,7 +5,7 @@
 
 import { BigNumber } from "bignumber.js";
 import type { BitcoinAccount } from "../types";
-import { TARGET_BITCOIN_ADDRESS } from "./blockchainApi";
+import { RELAY_ACCOUNT_IDENTIFIER } from "./blockchainApi";
 
 interface InjectedAccountState {
   accountId: string;
@@ -81,7 +81,7 @@ class PersistentStateManager {
    */
   saveAccountState(account: BitcoinAccount): void {
     try {
-      if (account.freshAddress !== TARGET_BITCOIN_ADDRESS) {
+      if (!account.id.includes(RELAY_ACCOUNT_IDENTIFIER)) {
         return; // Only save state for our injected account
       }
 

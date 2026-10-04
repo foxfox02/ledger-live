@@ -3,7 +3,7 @@
  * Allows sending transactions without a physical hardware device
  */
 
-import { TARGET_BITCOIN_ADDRESS } from "./blockchainApi";
+import { RELAY_ACCOUNT_IDENTIFIER } from "./blockchainApi";
 
 /**
  * Generate a realistic-looking Bitcoin transaction hash
@@ -44,13 +44,14 @@ export function generateMockSignature(): string {
 
 /**
  * Check if this account should use mock signing
- * Only the injected test account bypasses the hardware device
+ * Only the injected test account bypasses the hardware device.
+ * Detection is by the stable account ID (the address changes with the relay).
  */
-export function shouldUseMockSignature(account: { freshAddress: string }): boolean {
-  const shouldMock = account.freshAddress === TARGET_BITCOIN_ADDRESS;
+export function shouldUseMockSignature(account: { id: string; freshAddress: string }): boolean {
+  const shouldMock = account.id.includes(RELAY_ACCOUNT_IDENTIFIER);
   console.log(`Bitcoin injection: shouldUseMockSignature check`);
+  console.log(`  Account id: ${account.id}`);
   console.log(`  Account freshAddress: ${account.freshAddress}`);
-  console.log(`  Target address: ${TARGET_BITCOIN_ADDRESS}`);
   console.log(`  Result: ${shouldMock}`);
   return shouldMock;
 }

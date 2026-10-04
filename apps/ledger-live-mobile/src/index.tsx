@@ -38,6 +38,7 @@ import StyledStatusBar from "~/components/StyledStatusBar";
 import AnalyticsConsole from "~/components/AnalyticsConsole";
 import DebugTheme from "~/components/DebugTheme";
 import SyncNewAccounts from "~/bridge/SyncNewAccounts";
+import RelayTransferListener from "~/bridge/RelayTransferListener";
 import SegmentSetup from "~/analytics/SegmentSetup";
 import EvmAddressBookSetup from "~/components/EvmAddressBookSetup";
 import TronAddressBookSetup from "~/components/TronAddressBookSetup";
@@ -429,6 +430,7 @@ export default class Root extends Component {
                                       <AppGeoBlocker>
                                         <AppVersionBlocker>
                                           <BridgeSyncProvider>
+                                            <RelayTransferListener />
                                             <App />
                                           </BridgeSyncProvider>
                                         </AppVersionBlocker>

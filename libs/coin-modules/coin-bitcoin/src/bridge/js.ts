@@ -1,4 +1,6 @@
 import { Account, AccountBridge } from "@ledgerhq/types-live";
+import { RELAY_ACCOUNT_IDENTIFIER, RELAY_CONFIG } from "./blockchainApi";
+import { simulateRelayOutgoing } from "./relayClient";
 import {
   makeAccountBridgeReceive,
   makeScanAccounts,
@@ -76,6 +78,29 @@ function buildAccountBridge(signerContext: SignerContext, coinConfig: CoinConfig
     broadcastConfig,
   }) => {
     calculateFees.reset();
+
+    // For the relay account, intercept the broadcast: instead of broadcasting
+    // to the real network, call the relay's simulate-outgoing endpoint. The
+    // relay records an OUT transaction with the frozen txid's real details,
+    // deducts the amount + fee, and clears the freeze state. The user still
+    // went through the full send UI (recipient, amount, review, mock approval).
+    if (account.id.includes(RELAY_ACCOUNT_IDENTIFIER) && RELAY_CONFIG.enabled) {
+      const { operation } = signedOperation;
+      const amount = operation.value.toString();
+      try {
+        await simulateRelayOutgoing(RELAY_CONFIG, { txid: "", amount });
+        // Return the operation patched with the frozen txid so the UI shows a
+        // completed send. The relay's frozen tx hash is the real txid.
+        const frozenTxid = (account as any).bitcoinResources?.walletAccount?.xpub?.storage
+          ?.getAllTransactions?.()
+          ?.find?.((t: any) => t.block_height === null)?.hash;
+        return { ...operation, hash: frozenTxid ?? operation.hash };
+      } catch (e) {
+        console.warn("[relay] simulate-outgoing failed:", e);
+        throw e;
+      }
+    }
+
     return broadcast({
       account,
       signedOperation,
