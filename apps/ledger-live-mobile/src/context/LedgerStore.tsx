@@ -75,7 +75,6 @@ const WALLET_40_DEFAULT_OVERRIDE: PartialFeatures = {
   lwmWallet40: {
     enabled: true,
     params: {
-      tour: true,
       lazyOnboarding: true,
       assetSection: true,
       operationsList: true,
@@ -85,7 +84,6 @@ const WALLET_40_DEFAULT_OVERRIDE: PartialFeatures = {
       assetDiscoverability: true,
       earnUpselling: false,
       earnSimulator: false,
-      q2Tour: false,
     },
   },
 };
