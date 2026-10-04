@@ -1,7 +1,9 @@
 import { Account } from "@ledgerhq/live-e2e-shared/enum/Account";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { ApplicationOptions } from "page";
-import { setTeamOwner } from "../../helpers/allure/allure-helper";
+import { ApplicationOptions } from "@e2e/page/index";
+import { setTeamOwner } from "@e2e/helpers/allure/allure-helper";
+import { FF_PASSWORD_REVAMP } from "@e2e/utils/featureFlagUtils";
+import type { PartialFeatures } from "@shared/feature-flags";
 
 async function initApp(options: ApplicationOptions) {
   await app.init({
@@ -18,7 +20,7 @@ export function runUserClearApplicationCacheTest(
   tmsLinks: string[],
   tags: string[],
 ) {
-  describe("User clear application cache", () => {
+  describe("Settings", () => {
     beforeAll(async () => {
       await initApp({
         userdata: "skip-onboarding",
@@ -31,7 +33,7 @@ export function runUserClearApplicationCacheTest(
     tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
     tags.forEach(tag => $Tag(tag));
 
-    test("The user can clear application cache", async () => {
+    test("Clear the application cache", async () => {
       await app.portfolio.tapTabSelector("Accounts");
       const countBeforeClearingCache = await app.portfolio.countAccounts();
       await app.mainNavigation.navigateToSettings();
@@ -47,7 +49,7 @@ export function runUserClearApplicationCacheTest(
 }
 
 export function runUserCanExportLogsTest(tmsLinks: string[], tags: string[]) {
-  describe("User can export logs", () => {
+  describe("Settings", () => {
     beforeAll(async () => {
       await initApp({ userdata: "skip-onboarding" });
     });
@@ -56,7 +58,7 @@ export function runUserCanExportLogsTest(tmsLinks: string[], tags: string[]) {
     tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
     tags.forEach(tag => $Tag(tag));
 
-    test("Verify that user can export logs", async () => {
+    test("Export logs", async () => {
       await app.mainNavigation.navigateToSettings();
       await app.settings.navigateToHelpSettings();
       await app.settingsHelp.clickOnExportLogsRow();
@@ -66,7 +68,7 @@ export function runUserCanExportLogsTest(tmsLinks: string[], tags: string[]) {
 }
 
 export function runUserCanAccessLedgerSupportTest(tmsLinks: string[], tags: string[]) {
-  describe("User can access Ledger Support (Web Link)", () => {
+  describe("Settings", () => {
     beforeAll(async () => {
       await initApp({ userdata: "skip-onboarding" });
     });
@@ -74,7 +76,7 @@ export function runUserCanAccessLedgerSupportTest(tmsLinks: string[], tags: stri
     setTeamOwner(Team.WALLET_XP);
     tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
     tags.forEach(tag => $Tag(tag));
-    test("Verify that user can access Ledger Support (Web Link)", async () => {
+    test("Access Ledger Support web link", async () => {
       await app.mainNavigation.navigateToSettings();
       await app.settings.navigateToHelpSettings();
       await app.settingsHelp.expectLedgerSupportUrlToBeCorrect();
@@ -87,7 +89,7 @@ export function runUserCanSelectCounterValueToDisplayAmountInLedgerLive(
   tmsLinks: string[],
   tags: string[],
 ) {
-  describe("User can select counter value to display amount in Ledger Live", () => {
+  describe("Settings", () => {
     beforeAll(async () => {
       await initApp({
         userdata: "skip-onboarding",
@@ -99,7 +101,7 @@ export function runUserCanSelectCounterValueToDisplayAmountInLedgerLive(
     setTeamOwner(Team.WALLET_XP);
     tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
     tags.forEach(tag => $Tag(tag));
-    test("Verify that user can select counter value to display amount in Ledger Live", async () => {
+    test("Select a counter value to display amounts", async () => {
       await app.mainNavigation.navigateToSettings();
       await app.settings.navigateToGeneralSettings();
       await app.settingsGeneral.changeCounterValue("Euro - EUR");
@@ -113,12 +115,13 @@ export function runUserCanSelectCounterValueToDisplayAmountInLedgerLive(
   });
 }
 
-async function initPasswordTest() {
+async function initPasswordTest(featureFlags?: PartialFeatures) {
   const nanoApp = AppInfos.ETHEREUM;
   await app.init({
     speculosApp: nanoApp,
     cliCommands: [liveDataCommand(Account.ETH_1)],
     speculosForSetupOnly: true,
+    featureFlags,
   });
   await app.mainNavigation.waitForWallet40Ready();
 }
@@ -126,7 +129,7 @@ async function initPasswordTest() {
 export function runPasswordUnlockTest(tmsLinks: string[], tags: string[]) {
   const CORRECT_PASSWORD = "passWORD$123!";
 
-  describe("Password Lock Screen - Unlock with correct password", () => {
+  describe("Settings", () => {
     beforeAll(async () => {
       await initPasswordTest();
       await app.mainNavigation.navigateToSettings();
@@ -138,7 +141,7 @@ export function runPasswordUnlockTest(tmsLinks: string[], tags: string[]) {
     setTeamOwner(Team.WALLET_XP);
     tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
     tags.forEach(tag => $Tag(tag));
-    it("should unlock with correct password", async () => {
+    it(`[${Account.ETH_1.currency.testLabel}] - Unlock the app with the correct password`, async () => {
       await app.passwordEntry.enterPassword(CORRECT_PASSWORD);
       await app.passwordEntry.login();
       await app.passwordEntry.expectNoLock();
@@ -150,7 +153,7 @@ export function runPasswordUnlockTest(tmsLinks: string[], tags: string[]) {
 export function runPasswordIncorrectTest(tmsLinks: string[], tags: string[]) {
   const CORRECT_PASSWORD = "passWORD$123!";
 
-  describe("Password Lock Screen - Stay locked with incorrect password", () => {
+  describe("Settings", () => {
     beforeAll(async () => {
       await initPasswordTest();
       await app.mainNavigation.navigateToSettings();
@@ -162,10 +165,70 @@ export function runPasswordIncorrectTest(tmsLinks: string[], tags: string[]) {
     setTeamOwner(Team.WALLET_XP);
     tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
     tags.forEach(tag => $Tag(tag));
-    it("should stay locked with incorrect password", async () => {
+    it("App stays locked with an incorrect password", async () => {
       await app.passwordEntry.enterPassword("INCORRECT_PASSWORD");
       await app.passwordEntry.login();
       await app.passwordEntry.expectLock();
+    });
+  });
+}
+
+export function runRevampedPasswordUnlockTest(tmsLinks: string[], tags: string[]) {
+  const CORRECT_PASSWORD = "passWORD$123!";
+  const TOO_SHORT_PASSWORD = "pass1";
+
+  describe("Settings", () => {
+    beforeAll(async () => {
+      await initPasswordTest(FF_PASSWORD_REVAMP);
+      await app.mainNavigation.navigateToSettings();
+      await app.settings.navigateToGeneralSettings();
+      await app.settingsGeneral.expectPasswordToggleValue("OFF");
+      await app.settingsGeneral.togglePassword();
+    });
+
+    setTeamOwner(Team.WALLET_XP);
+    tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
+    tags.forEach(tag => $Tag(tag));
+    it("Refuses a password shorter than 6 characters", async () => {
+      await app.appLock.choosePassword(TOO_SHORT_PASSWORD);
+      await app.appLock.expectPasswordTooShort();
+    });
+
+    it("Turns the password on and locks the app once it leaves", async () => {
+      await app.settingsGeneral.setupRevampedPasswordAndLock(CORRECT_PASSWORD);
+      await app.appLock.expectLock();
+    });
+
+    it(`[${Account.ETH_1.currency.testLabel}] - Unlock the app with the correct password`, async () => {
+      await app.appLock.enterUnlockPassword(CORRECT_PASSWORD);
+      await app.appLock.unlock();
+      await app.appLock.expectNoLock();
+      await app.settingsGeneral.expectPreferredCurrencyButton();
+    });
+  });
+}
+
+export function runRevampedPasswordIncorrectTest(tmsLinks: string[], tags: string[]) {
+  const CORRECT_PASSWORD = "passWORD$123!";
+
+  describe("Settings", () => {
+    beforeAll(async () => {
+      await initPasswordTest(FF_PASSWORD_REVAMP);
+      await app.mainNavigation.navigateToSettings();
+      await app.settings.navigateToGeneralSettings();
+      await app.settingsGeneral.expectPasswordToggleValue("OFF");
+      await app.settingsGeneral.togglePassword();
+      await app.settingsGeneral.setupRevampedPasswordAndLock(CORRECT_PASSWORD);
+      await app.appLock.expectLock();
+    });
+
+    setTeamOwner(Team.WALLET_XP);
+    tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
+    tags.forEach(tag => $Tag(tag));
+    it("App stays locked with an incorrect password", async () => {
+      await app.appLock.enterUnlockPassword("INCORRECT_PASSWORD");
+      await app.appLock.unlock();
+      await app.appLock.expectLock();
     });
   });
 }

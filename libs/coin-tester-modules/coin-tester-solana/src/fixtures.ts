@@ -1,4 +1,5 @@
 import type { CryptoCurrency, TokenCurrency } from "@ledgerhq/ledger-wallet-framework/types";
+import { TokenCurrencyIdSchema } from "@ledgerhq/ledger-wallet-framework/types";
 import { decodeAccountId } from "@ledgerhq/ledger-wallet-framework/account";
 import {
   getDerivationScheme,
@@ -7,6 +8,7 @@ import {
 import { TokenAccount } from "@ledgerhq/types-live";
 import BigNumber from "bignumber.js";
 import { SolanaAccount } from "@ledgerhq/coin-solana/types";
+import { emptyStakingResources } from "@ledgerhq/coin-solana/logic";
 import { getCryptoCurrencyById } from "@ledgerhq/ledger-wallet-framework/currencies";
 import { setCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
 import { HttpResponse, bypass, http } from "msw";
@@ -43,7 +45,7 @@ export const SOLANA_CWIF: TokenCurrency = {
 
 export const SOLANA_VIRTUAL: TokenCurrency = {
   type: "TokenCurrency",
-  id: "solana/spl/3iql8bfs2ve7mww4ehaqqhasbmrncrpxizwat2zfyr9y",
+  id: TokenCurrencyIdSchema.parse("solana/spl/3iql8bfs2ve7mww4ehaqqhasbmrncrpxizwat2zfyr9y"),
   name: "Virtual Protocol",
   ticker: "VIRTUAL",
   units: [{ name: "VIRTUAL", code: "VIRTUAL", magnitude: 9 }],
@@ -56,7 +58,9 @@ export const SOLANA_VIRTUAL: TokenCurrency = {
 
 export const SOLANA_TSLAX: TokenCurrency = {
   type: "TokenCurrency",
-  id: "solana/spl/tesla_xstock_xsdovfqebukxuzhwhdvwhbhgehjgnst4mlodqsjhzob",
+  id: TokenCurrencyIdSchema.parse(
+    "solana/spl/tesla_xstock_xsdovfqebukxuzhwhdvwhbhgehjgnst4mlodqsjhzob",
+  ),
   contractAddress: "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
   parentCurrencyId: SOLANA.id,
   tokenType: "spl",
@@ -151,7 +155,7 @@ export const makeAccount = (
         balances: [],
       },
     },
-    solanaResources: { stakes: [], unstakeReserve: new BigNumber(0) },
+    stakingResources: emptyStakingResources(new BigNumber(0)),
   };
 };
 

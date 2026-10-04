@@ -1,14 +1,22 @@
 export enum Addresses {
-  BTC_NATIVE_SEGWIT_1 = "bc1q2dh3p38d3pavjkvvk7wr25dcdnclvjnll9kta9",
+  BTC_NATIVE_SEGWIT_1 = "bc1qtcpu0eacr3jpfesjgt8qqup85mr6l6drfd70ay",
   SANCTIONED_ETHEREUM = "0x04DBA1194ee10112fE6C3207C0687DEf0e78baCf",
-  ETH_2 = "0xc79c7a29c40Ce8F5746af2c956F93F27e2820307",
+  ETH_2 = "0xb3A643D2E7a0644725378fF1D1e61c5180292Db9",
   ETH_OTHER_SEED = "0xce12D0A5cFf4A88ECab96ff8923215Dff366127b",
   SOL_OTHER_SEED = "DLVArScX1BQEr7gZSSpHMGMq7HKKFKdFF82Cs6PvEKVC",
-  SOL_GIGA_1_ATA_ADDRESS = "4h9zusLsPZsZVajWH1Dtgd4ccopL4fvNAE7T8LxX4H1g",
-  SOL_GIGA_2_ATA_ADDRESS = "FWS3ZK9E4vc6Wz29vWzPpY7CLNebBRYe1FaxY7EdQDGf",
-  SOL_WIF_2_ATA_ADDRESS = "FDFqWGGg9mP1JBVLS4UXDhs4y5mHnHNDXQxCGUHr81Vz",
+  SOL_GIGA_1_ATA_ADDRESS = "2mryUc1eMbNSp8cvpW3gsod3aj4wqtLL3ouNVX6A8Bn4",
+  SOL_GIGA_2_ATA_ADDRESS = "7NeYbBBQFgP48gKXjwy9wrrXMgB58TLAmypRsTBuga1j",
+  SOL_WIF_2_ATA_ADDRESS = "EUvFux6KzcZ2tmQB8K98iuFrkvD6x3DSJGgfgUZdt6pn",
   SWAP_HISTORY_SOL_FROM = "21kh76PRK8k6UFgd7uwpmkCq1V5q9B8WNKHvwYNgTNub",
   SWAP_HISTORY_ETH_TO = "0x8526F50A2FA870B1B7b91cc054aa06799dAc0110",
   SWAP_HISTORY_ERC20_SOL_FROM = "FDaDTiZbkXh5H5mdfsW3UHVME15qgMPAcKE7JowzU61Z",
   SWAP_HISTORY_ERC20_ETH_USDT_TO = "0x70AAEEe70118a065ddF84dF6669b496A447C8CcC",
+  /** Never sent to: only used to make an address-book "Add contact"/"Select address" action appear. */
+  EVM_SPARE = "0x000000000000000000000000000000000000dEaD",
+  /** Tron black-hole address, same purpose as `EVM_SPARE`. */
+  TRON_SPARE = "T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb",
+  // The address the device derives for the shared QA seed at 44'/133'/0'/0/6
+  // (Account.ZEC_1). Shielded-address verification compares the device's
+  // answer against this persisted value, so it must stay the real one.
+  ZEC_1_SHIELDED_ADDRESS = "u1rxupz6pfemaqnxkakpf846uf6euuaqhhgp7pf26he0c5k8xcm73e4khwj5fkmqe5rw58ppa4xevm3tny0sufvlywqngj2vus0g5rqt4j",
 }

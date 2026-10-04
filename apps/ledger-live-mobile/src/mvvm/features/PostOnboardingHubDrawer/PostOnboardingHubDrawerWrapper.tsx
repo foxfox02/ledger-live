@@ -1,6 +1,7 @@
+import { TrackScreen } from "@shared/analytics-react";
 import React, { useEffect } from "react";
-import QueuedBottomSheet from "LLM/components/QueuedDrawer/QueuedBottomSheet";
-import { TrackScreen } from "~/analytics";
+import { Platform } from "react-native";
+import { QueuedBottomSheet } from "@shared/ui-queued-bottom-sheet";
 import ActivationDrawer from "LLM/features/WalletSync/screens/Activation/ActivationDrawer";
 import { Steps } from "LLM/features/WalletSync/types/Activation";
 import { PostOnboardingHubDrawerView } from "./PostOnboardingHubDrawerView";
@@ -36,6 +37,8 @@ export function PostOnboardingHubDrawerWrapper() {
       <QueuedBottomSheet
         isRequestingToBeOpened={canOpenPostOnboardingHubDrawer}
         onClose={closePostOnboardingHubDrawer}
+        enableDynamicSizing
+        maxDynamicContentSize={Platform.OS === "ios" ? "fullWithOffset" : undefined}
       >
         {deviceModelId ? (
           <>

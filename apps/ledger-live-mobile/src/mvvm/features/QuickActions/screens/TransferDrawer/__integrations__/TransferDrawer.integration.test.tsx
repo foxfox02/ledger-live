@@ -1,8 +1,8 @@
+import { track } from "@shared/analytics";
 import { renderHook, withFlagOverrides } from "@tests/test-renderer";
 import { getCryptoCurrencyById } from "@domain/entity-currency-crypto";
 import { useTransferDrawerViewModel } from "../useTransferDrawerViewModel";
 import { NavigatorName, ScreenName } from "~/const";
-import { track } from "~/analytics";
 import { overrideStateWithFunds } from "LLM/features/QuickActions/__integrations__/shared";
 import { State } from "~/reducers/types";
 import type { Account } from "@ledgerhq/types-live";
@@ -132,6 +132,129 @@ describe("TransferDrawer Navigation", () => {
     });
     expect(mockHandleOpenSendFlow).toHaveBeenCalledTimes(1);
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it("tracks newSendFlow as true when the asset family is allowed by the flag", () => {
+    const currency = getCryptoCurrencyById("ethereum");
+    const { result } = renderHook(() => useTransferDrawerViewModel({ currency }), {
+      overrideInitialState: withFlagOverrides(
+        {
+          newSendFlow: {
+            enabled: true,
+            params: { families: ["evm"], excludedCurrencyIds: [] },
+          },
+        },
+        overrideWithOpenDrawer,
+      ),
+    });
+
+    findAction(result, "send").onPress();
+
+    expect(track).toHaveBeenCalledWith(
+      "button_clicked",
+      expect.objectContaining({ button: "send", newSendFlow: true }),
+    );
+  });
+
+  it("tracks newSendFlow as false when the asset family is not allowed by the flag", () => {
+    const currency = getCryptoCurrencyById("solana");
+    const { result } = renderHook(() => useTransferDrawerViewModel({ currency }), {
+      overrideInitialState: withFlagOverrides(
+        {
+          newSendFlow: {
+            enabled: true,
+            params: {
+              families: ["evm", "bitcoin", "tron"],
+              excludedCurrencyIds: [],
+            },
+          },
+        },
+        overrideWithOpenDrawer,
+      ),
+    });
+
+    findAction(result, "send").onPress();
+
+    expect(track).toHaveBeenCalledWith(
+      "button_clicked",
+      expect.objectContaining({ button: "send", newSendFlow: false }),
+    );
+    expect(mockHandleOpenSendFlow).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith(NavigatorName.SendFunds, {
+      screen: ScreenName.SendCoin,
+      params: { selectedCurrency: currency, currencyIds: undefined },
+    });
+  });
+
+  it("tracks newSendFlow as false when the asset currency is excluded by the flag", () => {
+    const currency = getCryptoCurrencyById("dash");
+    const { result } = renderHook(() => useTransferDrawerViewModel({ currency }), {
+      overrideInitialState: withFlagOverrides(
+        {
+          newSendFlow: {
+            enabled: true,
+            params: { families: ["bitcoin"], excludedCurrencyIds: ["dash"] },
+          },
+        },
+        overrideWithOpenDrawer,
+      ),
+    });
+
+    findAction(result, "send").onPress();
+
+    expect(track).toHaveBeenCalledWith(
+      "button_clicked",
+      expect.objectContaining({ button: "send", newSendFlow: false }),
+    );
+    expect(mockHandleOpenSendFlow).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith(NavigatorName.SendFunds, {
+      screen: ScreenName.SendCoin,
+      params: { selectedCurrency: currency, currencyIds: undefined },
+    });
+  });
+
+  it("opens unfiltered account selection when the new send flow is enabled without a currency", () => {
+    const { result } = renderHook(() => useTransferDrawerViewModel(), {
+      overrideInitialState: withFlagOverrides(
+        {
+          newSendFlow: {
+            enabled: true,
+            params: { families: ["evm"], excludedCurrencyIds: [] },
+          },
+        },
+        overrideWithOpenDrawer,
+      ),
+    });
+
+    findAction(result, "send").onPress();
+
+    expect(mockHandleOpenSendFlow).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(track).toHaveBeenCalledWith(
+      "button_clicked",
+      expect.objectContaining({ button: "send", newSendFlow: true }),
+    );
+  });
+
+  it("keeps legacy account selection when the new send flow config has no families", () => {
+    const { result } = renderHook(() => useTransferDrawerViewModel(), {
+      overrideInitialState: withFlagOverrides(
+        {
+          newSendFlow: {
+            enabled: true,
+            params: { families: [], excludedCurrencyIds: [] },
+          },
+        },
+        overrideWithOpenDrawer,
+      ),
+    });
+
+    findAction(result, "send").onPress();
+
+    expect(mockHandleOpenSendFlow).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith(NavigatorName.SendFunds, {
+      screen: ScreenName.SendCoin,
+    });
   });
 
   it("bank_transfer navigates to ReceiveFunds/ReceiveProvider with noah manifest and tracks", () => {

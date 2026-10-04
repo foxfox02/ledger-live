@@ -28,6 +28,7 @@ const mockBusinessLogicResult = {
     setTransaction: jest.fn(),
     setRecipient: jest.fn(),
     setAccount: jest.fn(),
+    updateAccount: jest.fn(),
   },
   operation: {
     onOperationBroadcasted: jest.fn(),
@@ -46,6 +47,7 @@ const mockBusinessLogicResult = {
     hasCustomFees: false,
     hasCoinControl: false,
     hasDefaultStrategy: false,
+    hasBalanceTypeStep: false,
   },
   recipientSearch: { value: "", setValue: jest.fn(), clear: jest.fn() },
   recipient: null,

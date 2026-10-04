@@ -1,3 +1,4 @@
+import { track } from "@shared/analytics";
 import { act } from "@testing-library/react-native";
 import { renderHook, withFlagOverrides } from "@tests/test-renderer";
 import {
@@ -9,15 +10,11 @@ import { Asset } from "~/types/asset";
 import { usePortfolioSectionActions } from "../usePortfolioSectionActions";
 
 const mockNavigate = jest.fn();
-const mockTrack = jest.fn();
+const mockedTrack = jest.mocked(track);
 
 jest.mock("@react-navigation/native", () => ({
   ...jest.requireActual("@react-navigation/native"),
   useNavigation: () => ({ navigate: mockNavigate }),
-}));
-
-jest.mock("~/analytics", () => ({
-  useAnalytics: () => ({ track: mockTrack }),
 }));
 
 const btcAsset: Asset = {
@@ -122,7 +119,7 @@ describe("usePortfolioSectionActions", () => {
         result.current.onItemPress(btcAsset);
       });
 
-      expect(mockTrack).toHaveBeenCalledWith("asset_clicked", {
+      expect(mockedTrack).toHaveBeenCalledWith("asset_clicked", {
         asset: mockBtcCryptoCurrency.name,
         page: "Wallet",
       });
@@ -186,7 +183,7 @@ describe("usePortfolioSectionActions", () => {
         result.current.onPressShowAll();
       });
 
-      expect(mockTrack).toHaveBeenCalledWith("button_clicked", {
+      expect(mockedTrack).toHaveBeenCalledWith("button_clicked", {
         button: "asset_list",
         type: "stable",
         page: "Wallet",
@@ -200,7 +197,7 @@ describe("usePortfolioSectionActions", () => {
         result.current.onPressShowAll();
       });
 
-      expect(mockTrack).toHaveBeenCalledWith("button_clicked", {
+      expect(mockedTrack).toHaveBeenCalledWith("button_clicked", {
         button: "asset_list",
         type: "crypto",
         page: "Wallet",

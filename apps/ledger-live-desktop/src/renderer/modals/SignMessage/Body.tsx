@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { AccountLike, AnyMessage } from "@ledgerhq/types-live";
-import Track from "~/renderer/analytics/Track";
+import { Track } from "@shared/analytics-react";
 import { Trans, useTranslation } from "react-i18next";
 import StepSummary, { StepSummaryFooter } from "./steps/StepSummary";
 import StepSign from "./steps/StepSign";
@@ -15,7 +15,6 @@ export type Data = {
   onClose: () => void;
   useApp?: string;
   dependencies?: string[];
-  isACRE?: boolean;
 };
 
 const eip712Step: Array<St> = [
@@ -70,7 +69,6 @@ const Body = ({ onClose, data }: Props) => {
     onStepChange: handleStepChange,
     stepId,
     steps,
-    isACRE: data.isACRE,
     useApp: data.useApp,
     dependencies: data.dependencies,
     message: data.message,

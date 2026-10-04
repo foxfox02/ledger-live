@@ -1,10 +1,10 @@
+import { trackPage, track } from "@shared/analytics";
 import { useCallback, useEffect, useMemo } from "react";
 import { useSelector, useDispatch } from "~/context/hooks";
 import { readOnlyModeEnabledSelector } from "~/reducers/settings";
 import { accountsSelector } from "~/reducers/accounts";
-import { screen, track } from "~/analytics";
 import { ScreenName } from "~/const";
-import { useNotifications } from "LLM/features/NotificationsPrompt";
+import { useNotificationsPrompt } from "LLM/features/NotificationsPrompt";
 import { BaseComposite, StackNavigatorProps } from "~/components/RootNavigator/types/helpers";
 import { MarketNavigatorStackParamList } from "LLM/features/Market/Navigator";
 
@@ -12,8 +12,8 @@ import { useMarket } from "LLM/features/Market/hooks/useMarket";
 import { useMarketCoinDataWithChart } from "LLM/features/Market/hooks/useMarketCoinData";
 import { addStarredMarketCoins, removeStarredMarketCoins } from "~/actions/settings";
 import VersionNumber from "react-native-version-number";
-import { selectCurrency } from "@ledgerhq/live-common/dada-client/utils/currencySelection";
-import { assetsDataApi } from "@ledgerhq/live-common/dada-client/state-manager/api";
+import { selectCurrency } from "@features/platform-aggregated-assets";
+import { assetsDataApi } from "@domain/api-aggregated-assets";
 
 type NavigationProps = BaseComposite<
   StackNavigatorProps<MarketNavigatorStackParamList, ScreenName.MarketDetail>
@@ -42,7 +42,7 @@ function useMarketDetailViewModel({ navigation, route }: NavigationProps) {
   );
 
   const dispatch = useDispatch();
-  const { tryTriggerPushNotificationDrawerAfterAction } = useNotifications();
+  const { notifyFlowCompleted } = useNotificationsPrompt();
   const readOnlyModeEnabled = useSelector(readOnlyModeEnabledSelector);
 
   const { starredMarketCoins, updateMarketParams } = useMarket();
@@ -67,7 +67,7 @@ function useMarketDetailViewModel({ navigation, route }: NavigationProps) {
 
   useEffect(() => {
     if (readOnlyModeEnabled) {
-      screen("ReadOnly", "Market Coin");
+      trackPage({ category: "ReadOnly", name: "Market Coin" });
     }
   }, [readOnlyModeEnabled]);
 
@@ -99,8 +99,8 @@ function useMarketDetailViewModel({ navigation, route }: NavigationProps) {
     const action = isStarred ? removeStarredMarketCoins : addStarredMarketCoins;
     dispatch(action(currencyId));
 
-    if (!isStarred) tryTriggerPushNotificationDrawerAfterAction("add_favorite_coin");
-  }, [dispatch, isStarred, currencyId, tryTriggerPushNotificationDrawerAfterAction]);
+    if (!isStarred) notifyFlowCompleted("add_favorite_coin");
+  }, [dispatch, isStarred, currencyId, notifyFlowCompleted]);
 
   return {
     defaultAccount,

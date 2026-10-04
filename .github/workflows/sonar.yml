@@ -47,11 +47,14 @@ jobs:
         with:
           registry: ${{ vars.ARTIFACTORY_URL }}
 
+      - name: Install other platforms' optional deps (wallet-cli cross-compilation)
+        uses: LedgerHQ/ledger-live/tools/actions/composites/pnpm-cross-platform-optional-deps@develop
+
       - name: Install dependencies
         env:
           LANG: en_US.UTF-8
         run: |
-          pnpm i --filter="./libs/**" --filter="./features/**" --filter="./shared/**" --filter="./domain/**" --filter="./devtools/**" --filter="live-mobile..." --filter="ledger-live-desktop..." --no-frozen-lockfile --unsafe-perm
+          pnpm i --filter="./libs/**" --filter="./features/**" --filter="./shared/**" --filter="./domain/**" --filter="./devtools/**" --filter="live-mobile..." --filter="ledger-live-desktop..." --frozen-lockfile --unsafe-perm
 
       - name: Build dependencies
         run: |
@@ -183,7 +186,7 @@ jobs:
 
       - name: Generate Unit test coverage for wallet-cli
         run: |
-          pnpm i --filter="@ledgerhq/wallet-cli..." --no-frozen-lockfile --unsafe-perm
+          pnpm i --filter="@ledgerhq/wallet-cli..." --frozen-lockfile --unsafe-perm
           pnpm exec nx run @ledgerhq/wallet-cli:build
           mkdir -p apps/wallet-cli/coverage
           touch apps/wallet-cli/coverage/lcov.info

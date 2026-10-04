@@ -17,11 +17,6 @@ on:
         description: Ref to checkout
         required: false
         type: string
-      skip-bundle-size-reporting:
-        description: Whether to skip the bundle size reporting
-        required: false
-        type: boolean
-        default: false
       max-shards:
         description: Max number of shards to use for detox tests (both ios and android)
         required: false
@@ -35,41 +30,47 @@ on:
 
     secrets:
       ALLURE_LEDGER_LIVE_PASSWORD:
-        required: false
+        required: true
       ANDROID_KEYSTORE_PASSWORD:
-        required: false
+        required: true
       ANDROID_KEYSTORE_PATH:
-        required: false
+        required: true
       AWS_ACCOUNT_ID_PROD:
-        required: false
+        required: true
       AWS_CACHE_OIDC_ROLE_ARN_BRANCH:
-        required: false
+        required: true
       AWS_CACHE_OIDC_ROLE_ARN_DEVELOP:
-        required: false
+        required: true
       AWS_CACHE_REGION:
-        required: false
+        required: true
       AWS_CACHE_ROLE_NAME:
+        required: true
+      CARD_BAANX_API_URL:
+        required: false
+      CARD_BAANX_CLIENT_KEY:
+        required: false
+      CARD_BAANX_HOSTED_UI:
+        required: false
+      CARD_OAUTH_REDIRECT_URI:
         required: false
       GH_BOT_APP_ID:
-        required: false
-      GH_BOT_CLIENT_ID:
-        required: false
+        required: true
       GH_BOT_PRIVATE_KEY:
-        required: false
+        required: true
       NX_KEY:
-        required: false
+        required: true
       R2_ACCESS_KEY_ID:
-        required: false
+        required: true
       R2_ENDPOINT:
-        required: false
+        required: true
       R2_SECRET_ACCESS_KEY:
-        required: false
+        required: true
       S3_DIRECTCONNECT_ENDPOINT:
-        required: false
+        required: true
       SEED_QAA_B2C:
-        required: false
+        required: true
       SPECULINHO_URL:
-        required: false
+        required: true
   workflow_dispatch:
     inputs:
       ref:
@@ -108,11 +109,9 @@ permissions:
   contents: read
 
 env:
-  SHOULD_UPLOAD: ${{ (github.event_name == 'push' && contains(fromJson('["develop", "main"]'), github.ref_name)) }}
   cache-bucket: ll-nx-cache
   ANDROID_APK_PATH: apps/ledger-live-mobile/android/app/build/outputs/apk/detox/app-x86_64-detox.apk
   ANDROID_JSBUNDLE_PATH: apps/ledger-live-mobile/main.jsbundle
-  ANDROID_TESTBINARY_PATH: apps/ledger-live-mobile/android/app/build/outputs/apk/androidTest/detox/app-detox-androidTest.apk
   IOS_JSBUNDLE_PATH: apps/ledger-live-mobile/ios/build/Build/Products/Release-iphonesimulator/ledgerlivemobile.app/main.jsbundle
   IOS_NATIVE_PATH: apps/ledger-live-mobile/ios/build/Build/Products/Release-iphonesimulator
   # Android AVD configuration (shared by determine-builds cache key + Detox Android job)
@@ -125,7 +124,6 @@ env:
   AVD_RAM_SIZE: 5120
   AVD_HEAP_SIZE: 1024
   AVD_OPTIONS: -no-window -gpu swiftshader_indirect -accel on -no-audio -no-boot-anim -camera-back none -camera-front none -no-metrics
-  MOBILE_ARTIFACTS_ROOT: apps/ledger-live-mobile/artifacts
   E2E_TEST_RESULTS_PREFIX_IOS: e2e-test-results-ios
   E2E_TEST_RESULTS_PREFIX_ANDROID: e2e-test-results-android
 
@@ -161,7 +159,10 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             apps/ledger-live-mobile
+            e2e/mobile
+            e2e/tooling
             pnpm-lock.yaml
+            pnpm-workspace.yaml
             .pnpmfile.cjs
             tools
             .mise/tasks
@@ -177,8 +178,8 @@ jobs:
           if [ "$REF_NAME" = "develop" ]; then
             PREFIX="develop/"
           fi
-          echo "ios_native_key=${PREFIX}longterm-${{ hashFiles('apps/ledger-live-mobile/ios') }}-detox-native-ios-3" >> $GITHUB_OUTPUT
-          echo "android_native_key=${PREFIX}longterm-${{ hashFiles('apps/ledger-live-mobile/android', 'apps/ledger-live-mobile/package.json') }}-detox-native-android-3" >> $GITHUB_OUTPUT
+          echo "ios_native_key=${PREFIX}longterm-${{ hashFiles('apps/ledger-live-mobile/ios', 'apps/ledger-live-mobile/package.json', 'pnpm-workspace.yaml', 'e2e/mobile/detox.config.js', 'e2e/mobile/scripts/syncAppVersion.js') }}-detox-native-ios-3" >> $GITHUB_OUTPUT
+          echo "android_native_key=${PREFIX}longterm-${{ hashFiles('apps/ledger-live-mobile/android', 'apps/ledger-live-mobile/package.json', 'pnpm-workspace.yaml', 'e2e/mobile/detox.config.js', 'e2e/mobile/scripts/syncAppVersion.js') }}-detox-native-android-3" >> $GITHUB_OUTPUT
           HEAD_SHA=$(git rev-parse HEAD)
           echo "ios_js_key=${PREFIX}${HEAD_SHA}-detox-js-ios" >> $GITHUB_OUTPUT
           echo "android_js_key=${PREFIX}${HEAD_SHA}-detox-js-android" >> $GITHUB_OUTPUT
@@ -312,7 +313,18 @@ jobs:
       build-ios-native: ${{ needs.determine-builds.outputs.ios_native_exists == 'false' }}
       ios-native-cache-key: ${{ needs.determine-builds.outputs.ios_native_key }}
       ios-js-cache-key: ${{ needs.determine-builds.outputs.ios_js_key }}
-    secrets: inherit
+    secrets:
+      AWS_ACCOUNT_ID_PROD: ${{ secrets.AWS_ACCOUNT_ID_PROD }}
+      AWS_CACHE_OIDC_ROLE_ARN_BRANCH: ${{ secrets.AWS_CACHE_OIDC_ROLE_ARN_BRANCH }}
+      AWS_CACHE_OIDC_ROLE_ARN_DEVELOP: ${{ secrets.AWS_CACHE_OIDC_ROLE_ARN_DEVELOP }}
+      AWS_CACHE_REGION: ${{ secrets.AWS_CACHE_REGION }}
+      AWS_CACHE_ROLE_NAME: ${{ secrets.AWS_CACHE_ROLE_NAME }}
+      CARD_BAANX_API_URL: ${{ secrets.CARD_BAANX_API_URL }}
+      CARD_BAANX_CLIENT_KEY: ${{ secrets.CARD_BAANX_CLIENT_KEY }}
+      CARD_BAANX_HOSTED_UI: ${{ secrets.CARD_BAANX_HOSTED_UI }}
+      CARD_OAUTH_REDIRECT_URI: ${{ secrets.CARD_OAUTH_REDIRECT_URI }}
+      NX_KEY: ${{ secrets.NX_KEY }}
+      S3_DIRECTCONNECT_ENDPOINT: ${{ secrets.S3_DIRECTCONNECT_ENDPOINT }}
 
   build-android:
     name: "Android Build"
@@ -328,39 +340,17 @@ jobs:
       build-android-native: ${{ needs.determine-builds.outputs.android_native_exists == 'false' }}
       android-native-cache-key: ${{ needs.determine-builds.outputs.android_native_key }}
       android-js-cache-key: ${{ needs.determine-builds.outputs.android_js_key }}
-    secrets: inherit
-
-  report-bundle-sizes:
-    name: "Build Mobile > Report Bundle Sizes"
-    runs-on: [ubuntu-22.04]
-    if: needs.build-ios.outputs.js-bundle-size != '' && needs.build-android.outputs.js-bundle-size != ''
-    needs: [build-ios, build-android]
-    steps:
-      - name: generate token
-        id: generate-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          client-id: ${{ secrets.GH_BOT_CLIENT_ID }}
-          private-key: ${{ secrets.GH_BOT_PRIVATE_KEY }}
-      - name: Create mobile metafile
-        run: |
-          echo "{
-              \"main.ios.jsbundle\" : { \"size\": ${{ needs.build-ios.outputs.js-bundle-size }}},
-              \"main.android.jsbundle\" : { \"size\": ${{ needs.build-android.outputs.js-bundle-size }}}
-          }" > mobile.metafile.json
-      - uses: LedgerHQ/ledger-live/tools/actions/build-checks@develop
-        if: ${{ !inputs.skip-bundle-size-reporting }}
-        with:
-          token: ${{ steps.generate-token.outputs.token }}
-          baseBranch: ${{ 'develop' }}
-          prNumber: ${{ github.event.number}}
-          mode: mobile
-      - name: Upload mobile metafile
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: mobile.metafile.json
-          path: mobile.metafile.json
-          overwrite: true
+    secrets:
+      AWS_ACCOUNT_ID_PROD: ${{ secrets.AWS_ACCOUNT_ID_PROD }}
+      AWS_CACHE_OIDC_ROLE_ARN_BRANCH: ${{ secrets.AWS_CACHE_OIDC_ROLE_ARN_BRANCH }}
+      AWS_CACHE_OIDC_ROLE_ARN_DEVELOP: ${{ secrets.AWS_CACHE_OIDC_ROLE_ARN_DEVELOP }}
+      AWS_CACHE_REGION: ${{ secrets.AWS_CACHE_REGION }}
+      AWS_CACHE_ROLE_NAME: ${{ secrets.AWS_CACHE_ROLE_NAME }}
+      CARD_BAANX_API_URL: ${{ secrets.CARD_BAANX_API_URL }}
+      CARD_BAANX_CLIENT_KEY: ${{ secrets.CARD_BAANX_CLIENT_KEY }}
+      CARD_BAANX_HOSTED_UI: ${{ secrets.CARD_BAANX_HOSTED_UI }}
+      CARD_OAUTH_REDIRECT_URI: ${{ secrets.CARD_OAUTH_REDIRECT_URI }}
+      NX_KEY: ${{ secrets.NX_KEY }}
 
   detox-ui-e2e-android:
     name: "Android UI E2E Smoke Tests"
@@ -375,18 +365,9 @@ jobs:
       LANG: en_US.UTF-8
       LANGUAGE: en_US.UTF-8
       LC_ALL: en_US.UTF-8
-      AVD_API: 35
-      AVD_ARCH: x86_64
-      AVD_PROFILE: pixel_7_pro
-      AVD_TARGET: google_apis
-      AVD_NAME: "Android_Emulator"
-      AVD_CORES: 4
-      AVD_RAM_SIZE: 4096M
-      AVD_OPTIONS: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
       SPECULOS_IMAGE_TAG: ghcr.io/ledgerhq/speculos:latest
       SPECULOS_FIRMWARE_VERSION: 2.7.1
       SPECULOS_DEVICE: nanoX
-      COINAPPS: ${{ github.workspace }}/coin-apps
       USERDATA_CACHE_ENABLED: "true"
       E2E_GENERATED_USERDATA_DIR: ${{ format('{0}/e2e/userdata/generated', github.workspace) }}
     outputs:
@@ -417,7 +398,12 @@ jobs:
       - name: setup Android SDK
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
         with:
-          packages: "tools platform-tools"
+          packages: "platform-tools"
+
+      - name: Install scrcpy
+        timeout-minutes: 10
+        continue-on-error: true
+        uses: LedgerHQ/ledger-live/tools/actions/composites/install-scrcpy@develop
 
       - name: Setup the caches
         uses: LedgerHQ/ledger-live/tools/actions/composites/setup-caches@develop
@@ -461,7 +447,7 @@ jobs:
       - name: Prepare APK
         run: |
           mkdir -p /tmp/apk/assets
-          mkdir /home/runner/.android/
+          mkdir -p /home/runner/.android/
           mv ${{ env.ANDROID_JSBUNDLE_PATH }} /tmp/apk/assets/index.android.bundle
           mv ${{ env.ANDROID_APK_PATH }} /tmp/apk/tmp.apk
           (cd /tmp/apk/; zip -r tmp.apk assets/index.android.bundle)
@@ -475,11 +461,15 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Fix emulator directory permissions
-        run: sudo chown -R $(whoami):$(id -ng) /usr/local/lib/android/sdk/emulator/
+        run: |
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/.android/sdk}}"
+          if [ -d "$SDK/emulator" ]; then
+            sudo chown -R $(whoami):$(id -ng) "$SDK/emulator"
+          fi
 
       - name: Install dependencies
         run: |
-          pnpm i --filter="live-mobile..." --filter="ledger-live" --filter="ledger-live-mobile-e2e-tests" --filter="live-cli*..." --filter="@ledgerhq/dummy-*-app..." --unsafe-perm --ignore-scripts
+          pnpm i --frozen-lockfile --filter="live-mobile..." --filter="ledger-live" --filter="ledger-live-mobile-e2e-tests..." --filter="live-cli*..." --filter="@ledgerhq/dummy-*-app..." --unsafe-perm --ignore-scripts
 
       - name: Detox Post Install
         run: node apps/ledger-live-mobile/node_modules/detox/scripts/postinstall.js
@@ -577,14 +567,6 @@ jobs:
           echo "ℹ️ Android emulators boot started in background."
         shell: bash
 
-      - name: Setup Speculos image and Coin Apps
-        id: setup-speculos
-        uses: LedgerHQ/ledger-live/tools/actions/composites/setup-speculos_image@develop
-        with:
-          coinapps_path: ${{ env.COINAPPS }}
-          bot_id: ${{ secrets.GH_BOT_APP_ID }}
-          bot_key: ${{ secrets.GH_BOT_PRIVATE_KEY }}
-
       - name: Compute userdata cache key date
         if: ${{ env.USERDATA_CACHE_ENABLED == 'true' }}
         id: userdata-meta
@@ -616,7 +598,11 @@ jobs:
       - name: Get smoke test files
         id: smoke-files
         run: |
-          SMOKE_FILES=$(node apps/ledger-live-mobile/scripts/shard-tests.mjs "@smoke" "e2e/mobile")
+          # shard-tests.mjs moved to e2e/mobile/; fall back to the old path so this @develop-pinned
+          # reusable keeps working on release/hotfix checkouts. TODO(remove ~2026-08-15) with the old file.
+          SHARD_TESTS=e2e/mobile/scripts/shard-tests.mjs
+          [ -f "$SHARD_TESTS" ] || SHARD_TESTS=apps/ledger-live-mobile/scripts/shard-tests.mjs
+          SMOKE_FILES=$(node "$SHARD_TESTS" "@smoke" "e2e/mobile")
           if [ -z "$SMOKE_FILES" ]; then
             echo "No smoke test files found — skipping smoke tests"
             echo "has_tests=false" >> $GITHUB_OUTPUT
@@ -640,6 +626,9 @@ jobs:
         env:
           DETOX_INSTALL_TIMEOUT: 120000
           SEED: ${{ secrets.SEED_QAA_B2C }}
+          SPECULINHO_URL: ${{ secrets.SPECULINHO_URL }}
+          REMOTE_SPECULOS: "true"
+          ADB: /usr/local/lib/android/sdk/platform-tools/adb # Needed for scrcpy
           INPUT_E2E: "true"
           INPUTS_TEST_FILTER: "@smoke"
 
@@ -706,8 +695,8 @@ jobs:
         with:
           max_attempts: 2
           timeout_minutes: 15
-          command: pnpm i --filter="live-mobile..." --filter="@ledgerhq/dummy-*-app..." --filter="ledger-live" --filter="ledger-live-mobile-e2e-tests" --filter="live-cli*..." --no-frozen-lockfile --unsafe-perm --ignore-scripts
-          new_command_on_retry: rm -rf ~/.cocoapods/ && pnpm clean && pnpm i --filter="live-mobile..." --filter="@ledgerhq/dummy-*-app..." --filter="ledger-live" --filter="ledger-live-mobile-e2e-tests" --filter="live-cli*..." --no-frozen-lockfile --unsafe-perm --ignore-scripts
+          command: pnpm i --filter="live-mobile..." --filter="@ledgerhq/dummy-*-app..." --filter="ledger-live" --filter="ledger-live-mobile-e2e-tests..." --filter="live-cli*..." --frozen-lockfile --unsafe-perm --ignore-scripts
+          new_command_on_retry: rm -rf ~/.cocoapods/ && pnpm clean && pnpm i --filter="live-mobile..." --filter="@ledgerhq/dummy-*-app..." --filter="ledger-live" --filter="ledger-live-mobile-e2e-tests..." --filter="live-cli*..." --frozen-lockfile --unsafe-perm --ignore-scripts
 
       # Warm simulators before Detox; worker_count matches the iOS Simulator … N names in detox.config.js.
       - name: Boot iOS Simulators in Background
@@ -784,7 +773,11 @@ jobs:
       - name: Get smoke test files
         id: smoke-files
         run: |
-          SMOKE_FILES=$(node apps/ledger-live-mobile/scripts/shard-tests.mjs "@smoke" "e2e/mobile")
+          # shard-tests.mjs moved to e2e/mobile/; fall back to the old path so this @develop-pinned
+          # reusable keeps working on release/hotfix checkouts. TODO(remove ~2026-08-15) with the old file.
+          SHARD_TESTS=e2e/mobile/scripts/shard-tests.mjs
+          [ -f "$SHARD_TESTS" ] || SHARD_TESTS=apps/ledger-live-mobile/scripts/shard-tests.mjs
+          SMOKE_FILES=$(node "$SHARD_TESTS" "@smoke" "e2e/mobile")
           if [ -z "$SMOKE_FILES" ]; then
             echo "No smoke test files found — skipping smoke tests"
             echo "has_tests=false" >> $GITHUB_OUTPUT
@@ -887,7 +880,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pnpm i --filter="live-mobile..." --unsafe-perm --ignore-scripts
+          pnpm i --frozen-lockfile --filter="live-mobile..." --unsafe-perm --ignore-scripts
 
       - name: Test Pod Lockfile
         run: |

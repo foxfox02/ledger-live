@@ -1,12 +1,13 @@
 import { setupWorker } from "msw/browser";
 import { http, HttpResponse } from "msw";
 import { mockAssets } from "./dada/mockAssets";
-import { mockStablecoinsResponse } from "@ledgerhq/live-common/dada-client/mocks/stablecoins.mock";
-import { mockStocksResponse } from "@ledgerhq/live-common/dada-client/mocks/stocks.mock";
+import { mockStablecoinsResponse } from "@domain/api-aggregated-assets/mock/stablecoins";
+import { mockStocksResponse } from "@domain/api-aggregated-assets/mock/stocks";
 import { mockLedgerStatus } from "@ledgerhq/live-common/notifications/ServiceStatusProvider/mocks/ledgerStatus";
-import { mockFearAndGreedLatest } from "@domain/api-market-sentiment/mock";
+import { mockFearAndGreedLatest } from "@domain/api-market-index-fear-and-greed/mock";
 import countervaluesHandlers from "../../tests/handlers/countervalues";
 import marketHandlers from "../../tests/handlers/market";
+import cardHandlers from "./card/handler";
 
 const assetsHandler = ({ request }: { request: Request }) => {
   const category = new URL(request.url).searchParams.get("categories");
@@ -26,6 +27,7 @@ const handlers = [
   }),
   ...marketHandlers,
   ...countervaluesHandlers,
+  ...cardHandlers,
 ];
 
 const mswWorker = setupWorker(...handlers);

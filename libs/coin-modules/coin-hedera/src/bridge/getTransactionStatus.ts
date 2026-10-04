@@ -16,7 +16,6 @@ import {
   HederaRedundantStakingNodeIdError,
 } from "../errors";
 import { findSubAccountById } from "@ledgerhq/ledger-wallet-framework/account";
-import { getEnv } from "@ledgerhq/live-env";
 import type { Account, AccountBridge, TokenAccount } from "@ledgerhq/types-live";
 import BigNumber from "bignumber.js";
 import invariant from "invariant";
@@ -26,14 +25,15 @@ import {
   isTokenAssociateTransaction,
   isTokenAssociationRequired,
   isStakingTransaction,
+  resolveConfig,
 } from "../logic/utils";
 import { validateMemo } from "../logic/validateMemo";
 import {
   getCurrencyToUSDRate,
   checkAccountTokenAssociationStatus,
+  getHederaValidators,
   safeParseAccountId,
 } from "../network/utils";
-import { getCurrentHederaPreloadData } from "../preload-data";
 import type {
   HederaAccount,
   Transaction,
@@ -92,9 +92,10 @@ async function handleTokenAssociateTransaction(
   }
 
   if (isAssociationFlow) {
+    const config = resolveConfig(account.currency.id);
     const hbarBalance = account.balance.dividedBy(10 ** account.currency.units[0].magnitude);
     const currentWorthInUSD = usdRate ? hbarBalance.multipliedBy(usdRate) : new BigNumber(0);
-    const requiredWorthInUSD = getEnv("HEDERA_TOKEN_ASSOCIATION_MIN_USD");
+    const requiredWorthInUSD = config.tokenAssociationMinUsd;
 
     if (currentWorthInUSD.isLessThan(requiredWorthInUSD)) {
       errors.insufficientAssociateBalance = new HederaInsufficientFundsForAssociation("", {
@@ -140,10 +141,11 @@ async function handleHTSTokenTransaction(
 
   if (!errors.recipient) {
     try {
-      const hasRecipientTokenAssociated = await checkAccountTokenAssociationStatus(
-        transaction.recipient,
-        subAccount.token,
-      );
+      const hasRecipientTokenAssociated = await checkAccountTokenAssociationStatus({
+        configOrCurrencyId: account.currency.id,
+        address: transaction.recipient,
+        tokenId: subAccount.token.contractAddress,
+      });
 
       if (!hasRecipientTokenAssociated) {
         warnings.missingAssociation = new HederaRecipientTokenAssociationRequired();
@@ -282,25 +284,38 @@ async function handleStakingTransaction(account: HederaAccount, transaction: Tra
 
   const errors: Record<string, Error> = {};
   const warnings: Record<string, Error> = {};
-  const { validators } = getCurrentHederaPreloadData(account.currency);
-  const estimatedFees = await estimateFees({
-    operationType: HEDERA_OPERATION_TYPES.CryptoUpdate,
-    currencyId: account.currency.id,
-  });
+
+  // undelegating and claiming rewards don't have to be blocked when the fetch fails
+  const needsValidators =
+    transaction.mode === HEDERA_TRANSACTION_MODES.Delegate ||
+    transaction.mode === HEDERA_TRANSACTION_MODES.Redelegate;
+
+  const [validators, estimatedFees] = await Promise.all([
+    needsValidators
+      ? getHederaValidators({ currencyId: account.currency.id }).catch(error =>
+          error instanceof Error ? error : new Error(String(error)),
+        )
+      : undefined,
+    estimateFees({
+      operationType: HEDERA_OPERATION_TYPES.CryptoUpdate,
+      currencyId: account.currency.id,
+    }),
+  ]);
   const amount = BigNumber(0);
   const totalSpent = amount.plus(estimatedFees.tinybars);
+
+  if (validators instanceof Error) {
+    errors.validators = validators;
+  }
 
   if (!validateMemo(transaction.memo)) {
     errors.transaction = new HederaMemoExceededSizeError();
   }
 
-  if (
-    transaction.mode === HEDERA_TRANSACTION_MODES.Delegate ||
-    transaction.mode === HEDERA_TRANSACTION_MODES.Redelegate
-  ) {
+  if (Array.isArray(validators)) {
     if (typeof transaction.properties?.stakingNodeId === "number") {
       const isValid = validators.some(validator => {
-        return validator.nodeId === transaction.properties?.stakingNodeId;
+        return validator.id === String(transaction.properties?.stakingNodeId);
       });
 
       if (!isValid) {

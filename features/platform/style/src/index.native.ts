@@ -1,3 +1,5 @@
-export { StyleProvider } from "./components/StyleProvider.native";
-export { useTheme } from "./hooks/useTheme.native";
-export { withStyleProvider } from "./hoc/withStyleProvider.native";
+export * from "./components/StyleProvider.native";
+export * from "./hooks/useTheme.native";
+export * from "./hooks/useThemeVariant.native";
+export * from "./hooks/resolveThemeVariant";
+export * from "./hoc/withStyleProvider.native";

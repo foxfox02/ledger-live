@@ -1,11 +1,12 @@
 import { useFeature } from "@features/platform-feature-flags";
 import { AnalyticsPage, Entry, EntryPointNft } from "./types";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import { Row } from "./components/Row";
 import React from "react";
 
 import { useNavigate } from "react-router";
 import { entryPointConfig } from "./config";
+import { getAccountUrl } from "~/renderer/utils";
 
 type Props = {
   accountId: string;
@@ -27,7 +28,7 @@ export default function useNftsEntryPointViewModel({ accountId, currencyId }: Pr
         website: link,
         accountId,
         chainId: currencyId,
-        returnTo: `/account/${accountId}`,
+        returnTo: getAccountUrl(accountId),
       },
     });
   };

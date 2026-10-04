@@ -1,25 +1,17 @@
 import { rejectBalanceOptions } from "@ledgerhq/coin-module-framework/api/getBalance/rejectBalanceOptions";
 import type {
-  CoinModuleApi,
-  Balance,
-  Block,
-  BlockInfo,
+  CoinModuleImpl,
   BroadcastConfig,
   CraftedTransaction,
-  Cursor,
   FeeEstimation,
   ListOperationsOptions,
   Operation,
   Page,
-  Reward,
-  Stake,
   TransactionIntent,
-  TransactionValidation,
-  Validator,
   BalanceOptions,
 } from "@ledgerhq/coin-module-framework/api/index";
 import { craftTransactionData } from "@ledgerhq/coin-module-framework/logic/craftTransactionData";
-import coinConfig, { type PolkadotConfig } from "../config";
+import type { PolkadotCoinConfig, PolkadotContext } from "../config";
 import {
   broadcast,
   craftEstimationTransaction,
@@ -32,84 +24,93 @@ import {
 } from "../logic";
 import { validateAddress } from "../logic/validateAddress";
 
-export function createApi(config: PolkadotConfig): CoinModuleApi {
-  coinConfig.setCoinConfig(() => ({ ...config, status: { type: "active" } }));
-
+// The caller builds the PolkadotContext and passes it to each method (ADR-019). Each method resolves
+// config via `await context.config()` and threads it as the required first argument down through the
+// logic/network layers, so the currency-keyed singleton is no longer used on the api path.
+// Checked against CoinModuleImpl with `satisfies` rather than annotated as it, so the precise shape
+// survives and a caller sees exactly which methods exist.
+//
+// Omitted rather than stubbed: `call`, `register`, `craftRawTransaction`, `getBlock`, `getBlockInfo`,
+// `getStakes`, `getRewards`, `getValidators`, `validateIntent` and `getNextSequence`. The consumer
+// resolver applies `withDefaults`, which answers "not supported" for each.
+//
+// `combine` stays and keeps throwing: it is a required method, so it cannot be omitted — the device
+// signature is attached by the signer rather than here.
+export function createApi() {
   return {
-    broadcast: (transaction: string, _broadcastConfig?: BroadcastConfig) =>
-      broadcast(transaction, "polkadot"),
-    async call() {
-      throw new Error("call is not supported");
+    broadcast: async (
+      context: PolkadotContext,
+      transaction: string,
+      _options?: { broadcastConfig?: BroadcastConfig },
+    ) => {
+      const config = await context.config();
+      return broadcast(config, transaction, "polkadot");
     },
-    combine: () => {
+    combine: (
+      _context: PolkadotContext,
+      _tx: string,
+      _signature: string[],
+      _options?: { pubkey?: string },
+    ) => {
       throw new Error("UnsupportedMethod");
     },
-    craftTransaction: craft,
-    craftRawTransaction: (
-      _transaction: string,
-      _sender: string,
-      _publicKey: string,
-      _sequence: bigint,
-    ): Promise<CraftedTransaction> => {
-      throw new Error("craftRawTransaction is not supported");
+    craftTransaction: (context, transactionIntent, options?) =>
+      craft(context, transactionIntent, options?.customFees),
+    estimateFees: (context, transactionIntent, _options?) => estimate(context, transactionIntent),
+    getBalance: async (context: PolkadotContext, address: string, options?: BalanceOptions) => {
+      const config = await context.config();
+      return rejectBalanceOptions(() => getBalance(config, address), options);
     },
-    estimateFees: estimate,
-    getBalance: (address: string, options?: BalanceOptions) =>
-      rejectBalanceOptions(() => getBalance(address), options),
-    lastBlock,
-    listOperations: operations,
-    getBlock(_height): Promise<Block> {
-      throw new Error("getBlock is not supported");
+    lastBlock: async context => {
+      const config = await context.config();
+      return lastBlock(config);
     },
-    getBlockInfo(_height: number): Promise<BlockInfo> {
-      throw new Error("getBlockInfo is not supported");
-    },
-    getStakes(_address: string, _cursor?: Cursor): Promise<Page<Stake>> {
-      throw new Error("getStakes is not supported");
-    },
-    getRewards(_address: string, _cursor?: Cursor): Promise<Page<Reward>> {
-      throw new Error("getRewards is not supported");
-    },
-    getValidators(_cursor?: Cursor): Promise<Page<Validator>> {
-      throw new Error("getValidators is not supported");
-    },
-    validateIntent: async (
-      _transactionIntent: TransactionIntent,
-      _balances: Balance[],
-      _customFees?: FeeEstimation,
-    ): Promise<TransactionValidation> => {
-      throw new Error("validateIntent is not supported");
-    },
-    getNextSequence: async (_address: string) => {
-      throw new Error("getNextSequence is not supported");
-    },
-    validateAddress,
-    craftTransactionData,
-  };
+    listOperations: (context, address, options) => operations(context, address, options),
+    validateAddress: (_context, address, parameters) => validateAddress(address, parameters),
+    craftTransactionData: (_context, intent) => craftTransactionData(intent),
+  } satisfies CoinModuleImpl<PolkadotCoinConfig>;
 }
 
-async function craft(transactionIntent: TransactionIntent): Promise<CraftedTransaction> {
+async function craft(
+  context: PolkadotContext,
+  transactionIntent: TransactionIntent,
+  _customFees?: FeeEstimation,
+): Promise<CraftedTransaction> {
+  const config = await context.config();
   const extrinsicArg = defaultExtrinsicArg(transactionIntent.amount, transactionIntent.recipient);
   //TODO: Retrieve correctly the nonce via a call to the node `await api.rpc.system.accountNextIndex(address)`
   const nonce = 0;
-  const tx = await craftTransaction(transactionIntent.sender, nonce, extrinsicArg);
+  const tx = await craftTransaction(config, transactionIntent.sender, nonce, extrinsicArg);
   const extrinsic = tx.registry.createType("Extrinsic", tx.unsigned, {
     version: tx.unsigned.version,
   });
   return { transaction: extrinsic.toHex() };
 }
 
-async function estimate(transactionIntent: TransactionIntent): Promise<FeeEstimation> {
-  const tx = await craftEstimationTransaction(transactionIntent.sender, transactionIntent.amount);
-  const value = await estimateFees(tx);
+async function estimate(
+  context: PolkadotContext,
+  transactionIntent: TransactionIntent,
+): Promise<FeeEstimation> {
+  const config = await context.config();
+  const tx = await craftEstimationTransaction(
+    config,
+    transactionIntent.sender,
+    transactionIntent.amount,
+  );
+  const value = await estimateFees(config, tx);
   return { value };
 }
 
 async function operations(
+  context: PolkadotContext,
   address: string,
   { minHeight }: ListOperationsOptions,
 ): Promise<Page<Operation>> {
+  const config = await context.config();
   // FIXME Options are ignored here
-  const [items, nextHeight] = await listOperations(address, { limit: 0, startAt: minHeight });
+  const [items, nextHeight] = await listOperations(config, address, {
+    limit: 0,
+    startAt: minHeight,
+  });
   return { items, next: nextHeight !== null ? JSON.stringify(nextHeight) : undefined };
 }

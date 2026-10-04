@@ -12,9 +12,18 @@ export const SEND_FLOW_STEP_ORDER: readonly SendFlowStep[] = [
   SEND_FLOW_STEP.CUSTOM_FEES,
   SEND_FLOW_STEP.COIN_CONTROL,
   SEND_FLOW_STEP.CONFIRMATION,
+  SEND_FLOW_STEP.PAY_SUCCESS,
 ];
 
 export const SEND_STEP_CONFIGS: Record<SendFlowStep, SendStepConfig> = {
+  // Not registered yet (absent from SEND_FLOW_STEP_ORDER): the balance-type selection step only
+  // exists on desktop so far. Kept to satisfy the Record<SendFlowStep, SendStepConfig> contract.
+  [SEND_FLOW_STEP.BALANCE_TYPE]: {
+    id: SEND_FLOW_STEP.BALANCE_TYPE,
+    canGoBack: false,
+    showHeaderRight: false,
+    showTitle: true,
+  },
   [SEND_FLOW_STEP.RECIPIENT]: {
     id: SEND_FLOW_STEP.RECIPIENT,
     canGoBack: true,
@@ -26,6 +35,14 @@ export const SEND_STEP_CONFIGS: Record<SendFlowStep, SendStepConfig> = {
       title: "",
     },
   },
+  // Rendered as a bottomsheet overlay from the recipient screen, not a stack screen.
+  [SEND_FLOW_STEP.SKIP_MEMO_CONFIRMATION]: {
+    id: SEND_FLOW_STEP.SKIP_MEMO_CONFIRMATION,
+    canGoBack: true,
+    floating: true,
+    showHeaderRight: false,
+    showTitle: false,
+  },
   [SEND_FLOW_STEP.RECENT_HISTORY]: {
     id: SEND_FLOW_STEP.RECENT_HISTORY,
     canGoBack: true,
@@ -34,6 +51,29 @@ export const SEND_STEP_CONFIGS: Record<SendFlowStep, SendStepConfig> = {
       ...TransparentHeaderNavigationOptions,
       title: "",
     },
+  },
+  // Not registered yet (absent from SEND_FLOW_STEP_ORDER). Kept to satisfy the
+  // Record<SendFlowStep, SendStepConfig> contract.
+  [SEND_FLOW_STEP.ADD_CONTACT]: {
+    id: SEND_FLOW_STEP.ADD_CONTACT,
+    canGoBack: true,
+    floating: true,
+    showHeaderRight: false,
+    showTitle: false,
+  },
+  [SEND_FLOW_STEP.ADD_NEW_CONTACT]: {
+    id: SEND_FLOW_STEP.ADD_NEW_CONTACT,
+    canGoBack: true,
+    floating: true,
+    showHeaderRight: false,
+    showTitle: false,
+  },
+  [SEND_FLOW_STEP.ADD_TO_EXISTING_CONTACT]: {
+    id: SEND_FLOW_STEP.ADD_TO_EXISTING_CONTACT,
+    canGoBack: true,
+    floating: true,
+    showHeaderRight: false,
+    showTitle: false,
   },
   [SEND_FLOW_STEP.AMOUNT]: {
     id: SEND_FLOW_STEP.AMOUNT,
@@ -87,6 +127,46 @@ export const SEND_STEP_CONFIGS: Record<SendFlowStep, SendStepConfig> = {
       ...TransparentHeaderNavigationOptions,
       title: "",
     },
+  },
+  [SEND_FLOW_STEP.PAY_SUCCESS]: {
+    id: SEND_FLOW_STEP.PAY_SUCCESS,
+    canGoBack: false,
+    showHeaderRight: false,
+    showTitle: false,
+    screenName: ScreenName.SendFlowPaySuccess,
+    screenOptions: {
+      ...TransparentHeaderNavigationOptions,
+      title: "",
+    },
+  },
+  // Desktop-only sponsored-send steps: no mobile screen yet, present for the exhaustive Record.
+  [SEND_FLOW_STEP.FEE_PAYMENT]: {
+    id: SEND_FLOW_STEP.FEE_PAYMENT,
+    canGoBack: true,
+    floating: true,
+    showHeaderRight: false,
+    showTitle: false,
+  },
+  [SEND_FLOW_STEP.SPONSORED_RENT_SIGNATURE]: {
+    id: SEND_FLOW_STEP.SPONSORED_RENT_SIGNATURE,
+    canGoBack: false,
+    floating: true,
+    showHeaderRight: false,
+    showTitle: false,
+  },
+  [SEND_FLOW_STEP.SPONSORED_POLLING]: {
+    id: SEND_FLOW_STEP.SPONSORED_POLLING,
+    canGoBack: false,
+    floating: true,
+    showHeaderRight: false,
+    showTitle: false,
+  },
+  [SEND_FLOW_STEP.SPONSORED_FAILURE]: {
+    id: SEND_FLOW_STEP.SPONSORED_FAILURE,
+    canGoBack: false,
+    floating: true,
+    showHeaderRight: false,
+    showTitle: false,
   },
 };
 

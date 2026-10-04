@@ -1,5 +1,198 @@
 # @ledgerhq/live-signer-concordium
 
+## 0.9.0
+
+### Minor Changes
+
+- [#22043](https://github.com/LedgerHQ/ledger-live/pull/22043) [`a304cfe`](https://github.com/LedgerHQ/ledger-live/commit/a304cfe5d6ea2ad27e0a4cb1fd6bc5761b951585) Thanks [@amaslakov](https://github.com/amaslakov)! - Mark the package as private so changeset publish stops releasing it to npm. Its only consumer, live-common, is private too
+
+### Patch Changes
+
+- Updated dependencies [[`ea94dd0`](https://github.com/LedgerHQ/ledger-live/commit/ea94dd00d64bae6b7fd9c792da77ffba751a9f01), [`736a0d5`](https://github.com/LedgerHQ/ledger-live/commit/736a0d5ba692e2342df4fc503056524359d35d65), [`7848066`](https://github.com/LedgerHQ/ledger-live/commit/7848066f6ba1b803b5a8d3df02ce6d35e46b370e), [`1648042`](https://github.com/LedgerHQ/ledger-live/commit/164804200fcd3486d9f364a31b065cb7f7d2a170), [`eb2a2a5`](https://github.com/LedgerHQ/ledger-live/commit/eb2a2a598787555cc05ed7ae105dd1648fbe43f5), [`387619d`](https://github.com/LedgerHQ/ledger-live/commit/387619d7be17b3d7cd86031430769c6bb6638a68)]:
+  - @ledgerhq/coin-concordium@1.4.0
+  - @ledgerhq/concordium-core@0.8.0
+
+## 0.9.0-next.0
+
+### Minor Changes
+
+- [#22043](https://github.com/LedgerHQ/ledger-live/pull/22043) [`a304cfe`](https://github.com/LedgerHQ/ledger-live/commit/a304cfe5d6ea2ad27e0a4cb1fd6bc5761b951585) Thanks [@amaslakov](https://github.com/amaslakov)! - Mark the package as private so changeset publish stops releasing it to npm. Its only consumer, live-common, is private too
+
+### Patch Changes
+
+- Updated dependencies [[`ea94dd0`](https://github.com/LedgerHQ/ledger-live/commit/ea94dd00d64bae6b7fd9c792da77ffba751a9f01), [`736a0d5`](https://github.com/LedgerHQ/ledger-live/commit/736a0d5ba692e2342df4fc503056524359d35d65), [`7848066`](https://github.com/LedgerHQ/ledger-live/commit/7848066f6ba1b803b5a8d3df02ce6d35e46b370e), [`1648042`](https://github.com/LedgerHQ/ledger-live/commit/164804200fcd3486d9f364a31b065cb7f7d2a170), [`eb2a2a5`](https://github.com/LedgerHQ/ledger-live/commit/eb2a2a598787555cc05ed7ae105dd1648fbe43f5), [`387619d`](https://github.com/LedgerHQ/ledger-live/commit/387619d7be17b3d7cd86031430769c6bb6638a68)]:
+  - @ledgerhq/coin-concordium@1.4.0-next.0
+  - @ledgerhq/concordium-core@0.8.0-next.0
+
+## 0.8.0
+
+### Minor Changes
+
+- [#21720](https://github.com/LedgerHQ/ledger-live/pull/21720) [`05cb97c`](https://github.com/LedgerHQ/ledger-live/commit/05cb97c6986755d87d4c0b3df3d8b4daf9ba77df) Thanks [@lysyi3m](https://github.com/lysyi3m)! - Craft and sign PLT transfers
+
+  `craftPltTransaction` builds a `TokenUpdate` payload from the CAL-resolved token id, the
+  CAL unit magnitude as the amount's exponent, and the energy persisted at estimation time,
+  and `signOperation` routes a transaction carrying a token sub-account to it. The signer
+  interface widens to `AnyTransaction`; its body already serialized both kinds. A PLT send
+  now reports the CCD fee on the parent account and the token amount on the sub-account,
+  matching the pair sync builds once the transfer is indexed. `updateTransaction` drops the
+  persisted energy alongside the fee, so a re-selected token cannot inherit the previous
+  token's energy limit. Adds the English error strings for the two signer failures this path
+  can surface.
+
+  Signing on a device needs the PLT-capable Concordium app; until it ships, an attempt
+  surfaces as a translated "update your Concordium app" error. PLT sub-accounts remain behind
+  the `enableTokens` config switch.
+
+### Patch Changes
+
+- Updated dependencies [[`738c0d8`](https://github.com/LedgerHQ/ledger-live/commit/738c0d8a1357e96713bfc0d7a40ca403b5290c35), [`05cb97c`](https://github.com/LedgerHQ/ledger-live/commit/05cb97c6986755d87d4c0b3df3d8b4daf9ba77df), [`251af57`](https://github.com/LedgerHQ/ledger-live/commit/251af57e7412e493deaecddf627e3967ba044c09), [`b30f903`](https://github.com/LedgerHQ/ledger-live/commit/b30f903f592c0bafba74a1784d98b9d605c18ccb), [`4c314f4`](https://github.com/LedgerHQ/ledger-live/commit/4c314f4035581de1affaba8419cd062359251c2f)]:
+  - @ledgerhq/coin-concordium@1.3.0
+  - @ledgerhq/concordium-core@0.7.0
+
+## 0.8.0-next.0
+
+### Minor Changes
+
+- [#21720](https://github.com/LedgerHQ/ledger-live/pull/21720) [`05cb97c`](https://github.com/LedgerHQ/ledger-live/commit/05cb97c6986755d87d4c0b3df3d8b4daf9ba77df) Thanks [@lysyi3m](https://github.com/lysyi3m)! - Craft and sign PLT transfers
+
+  `craftPltTransaction` builds a `TokenUpdate` payload from the CAL-resolved token id, the
+  CAL unit magnitude as the amount's exponent, and the energy persisted at estimation time,
+  and `signOperation` routes a transaction carrying a token sub-account to it. The signer
+  interface widens to `AnyTransaction`; its body already serialized both kinds. A PLT send
+  now reports the CCD fee on the parent account and the token amount on the sub-account,
+  matching the pair sync builds once the transfer is indexed. `updateTransaction` drops the
+  persisted energy alongside the fee, so a re-selected token cannot inherit the previous
+  token's energy limit. Adds the English error strings for the two signer failures this path
+  can surface.
+
+  Signing on a device needs the PLT-capable Concordium app; until it ships, an attempt
+  surfaces as a translated "update your Concordium app" error. PLT sub-accounts remain behind
+  the `enableTokens` config switch.
+
+### Patch Changes
+
+- Updated dependencies [[`738c0d8`](https://github.com/LedgerHQ/ledger-live/commit/738c0d8a1357e96713bfc0d7a40ca403b5290c35), [`05cb97c`](https://github.com/LedgerHQ/ledger-live/commit/05cb97c6986755d87d4c0b3df3d8b4daf9ba77df), [`251af57`](https://github.com/LedgerHQ/ledger-live/commit/251af57e7412e493deaecddf627e3967ba044c09), [`b30f903`](https://github.com/LedgerHQ/ledger-live/commit/b30f903f592c0bafba74a1784d98b9d605c18ccb), [`4c314f4`](https://github.com/LedgerHQ/ledger-live/commit/4c314f4035581de1affaba8419cd062359251c2f)]:
+  - @ledgerhq/coin-concordium@1.3.0-next.0
+  - @ledgerhq/concordium-core@0.7.0-next.0
+
+## 0.7.0
+
+### Minor Changes
+
+- [#21204](https://github.com/LedgerHQ/ledger-live/pull/21204) [`3a78322`](https://github.com/LedgerHQ/ledger-live/commit/3a783224b6016fce08fa8cb3254057b75882e2c5) Thanks [@lysyi3m](https://github.com/lysyi3m)! - Adopt the PLT-capable Concordium signer and map the PLT status words to typed errors
+
+### Patch Changes
+
+- Updated dependencies [[`47a1cd0`](https://github.com/LedgerHQ/ledger-live/commit/47a1cd082cc30cd7cc539a8eb0e0fe5466128533), [`3a78322`](https://github.com/LedgerHQ/ledger-live/commit/3a783224b6016fce08fa8cb3254057b75882e2c5), [`2b8a4e4`](https://github.com/LedgerHQ/ledger-live/commit/2b8a4e4240a414cbb1bda31b97b70837cb6ac3fe), [`92b90a6`](https://github.com/LedgerHQ/ledger-live/commit/92b90a6eebca959abe0b04aa83c5799d34f9f10a), [`30619aa`](https://github.com/LedgerHQ/ledger-live/commit/30619aaa2af784fd917214bb0e4bbd092f883e11)]:
+  - @ledgerhq/coin-concordium@1.2.0
+
+## 0.7.0-next.0
+
+### Minor Changes
+
+- [#21204](https://github.com/LedgerHQ/ledger-live/pull/21204) [`3a78322`](https://github.com/LedgerHQ/ledger-live/commit/3a783224b6016fce08fa8cb3254057b75882e2c5) Thanks [@lysyi3m](https://github.com/lysyi3m)! - Adopt the PLT-capable Concordium signer and map the PLT status words to typed errors
+
+### Patch Changes
+
+- Updated dependencies [[`47a1cd0`](https://github.com/LedgerHQ/ledger-live/commit/47a1cd082cc30cd7cc539a8eb0e0fe5466128533), [`3a78322`](https://github.com/LedgerHQ/ledger-live/commit/3a783224b6016fce08fa8cb3254057b75882e2c5), [`2b8a4e4`](https://github.com/LedgerHQ/ledger-live/commit/2b8a4e4240a414cbb1bda31b97b70837cb6ac3fe), [`92b90a6`](https://github.com/LedgerHQ/ledger-live/commit/92b90a6eebca959abe0b04aa83c5799d34f9f10a), [`30619aa`](https://github.com/LedgerHQ/ledger-live/commit/30619aaa2af784fd917214bb0e4bbd092f883e11)]:
+  - @ledgerhq/coin-concordium@1.2.0-next.0
+
+## 0.6.8
+
+### Patch Changes
+
+- Updated dependencies [[`da47556`](https://github.com/LedgerHQ/ledger-live/commit/da475565799815dd17c4cb941068031e564da9b6), [`02c9ccf`](https://github.com/LedgerHQ/ledger-live/commit/02c9ccfb409317a72f0b29d1fb755214adc9e596), [`e723d82`](https://github.com/LedgerHQ/ledger-live/commit/e723d823688cd7f00d4b16549b45c62a500c8a9d)]:
+  - @ledgerhq/coin-concordium@1.1.0
+  - @ledgerhq/concordium-core@0.6.0
+
+## 0.6.8-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`da47556`](https://github.com/LedgerHQ/ledger-live/commit/da475565799815dd17c4cb941068031e564da9b6), [`02c9ccf`](https://github.com/LedgerHQ/ledger-live/commit/02c9ccfb409317a72f0b29d1fb755214adc9e596), [`e723d82`](https://github.com/LedgerHQ/ledger-live/commit/e723d823688cd7f00d4b16549b45c62a500c8a9d)]:
+  - @ledgerhq/coin-concordium@1.1.0-next.0
+  - @ledgerhq/concordium-core@0.6.0-next.0
+
+## 0.6.7
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ledgerhq/coin-concordium@1.0.1
+
+## 0.6.7-next.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ledgerhq/coin-concordium@1.0.1-next.0
+
+## 0.6.6
+
+### Patch Changes
+
+- Updated dependencies [[`7c8d5df`](https://github.com/LedgerHQ/ledger-live/commit/7c8d5dfa862a2e9c3a35251b5d06a3cd4f905d2a), [`75d0c9b`](https://github.com/LedgerHQ/ledger-live/commit/75d0c9b97aced42be1f465319ee17ccaafcd649d), [`b2896a9`](https://github.com/LedgerHQ/ledger-live/commit/b2896a9b10cf6daaa8f532eaa12f016df606eb8b)]:
+  - @ledgerhq/coin-concordium@1.0.0
+
+## 0.6.6-next.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ledgerhq/coin-concordium@1.0.0-next.1
+
+## 0.6.6-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`7c8d5df`](https://github.com/LedgerHQ/ledger-live/commit/7c8d5dfa862a2e9c3a35251b5d06a3cd4f905d2a), [`75d0c9b`](https://github.com/LedgerHQ/ledger-live/commit/75d0c9b97aced42be1f465319ee17ccaafcd649d), [`b2896a9`](https://github.com/LedgerHQ/ledger-live/commit/b2896a9b10cf6daaa8f532eaa12f016df606eb8b)]:
+  - @ledgerhq/coin-concordium@1.0.0-next.0
+
+## 0.6.5
+
+### Patch Changes
+
+- Updated dependencies [[`3d24a89`](https://github.com/LedgerHQ/ledger-live/commit/3d24a898d59de55364ec29de29eaecb7ca14425d), [`9fcbe39`](https://github.com/LedgerHQ/ledger-live/commit/9fcbe39689ff122568ffb031a30dc3805ebb6add)]:
+  - @ledgerhq/coin-concordium@0.20.0
+
+## 0.6.5-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`3d24a89`](https://github.com/LedgerHQ/ledger-live/commit/3d24a898d59de55364ec29de29eaecb7ca14425d), [`9fcbe39`](https://github.com/LedgerHQ/ledger-live/commit/9fcbe39689ff122568ffb031a30dc3805ebb6add)]:
+  - @ledgerhq/coin-concordium@0.20.0-next.0
+
+## 0.6.4
+
+### Patch Changes
+
+- Updated dependencies [[`9fcbe39`](https://github.com/LedgerHQ/ledger-live/commit/9fcbe39689ff122568ffb031a30dc3805ebb6add)]:
+  - @ledgerhq/coin-concordium@0.19.0
+
+## 0.6.4-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`9fcbe39`](https://github.com/LedgerHQ/ledger-live/commit/9fcbe39689ff122568ffb031a30dc3805ebb6add)]:
+  - @ledgerhq/coin-concordium@0.19.0-next.0
+
+## 0.6.3
+
+### Patch Changes
+
+- Updated dependencies [[`1070564`](https://github.com/LedgerHQ/ledger-live/commit/107056410174d3da2d45c468232a8d742aea021f), [`ba69273`](https://github.com/LedgerHQ/ledger-live/commit/ba692732b521c42f934acf540641ecbfdb837004), [`8ab9e50`](https://github.com/LedgerHQ/ledger-live/commit/8ab9e504a5b004e28f5e80f490b837b3c2526f44)]:
+  - @ledgerhq/errors@7.0.0
+  - @ledgerhq/coin-concordium@0.18.0
+
+## 0.6.3-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`1070564`](https://github.com/LedgerHQ/ledger-live/commit/107056410174d3da2d45c468232a8d742aea021f), [`ba69273`](https://github.com/LedgerHQ/ledger-live/commit/ba692732b521c42f934acf540641ecbfdb837004), [`8ab9e50`](https://github.com/LedgerHQ/ledger-live/commit/8ab9e504a5b004e28f5e80f490b837b3c2526f44)]:
+  - @ledgerhq/errors@7.0.0-next.0
+  - @ledgerhq/coin-concordium@0.18.0-next.0
+
 ## 0.6.2
 
 ### Patch Changes
@@ -21,239 +214,4 @@
 - Updated dependencies [[`4b73f23`](https://github.com/LedgerHQ/ledger-live/commit/4b73f23260ecc28574f46a7fd0f5cd7627d6d13f)]:
   - @ledgerhq/coin-concordium@0.16.0
 
-## 0.6.1-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`4b73f23`](https://github.com/LedgerHQ/ledger-live/commit/4b73f23260ecc28574f46a7fd0f5cd7627d6d13f)]:
-  - @ledgerhq/coin-concordium@0.16.0-next.0
-
-## 0.6.0
-
-### Minor Changes
-
-- [#18814](https://github.com/LedgerHQ/ledger-live/pull/18814) [`fa0123a`](https://github.com/LedgerHQ/ledger-live/commit/fa0123a1da7b053d58afab498266cf830958e2ff) Thanks [@ysitbon](https://github.com/ysitbon)! - Migrate remaining lint scripts from ESLint to oxlint and drop Prettier (oxfmt is now the sole formatter)
-
-### Patch Changes
-
-- Updated dependencies [[`1e17c12`](https://github.com/LedgerHQ/ledger-live/commit/1e17c127178a871b665b25d6f4208d4613826dd1), [`67c6acb`](https://github.com/LedgerHQ/ledger-live/commit/67c6acb22afafa7671eebe94e60e672480b71728)]:
-  - @ledgerhq/coin-concordium@0.15.0
-  - @ledgerhq/concordium-core@0.5.0
-
-## 0.6.0-next.0
-
-### Minor Changes
-
-- [#18814](https://github.com/LedgerHQ/ledger-live/pull/18814) [`fa0123a`](https://github.com/LedgerHQ/ledger-live/commit/fa0123a1da7b053d58afab498266cf830958e2ff) Thanks [@ysitbon](https://github.com/ysitbon)! - Migrate remaining lint scripts from ESLint to oxlint and drop Prettier (oxfmt is now the sole formatter)
-
-### Patch Changes
-
-- Updated dependencies [[`1e17c12`](https://github.com/LedgerHQ/ledger-live/commit/1e17c127178a871b665b25d6f4208d4613826dd1), [`67c6acb`](https://github.com/LedgerHQ/ledger-live/commit/67c6acb22afafa7671eebe94e60e672480b71728)]:
-  - @ledgerhq/coin-concordium@0.15.0-next.0
-  - @ledgerhq/concordium-core@0.5.0-next.0
-
-## 0.5.0
-
-### Minor Changes
-
-- [#18627](https://github.com/LedgerHQ/ledger-live/pull/18627) [`7fcf623`](https://github.com/LedgerHQ/ledger-live/commit/7fcf62387e642e10b23503a786e230b11d051cb6) Thanks [@OlivierFreyssinet](https://github.com/OlivierFreyssinet)! - Bump Device Management Kit to 1.7.1
-
-### Patch Changes
-
-- Updated dependencies [[`48dbd53`](https://github.com/LedgerHQ/ledger-live/commit/48dbd533a7a505cbb37989f8ce94f273f84bc7d2), [`4ace552`](https://github.com/LedgerHQ/ledger-live/commit/4ace55213a4f1869980aab5160683bb120c65292)]:
-  - @ledgerhq/errors@6.37.0
-  - @ledgerhq/coin-concordium@0.14.0
-
-## 0.5.0-next.0
-
-### Minor Changes
-
-- [#18627](https://github.com/LedgerHQ/ledger-live/pull/18627) [`7fcf623`](https://github.com/LedgerHQ/ledger-live/commit/7fcf62387e642e10b23503a786e230b11d051cb6) Thanks [@OlivierFreyssinet](https://github.com/OlivierFreyssinet)! - Bump Device Management Kit to 1.7.1
-
-### Patch Changes
-
-- Updated dependencies [[`48dbd53`](https://github.com/LedgerHQ/ledger-live/commit/48dbd533a7a505cbb37989f8ce94f273f84bc7d2), [`4ace552`](https://github.com/LedgerHQ/ledger-live/commit/4ace55213a4f1869980aab5160683bb120c65292)]:
-  - @ledgerhq/errors@6.37.0-next.0
-  - @ledgerhq/coin-concordium@0.14.0-next.0
-
-## 0.4.1
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-concordium@0.13.1
-
-## 0.4.1-next.1
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-concordium@0.13.1-next.1
-
-## 0.4.1-next.0
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-concordium@0.13.1-next.0
-
-## 0.4.0
-
-### Minor Changes
-
-- [#17834](https://github.com/LedgerHQ/ledger-live/pull/17834) [`8269fe2`](https://github.com/LedgerHQ/ledger-live/commit/8269fe21f252be75cd5d07623bba9701098b812d) Thanks [@fAnselmi-Ledger](https://github.com/fAnselmi-Ledger)! - Applied new Context-Module breaking changes
-
-- [#18245](https://github.com/LedgerHQ/ledger-live/pull/18245) [`8c0f5f2`](https://github.com/LedgerHQ/ledger-live/commit/8c0f5f22e66aa6a34a3363a256d3da2d98d07dc9) Thanks [@lysyi3m](https://github.com/lysyi3m)! - Add max-fee display for Concordium app 5.6.0+. `ConcordiumSigner.signTransaction` takes a required `maxFee: bigint` (µCCD) forwarded to the device for on-screen rendering. New `ConcordiumInvalidMaxFeeError` typed error for invalid input.
-
-### Patch Changes
-
-- Updated dependencies [[`8c0f5f2`](https://github.com/LedgerHQ/ledger-live/commit/8c0f5f22e66aa6a34a3363a256d3da2d98d07dc9)]:
-  - @ledgerhq/coin-concordium@0.13.0
-  - @ledgerhq/errors@6.36.0
-
-## 0.4.0-next.0
-
-### Minor Changes
-
-- [#17834](https://github.com/LedgerHQ/ledger-live/pull/17834) [`8269fe2`](https://github.com/LedgerHQ/ledger-live/commit/8269fe21f252be75cd5d07623bba9701098b812d) Thanks [@fAnselmi-Ledger](https://github.com/fAnselmi-Ledger)! - Applied new Context-Module breaking changes
-
-- [#18245](https://github.com/LedgerHQ/ledger-live/pull/18245) [`8c0f5f2`](https://github.com/LedgerHQ/ledger-live/commit/8c0f5f22e66aa6a34a3363a256d3da2d98d07dc9) Thanks [@lysyi3m](https://github.com/lysyi3m)! - Add max-fee display for Concordium app 5.6.0+. `ConcordiumSigner.signTransaction` takes a required `maxFee: bigint` (µCCD) forwarded to the device for on-screen rendering. New `ConcordiumInvalidMaxFeeError` typed error for invalid input.
-
-### Patch Changes
-
-- Updated dependencies [[`8c0f5f2`](https://github.com/LedgerHQ/ledger-live/commit/8c0f5f22e66aa6a34a3363a256d3da2d98d07dc9)]:
-  - @ledgerhq/coin-concordium@0.13.0-next.0
-  - @ledgerhq/errors@6.36.0-next.0
-
-## 0.3.3
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-concordium@0.12.1
-
-## 0.3.3-next.0
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-concordium@0.12.1-next.0
-
-## 0.3.2
-
-### Patch Changes
-
-- Updated dependencies [[`fe04e44`](https://github.com/LedgerHQ/ledger-live/commit/fe04e44e0cd41ea9dd896defcea18c010fe36490)]:
-  - @ledgerhq/coin-concordium@0.12.0
-
-## 0.3.2-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`fe04e44`](https://github.com/LedgerHQ/ledger-live/commit/fe04e44e0cd41ea9dd896defcea18c010fe36490)]:
-  - @ledgerhq/coin-concordium@0.12.0-next.0
-
-## 0.3.1
-
-### Patch Changes
-
-- Updated dependencies [[`08762c2`](https://github.com/LedgerHQ/ledger-live/commit/08762c286e38136293108c19efa72ae8fbd1286b)]:
-  - @ledgerhq/coin-concordium@0.11.0
-
-## 0.3.1-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`08762c2`](https://github.com/LedgerHQ/ledger-live/commit/08762c286e38136293108c19efa72ae8fbd1286b)]:
-  - @ledgerhq/coin-concordium@0.11.0-next.0
-
-## 0.3.0
-
-### Minor Changes
-
-- [#16919](https://github.com/LedgerHQ/ledger-live/pull/16919) [`d308b1a`](https://github.com/LedgerHQ/ledger-live/commit/d308b1a6b9c629839f051cf367a527f4232120c7) Thanks [@lysyi3m](https://github.com/lysyi3m)! - Wire live-signer-concordium to new DMK verifyAddress trusted backend based
-
-### Patch Changes
-
-- Updated dependencies [[`3be5049`](https://github.com/LedgerHQ/ledger-live/commit/3be5049c9462d5760d6fec2c99647f0b9773b5b2), [`d308b1a`](https://github.com/LedgerHQ/ledger-live/commit/d308b1a6b9c629839f051cf367a527f4232120c7), [`e6dc658`](https://github.com/LedgerHQ/ledger-live/commit/e6dc658b83ebd2102e19a1fead021443457c05d9)]:
-  - @ledgerhq/coin-concordium@0.10.0
-  - @ledgerhq/errors@6.35.0
-
-## 0.3.0-next.1
-
-### Patch Changes
-
-- Updated dependencies [[`e6dc658`](https://github.com/LedgerHQ/ledger-live/commit/e6dc658b83ebd2102e19a1fead021443457c05d9)]:
-  - @ledgerhq/coin-concordium@0.10.0-next.1
-
-## 0.3.0-next.0
-
-### Minor Changes
-
-- [#16919](https://github.com/LedgerHQ/ledger-live/pull/16919) [`d308b1a`](https://github.com/LedgerHQ/ledger-live/commit/d308b1a6b9c629839f051cf367a527f4232120c7) Thanks [@lysyi3m](https://github.com/lysyi3m)! - Wire live-signer-concordium to new DMK verifyAddress trusted backend based
-
-### Patch Changes
-
-- Updated dependencies [[`3be5049`](https://github.com/LedgerHQ/ledger-live/commit/3be5049c9462d5760d6fec2c99647f0b9773b5b2), [`d308b1a`](https://github.com/LedgerHQ/ledger-live/commit/d308b1a6b9c629839f051cf367a527f4232120c7)]:
-  - @ledgerhq/coin-concordium@0.10.0-next.0
-  - @ledgerhq/errors@6.35.0-next.0
-
-## 0.2.2
-
-### Patch Changes
-
-- Updated dependencies [[`202cc42`](https://github.com/LedgerHQ/ledger-live/commit/202cc423b09662b5b25012b84124aecd4dc7245d)]:
-  - @ledgerhq/errors@6.34.1
-  - @ledgerhq/coin-concordium@0.9.2
-
-## 0.2.2-hotfix.0
-
-### Patch Changes
-
-- Updated dependencies [[`202cc42`](https://github.com/LedgerHQ/ledger-live/commit/202cc423b09662b5b25012b84124aecd4dc7245d)]:
-  - @ledgerhq/errors@6.34.1-hotfix.0
-  - @ledgerhq/coin-concordium@0.9.2-hotfix.0
-
-## 0.2.1
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-concordium@0.9.1
-
-## 0.2.1-next.0
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-concordium@0.9.1-next.0
-
-## 0.2.0
-
-### Minor Changes
-
-- [#16337](https://github.com/LedgerHQ/ledger-live/pull/16337) [`367c7e0`](https://github.com/LedgerHQ/ledger-live/commit/367c7e03f07b3f2ae96927fc33d12e35ffe81621) Thanks [@lysyi3m](https://github.com/lysyi3m)! - Migrate Concordium signer from hw-app-concordium to device-signer-kit-concordium via live-signer-concordium
-
-- [#15864](https://github.com/LedgerHQ/ledger-live/pull/15864) [`61277c0`](https://github.com/LedgerHQ/ledger-live/commit/61277c02a578c5a7e62a38100cdd07280b1c185a) Thanks [@lysyi3m](https://github.com/lysyi3m)! - Initial DmkSignerConcordium implementation
-
-### Patch Changes
-
-- Updated dependencies [[`5fefc2e`](https://github.com/LedgerHQ/ledger-live/commit/5fefc2e6a4c6e4fdcaae0139f2f8d6f9011b33c8), [`24656de`](https://github.com/LedgerHQ/ledger-live/commit/24656dea461d4d99dcb5f5e2e4b4e949b0823eeb), [`c910c1b`](https://github.com/LedgerHQ/ledger-live/commit/c910c1bd9b4f7fbcc0e33fe19b33da44085ab7f9), [`c353f29`](https://github.com/LedgerHQ/ledger-live/commit/c353f29b9174c20c708662c160f55c597020ee58), [`4cf9b8c`](https://github.com/LedgerHQ/ledger-live/commit/4cf9b8cde388aebfe04a894e9a35584856d1713d), [`d9adb6d`](https://github.com/LedgerHQ/ledger-live/commit/d9adb6dac6fa0a23cf7d9a0af1c38e21dfbacff8), [`fd2311d`](https://github.com/LedgerHQ/ledger-live/commit/fd2311d643f4002c1441bfa4fe79d7288df04c21)]:
-  - @ledgerhq/coin-concordium@0.9.0
-  - @ledgerhq/concordium-core@0.4.0
-  - @ledgerhq/errors@6.34.0
-
-## 0.2.0-next.0
-
-### Minor Changes
-
-- [#16337](https://github.com/LedgerHQ/ledger-live/pull/16337) [`367c7e0`](https://github.com/LedgerHQ/ledger-live/commit/367c7e03f07b3f2ae96927fc33d12e35ffe81621) Thanks [@lysyi3m](https://github.com/lysyi3m)! - Migrate Concordium signer from hw-app-concordium to device-signer-kit-concordium via live-signer-concordium
-
-- [#15864](https://github.com/LedgerHQ/ledger-live/pull/15864) [`61277c0`](https://github.com/LedgerHQ/ledger-live/commit/61277c02a578c5a7e62a38100cdd07280b1c185a) Thanks [@lysyi3m](https://github.com/lysyi3m)! - Initial DmkSignerConcordium implementation
-
-### Patch Changes
-
-- Updated dependencies [[`5fefc2e`](https://github.com/LedgerHQ/ledger-live/commit/5fefc2e6a4c6e4fdcaae0139f2f8d6f9011b33c8), [`24656de`](https://github.com/LedgerHQ/ledger-live/commit/24656dea461d4d99dcb5f5e2e4b4e949b0823eeb), [`c910c1b`](https://github.com/LedgerHQ/ledger-live/commit/c910c1bd9b4f7fbcc0e33fe19b33da44085ab7f9), [`c353f29`](https://github.com/LedgerHQ/ledger-live/commit/c353f29b9174c20c708662c160f55c597020ee58), [`4cf9b8c`](https://github.com/LedgerHQ/ledger-live/commit/4cf9b8cde388aebfe04a894e9a35584856d1713d), [`d9adb6d`](https://github.com/LedgerHQ/ledger-live/commit/d9adb6dac6fa0a23cf7d9a0af1c38e21dfbacff8), [`fd2311d`](https://github.com/LedgerHQ/ledger-live/commit/fd2311d643f4002c1441bfa4fe79d7288df04c21)]:
-  - @ledgerhq/coin-concordium@0.9.0-next.0
-  - @ledgerhq/concordium-core@0.4.0-next.0
-  - @ledgerhq/errors@6.34.0-next.0
+<!-- changelog-pruned: older entries were removed to keep this file small. Full history is in `git log -p CHANGELOG.md` and in the GitHub release for each version. -->

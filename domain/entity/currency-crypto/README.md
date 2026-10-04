@@ -1,7 +1,7 @@
 # @domain/entity-currency-crypto
 
-> [!CAUTION]
-> **Status: UNSTABLE** — Part of the emerging DDD layer; under active development.
+> [!NOTE]
+> **Status: STABLE** — Production-ready; API is considered stable.
 
 Zod-first canonical schema and static registry for the `CryptoCurrency` domain entity.
 
@@ -29,7 +29,7 @@ This registry is the **sole** source of truth for crypto-currency data — add o
 ```typescript
 // Schema + types (derived via z.infer)
 import { CryptoCurrencySchema } from "@domain/entity-currency-crypto";
-import type { CryptoCurrency, ExplorerView, EthereumLikeInfo, BitcoinLikeInfo } from "@domain/entity-currency-crypto";
+import type { CryptoCurrency, ExplorerView } from "@domain/entity-currency-crypto";
 
 // Registry
 import { CRYPTO_CURRENCIES_REGISTRY, CRYPTO_CURRENCIES_IDS } from "@domain/entity-currency-crypto";

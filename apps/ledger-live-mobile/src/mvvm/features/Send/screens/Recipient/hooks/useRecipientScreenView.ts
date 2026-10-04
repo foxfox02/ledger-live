@@ -1,11 +1,35 @@
+import { trackPage, track } from "@shared/analytics";
+import {
+  isEligibleAddressCurrency,
+  sortContactsByLastSentThenLastAdded,
+  summarizeOutgoingOperationsByContact,
+  useContacts,
+  useContactsFeature,
+} from "@features/platform-contacts";
 import { getMainAccount } from "@ledgerhq/live-common/account/index";
+import { resolveCurrencyConfig } from "@ledgerhq/live-common/flows/send/utils/resolveCurrencyConfig";
+import { sendFeatures } from "@ledgerhq/live-common/bridge/descriptor/send/features";
 import { useRecipientSearchState } from "@ledgerhq/live-common/flows/send/recipient/hooks/useRecipientSearchState";
+import { filterContactsByNetwork } from "@ledgerhq/live-common/flows/send/recipient/utils/filterContactsByNetwork";
 import type { Transaction } from "@ledgerhq/live-common/generated/types";
 import type { CryptoCurrency } from "@domain/entity-currency-crypto";
 import type { TokenCurrency } from "@domain/entity-currency-token";
+import type { Contact, ContactAddress } from "@domain/entity-contact";
 import type { Account, AccountLike } from "@ledgerhq/types-live";
-import { useCallback } from "react";
+import type { Memo } from "@ledgerhq/live-common/flows/send/types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Keyboard } from "react-native";
+import { useSendFlowTrackingProperties } from "../../../hooks/useSendFlowTrackingProperties";
+import type { ContactAddressPickerProps } from "@features/flow-pay-contact";
+import { useContactAddressPicker } from "LLM/features/Contacts/hooks/useContactAddressPicker";
+import { useOutgoingContactOperations } from "LLM/features/Contacts/hooks/useOutgoingContactOperations";
 import { useSendFlowData } from "../../../context/SendFlowContext";
+import { useSendMemoReset } from "../../../context/SendMemoResetContext";
+import { useRecipientContactSelection } from "../../../context/RecipientContactSelectionContext";
+import { useSendFlowTracking } from "../../../context/SendFlowTrackingContext";
+import { getRecipientResolution } from "../../../utils/contactTracking";
+import { useDoNotAskAgainSkipMemo } from "../../../hooks/useDoNotAskAgainSkipMemo";
+import { useContactsFeatureIntroductionViewModel } from "./useContactsFeatureIntroductionViewModel";
 import { useAddressValidation } from "./useAddressValidation";
 import { useClipboardRecipient } from "./useClipboardRecipient";
 
@@ -14,8 +38,18 @@ type UseRecipientScreenViewProps = Readonly<{
   parentAccount?: Account | null;
   transaction?: Transaction | null;
   currency: CryptoCurrency | TokenCurrency;
-  onAddressSelected: (address: string, ensName?: string) => void;
+  onAddressSelected: (
+    address: string,
+    ensName?: string,
+    goToNextStep?: boolean,
+    memo?: Memo,
+  ) => void;
   recipientSupportsDomain: boolean;
+}>;
+
+type PendingSkipMemoRecipient = Readonly<{
+  address: string;
+  ensName?: string;
 }>;
 
 export function useRecipientScreenView({
@@ -26,9 +60,34 @@ export function useRecipientScreenView({
   onAddressSelected,
   recipientSupportsDomain,
 }: UseRecipientScreenViewProps) {
-  const { recipientSearch } = useSendFlowData();
+  const { recipientSearch, state } = useSendFlowData();
+  const contacts = useContacts();
+  const outgoingOperations = useOutgoingContactOperations();
+  const {
+    isEnabled: isContactsFeatureEnabled,
+    eligibleAddressFamilies,
+    excludedCurrencyIds,
+  } = useContactsFeature("mobile");
+  const { selectedContact } = useRecipientContactSelection();
+  const { inputMethod, setInputMethod, setRecipientResolution, resetRecipientResolution } =
+    useSendFlowTracking();
+  const [doNotAskAgainSkipMemo] = useDoNotAskAgainSkipMemo();
+  const { markMemoSkipped } = useSendMemoReset();
+  // The address stays here instead of being written to the transaction so that cancelling the
+  // confirmation, then going back to an already mounted amount step, cannot carry a memo-less
+  // recipient past the warning.
+  const [pendingSkipMemoRecipient, setPendingSkipMemoRecipient] =
+    useState<PendingSkipMemoRecipient | null>(null);
 
   const mainAccount = getMainAccount(account, parentAccount);
+  const config = resolveCurrencyConfig(currency.id);
+  const hasAddressBook = isEligibleAddressCurrency(
+    eligibleAddressFamilies,
+    currency,
+    excludedCurrencyIds,
+    config,
+  );
+  const sendFlowTrackingProperties = useSendFlowTrackingProperties();
 
   const { result, isLoading } = useAddressValidation({
     searchValue: recipientSearch.value,
@@ -38,10 +97,49 @@ export function useRecipientScreenView({
     transaction,
     currentAccountId: mainAccount.id,
     recipientSupportsDomain,
+    canSearchContactsByName: isContactsFeatureEnabled && hasAddressBook,
   });
 
+  const contactsOnNetwork = useMemo(
+    () =>
+      filterContactsByNetwork(
+        sortContactsByLastSentThenLastAdded(
+          contacts,
+          summarizeOutgoingOperationsByContact(contacts, outgoingOperations),
+        ),
+        currency.id,
+        { includeMe: true },
+      ),
+    [contacts, currency.id, outgoingOperations],
+  );
   const hasSearchValue = recipientSearch.value.length > 0;
-  const showInitialState = !hasSearchValue;
+  const contactSearchResult = useMemo(() => {
+    if (!isContactsFeatureEnabled || !hasAddressBook) {
+      return undefined;
+    }
+
+    const normalizedSearchValue = recipientSearch.value.trim().toLowerCase();
+    if (!normalizedSearchValue) {
+      return undefined;
+    }
+
+    return contactsOnNetwork.find(
+      contact =>
+        contact.addresses.length > 1 && contact.name.trim().toLowerCase() === normalizedSearchValue,
+    );
+  }, [contactsOnNetwork, hasAddressBook, isContactsFeatureEnabled, recipientSearch.value]);
+  const showContactSearchResult =
+    hasSearchValue && selectedContact === undefined && contactSearchResult !== undefined;
+  const showInitialState = !hasSearchValue && selectedContact === undefined;
+  const showContactsList =
+    showInitialState && isContactsFeatureEnabled && hasAddressBook && contactsOnNetwork.length > 0;
+  const showEmptyContactsState = useMemo(() => {
+    if (!showInitialState || !isContactsFeatureEnabled || !hasAddressBook) {
+      return false;
+    }
+
+    return contactsOnNetwork.length === 0;
+  }, [contactsOnNetwork.length, hasAddressBook, isContactsFeatureEnabled, showInitialState]);
 
   const { clipboardAddress } = useClipboardRecipient({
     enabled: showInitialState,
@@ -53,18 +151,218 @@ export function useRecipientScreenView({
     recipientSupportsDomain,
   });
 
+  const recipientResolution = useMemo(
+    () => getRecipientResolution(recipientSearch.value, result, showContactSearchResult),
+    [recipientSearch.value, result, showContactSearchResult],
+  );
+  const trackedResolutionRef = useRef("");
+  useEffect(() => {
+    const hasSettledResult =
+      showContactSearchResult ||
+      (!isLoading && result.status !== "idle" && result.status !== "loading");
+    if (!hasSearchValue || !hasSettledResult || selectedContact !== undefined) {
+      return;
+    }
+
+    const trackingKey = [
+      recipientSearch.value,
+      recipientResolution.queryType,
+      recipientResolution.resultType,
+      inputMethod,
+      recipientResolution.addressAlreadyUsed,
+    ].join(":");
+    if (trackedResolutionRef.current === trackingKey) {
+      return;
+    }
+    trackedResolutionRef.current = trackingKey;
+
+    void trackPage({
+      category: "Modal send - recipient result",
+      props: {
+        ...sendFlowTrackingProperties,
+        queryType: recipientResolution.queryType,
+        resultType: recipientResolution.resultType,
+        inputMethod,
+        queryLength: recipientSearch.value.length,
+        addressAlreadyUsed: recipientResolution.addressAlreadyUsed,
+      },
+    });
+    setRecipientResolution(recipientResolution.resultType, recipientResolution.recipientType);
+  }, [
+    hasSearchValue,
+    inputMethod,
+    isLoading,
+    recipientResolution,
+    recipientSearch.value,
+    result.status,
+    selectedContact,
+    sendFlowTrackingProperties,
+    setRecipientResolution,
+    showContactSearchResult,
+  ]);
+
+  // Handing the recipient to the amount step clears the search (mobile only), which must
+  // not read as the user emptying the field to start a new lookup and drop the resolution.
+  const committedRecipientRef = useRef(false);
+  useEffect(() => {
+    if (hasSearchValue) {
+      committedRecipientRef.current = false;
+      return;
+    }
+    if (committedRecipientRef.current) {
+      return;
+    }
+
+    trackedResolutionRef.current = "";
+    resetRecipientResolution();
+  }, [hasSearchValue, resetRecipientResolution]);
+
   const handlePasteFromClipboard = useCallback(() => {
     if (clipboardAddress) {
+      setInputMethod("paste");
+      track("button_clicked", {
+        button: "paste",
+        page: "step recipient",
+        ...sendFlowTrackingProperties,
+      });
       recipientSearch.setValue(clipboardAddress);
     }
-  }, [clipboardAddress, recipientSearch]);
+  }, [clipboardAddress, recipientSearch, sendFlowTrackingProperties, setInputMethod]);
+
+  const closeSkipMemoConfirmation = useCallback(() => {
+    setPendingSkipMemoRecipient(null);
+  }, []);
 
   const handleAddressSelect = useCallback(
     (address: string, ensName?: string) => {
-      onAddressSelected(address, ensName);
+      const addressRequiresMemo = sendFeatures.hasMemoForRecipient(currency, address);
+      const memoForSelectedAddress =
+        state.recipient?.address === address ? state.recipient.memo : undefined;
+      const hasFilledMemo = Boolean(
+        memoForSelectedAddress &&
+        (memoForSelectedAddress.type === "NO_MEMO" || memoForSelectedAddress.value.length > 0),
+      );
+      if (addressRequiresMemo && !hasFilledMemo) {
+        if (doNotAskAgainSkipMemo) {
+          committedRecipientRef.current = true;
+          markMemoSkipped();
+          onAddressSelected(address, ensName, true, {
+            value: "",
+            type: "NO_MEMO",
+          });
+          return;
+        }
+
+        // The address input holds the keyboard, and the search results are tapped through
+        // `keyboardShouldPersistTaps`, so nothing retracts it before the sheet slides up under it.
+        Keyboard.dismiss();
+        setPendingSkipMemoRecipient({ address, ensName });
+        return;
+      }
+
+      committedRecipientRef.current = true;
+      onAddressSelected(address, ensName, true);
     },
-    [onAddressSelected],
+    [currency, doNotAskAgainSkipMemo, markMemoSkipped, onAddressSelected, state.recipient],
   );
+
+  const confirmSkipMemoConfirmation = useCallback(() => {
+    if (!pendingSkipMemoRecipient) return;
+
+    const { address, ensName } = pendingSkipMemoRecipient;
+    setPendingSkipMemoRecipient(null);
+    committedRecipientRef.current = true;
+    markMemoSkipped();
+    onAddressSelected(address, ensName, true, { value: "", type: "NO_MEMO" });
+  }, [markMemoSkipped, onAddressSelected, pendingSkipMemoRecipient]);
+
+  // The picker owns the contact being shown and the row order the user actually sees,
+  // so the tracked rank is read back from it rather than from `contact.addresses`.
+  const pickerRef = useRef<ContactAddressPickerProps | undefined>(undefined);
+
+  const handleContactAddressSelect = useCallback(
+    (address: ContactAddress) => {
+      const pickedContact = pickerRef.current?.contact;
+      const rowIndex = (pickerRef.current?.groups ?? [])
+        .flatMap(group => group.rows)
+        .findIndex(row => row.addressId === address.id);
+      track("button_clicked", {
+        button: "contact address",
+        page: "select contact address",
+        network: mainAccount.currency.id,
+        asset: address.currencyId,
+        // 1-based, to stay consistent with the rest of the send-flow ranks.
+        addressRank: rowIndex + 1,
+        ...sendFlowTrackingProperties,
+      });
+      setRecipientResolution(
+        pickedContact?.isMe ? "my account" : "contact address match",
+        pickedContact?.isMe ? "my account" : "contact",
+      );
+      handleAddressSelect(address.address);
+    },
+    [
+      handleAddressSelect,
+      mainAccount.currency.id,
+      sendFlowTrackingProperties,
+      setRecipientResolution,
+    ],
+  );
+  const { open: openPicker, contactAddressPicker } = useContactAddressPicker({
+    onSelectAddress: handleContactAddressSelect,
+  });
+  pickerRef.current = contactAddressPicker;
+
+  const handleContactSelect = useCallback(
+    (contact: Contact) => {
+      track("button_clicked", {
+        button: "contact",
+        page: "step recipient",
+        myContact: contact.isMe,
+        addressCount: contact.addresses.length,
+        ...sendFlowTrackingProperties,
+      });
+      openPicker(contact);
+      void trackPage({
+        category: "Modal send - select contact address",
+        props: {
+          ...sendFlowTrackingProperties,
+          addressCount: contact.addresses.length,
+          myContact: contact.isMe,
+        },
+      });
+    },
+    [openPicker, sendFlowTrackingProperties],
+  );
+
+  const handleUnsupportedNetwork = useCallback(() => {
+    track("button_clicked", {
+      button: "disabled network tooltip",
+      page: "step recipient",
+      network: mainAccount.currency.id,
+      ...sendFlowTrackingProperties,
+    });
+    void trackPage({
+      category: "Modal send - network not supported",
+      props: {
+        ...sendFlowTrackingProperties,
+        network: mainAccount.currency.id,
+      },
+    });
+  }, [mainAccount.currency.id, sendFlowTrackingProperties]);
+
+  const handleDismissUnsupportedNetwork = useCallback(() => {
+    track("button_clicked", {
+      button: "got it",
+      page: "network not supported",
+      network: mainAccount.currency.id,
+      ...sendFlowTrackingProperties,
+    });
+  }, [mainAccount.currency.id, sendFlowTrackingProperties]);
+
+  const featureIntroduction = useContactsFeatureIntroductionViewModel({
+    isContactsEntryAvailable: isContactsFeatureEnabled && hasAddressBook,
+  });
 
   const searchState = useRecipientSearchState({
     searchValue: recipientSearch.value,
@@ -73,15 +371,47 @@ export function useRecipientScreenView({
     recipientSupportsDomain,
   });
 
+  const shouldHideRegularSearchState = showContactSearchResult || selectedContact !== undefined;
+
   return {
     searchValue: recipientSearch.value,
-    isLoading,
+    isLoading: !shouldHideRegularSearchState && isLoading,
     result,
     mainAccount,
+    hasAddressBook,
+    addressBookFamilyName: mainAccount.currency.name,
     showInitialState,
+    showContactsList,
+    showContactSearchResult,
+    showEmptyContactsState,
+    contactsOnNetwork,
+    contactSearchResult,
+    selectedContact,
     clipboardAddress,
     handlePasteFromClipboard,
     handleAddressSelect,
+    handleContactSelect,
+    contactAddressPicker,
+    handleUnsupportedNetwork,
+    handleDismissUnsupportedNetwork,
+    recipientResolution,
+    isSkipMemoConfirmationOpen: pendingSkipMemoRecipient !== null,
+    closeSkipMemoConfirmation,
+    confirmSkipMemoConfirmation,
+    isContactsFeatureEnabled,
+    featureIntroduction,
     ...searchState,
+    showSearchResults: !shouldHideRegularSearchState && searchState.showSearchResults,
+    showMatchedAddress: !shouldHideRegularSearchState && searchState.showMatchedAddress,
+    showAddressValidationError:
+      !shouldHideRegularSearchState && searchState.showAddressValidationError,
+    showEmptyState: !shouldHideRegularSearchState && searchState.showEmptyState,
+    showBridgeSenderError: !shouldHideRegularSearchState && searchState.showBridgeSenderError,
+    showSanctionedBanner: !shouldHideRegularSearchState && searchState.showSanctionedBanner,
+    showBridgeRecipientError: !shouldHideRegularSearchState && searchState.showBridgeRecipientError,
+    showBridgeRecipientWarning:
+      !shouldHideRegularSearchState && searchState.showBridgeRecipientWarning,
+    isAddressComplete: !shouldHideRegularSearchState && searchState.isAddressComplete,
+    isAddressValid: !shouldHideRegularSearchState && searchState.isAddressValid,
   };
 }

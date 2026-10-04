@@ -18,6 +18,7 @@ import CurrencyDownStatusAlert from "~/renderer/components/CurrencyDownStatusAle
 import TranslatedError from "~/renderer/components/TranslatedError";
 import ValidatorsSelect from "~/renderer/families/hedera/shared/staking/ValidatorsSelect";
 import AmountField from "../../shared/staking/AmountField";
+import { isValidatorRemoved } from "../../shared/utils";
 import type { StepProps } from "../types";
 
 function StepValidators({
@@ -34,12 +35,17 @@ function StepValidators({
   invariant(isStakingTransaction(transaction), "hedera: staking tx expected");
 
   const { delegation } = account.hederaResources;
-  const selectedValidatorNodeId = transaction.properties?.stakingNodeId ?? null;
+  const stakingNodeId = transaction.properties?.stakingNodeId;
+  const selectedValidatorId = typeof stakingNodeId === "number" ? String(stakingNodeId) : null;
   const mainAccount = account ? getMainAccount(account, parentAccount) : null;
   const enrichedDelegation = useHederaEnrichedDelegation(account, delegation);
   const feeError = status.errors.fee;
-  const isValidatorRemoved =
-    !enrichedDelegation.validator.address && typeof delegation.nodeId === "number";
+  const validatorRemoved = isValidatorRemoved({
+    loading: enrichedDelegation.loading,
+    error: enrichedDelegation.error,
+    hasValidator: !!enrichedDelegation.validator.address,
+    nodeId: delegation.nodeId,
+  });
 
   const bridge = useAccountBridge<Transaction>(account, parentAccount);
   const updateValidator = (validator: HederaValidator | null) => {
@@ -48,7 +54,7 @@ function StepValidators({
       return bridge.updateTransaction(transaction, {
         mode: HEDERA_TRANSACTION_MODES.Redelegate,
         properties: {
-          stakingNodeId: validator.nodeId ?? null,
+          stakingNodeId: Number(validator.id),
         },
       });
     });
@@ -65,8 +71,8 @@ function StepValidators({
         <ValidatorsSelect
           disabled
           account={account}
-          selectedValidatorNodeId={enrichedDelegation.validator.nodeId}
-          showRemovedPlaceholder={isValidatorRemoved}
+          selectedValidatorId={enrichedDelegation.validator.id}
+          showRemovedPlaceholder={validatorRemoved}
         />
       </Box>
       <StepRecipientSeparator />
@@ -76,7 +82,7 @@ function StepValidators({
         </Label>
         <ValidatorsSelect
           account={account}
-          selectedValidatorNodeId={selectedValidatorNodeId}
+          selectedValidatorId={selectedValidatorId}
           error={status.errors.stakingNodeId}
           onChangeValidator={updateValidator}
         />
@@ -120,6 +126,7 @@ export function StepValidatorsFooter({
       </Button>
       <Button
         id="redelegation-continue-button"
+        isLoading={bridgePending}
         disabled={!canNext}
         primary
         onClick={() => transitionTo("connectDevice")}

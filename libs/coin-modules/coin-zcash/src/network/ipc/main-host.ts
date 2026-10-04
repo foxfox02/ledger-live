@@ -26,7 +26,9 @@
 
 import path from "path";
 import { log } from "@ledgerhq/logs";
+import { sanitizeEndpointForLog } from "../../constants";
 import {
+  DeriveShieldedAddressArgs,
   ZCASH_IPC,
   type CancelSyncArgs,
   type FindBlockHeightArgs,
@@ -156,6 +158,7 @@ type HostState = {
     finalizeTx: OneShotResolver<FinalizeTransactionResult>;
     broadcastTx: OneShotResolver<string>;
     transactionDetails: OneShotResolver<TransactionDetailsResult[]>;
+    deriveShieldedAddress: OneShotResolver<string>;
   };
 };
 
@@ -173,6 +176,7 @@ const state: HostState = {
     finalizeTx: new OneShotResolver<FinalizeTransactionResult>("finalize-transaction"),
     broadcastTx: new OneShotResolver<string>("broadcast-transaction"),
     transactionDetails: new OneShotResolver<TransactionDetailsResult[]>("transaction-details"),
+    deriveShieldedAddress: new OneShotResolver<string>("derive-shielded-address"),
   },
 };
 
@@ -261,14 +265,22 @@ function resolveOneShot<T>(
   }
 }
 
-/** Rejects a one-shot resolver, with the same unknown-requestId logging as {@link resolveOneShot}. */
+/**
+ * Rejects a one-shot resolver, with the same unknown-requestId logging as
+ * {@link resolveOneShot}. `extra` is attached as own enumerable properties on
+ * the reconstructed `Error` (not just folded into the message) so that
+ * downstream error-context extraction (e.g. Datadog's `extractErrorContext`,
+ * which only copies an `Error`'s own properties) can see it.
+ */
 function rejectOneShot<T>(
   resolver: OneShotResolver<T>,
   requestId: RequestId,
   message: string,
   label: string,
+  extra?: Record<string, unknown>,
 ): void {
-  if (!resolver.reject(requestId, new Error(message))) {
+  const error = extra ? Object.assign(new Error(message), extra) : new Error(message);
+  if (!resolver.reject(requestId, error)) {
     log(LOG_TYPE, `${label} for unknown requestId`, { requestId });
   }
 }
@@ -297,6 +309,7 @@ function handleUtilityMessage(msg: UtilityOutboundMessage): void {
     finalizeTx,
     broadcastTx,
     transactionDetails,
+    deriveShieldedAddress,
   } = state.resolvers;
   switch (msg.type) {
     case "chain-tip":
@@ -334,7 +347,13 @@ function handleUtilityMessage(msg: UtilityOutboundMessage): void {
     case "broadcast-transaction-result":
       return resolveOneShot(broadcastTx, msg.requestId, msg.txid, "broadcast-transaction-result");
     case "broadcast-transaction-error":
-      return rejectOneShot(broadcastTx, msg.requestId, msg.message, "broadcast-transaction-error");
+      // Sanitized: this becomes an own property on the rejected Error, which
+      // extractErrorContext copies into Datadog's error context -- unlike
+      // @ledgerhq/logs, that's a third-party sink. msg.endpoint comes from the
+      // remote coin config (`zaino.url`) so it isn't guaranteed free of userinfo/query tokens.
+      return rejectOneShot(broadcastTx, msg.requestId, msg.message, "broadcast-transaction-error", {
+        endpoint: sanitizeEndpointForLog(msg.endpoint),
+      });
     case "transaction-details-result":
       return resolveOneShot(
         transactionDetails,
@@ -348,6 +367,21 @@ function handleUtilityMessage(msg: UtilityOutboundMessage): void {
         msg.requestId,
         msg.message,
         "transaction-details-error",
+      );
+
+    case "derive-shielded-address-result":
+      return resolveOneShot(
+        deriveShieldedAddress,
+        msg.requestId,
+        msg.address,
+        "derive-shielded-address-result",
+      );
+    case "derive-shielded-address-error":
+      return rejectOneShot(
+        deriveShieldedAddress,
+        msg.requestId,
+        msg.message,
+        "derive-shielded-address-error",
       );
     default: {
       const exhaustive: never = msg;
@@ -381,12 +415,10 @@ async function postToUtility(msg: UtilityInboundMessage): Promise<void> {
 function registerHandlers(): void {
   const { ipcMain } = getElectron();
 
-  ipcMain.handle<GetChainTipArgs, number>(
-    ZCASH_IPC.getChainTip,
-    (_event, args): Promise<number> =>
-      state.resolvers.chainTip.register(args.requestId, () =>
-        postToUtility({ type: "get-chain-tip", args }),
-      ),
+  ipcMain.handle<GetChainTipArgs, number>(ZCASH_IPC.getChainTip, (_event, args): Promise<number> =>
+    state.resolvers.chainTip.register(args.requestId, () =>
+      postToUtility({ type: "get-chain-tip", args }),
+    ),
   );
 
   ipcMain.handle<FindBlockHeightArgs, number>(
@@ -459,6 +491,14 @@ function registerHandlers(): void {
     (_event, args): Promise<TransactionDetailsResult[]> =>
       state.resolvers.transactionDetails.register(args.requestId, () =>
         postToUtility({ type: "transaction-details", args }),
+      ),
+  );
+
+  ipcMain.handle<DeriveShieldedAddressArgs, string>(
+    ZCASH_IPC.deriveShieldedAddress,
+    (_event, args): Promise<string> =>
+      state.resolvers.deriveShieldedAddress.register(args.requestId, () =>
+        postToUtility({ type: "derive-shielded-address", args }),
       ),
   );
 }

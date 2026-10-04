@@ -27,7 +27,7 @@ describe("CosmosApi", () => {
   beforeEach(() => {
     LiveConfig.setConfig(cosmosConfig);
     cosmosCoinConfig.setCoinConfig(
-      currency => LiveConfig.getValueByKey(`config_currency_${currency?.id}`) ?? {},
+      currencyId => LiveConfig.getValueByKey(`config_currency_${currencyId}`) ?? {},
     );
     cosmosApi = new CosmosAPI("cosmos");
   });
@@ -355,6 +355,99 @@ describe("CosmosApi", () => {
       // sender + recipient
       expect(txs.length).toEqual(simulatedTotal * 2);
     });
+
+    // Both messages are real, captured from cosmoshub/injective mainnet LCDs.
+    it.each([
+      [
+        "a page past the last",
+        "failed to search for txs: page should be within [1, 1] range, given 2",
+      ],
+      [
+        "a tx the node cannot decode",
+        "unable to resolve type URL /tendermint.liquidity.v1beta1.MsgDepositWithinBatch: tx parse error",
+      ],
+    ])("keeps the pages already fetched when %s fails", async (_label, message) => {
+      // @ts-expect-error method is mocked
+      network.mockImplementation((networkOptions: { url: string }) => {
+        if (networkOptions.url.includes("node_info")) {
+          return Promise.resolve({
+            data: { application_version: { cosmos_sdk_version: "0.50.1" } },
+          });
+        }
+        if (networkOptions.url.includes("page=1")) {
+          return Promise.resolve({
+            data: {
+              total: "50",
+              tx_responses: [{ txhash: "a" }, { txhash: "b" }, { txhash: "c" }],
+            },
+          });
+        }
+        return Promise.reject(new Error(message));
+      });
+
+      const txs = await cosmosApi.getTransactions("address", 10);
+
+      // kept, not dropped to []
+      expect(txs.length).toEqual(6);
+    });
+
+    it("does not stop early when the node caps the page size below the requested limit", async () => {
+      // CometBFT clamps per_page to 100, so asking for 150 yields short-but-not-last pages.
+      const simulatedTotal = 250;
+      const serverCap = 100;
+      // @ts-expect-error method is mocked
+      network.mockImplementation((networkOptions: { url: string }) => {
+        if (networkOptions.url.includes("node_info")) {
+          return Promise.resolve({
+            data: { application_version: { cosmos_sdk_version: "0.50.1" } },
+          });
+        }
+        const page = Number(networkOptions.url.split("page=")[1].split("&")[0]);
+        const served = Math.max(0, Math.min(serverCap, simulatedTotal - (page - 1) * serverCap));
+        return Promise.resolve({
+          data: {
+            total: String(simulatedTotal),
+            tx_responses: Array.from({ length: served }, (_, i) => ({ txhash: `${page}_${i}` })),
+          },
+        });
+      });
+
+      const txs = await cosmosApi.getTransactions("address", 150);
+
+      // sender + recipient, not truncated at the first short page
+      expect(txs.length).toEqual(simulatedTotal * 2);
+    });
+
+    it("stops instead of looping forever when a node serves an empty page under its own total", async () => {
+      // `total` is the index's count; a node can serve fewer than it counts and answer 200 with
+      // `tx_responses: null` rather than 500. The loop only advances on txs, so no progress here
+      // means it never reaches `total`. The cap below stands in for "forever".
+      const callCap = 20;
+      let pageFetches = 0;
+      // @ts-expect-error method is mocked
+      network.mockImplementation((networkOptions: { url: string }) => {
+        if (networkOptions.url.includes("node_info")) {
+          return Promise.resolve({
+            data: { application_version: { cosmos_sdk_version: "0.50.1" } },
+          });
+        }
+        pageFetches += 1;
+        if (pageFetches > callCap) return Promise.reject(new Error("looped past the cap"));
+        const page = Number(networkOptions.url.split("page=")[1].split("&")[0]);
+        return Promise.resolve({
+          data: {
+            total: "50",
+            tx_responses: page === 1 ? [{ txhash: "a" }, { txhash: "b" }] : null,
+          },
+        });
+      });
+
+      const txs = await cosmosApi.getTransactions("address", 100);
+
+      // one full page + one empty page, per stream
+      expect(pageFetches).toEqual(4);
+      expect(txs).toEqual([{ txhash: "a" }, { txhash: "b" }, { txhash: "a" }, { txhash: "b" }]);
+    });
   });
 
   describe("getTransactionsPage", () => {
@@ -636,7 +729,8 @@ describe("CosmosApi", () => {
     };
     const expectedTxs = {
       txs: mockNetworkTxsResponse.tx_responses,
-      total: "1",
+      // the wire payload carries "1" as a string; fetchTransactions normalizes it
+      total: 1,
     };
     it("should fetch a pre v0.47 payload", async () => {
       const params = new URLSearchParams({
@@ -671,6 +765,16 @@ describe("CosmosApi", () => {
       // using as object to access private method
       const result = await cosmosApi["fetchTransactions"](params);
       expect(result).toEqual(expectedTxs);
+    });
+    it("normalizes a null tx_responses to an empty array", async () => {
+      // An empty history comes back as `tx_responses: null`; unguarded, `concat(null)` would
+      // push a literal null into the tx list.
+      // @ts-expect-error method is mocked
+      network.mockResolvedValue({ data: { tx_responses: null, pagination: null, total: "0" } });
+
+      const result = await cosmosApi["fetchTransactions"](new URLSearchParams());
+
+      expect(result).toEqual({ txs: [], total: 0 });
     });
   });
 
@@ -921,6 +1025,132 @@ describe("CosmosApi", () => {
         .unbondings;
       expect(unbonding.completionDate).toEqual(new Date("2026-08-10T07:10:27.684611546Z"));
       expect(Number.isNaN(unbonding.completionDate.getTime())).toBe(false);
+    });
+  });
+
+  const BABYLON_ADDRESS = "bbn1uwpws077a0a9pclapv3f2fyj5u0mlh6ewmds8n";
+
+  // height 100 < epoch boundary 360, so the caller's queued messages merge.
+  const mockBabylonRoutes = (msgs: { msg_type: string; msg: string }[]) => {
+    // @ts-expect-error method is mocked
+    network.mockImplementation(({ url }: { url: string }) => {
+      const respond = (data: unknown) => Promise.resolve({ data });
+      if (url.includes("current_epoch"))
+        return respond({ current_epoch: "5", epoch_boundary: "360" });
+      if (url.includes("/babylon/epoching/v1/"))
+        return respond({ msgs, pagination: { next_key: null, total: String(msgs.length) } });
+      if (url.includes("blocks/latest")) return respond({ block: { header: { height: "100" } } });
+      if (url.includes("/redelegations")) return respond({ redelegation_responses: [] });
+      if (url.includes("/unbonding_delegations")) return respond({ unbonding_responses: [] });
+      if (url.includes("/rewards")) return respond({ rewards: [] });
+      if (url.includes("/staking/v1beta1/delegations/"))
+        return respond({
+          delegation_responses: [
+            {
+              delegation: { validator_address: "bbnvaloper1active" },
+              balance: { denom: "ubbn", amount: "50" },
+            },
+          ],
+        });
+      if (url.includes("/staking/v1beta1/validators/"))
+        return respond({ validator: { status: "BOND_STATUS_BONDED" } });
+      return Promise.reject(new Error(`unmocked url: ${url}`));
+    });
+  };
+
+  describe("getStakingPositions", () => {
+    const currency = { id: "babylon", units: [{}, { code: "ubbn" }] } as CryptoCurrency;
+
+    it("returns delegations/unbondings with queued epoching messages merged (babylon)", async () => {
+      mockBabylonRoutes([
+        {
+          msg_type: "cosmos.staking.v1beta1.MsgDelegate",
+          msg: `delegator_address:"${BABYLON_ADDRESS}" validator_address:"bbnvaloper1pending" amount:<denom:"ubbn" amount:"30" >`,
+        },
+      ]);
+
+      const babylonApi = new CosmosAPI("babylon");
+      const { delegations, unbondings } = await babylonApi.getStakingPositions(
+        BABYLON_ADDRESS,
+        currency,
+      );
+
+      expect(unbondings).toEqual([]);
+      expect(delegations).toEqual([
+        expect.objectContaining({
+          validatorAddress: "bbnvaloper1active",
+          amount: new BigNumber(50),
+        }),
+        expect.objectContaining({
+          validatorAddress: "bbnvaloper1pending",
+          amount: new BigNumber(30),
+        }),
+      ]);
+    });
+  });
+
+  describe("getRedelegationsWithQueued", () => {
+    const babylon = { id: "babylon", units: [{}, { code: "ubbn" }] } as CryptoCurrency;
+    const cosmos = { id: "cosmos", units: [{}, { code: "uatom" }] } as CryptoCurrency;
+
+    it("merges queued redelegations on epoched chains (babylon)", async () => {
+      mockBabylonRoutes([
+        {
+          msg_type: "cosmos.staking.v1beta1.MsgBeginRedelegate",
+          msg: `delegator_address:"${BABYLON_ADDRESS}" validator_src_address:"bbnvaloper1active" validator_dst_address:"bbnvaloper1pending" amount:<denom:"ubbn" amount:"20" >`,
+        },
+      ]);
+
+      const babylonApi = new CosmosAPI("babylon");
+      const redelegations = await babylonApi.getRedelegationsWithQueued(BABYLON_ADDRESS, babylon);
+
+      expect(redelegations).toEqual([
+        expect.objectContaining({
+          validatorSrcAddress: "bbnvaloper1active",
+          validatorDstAddress: "bbnvaloper1pending",
+          amount: new BigNumber(20),
+        }),
+      ]);
+    });
+
+    it("returns only executed redelegations and skips epoching/delegations on non-epoched chains (cosmos)", async () => {
+      // @ts-expect-error method is mocked
+      network.mockImplementation(({ url }: { url: string }) => {
+        const respond = (data: unknown) => Promise.resolve({ data });
+        if (url.includes("/redelegations"))
+          return respond({
+            redelegation_responses: [
+              {
+                redelegation: {
+                  validator_src_address: "cosmosvaloper1src",
+                  validator_dst_address: "cosmosvaloper1dst",
+                },
+                entries: [
+                  {
+                    redelegation_entry: {
+                      initial_balance: "1000000",
+                      completion_time: "2026-01-01T00:00:00Z",
+                    },
+                  },
+                ],
+              },
+            ],
+          });
+        return Promise.reject(new Error(`unmocked url: ${url}`));
+      });
+
+      const redelegations = await cosmosApi.getRedelegationsWithQueued("cosmos1a", cosmos);
+
+      expect(redelegations).toEqual([
+        expect.objectContaining({
+          validatorSrcAddress: "cosmosvaloper1src",
+          validatorDstAddress: "cosmosvaloper1dst",
+          amount: new BigNumber("1000000"),
+        }),
+      ]);
+      const urls = mockedNetwork.mock.calls.map(([o]) => o.url);
+      expect(urls.some(u => u?.includes("epoching"))).toBe(false);
+      expect(urls.some(u => u?.includes("/staking/v1beta1/delegations/"))).toBe(false);
     });
   });
 });

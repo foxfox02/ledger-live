@@ -1,10 +1,11 @@
+import { track } from "@shared/analytics";
+import { TrackScreen } from "@shared/analytics-react";
 import React, { useCallback, memo, useMemo } from "react";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Flex, Icons, SlideIndicator } from "@ledgerhq/native-ui";
 import { useSelector, useDispatch } from "~/context/hooks";
 import { NavigatorName, ScreenName } from "~/const";
 import { ConnectDevice } from "./setupDevice/scenes";
-import { TrackScreen, track } from "~/analytics";
 import SeedWarning from "../shared/SeedWarning";
 import {
   completeOnboarding,
@@ -13,7 +14,7 @@ import {
   setIsReborn,
   setOnboardingHasDevice,
 } from "~/actions/settings";
-import { useNotifications } from "LLM/features/NotificationsPrompt";
+import { useNotificationsPrompt } from "LLM/features/NotificationsPrompt";
 import {
   RootComposite,
   StackNavigatorNavigation,
@@ -80,7 +81,7 @@ export default memo(function () {
   const route = useRoute<NavigationProps["route"]>();
 
   const dispatch = useDispatch();
-  const { tryTriggerPushNotificationDrawerAfterAction } = useNotifications();
+  const { notifyFlowCompleted } = useNotificationsPrompt();
 
   const { deviceModelId, showSeedWarning, isProtectFlow, fromAccessExistingWallet, isRestoreSeed } =
     route.params;
@@ -140,7 +141,7 @@ export default memo(function () {
       dispatch(setHasBeenRedirectedToPostOnboarding(false));
     }
 
-    tryTriggerPushNotificationDrawerAfterAction("onboarding");
+    notifyFlowCompleted("onboarding");
   }, [
     isProtectFlow,
     deviceModelId,
@@ -148,7 +149,7 @@ export default memo(function () {
     hasCompletedOnboarding,
     navigation,
     fromAccessExistingWallet,
-    tryTriggerPushNotificationDrawerAfterAction,
+    notifyFlowCompleted,
     isFundWalletNewSetup,
     seedConfiguration,
   ]);

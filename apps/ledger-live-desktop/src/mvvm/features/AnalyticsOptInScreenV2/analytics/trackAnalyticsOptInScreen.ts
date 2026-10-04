@@ -1,8 +1,7 @@
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import {
   ANALYTICS_OPT_IN_SCREEN_FLOW,
   ANALYTICS_OPT_IN_SCREEN_PAGES,
-  ANALYTICS_OPT_IN_SCREEN_VARIANT,
 } from "LLD/features/AnalyticsOptInScreenV2/types";
 
 type TrackPayload = {
@@ -27,10 +26,9 @@ export const trackAnalyticsOptInScreenClick = (
       ...basePayload(ANALYTICS_OPT_IN_SCREEN_PAGES[page]),
       button,
       flow: ANALYTICS_OPT_IN_SCREEN_FLOW,
-      variant: ANALYTICS_OPT_IN_SCREEN_VARIANT,
       entryPoint: "Onboarding",
     },
-    shouldWeTrack,
+    { mandatory: shouldWeTrack },
   );
 };
 
@@ -46,9 +44,8 @@ export const trackAnalyticsOptInScreenToggle = (
       toggle,
       value,
       flow: ANALYTICS_OPT_IN_SCREEN_FLOW,
-      variant: ANALYTICS_OPT_IN_SCREEN_VARIANT,
       entryPoint: "Onboarding",
     },
-    shouldWeTrack,
+    { mandatory: shouldWeTrack },
   );
 };

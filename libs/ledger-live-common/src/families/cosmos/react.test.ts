@@ -78,6 +78,19 @@ describe("cosmos/react", () => {
       );
     });
 
+    it("should return an empty list when there are no delegations instead of throwing", async () => {
+      const { account, prepare } = await setup();
+      await prepare();
+      const accountWithoutDelegations: CosmosAccount = {
+        ...account,
+        stakingResources: { ...account.stakingResources, delegations: [] },
+      };
+      const { result } = renderHook(() =>
+        hooks.useCosmosFamilyMappedDelegations(accountWithoutDelegations),
+      );
+      expect(result.current).toEqual([]);
+    });
+
     describe("mode: claimReward", () => {
       it("should only return delegations which have some pending rewards", async () => {
         const { account, prepare } = await setup();

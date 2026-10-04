@@ -10,7 +10,6 @@ concurrency:
   group: ci-integration-${{ github.ref }}
 
 permissions:
-  id-token: write
   contents: read
 
 jobs:
@@ -20,29 +19,17 @@ jobs:
       paths: ${{ steps.affected.outputs.paths }}
       coins: ${{ steps.affected.outputs.coins }}
     runs-on: ubuntu-22.04
+    permissions:
+      pull-requests: read
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: develop
-          fetch-depth: 0
-      - name: checkout branch (PR)
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          gh pr checkout "$PR_NUMBER"
-      - name: checkout branch (not PR)
-        if: ${{ github.event_name != 'pull_request' }}
-        run: |
-          git checkout $GITHUB_SHA
-      - uses: LedgerHQ/ledger-live/tools/actions/live-common-affected@develop
+      - uses: LedgerHQ/ledger-live/tools/actions/composites/live-common-affected@develop
         id: affected
-        with:
-          ref: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || 'HEAD^' }}
 
   integration-tests:
     name: "Integration Tests"
+    permissions:
+      id-token: write
+      contents: read
     needs: is-affected
     if: ${{ needs.is-affected.outputs.is-affected == 'true' }}
     env:
@@ -57,8 +44,15 @@ jobs:
           - ubuntu-22.04
           - macos-14
           - windows-2022
+        include:
+          - os: ubuntu-22.04
+            runner: ledger-wallet-4cpu-aws-public
+          - os: macos-14
+            runner: macos-14
+          - os: windows-2022
+            runner: windows-2022
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ github.event.pull_request.head.repo.fork && matrix.os || matrix.runner }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Setup the caches
@@ -74,8 +68,16 @@ jobs:
           roleName: ${{ secrets.AWS_CACHE_ROLE_NAME }}
           region: ${{ secrets.AWS_CACHE_REGION }}
 
+      # Only the ubuntu leg moves, and only for internal PRs: the macOS and windows legs
+      # and every fork leg stay on GitHub-hosted runners and public npm.
+      - name: JFrog npm auth
+        if: ${{ matrix.os == 'ubuntu-22.04' && !github.event.pull_request.head.repo.fork }}
+        uses: LedgerHQ/ledger-live/tools/actions/composites/jfrog-npm-auth@develop
+        with:
+          registry: ${{ vars.ARTIFACTORY_URL }}
+
       - name: Install dependencies
-        run: pnpm i --filter="live-common..." --filter="ledger-live" --filter="@ledgerhq/ledger-wallet-framework"
+        run: pnpm i --frozen-lockfile --filter="live-common..." --filter="ledger-live" --filter="@ledgerhq/ledger-wallet-framework"
 
       # Seed the local nx cache for live-common's transitive deps in two
       # chunks. Each chunk runs in its own nx process so the per-task fd burst

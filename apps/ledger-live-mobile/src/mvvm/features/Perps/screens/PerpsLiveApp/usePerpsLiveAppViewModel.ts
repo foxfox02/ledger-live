@@ -1,3 +1,4 @@
+import { getCurrentTrackingPage } from "@shared/analytics";
 import { useCallback, useMemo, useRef, useState, type RefObject } from "react";
 import type { AccountLike } from "@ledgerhq/types-live";
 import { FEATURE_FLAGS_DEFAULTS } from "@shared/feature-flags";
@@ -23,8 +24,7 @@ import {
   hasSeenAnalyticsOptInPromptSelector,
   lastSeenDeviceSelector,
 } from "~/reducers/settings";
-import { accountsSelector } from "~/reducers/accounts";
-import { currentRouteNameRef } from "~/analytics/screenRefs";
+import { flattenAccountsSelector } from "~/reducers/accounts";
 import { usePerpsLiveConfig } from "LLM/features/Perps/hooks/usePerpsLiveConfig";
 
 export type PerpsWebviewInputs = {
@@ -63,7 +63,7 @@ export function usePerpsLiveAppViewModel(): PerpsLiveAppViewModel {
   const [webviewState, setWebviewState] = useState<WebviewState>(initialWebviewState);
   const { theme } = useTheme();
   const { language } = useSettings();
-  const accounts = useSelector(accountsSelector);
+  const accounts = useSelector(flattenAccountsSelector);
   const { ticker: currencyTicker } = useSelector(counterValueCurrencySelector);
   const exportSettings = useSelector(exportSettingsSelector);
   const shareAnalytics = useSelector(analyticsEnabledSelector).toString();
@@ -93,8 +93,8 @@ export function usePerpsLiveAppViewModel(): PerpsLiveAppViewModel {
   }, []);
 
   // Capture the initial source to prevent webview refreshes.
-  // currentRouteNameRef.current updates when going back and forth inside the navigation stack and returning to the webview
-  const initialSource = useMemo(() => currentRouteNameRef.current || "", []);
+  // The tracking page updates when going back and forth inside the navigation stack and returning to the webview.
+  const initialSource = useMemo(() => getCurrentTrackingPage(), []);
 
   const webviewInputs = useMemo<PerpsWebviewInputs>(
     () => ({

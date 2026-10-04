@@ -1,50 +1,61 @@
-import {
-  configureStore,
-  createListenerMiddleware,
-  type Middleware,
-  type ThunkDispatch,
-} from "@reduxjs/toolkit";
+import { configureStore, type Middleware, type ThunkDispatch } from "@reduxjs/toolkit";
 import { UnknownAction } from "redux";
-import { AuthSDK } from "@ledgerhq/ledger-auth";
+import { AuthSDK } from "@ledgerhq/auth";
 import { getEnv } from "@shared/env";
-import { authApiExtra } from "@shared/auth";
+import { authApiExtra, authEnvironmentSelector } from "@shared/auth";
 import { LkrpIdentityProvider } from "@ledgerhq/ledger-key-ring-protocol";
-import { calApiExtra } from "@domain/api-currency-token";
-import { cvsApiExtra } from "@domain/api-currency-fiat";
-import { marketSentimentApiExtra } from "@domain/api-market-sentiment";
-import { altcoinsSentimentApiExtra } from "@domain/api-altcoins-sentiment";
-import { payCardApiExtra } from "@domain/api-pay-card";
+import type { TrustchainStore } from "@ledgerhq/ledger-key-ring-protocol/store";
+import {
+  calApiExtra,
+  cardApi,
+  cardApiExtra,
+  coinMarketCapApiExtra,
+  cvsApiExtra,
+  pushDevicesApiExtra,
+  redactCardApiAction,
+  redactCardApiState,
+  swapApiExtra,
+} from "@shared/api-services";
+import {
+  configureCardSessionRenewal,
+  isCardSessionCurrent,
+  isCardUsEnv,
+  readCardSession,
+  refreshCardSession,
+} from "@features/platform-card";
+import { setSignedIn } from "@features/flow-pay-card-auth/state";
+import {
+  createAccountAliasMiddleware,
+  withAccountAliases,
+} from "~/renderer/middlewares/accountAlias";
 import logger from "~/renderer/middlewares/logger";
 import reducers, { State } from "~/renderer/reducers";
 import { applyLldRTKApiMiddlewares } from "~/renderer/reducers/rtkQueryApi";
-import { createIdentitiesSyncMiddleware, pushDevicesApiExtra } from "@domain/api-push-devices";
-import { canPushDeviceIdsSelector, languageSelector } from "~/renderer/reducers/settings";
-import { createFeatureFlagsMiddleware, type PartialFeatures } from "@shared/feature-flags";
-import { fetchRemoteFlags as defaultFetchRemoteFlags } from "~/firebase/remoteConfig";
-type Props = {
+import { createIdentitiesSyncMiddleware } from "@domain/api-push-devices";
+import { canPushDeviceIdsSelector } from "~/renderer/reducers/settings";
+import { selectFeature } from "@shared/feature-flags";
+import { sleepingListener } from "./sleepingListener";
+import {
+  createDesktopFeatureFlagsMiddleware,
+  type FeatureFlagsSources,
+} from "./middleware/feature-flags";
+
+type Props = FeatureFlagsSources & {
   state?: State;
   dbMiddleware?: Middleware;
   analyticsMiddleware?: Middleware;
-  /**
-   * Remote-flags fetcher driving the polling loop. Defaults to the Firebase fetcher.
-   * Pass `null` to disable polling (e.g. unit tests, which must not hit a live backend).
-   */
-  fetchRemoteFlags?: (() => Promise<PartialFeatures>) | null;
 };
 
 const customCreateStore = ({
   state,
   dbMiddleware,
   analyticsMiddleware,
-  fetchRemoteFlags = defaultFetchRemoteFlags,
+  fetchRemoteFlags,
+  readCachedFlags,
 }: Props) => {
-  // This listenerMiddleware is cross-scope as it is preferable to have one instance per store
-  // Source: https://github.com/reduxjs/redux-toolkit/discussions/3665
-  const listenerMiddleware = createListenerMiddleware<State>();
-
   const store = configureStore({
     reducer: reducers,
-    preloadedState: state,
+    preloadedState: withAccountAliases(state),
     middleware: getDefaultMiddleware =>
       applyLldRTKApiMiddlewares(
         getDefaultMiddleware({
@@ -57,46 +68,55 @@ const customCreateStore = ({
                 ledgerClientVersion: getEnv("LEDGER_CLIENT_VERSION"),
               }),
               ...cvsApiExtra({
-                countervaluesServiceUrl: getEnv("LEDGER_COUNTERVALUES_API"),
+                getCountervaluesServiceUrl: () => getEnv("LEDGER_COUNTERVALUES_API"),
               }),
-              ...marketSentimentApiExtra({
+              ...coinMarketCapApiExtra({
                 coinMarketCapApiUrl: getEnv("CMC_API_URL"),
               }),
-              ...altcoinsSentimentApiExtra({
-                coinMarketCapApiUrl: getEnv("CMC_API_URL"),
+              ...cardApiExtra({
+                // Read on every request, so the debug settings can change them without a restart.
+                getCardApiBaseUrl: () => getEnv("CARD_BAANX_API_URL"),
+                getCardBaanxClientKey: () => getEnv("CARD_BAANX_CLIENT_KEY"),
+                isCardUsEnv: () => isCardUsEnv(getEnv("CARD_BAANX_US_APP_ID")),
+                readCardSession,
+                isCardSessionCurrent,
+                refreshCardSession,
               }),
               ...pushDevicesApiExtra({
                 pushDevicesServiceUrl: getEnv("PUSH_DEVICES_SERVICE_URL"),
                 ledgerClientVersion: getEnv("LEDGER_CLIENT_VERSION"),
               }),
-              ...payCardApiExtra({
-                // LIVE-33829: force mocks until Pay Card API base URL is wired.
-                payCardApiMocksEnabled: true,
+              ...swapApiExtra({
+                // Read on every request, so the debug settings can change it without a restart.
+                getSwapApiBaseUrl: () => getEnv("SWAP_API_BASE"),
+                ledgerClientVersion: getEnv("LEDGER_CLIENT_VERSION"),
               }),
               ...authApiExtra({
-                authFeatureId: "lwdAuth",
-                startListening: listenerMiddleware.startListening,
-                providerParams: {
-                  identityProvider: new LkrpIdentityProvider<State>({
-                    startListening: listenerMiddleware.startListening,
-                  }),
-                },
-                createAuthProvider: (environment, { identityProvider }) =>
-                  new AuthSDK(
-                    {
-                      clientId: getEnv("LEDGER_AUTH_CLIENT_ID"),
-                      keycloakBaseUrl: getEnv(`LEDGER_AUTH_KEYCLOAK_BASE_URL_${environment}`),
-                      keycloakRealm: getEnv("LEDGER_AUTH_KEYCLOAK_REALM"),
-                      disablePkce: true,
+                isFeatureEnabled: (): boolean =>
+                  selectFeature(store.getState(), "lwdAuth").enabled ?? false,
+                authProvider: new AuthSDK(
+                  {
+                    clientId: getEnv("LEDGER_AUTH_CLIENT_ID"),
+                    keycloakBaseUrl(): string | null {
+                      const environment = authEnvironmentSelector(store.getState());
+                      return environment && getEnv(`LEDGER_AUTH_KEYCLOAK_BASE_URL_${environment}`);
                     },
-                    { provider: identityProvider },
-                  ),
+                    keycloakRealm: getEnv("LEDGER_AUTH_KEYCLOAK_REALM"),
+                    disablePkce: true,
+                  },
+                  {
+                    provider: new LkrpIdentityProvider(
+                      (): TrustchainStore => store.getState().trustchain,
+                    ),
+                  },
+                ),
               }),
             },
           },
-        }).prepend(listenerMiddleware.middleware),
+        }),
       )
         .concat(logger)
+        .concat(createAccountAliasMiddleware())
         .concat(analyticsMiddleware ? [analyticsMiddleware] : [])
         .concat(dbMiddleware ? [dbMiddleware] : [])
         .concat(
@@ -106,18 +126,19 @@ const customCreateStore = ({
             getAnalyticsConsent: canPushDeviceIdsSelector,
           }),
         )
-        .concat(
-          createFeatureFlagsMiddleware<State>({
-            resolutionConfig: {
-              platform: "desktop",
-              appVersion: __APP_VERSION__,
-              envFlags: getEnv("FEATURE_FLAGS") as PartialFeatures,
-            },
-            fetchRemoteFlags: fetchRemoteFlags ?? undefined,
-            getAppLanguage: languageSelector,
-          }),
-        ),
-    devTools: __DEV__,
+        .concat(createDesktopFeatureFlagsMiddleware({ fetchRemoteFlags, readCachedFlags }))
+        .concat(sleepingListener.middleware),
+    devTools: __DEV__
+      ? { actionSanitizer: redactCardApiAction, stateSanitizer: redactCardApiState }
+      : false,
+  });
+
+  configureCardSessionRenewal({
+    dispatch: store.dispatch,
+    onCardSessionEnded: () => {
+      store.dispatch(setSignedIn(false));
+      setTimeout(() => store.dispatch(cardApi.util.resetApiState()), 0);
+    },
   });
 
   return store;

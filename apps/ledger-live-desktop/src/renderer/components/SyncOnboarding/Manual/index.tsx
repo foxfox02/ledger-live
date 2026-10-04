@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { Flex, InfiniteLoader } from "@ledgerhq/react-ui";
 import { useSelector } from "LLD/hooks/redux";
+import { log } from "@ledgerhq/logs";
 import { Result } from "@ledgerhq/live-common/hw/actions/manager";
 import { useOnboardingStatePolling } from "@ledgerhq/live-common/onboarding/hooks/useOnboardingStatePolling";
 import { useToggleOnboardingEarlyCheck } from "@ledgerhq/live-common/deviceSDK/hooks/useToggleOnboardingEarlyChecks";
@@ -23,6 +24,8 @@ import TroubleshootingDrawer from "./TroubleshootingDrawer";
 import LockedDeviceDrawer from "./LockedDeviceDrawer";
 import { FinalFirmware } from "@ledgerhq/types-live";
 import { useConnectManagerAction } from "~/renderer/hooks/useConnectAppAction";
+import InstallSetOfApps from "~/renderer/components/OnboardingAppInstall/InstallSetOfApps";
+import { resolveAppsRestoreTrigger } from "./EarlySecurityChecks/firmwareUpdateAppsRestore";
 
 const POLLING_PERIOD_MS = 1000;
 const DESYNC_TIMEOUT_MS = 20000;
@@ -58,11 +61,8 @@ const SyncOnboardingScreen: React.FC<SyncOnboardingScreenProps> = ({
   const [isBootloader, setIsBootloader] = useState(false);
   // Needed because `device` object can be null or changed if disconnected/reconnected
   const [lastSeenDevice, setLastSeenDevice] = useState<Device | null>(device ?? null);
-  useEffect(() => {
-    if (device) {
-      setLastSeenDevice(device);
-    }
-  }, [device]);
+  // Tracks the connected device's identity across renders. See DONJON-1409.
+  const previousDeviceIdRef = useRef<string | null>(device?.deviceId ?? null);
 
   const [isTroubleshootingDrawerOpen, setTroubleshootingDrawerOpen] = useState<boolean>(false);
 
@@ -75,6 +75,8 @@ const SyncOnboardingScreen: React.FC<SyncOnboardingScreenProps> = ({
     null | "enter" | "exit"
   >(null);
   const [fwUpdateInterrupted, setFwUpdateInterrupted] = useState<FinalFirmware | null>(null);
+  const [appsToRestoreAfterFwUpdate, setAppsToRestoreAfterFwUpdate] = useState<string[]>([]);
+  const [isRestoringAppsAfterFwUpdate, setIsRestoringAppsAfterFwUpdate] = useState(false);
 
   // True when the device reported isOnboarded=true during polling. Used to bypass
   // the exit toggle after ESC (the device was never put into ESC mode via toggle).
@@ -120,10 +122,62 @@ const SyncOnboardingScreen: React.FC<SyncOnboardingScreenProps> = ({
     setMustRecoverIfBootloader(true);
   }, [resetPollingStates]);
 
+  useEffect(() => {
+    if (!device) return;
+
+    const previousDeviceId = previousDeviceIdRef.current;
+    const deviceChanged = previousDeviceId !== null && previousDeviceId !== device.deviceId;
+    previousDeviceIdRef.current = device.deviceId;
+
+    setLastSeenDevice(device);
+
+    if (deviceChanged) {
+      // Device identity changed since the last render. See DONJON-1409.
+      log("SyncOnboarding", "Device identity changed, resetting onboarding state");
+      notifyOnboardingEarlyCheckShouldReset();
+      setIsInitialRunOfSecurityChecks(true);
+      setDeviceDetectedOnboarded(false);
+      setFwUpdateInterrupted(null);
+      setAppsToRestoreAfterFwUpdate([]);
+      setIsRestoringAppsAfterFwUpdate(false);
+      setToggleOnboardingEarlyCheckType(null);
+    }
+  }, [device, notifyOnboardingEarlyCheckShouldReset]);
+
   const restartChecksAfterUpdate = useCallback(() => {
     setIsInitialRunOfSecurityChecks(false);
     notifyOnboardingEarlyCheckShouldReset();
   }, [notifyOnboardingEarlyCheckShouldReset]);
+
+  const handleFirmwareUpdateClose = useCallback(
+    (appsToRestore: readonly string[]) => {
+      const restoreTrigger = resolveAppsRestoreTrigger(appsToRestore);
+      if (restoreTrigger.type === "startRestore") {
+        setAppsToRestoreAfterFwUpdate(restoreTrigger.apps);
+        setIsRestoringAppsAfterFwUpdate(true);
+        return;
+      }
+
+      restartChecksAfterUpdate();
+    },
+    [restartChecksAfterUpdate],
+  );
+
+  const handleAppsRestoreComplete = useCallback(() => {
+    setIsRestoringAppsAfterFwUpdate(false);
+    setAppsToRestoreAfterFwUpdate([]);
+    restartChecksAfterUpdate();
+  }, [restartChecksAfterUpdate]);
+
+  // The reinstall is best-effort: failing to restore apps should not block onboarding,
+  // but the failure needs to be observable instead of being silently swallowed.
+  const handleAppsRestoreError = useCallback(
+    (error: Error) => {
+      log("EarlySecurityCheck", "Failed to reinstall apps after firmware update:", error);
+      handleAppsRestoreComplete();
+    },
+    [handleAppsRestoreComplete],
+  );
 
   useEffect(() => {
     if (lockedDevice) {
@@ -307,13 +361,30 @@ const SyncOnboardingScreen: React.FC<SyncOnboardingScreenProps> = ({
         })}
       </Flex>
     );
+  } else if (isRestoringAppsAfterFwUpdate && lastSeenDevice) {
+    stepContent = (
+      <Flex height="100%" width="100%" justifyContent="center" alignItems="center" px={8}>
+        <Flex width="100%" maxWidth="432px">
+          <InstallSetOfApps
+            device={lastSeenDevice}
+            dependencies={appsToRestoreAfterFwUpdate}
+            setHeaderLoader={() => {}}
+            onComplete={handleAppsRestoreComplete}
+            onCancel={handleAppsRestoreComplete}
+            onError={handleAppsRestoreError}
+          />
+        </Flex>
+      </Flex>
+    );
   } else if (currentStep === "early-security-check" && lastSeenDevice) {
     stepContent = (
       <EarlySecurityChecks
+        key={lastSeenDevice.deviceId}
         device={lastSeenDevice}
         isDeviceConnected={!!device}
         onComplete={notifyOnboardingEarlyCheckEnded}
         restartChecksAfterUpdate={restartChecksAfterUpdate}
+        onFirmwareUpdateClose={handleFirmwareUpdateClose}
         isInitialRunOfSecurityChecks={isInitialRunOfSecurityChecks}
         setFwUpdateInterrupted={setFwUpdateInterrupted}
         fwUpdateInterrupted={fwUpdateInterrupted}
@@ -322,6 +393,7 @@ const SyncOnboardingScreen: React.FC<SyncOnboardingScreenProps> = ({
   } else if (currentStep === "companion" && lastSeenDevice) {
     stepContent = (
       <SyncOnboardingCompanion
+        key={lastSeenDevice.deviceId}
         device={lastSeenDevice}
         notifySyncOnboardingShouldReset={notifyOnboardingEarlyCheckShouldReset}
         onLostDevice={onLostDevice}

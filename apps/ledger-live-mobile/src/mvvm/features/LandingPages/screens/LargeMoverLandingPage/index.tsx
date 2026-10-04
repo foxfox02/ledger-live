@@ -1,3 +1,5 @@
+import { TrackScreen } from "@shared/analytics-react";
+import { track } from "@shared/analytics";
 import { Flex } from "@ledgerhq/native-ui";
 import React, { useState, useMemo } from "react";
 import { useLargeMover } from "./hooks/useLargeMover";
@@ -16,7 +18,6 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { BaseNavigatorStackParamList } from "~/components/RootNavigator/types/BaseNavigator";
 import { LoadingIndicator } from "./components/Loading";
 import { CardType } from "./types";
-import { track, TrackScreen } from "~/analytics";
 import { PAGE_NAME } from "./const";
 import { useLargeMoverChartData } from "@ledgerhq/live-common/market/hooks/useLargeMoverChartData";
 import { useLargeMoverCurrencies } from "@ledgerhq/live-common/market/hooks/useLargeMoverCurrencies";
@@ -32,13 +33,12 @@ type LargeMoverLandingPageProps = StackNavigatorProps<
 >;
 
 export const LargeMoverLandingPage = ({ route }: LargeMoverLandingPageProps) => {
-  const { currencyIds, initialRange = "day", ledgerIds } = route.params;
+  const { ledgerIds, initialRange = "day" } = route.params;
   const counterValueCurrency = useSelector(counterValueCurrencySelector);
 
   const [range, setRange] = useState<KeysPriceChange>(rangeMap[initialRange]);
 
   const { currencies, currenciesIds, chartIds, loading, isError } = useLargeMover({
-    currencyIds,
     ledgerIds,
   });
 
@@ -141,12 +141,7 @@ export const LargeMoverLandingPage = ({ route }: LargeMoverLandingPageProps) => 
     <>
       {showOverlay && !isLoading && <OverlayTutorial />}
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.neutral.c00, paddingTop: 40 }}>
-        <TrackScreen
-          name={PAGE_NAME}
-          initialRange={initialRange}
-          currencyIds={currencyIds}
-          ledgerIds={ledgerIds}
-        />
+        <TrackScreen name={PAGE_NAME} initialRange={initialRange} ledgerIds={ledgerIds} />
         <StickyHeader />
         <Flex paddingTop={25}>
           {isLoading ? (

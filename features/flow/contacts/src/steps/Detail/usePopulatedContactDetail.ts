@@ -2,6 +2,7 @@ import { selectContactById, type ContactId } from "@domain/entity-contact";
 import { useMemo } from "react";
 import { useSelector } from "react-redux";
 import type { ContactAddressCurrencyPort } from "./model/ports";
+import { defaultContactAddressCurrencyPort } from "./model/defaultContactAddressCurrencyPort";
 import { createPopulatedContactDetailViewModel } from "./model/viewModel";
 import type { PopulatedContactDetailViewModel } from "./types";
 
@@ -9,7 +10,7 @@ type ContactsStateRoot = Parameters<typeof selectContactById>[0];
 
 export function usePopulatedContactDetail(
   contactId: ContactId | undefined,
-  currencyPort: ContactAddressCurrencyPort,
+  currencyPort: ContactAddressCurrencyPort = defaultContactAddressCurrencyPort,
 ): PopulatedContactDetailViewModel | undefined {
   const contact = useSelector((state: ContactsStateRoot) =>
     contactId ? selectContactById(state, contactId) : undefined,

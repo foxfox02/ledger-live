@@ -1,5 +1,113 @@
 # @domain/entity-currency-token
 
+## 0.5.3
+
+### Patch Changes
+
+- Updated dependencies [[`98e3038`](https://github.com/LedgerHQ/ledger-live/commit/98e303872684da47feca343c0db7d83fcce857b2)]:
+  - @domain/entity-currency-crypto@0.13.0
+
+## 0.5.3-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`98e3038`](https://github.com/LedgerHQ/ledger-live/commit/98e303872684da47feca343c0db7d83fcce857b2)]:
+  - @domain/entity-currency-crypto@0.13.0-next.0
+
+## 0.5.2
+
+### Patch Changes
+
+- Updated dependencies [[`52f573c`](https://github.com/LedgerHQ/ledger-live/commit/52f573c045c52805d250079dd300870c4468493d), [`2d42e64`](https://github.com/LedgerHQ/ledger-live/commit/2d42e647d55f79cf2eb821ec30a232cc07891219), [`b7d0367`](https://github.com/LedgerHQ/ledger-live/commit/b7d03671db1aa022d3ff375465c7d8470bf2b215), [`a9e389f`](https://github.com/LedgerHQ/ledger-live/commit/a9e389fc59ca30abf53d0ba8decc6290752ba1db)]:
+  - @domain/entity-currency-crypto@0.12.0
+
+## 0.5.2-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`52f573c`](https://github.com/LedgerHQ/ledger-live/commit/52f573c045c52805d250079dd300870c4468493d), [`2d42e64`](https://github.com/LedgerHQ/ledger-live/commit/2d42e647d55f79cf2eb821ec30a232cc07891219), [`b7d0367`](https://github.com/LedgerHQ/ledger-live/commit/b7d03671db1aa022d3ff375465c7d8470bf2b215), [`a9e389f`](https://github.com/LedgerHQ/ledger-live/commit/a9e389fc59ca30abf53d0ba8decc6290752ba1db)]:
+  - @domain/entity-currency-crypto@0.12.0-next.0
+
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies [[`e6d6ed6`](https://github.com/LedgerHQ/ledger-live/commit/e6d6ed6eda460eb614680b31a42ba8067cc28d2a)]:
+  - @domain/entity-currency-crypto@0.11.0
+
+## 0.5.1-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`e6d6ed6`](https://github.com/LedgerHQ/ledger-live/commit/e6d6ed6eda460eb614680b31a42ba8067cc28d2a)]:
+  - @domain/entity-currency-crypto@0.11.0-next.0
+
+## 0.5.0
+
+### Minor Changes
+
+- [#20693](https://github.com/LedgerHQ/ledger-live/pull/20693) [`79882e2`](https://github.com/LedgerHQ/ledger-live/commit/79882e26a14f246f1cc969937e011b16e701b8f2) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - chore(llc): expose `tokenIdentifier` through `TokenCurrency`
+
+## 0.5.0-next.0
+
+### Minor Changes
+
+- [#20693](https://github.com/LedgerHQ/ledger-live/pull/20693) [`79882e2`](https://github.com/LedgerHQ/ledger-live/commit/79882e26a14f246f1cc969937e011b16e701b8f2) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - chore(llc): expose `tokenIdentifier` through `TokenCurrency`
+
+## 0.4.0
+
+### Minor Changes
+
+- [#20582](https://github.com/LedgerHQ/ledger-live/pull/20582) [`cc8b5b9`](https://github.com/LedgerHQ/ledger-live/commit/cc8b5b9af4a2ec488b6912d3fcb08bcc8f4b72c3) Thanks [@ysitbon](https://github.com/ysitbon)! - Move the currency id schemas to the packages that own them.
+
+  `CryptoCurrencyIdSchema`, `TokenCurrencyIdSchema` and `FiatCurrencyIdSchema` (and their inferred
+  types) now live in `@domain/entity-currency-crypto`, `@domain/entity-currency-token` and
+  `@domain/entity-currency-fiat` respectively, instead of `@shared/schema-primitives`. A primitives
+  package has no business knowing about crypto, tokens or fiat.
+
+  The crypto and token packages used to re-export these symbols from primitives, which made them
+  proxies: two import paths for the same thing, and no obvious original provider. Consumers already
+  importing from `@domain/entity-currency-*` are unaffected, since the symbols genuinely moved there.
+  Anything importing them from `@shared/schema-primitives` must now import the owning domain package.
+
+### Patch Changes
+
+- Updated dependencies [[`cc8b5b9`](https://github.com/LedgerHQ/ledger-live/commit/cc8b5b9af4a2ec488b6912d3fcb08bcc8f4b72c3)]:
+  - @domain/entity-currency-crypto@0.10.0
+
+## 0.4.0-next.0
+
+### Minor Changes
+
+- [#20582](https://github.com/LedgerHQ/ledger-live/pull/20582) [`cc8b5b9`](https://github.com/LedgerHQ/ledger-live/commit/cc8b5b9af4a2ec488b6912d3fcb08bcc8f4b72c3) Thanks [@ysitbon](https://github.com/ysitbon)! - Move the currency id schemas to the packages that own them.
+
+  `CryptoCurrencyIdSchema`, `TokenCurrencyIdSchema` and `FiatCurrencyIdSchema` (and their inferred
+  types) now live in `@domain/entity-currency-crypto`, `@domain/entity-currency-token` and
+  `@domain/entity-currency-fiat` respectively, instead of `@shared/schema-primitives`. A primitives
+  package has no business knowing about crypto, tokens or fiat.
+
+  The crypto and token packages used to re-export these symbols from primitives, which made them
+  proxies: two import paths for the same thing, and no obvious original provider. Consumers already
+  importing from `@domain/entity-currency-*` are unaffected, since the symbols genuinely moved there.
+  Anything importing them from `@shared/schema-primitives` must now import the owning domain package.
+
+### Patch Changes
+
+- Updated dependencies [[`cc8b5b9`](https://github.com/LedgerHQ/ledger-live/commit/cc8b5b9af4a2ec488b6912d3fcb08bcc8f4b72c3)]:
+  - @domain/entity-currency-crypto@0.10.0-next.0
+
+## 0.3.0
+
+### Minor Changes
+
+- [#20048](https://github.com/LedgerHQ/ledger-live/pull/20048) [`4148019`](https://github.com/LedgerHQ/ledger-live/commit/414801922232b6d9514270e8876e783c11555c2c) Thanks [@ysitbon](https://github.com/ysitbon)! - Re-export CryptoCurrencyId / CryptoCurrencyIdSchema from @domain/entity-currency-crypto and TokenCurrencyId / TokenCurrencyIdSchema from @domain/entity-currency-token
+
+## 0.3.0-next.0
+
+### Minor Changes
+
+- [#20048](https://github.com/LedgerHQ/ledger-live/pull/20048) [`4148019`](https://github.com/LedgerHQ/ledger-live/commit/414801922232b6d9514270e8876e783c11555c2c) Thanks [@ysitbon](https://github.com/ysitbon)! - Re-export CryptoCurrencyId / CryptoCurrencyIdSchema from @domain/entity-currency-crypto and TokenCurrencyId / TokenCurrencyIdSchema from @domain/entity-currency-token
+
 ## 0.2.0
 
 ### Minor Changes

@@ -27,7 +27,6 @@ async function attachIfExists(
 
 export async function runCliStep<T>(label: string, fn: () => Promise<T>): Promise<T> {
   return allure.step(`CLI: ${label}`, async () => {
-    const start = Date.now();
     const httpTrace: string[] = [];
     const prevNetworkLogs = getEnv("ENABLE_NETWORK_LOGS");
     setEnv("ENABLE_NETWORK_LOGS", true);
@@ -39,10 +38,10 @@ export async function runCliStep<T>(label: string, fn: () => Promise<T>): Promis
     });
     try {
       const result = await fn();
-      await reportCliOutcome(label, "result", start, () => redactSecrets(result), httpTrace);
+      await reportCliOutcome(label, "result", () => redactSecrets(result), httpTrace);
       return result;
     } catch (error) {
-      await reportCliOutcome(label, "FAILED", start, () => serializeCliError(error), httpTrace);
+      await reportCliOutcome(label, "FAILED", () => serializeCliError(error), httpTrace);
       throw error;
     } finally {
       try {
@@ -78,17 +77,18 @@ function redactSecrets(value: unknown): unknown {
 }
 
 // reporting must never flip the command's pass/fail outcome, so payload building runs here too
+// Attached to the report only: printing here floods the console when specs run in parallel.
 async function reportCliOutcome(
   label: string,
   status: string,
-  start: number,
   buildPayload: () => unknown,
   httpTrace: string[],
 ) {
   try {
     const payload = buildPayload();
-    console.log(`CLI ${label} — ${status}: `, payload);
-    const title = `CLI ${label} — ${status} (${Date.now() - start}ms)`;
+    // No timing in the title — Allure records the step duration separately, and a stable
+    // title lets repeated commands group under one name (QAA-1433).
+    const title = `CLI ${label} — ${status}`;
     if (typeof payload === "string") {
       await allure.attachment(title, payload, "text/plain");
     } else {
@@ -121,6 +121,20 @@ export async function addBugLink(ids: string[]) {
   for (const id of ids) {
     await allure.issue(id);
   }
+}
+
+export async function addAnnotationLinks(annotations: TestInfo["annotations"]) {
+  const idsOf = (type: string) => [
+    ...new Set(
+      annotations
+        .filter(annotation => annotation.type === type)
+        .flatMap(annotation => (annotation.description ?? "").split(","))
+        .map(id => id.trim())
+        .filter(Boolean),
+    ),
+  ];
+  await addTmsLink(idsOf("TMS"));
+  await addBugLink(idsOf("BUG"));
 }
 
 export async function addTeamOwner(team: Team) {
@@ -193,7 +207,7 @@ export async function captureArtifacts(
   appCollector?: PageLogCollector,
 ) {
   const screenshot = await page.screenshot();
-  await testInfo.attach("Screenshot", { body: screenshot, contentType: "image/png" });
+  await testInfo.attach("App Screenshot", { body: screenshot, contentType: "image/png" });
 
   if (takeSpeculosScreenshot) {
     await attachSpeculosScreenshots(testInfo);
@@ -202,9 +216,7 @@ export async function captureArtifacts(
   if (isLastRetry(testInfo)) {
     const filePath = `tests/artifacts/${testInfo.title.replace(/[^a-zA-Z0-9]/g, " ")}.json`;
 
-    await page.evaluate(filePath => {
-      window.saveLogs(filePath);
-    }, filePath);
+    await page.evaluate(filePath => window.saveLogs(filePath), filePath);
 
     await testInfo.attach("Test logs", {
       path: filePath,
@@ -229,10 +241,20 @@ export async function captureArtifacts(
       body: Buffer.from(webviewCollector.getFormattedNetworkLogs()),
       contentType: "application/json",
     });
+
+    // Surface the swap-init root cause (QAA-1326) front-and-center: the failing
+    // custom.exchange.swap error is otherwise buried in the full console dump above.
+    const swapInitError = webviewCollector.getSwapInitError();
+    if (swapInitError) {
+      await testInfo.attach("⚠️ Swap-init error", {
+        body: Buffer.from(swapInitError),
+        contentType: "text/plain",
+      });
+    }
   }
 
   if (appCollector) {
-    await testInfo.attach("Ledger Wallet Network Logs", {
+    await testInfo.attach("App Network Logs", {
       body: Buffer.from(appCollector.getFormattedNetworkLogs()),
       contentType: "application/json",
     });

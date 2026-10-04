@@ -30,7 +30,13 @@ describe("useContactsCurrencySelectionAdapter", () => {
       assetDisplayName: ethereum.name,
     });
     expect(openCurrencyFlow).toHaveBeenCalledWith([ethereumId, bitcoinId], {
+      dialogConfiguration: {
+        assets: { leftElement: "undefined", rightElement: "undefined" },
+        networks: { leftElement: "undefined", rightElement: "undefined" },
+      },
+      flow: "contacts",
       presentation: "embedded",
+      source: "contacts",
     });
   });
 

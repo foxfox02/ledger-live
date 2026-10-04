@@ -1,6 +1,6 @@
 {
   "name": "@ledgerhq/live-cli",
-  "version": "26.1.1",
+  "version": "26.5.1",
   "description": "ledger-live CLI version",
   "repository": {
     "type": "git",
@@ -29,25 +29,24 @@
     "test": "zx ./scripts/test.mjs"
   },
   "dependencies": {
+    "@shared/api-services": "workspace:^",
     "@domain/api-currency-token": "workspace:^",
     "@domain/entity-currency-crypto": "workspace:^",
     "@domain/entity-currency-token": "workspace:^",
     "@features/platform-currencies": "workspace:^",
-    "@ledgerhq/hw-transport-node-speculos": "workspace:^",
     "@ledgerhq/ledger-wallet-framework": "workspace:^",
     "@ledgerhq/live-common": "workspace:^",
-    "@ledgerhq/live-config": "workspace:^",
-    "@ledgerhq/live-countervalues": "workspace:^",
-    "@ledgerhq/live-currency-format": "workspace:^",
+    "@ledgerhq/live-config": "catalog:",
+    "@ledgerhq/live-currency-format": "catalog:",
     "@ledgerhq/live-dmk-speculos": "workspace:^",
     "@shared/env": "workspace:*",
-    "@ledgerhq/logs": "workspace:^",
+    "@ledgerhq/logs": "catalog:",
     "@ledgerhq/types-live": "workspace:^",
     "@reduxjs/toolkit": "catalog:",
     "bigint-buffer": "*",
     "bignumber.js": "9.1.2",
     "command-line-args": "5.2.1",
-    "lodash": "4.17.21",
+    "lodash": "catalog:",
     "readable-stream": "^4.7.0",
     "rxjs": "catalog:"
   },
@@ -55,19 +54,14 @@
     "@pnpm/exportable-manifest": "1000.0.7",
     "@pnpm/read-project-manifest": "1000.0.6",
     "@types/command-line-args": "5.2.3",
-    "@types/lodash": "4.17.7",
+    "@types/lodash": "catalog:",
     "@types/node": "catalog:",
+    "axios": "catalog:",
     "ts-node": "10.9.2",
     "@rslib/core": "catalog:",
     "yaml": "2.8.1",
     "oxfmt": "catalog:",
     "oxlint": "catalog:"
-  },
-  "optionalDependencies": {
-    "@oxlint/binding-darwin-arm64": "1.51.0",
-    "@oxlint/binding-darwin-x64": "1.51.0",
-    "@oxlint/binding-linux-x64-gnu": "1.51.0",
-    "@oxlint/binding-win32-x64-msvc": "1.51.0"
   },
   "publishConfig": {
     "directory": "dist"

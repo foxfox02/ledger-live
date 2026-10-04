@@ -37,14 +37,11 @@ export const fantom = currency({
       magnitude: 0,
     },
   ],
-  ethereumLikeInfo: {
-    chainId: 250,
-  },
   explorerViews: [
     {
-      tx: "https://ftmscan.com/tx/$hash",
-      address: "https://ftmscan.com/address/$address",
-      token: "https://ftmscan.com/token/$contractAddress?a=$address",
+      tx: "https://web3.okx.com/explorer/fantom/tx/$hash",
+      address: "https://web3.okx.com/explorer/fantom/address/$address",
+      token: "https://web3.okx.com/explorer/fantom/token/$contractAddress",
     },
   ],
 });

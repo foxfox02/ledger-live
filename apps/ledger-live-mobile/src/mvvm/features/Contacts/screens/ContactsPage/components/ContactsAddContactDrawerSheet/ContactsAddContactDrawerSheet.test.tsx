@@ -1,22 +1,12 @@
 import React, { useState } from "react";
-import { Platform } from "react-native";
-import { BottomSheetView } from "@ledgerhq/lumen-ui-rnative";
-import type { ContactsAddContactDrawerProps } from "@features/flow-contacts";
-import { fireEvent, render, screen } from "@tests/test-renderer";
+import type { AddContactAppAdapterResult } from "@features/flow-contacts";
+import { ContactsAddContactContent } from "@features/flow-contacts-add-contact";
+import { fireEvent, render, screen, within } from "@tests/test-renderer";
 import { ContactsAddContactDrawerSheet } from ".";
 
-const mockUseKeyboardVisible = jest.fn();
-const mockShouldUseKeyboardAvoidance = jest.fn();
-const originalPlatform = Platform.OS;
-
-jest.mock("~/logic/keyboardVisible", () => ({
-  useKeyboardVisible: (...args: unknown[]) => mockUseKeyboardVisible(...args),
-  shouldUseKeyboardAvoidance: (...args: unknown[]) => mockShouldUseKeyboardAvoidance(...args),
-}));
-
 function createViewModel(
-  overrides: Partial<ContactsAddContactDrawerProps> = {},
-): ContactsAddContactDrawerProps {
+  overrides: Partial<AddContactAppAdapterResult> = {},
+): AddContactAppAdapterResult {
   return {
     isOpen: true,
     isConfirmEnabled: false,
@@ -29,15 +19,17 @@ function createViewModel(
       namePlaceholder: "Contact name",
       namingDisclaimer:
         "For privacy, avoid full names and surnames. Use a nickname or just a first name + initial, e.g. 'John S'.",
-      confirmName: "Confirm name",
+      confirmAddContact: "Add contact",
       nameValidationErrors: {
         InvalidContactNameError: "Special characters are not allowed.",
+        DuplicateContactNameError: "This contact name is already in use.",
       },
     },
     onOpen: jest.fn(),
     onClose: jest.fn(),
     onDraftNameChange: jest.fn(),
-    onConfirm: jest.fn(),
+    onConfirm: jest.fn(async () => undefined),
+    reset: jest.fn(),
     ...overrides,
   };
 }
@@ -59,22 +51,23 @@ function ControlledAddContactDrawerSheet() {
 describe("ContactsAddContactDrawerSheet", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockUseKeyboardVisible.mockReturnValue({ isKeyboardVisible: false, keyboardHeight: 0 });
-    mockShouldUseKeyboardAvoidance.mockReturnValue(true);
-  });
-
-  afterEach(() => {
-    Platform.OS = originalPlatform;
   });
 
   it("should render the name form with the Figma copy and character limit", () => {
     render(<ContactsAddContactDrawerSheet {...createViewModel()} />);
 
-    expect(screen.getByText("Add contact")).toBeVisible();
+    const [drawerTitle, saveLabel] = screen.getAllByText("Add contact");
+    expect(drawerTitle).toBeVisible();
+    expect(saveLabel).toBeVisible();
     expect(screen.getByText(/For privacy, avoid full names and surnames/)).toBeVisible();
     expect(screen.getByText("0/32")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Confirm name" })).toBeDisabled();
-    expect(screen.getByTestId("contacts-add-contact-name-input")).toHaveProp("autoFocus", true);
+    expect(screen.getByTestId("contacts-add-contact-save")).toBeDisabled();
+  });
+
+  it("should focus the name field as soon as the drawer content mounts", () => {
+    render(<ContactsAddContactDrawerSheet {...createViewModel()} />);
+
+    expect(screen.UNSAFE_getByType(ContactsAddContactContent).props.autoFocus).toBe(true);
   });
 
   it("should cap the contact name at 32 characters", async () => {
@@ -92,13 +85,13 @@ describe("ContactsAddContactDrawerSheet", () => {
       "accessibilityLiveRegion",
       "polite",
     );
-    expect(screen.getByRole("button", { name: "Confirm name" })).toBeEnabled();
+    expect(screen.getByTestId("contacts-add-contact-save")).toBeEnabled();
   });
 
   it("should render the shared validation error and disable confirmation", () => {
     render(
       <ContactsAddContactDrawerSheet
-        {...createViewModel({ draftName: "Ada1", invalidNameError: "InvalidContactNameError" })}
+        {...createViewModel({ draftName: "Ada@1", invalidNameError: "InvalidContactNameError" })}
       />,
     );
 
@@ -108,7 +101,13 @@ describe("ContactsAddContactDrawerSheet", () => {
       "accessibilityLiveRegion",
       "polite",
     );
-    expect(screen.getByRole("button", { name: "Confirm name" })).toBeDisabled();
+    expect(screen.getByTestId("contacts-add-contact-save")).toBeDisabled();
+  });
+
+  it("should make the name input non-editable while saving", () => {
+    render(<ContactsAddContactDrawerSheet {...createViewModel({ isSaving: true })} />);
+
+    expect(screen.getByTestId("contacts-add-contact-name-input")).toHaveProp("editable", false);
   });
 
   it("should expose the edited name, enable confirmation, and close the drawer", async () => {
@@ -137,42 +136,26 @@ describe("ContactsAddContactDrawerSheet", () => {
     );
 
     expect(screen.getByText("3/32")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Confirm name" })).toBeEnabled();
+    expect(screen.getByTestId("contacts-add-contact-save")).toBeEnabled();
 
     await user.press(screen.getByTestId("bottom-sheet-header-close-button"));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("should pass the shared keyboard inset to the dynamic drawer", () => {
-    mockUseKeyboardVisible.mockReturnValue({ isKeyboardVisible: true, keyboardHeight: 300 });
-
+  it("should pin the confirm action to the sheet footer so the keyboard cannot cover it", () => {
     render(<ContactsAddContactDrawerSheet {...createViewModel()} />);
 
-    expect(screen.UNSAFE_getByType(BottomSheetView).props.style).toEqual({ paddingBottom: 324 });
+    expect(screen.getByRole("button", { name: "Add contact" })).toBeVisible();
+    expect(
+      within(screen.UNSAFE_getByType(ContactsAddContactContent)).queryByRole("button", {
+        name: "Add contact",
+      }),
+    ).toBeNull();
   });
 
-  it("should omit the keyboard inset when native resize handles the keyboard", () => {
-    mockUseKeyboardVisible.mockReturnValue({ isKeyboardVisible: true, keyboardHeight: 300 });
-    mockShouldUseKeyboardAvoidance.mockReturnValue(false);
+  it("should render no footer while the drawer is closed", () => {
+    render(<ContactsAddContactDrawerSheet {...createViewModel({ isOpen: false })} />);
 
-    render(<ContactsAddContactDrawerSheet {...createViewModel()} />);
-
-    expect(screen.UNSAFE_getByType(BottomSheetView).props.style).toEqual({ paddingBottom: 24 });
-  });
-
-  it("should use will events on iOS", () => {
-    Platform.OS = "ios";
-
-    render(<ContactsAddContactDrawerSheet {...createViewModel()} />);
-
-    expect(mockUseKeyboardVisible).toHaveBeenCalledWith({ eventTiming: "will" });
-  });
-
-  it("should use did events on Android", () => {
-    Platform.OS = "android";
-
-    render(<ContactsAddContactDrawerSheet {...createViewModel()} />);
-
-    expect(mockUseKeyboardVisible).toHaveBeenCalledWith({ eventTiming: "did" });
+    expect(screen.queryByRole("button", { name: "Add contact" })).toBeNull();
   });
 });

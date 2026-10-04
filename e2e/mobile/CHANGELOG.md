@@ -1,5 +1,545 @@
 # ledger-live-mobile-e2e-tests
 
+## 0.40.0
+
+### Minor Changes
+
+- [#22079](https://github.com/LedgerHQ/ledger-live/pull/22079) [`7396e53`](https://github.com/LedgerHQ/ledger-live/commit/7396e5378ba6692318de27ebdcb9b1a37aecac4c) Thanks [@claudiiafg](https://github.com/claudiiafg)! - Add desktop and mobile E2E coverage for browsing and searching contacts (B2CQA-6240).
+
+- [#22221](https://github.com/LedgerHQ/ledger-live/pull/22221) [`90efc9b`](https://github.com/LedgerHQ/ledger-live/commit/90efc9b1613408f73f90977d929f832a93ad0298) Thanks [@Valentin-Ledger](https://github.com/Valentin-Ledger)! - Keep Ethereum blind signing off in the mobile borrow open-loan spec so deposit and borrow must clear-sign.
+
+## 0.40.0-next.0
+
+### Minor Changes
+
+- [#22079](https://github.com/LedgerHQ/ledger-live/pull/22079) [`7396e53`](https://github.com/LedgerHQ/ledger-live/commit/7396e5378ba6692318de27ebdcb9b1a37aecac4c) Thanks [@claudiiafg](https://github.com/claudiiafg)! - Add desktop and mobile E2E coverage for browsing and searching contacts (B2CQA-6240).
+
+- [#22221](https://github.com/LedgerHQ/ledger-live/pull/22221) [`90efc9b`](https://github.com/LedgerHQ/ledger-live/commit/90efc9b1613408f73f90977d929f832a93ad0298) Thanks [@Valentin-Ledger](https://github.com/Valentin-Ledger)! - Keep Ethereum blind signing off in the mobile borrow open-loan spec so deposit and borrow must clear-sign.
+
+## 0.39.0
+
+### Minor Changes
+
+- [#21716](https://github.com/LedgerHQ/ledger-live/pull/21716) [`641fdb7`](https://github.com/LedgerHQ/ledger-live/commit/641fdb7b392aff50d4bfa206e2435f75cb610227) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Let the mobile Ledger Sync e2e suites run against the PROD trustchain during a release validation. The environment now reaches the app as a Detox launch arg, which the e2e bridge applies before the app tree mounts — the only point where the trustchain SDK singleton can still be pinned — so it no longer has to be refused outright.
+
+- [#21413](https://github.com/LedgerHQ/ledger-live/pull/21413) [`bd3d8c4`](https://github.com/LedgerHQ/ledger-live/commit/bd3d8c40fed36706147c9aede6d2618776ffd53c) Thanks [@jeportie](https://github.com/jeportie)! - Stop the Allure test description from repeating the `SPECULOS App: <name> (<version>)` block once
+  per Speculos (re)launch. `jest-allure2-reporter`'s `allure.description()` appends rather than
+  replaces — each call pushes a paragraph that the reporter joins with a blank line — and
+  `launchSpeculos()` emits one on every invocation, so a test whose setup retried three times printed
+  the same block four times. The mobile reporter config now drops verbatim-duplicate paragraphs before
+  joining, keeping the first of each; blocks for genuinely different apps (a swap lists one per
+  currency plus Exchange and its dependencies) all differ, so they are untouched. `descriptionHtml` is
+  deduplicated the same way, since it appends identically.
+
+  Also stops `executeCliCommands` from tearing down and relaunching Speculos after its _final_ failed
+  attempt. Its two siblings, `executeCliCommandsOnApp` and `setupMainSpeculosApp`, already guard that
+  re-setup with `attempt < maxRetries`; without the guard the loop pays for one more
+  acquire/release cycle it will never use, and a failure inside that re-setup escapes the retry loop
+  and replaces the real `lastError` in the reported message.
+
+- [#21894](https://github.com/LedgerHQ/ledger-live/pull/21894) [`ca6dd3a`](https://github.com/LedgerHQ/ledger-live/commit/ca6dd3a81b3453808e22794ad416a10658c5e3d4) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Fix the nightly mobile borrow e2e run.
+
+  `BorrowPage.expectStepDone` reached for detox's `device` global, which a page object is not
+  loaded with, so the first signed step threw `ReferenceError: device is not defined` after its
+  transaction had already gone out — and every retry then found the approval step complete and
+  failed on its "not yet done" precondition. Granting Morpho access is account state rather than
+  per-loan state, so that step now passes through when it is already granted.
+
+  The Speculos driver gained the Ethereum app's blind-signing setting, without which Morpho
+  calldata is answered with `6a80` and no review is ever drawn, plus the risk warning that
+  enabling it puts in front of the review. Transaction Check now stops waiting as soon as that
+  warning appears instead of spending its whole budget on it.
+
+  The borrow driver also floors the keyless RPC's priority-fee suggestion so its broadcasts get
+  mined, keeps the fee cap proportional to the base fee so the node's up-front reservation stays
+  within the account balance, retries reads the RPC's archive-restricted backends reject, polls
+  for the receipt rather than watching whole blocks for a replacement, waits for a remote
+  Speculos to be ready so its address is published, and reports the partner's reason for a
+  rejected action instead of only the status line.
+
+- [#21595](https://github.com/LedgerHQ/ledger-live/pull/21595) [`a18539e`](https://github.com/LedgerHQ/ledger-live/commit/a18539e885fdfe379c77623a448256fb4602b6c0) Thanks [@YazhuEth](https://github.com/YazhuEth)! - Read the sub-account id from the screen in `navigateToSubAccount` instead of rebuilding it. Rebuilding meant hardcoding one of the two id formats in the wild: an account synced before the generic coin framework keeps the format it was stored under, a newer one gets `encodeTokenAccountId`. The helper now opens the sub-account from the flat accounts list and returns the id the app gave it, with an identity assertion that does not depend on the id it just read.
+
+  `navigateToTokenInAccount` expands the token list when the "see more" button is present. The list shows three tokens while collapsed, so a fourth one was never on screen to scroll to. Adds a `testID` to that button in `SubAccountsList`.
+
+- [#21702](https://github.com/LedgerHQ/ledger-live/pull/21702) [`654199a`](https://github.com/LedgerHQ/ledger-live/commit/654199ad52f8dce63fc46cd826d11f90c533b804) Thanks [@jeportie](https://github.com/jeportie)! - Surface the swap-init root cause on mobile E2E failures
+
+  When the device stalls on "Exchange app is ready", `waitForReviewTransaction` appends a hint telling
+  the reader to open the "⚠️ Swap-init error" attachment. That hint lives in shared code and is
+  emitted on both platforms, but the attachment was produced by the desktop harness only, so on
+  mobile it pointed at something that never existed.
+
+  The extraction now lives in `@ledgerhq/live-e2e-shared/swapInitError` and both harnesses use it.
+  Mobile attaches the result first, scanning the app logs and the webview console together, because
+  the failure can surface on either side of the wallet-api call. Desktop delegates to the shared
+  function and keeps its previous output.
+
+- [#21807](https://github.com/LedgerHQ/ledger-live/pull/21807) [`96d6c1a`](https://github.com/LedgerHQ/ledger-live/commit/96d6c1af0048108952ac2a5183127816baa478bc) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Give the receive verify-address tests back to Coin-integration (QAA-1500)
+
+  `1d62665e5e9` moved `receive.address.spec.ts` off Wallet XP but carved XRP and
+  Tezos out to `Team.BST` — on desktop through two `teamOwner` overrides, on mobile
+  through `BST_VERIFY_ADDRESS_CURRENCIES`. Every test split from B2CQA-249 and
+  B2CQA-651 belongs to Coin-integration, so both carve-outs go, and with them the
+  now-dead `teamOwner?` field on `ReceiveTestCase`.
+
+  Ownership feeds Allure's `owner`/`parentSuite`/`feature` and the `team` CI
+  dropdown, which `e2e/tooling/filter/teamSpecs.mjs` resolves by grepping
+  `Team.<MEMBER>` per spec _file_ — so a single `Team.BST` line pulled the whole
+  file into `team=bst`. `--list-teams` now reports `bst` at 9 desktop spec files
+  instead of 10 and 120 mobile instead of 130, with `coin-integration` unchanged.
+
+  Mobile also linked only the B2CQA-249-family key for eight of the ten currencies
+  while desktop linked both families. The missing B2CQA-651-family keys (2687, 2688,
+  2689, 2690, 2691, 2693, 2694, 2696) are added so both suites report the same Xray
+  tests.
+
+- [#21878](https://github.com/LedgerHQ/ledger-live/pull/21878) [`c2d5d6a`](https://github.com/LedgerHQ/ledger-live/commit/c2d5d6ae477d616cd9ef61d45595ffa62cdfb126) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Scroll the portfolio hero back into view before asserting on it (QAA-1571)
+
+  Android detaches off-screen FlatList rows from the native view hierarchy, so once
+  the portfolio list is scrolled past its first row the balance and the quick-action
+  CTAs are absent rather than under-visible, and no wait recovers them. The nightly
+  hierarchy dumps show the list arriving ~1194px down — the exact height of that row
+  — with `market-banner-container` as the first attached child at y=54 instead of
+  y=1248, which is why `quick-actions-ctas` and `portfolio-balance-normal` timed out
+  on Android while iOS stayed green.
+
+  Every portfolio accessor that targets the balance or the quick actions now scrolls
+  the list up to its own target first, via `scrollToId(target, list, undefined, "up")`.
+  Visibility thresholds and timeouts are unchanged. Detox's `scrollTo("top")` is not
+  usable here: the list's pull-to-refresh control means the action never reports a top
+  edge and force-breaks its loop.
+
+## 0.39.0-next.0
+
+### Minor Changes
+
+- [#21716](https://github.com/LedgerHQ/ledger-live/pull/21716) [`641fdb7`](https://github.com/LedgerHQ/ledger-live/commit/641fdb7b392aff50d4bfa206e2435f75cb610227) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Let the mobile Ledger Sync e2e suites run against the PROD trustchain during a release validation. The environment now reaches the app as a Detox launch arg, which the e2e bridge applies before the app tree mounts — the only point where the trustchain SDK singleton can still be pinned — so it no longer has to be refused outright.
+
+- [#21413](https://github.com/LedgerHQ/ledger-live/pull/21413) [`bd3d8c4`](https://github.com/LedgerHQ/ledger-live/commit/bd3d8c40fed36706147c9aede6d2618776ffd53c) Thanks [@jeportie](https://github.com/jeportie)! - Stop the Allure test description from repeating the `SPECULOS App: <name> (<version>)` block once
+  per Speculos (re)launch. `jest-allure2-reporter`'s `allure.description()` appends rather than
+  replaces — each call pushes a paragraph that the reporter joins with a blank line — and
+  `launchSpeculos()` emits one on every invocation, so a test whose setup retried three times printed
+  the same block four times. The mobile reporter config now drops verbatim-duplicate paragraphs before
+  joining, keeping the first of each; blocks for genuinely different apps (a swap lists one per
+  currency plus Exchange and its dependencies) all differ, so they are untouched. `descriptionHtml` is
+  deduplicated the same way, since it appends identically.
+
+  Also stops `executeCliCommands` from tearing down and relaunching Speculos after its _final_ failed
+  attempt. Its two siblings, `executeCliCommandsOnApp` and `setupMainSpeculosApp`, already guard that
+  re-setup with `attempt < maxRetries`; without the guard the loop pays for one more
+  acquire/release cycle it will never use, and a failure inside that re-setup escapes the retry loop
+  and replaces the real `lastError` in the reported message.
+
+- [#21894](https://github.com/LedgerHQ/ledger-live/pull/21894) [`ca6dd3a`](https://github.com/LedgerHQ/ledger-live/commit/ca6dd3a81b3453808e22794ad416a10658c5e3d4) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Fix the nightly mobile borrow e2e run.
+
+  `BorrowPage.expectStepDone` reached for detox's `device` global, which a page object is not
+  loaded with, so the first signed step threw `ReferenceError: device is not defined` after its
+  transaction had already gone out — and every retry then found the approval step complete and
+  failed on its "not yet done" precondition. Granting Morpho access is account state rather than
+  per-loan state, so that step now passes through when it is already granted.
+
+  The Speculos driver gained the Ethereum app's blind-signing setting, without which Morpho
+  calldata is answered with `6a80` and no review is ever drawn, plus the risk warning that
+  enabling it puts in front of the review. Transaction Check now stops waiting as soon as that
+  warning appears instead of spending its whole budget on it.
+
+  The borrow driver also floors the keyless RPC's priority-fee suggestion so its broadcasts get
+  mined, keeps the fee cap proportional to the base fee so the node's up-front reservation stays
+  within the account balance, retries reads the RPC's archive-restricted backends reject, polls
+  for the receipt rather than watching whole blocks for a replacement, waits for a remote
+  Speculos to be ready so its address is published, and reports the partner's reason for a
+  rejected action instead of only the status line.
+
+- [#21595](https://github.com/LedgerHQ/ledger-live/pull/21595) [`a18539e`](https://github.com/LedgerHQ/ledger-live/commit/a18539e885fdfe379c77623a448256fb4602b6c0) Thanks [@YazhuEth](https://github.com/YazhuEth)! - Read the sub-account id from the screen in `navigateToSubAccount` instead of rebuilding it. Rebuilding meant hardcoding one of the two id formats in the wild: an account synced before the generic coin framework keeps the format it was stored under, a newer one gets `encodeTokenAccountId`. The helper now opens the sub-account from the flat accounts list and returns the id the app gave it, with an identity assertion that does not depend on the id it just read.
+
+  `navigateToTokenInAccount` expands the token list when the "see more" button is present. The list shows three tokens while collapsed, so a fourth one was never on screen to scroll to. Adds a `testID` to that button in `SubAccountsList`.
+
+- [#21702](https://github.com/LedgerHQ/ledger-live/pull/21702) [`654199a`](https://github.com/LedgerHQ/ledger-live/commit/654199ad52f8dce63fc46cd826d11f90c533b804) Thanks [@jeportie](https://github.com/jeportie)! - Surface the swap-init root cause on mobile E2E failures
+
+  When the device stalls on "Exchange app is ready", `waitForReviewTransaction` appends a hint telling
+  the reader to open the "⚠️ Swap-init error" attachment. That hint lives in shared code and is
+  emitted on both platforms, but the attachment was produced by the desktop harness only, so on
+  mobile it pointed at something that never existed.
+
+  The extraction now lives in `@ledgerhq/live-e2e-shared/swapInitError` and both harnesses use it.
+  Mobile attaches the result first, scanning the app logs and the webview console together, because
+  the failure can surface on either side of the wallet-api call. Desktop delegates to the shared
+  function and keeps its previous output.
+
+- [#21807](https://github.com/LedgerHQ/ledger-live/pull/21807) [`96d6c1a`](https://github.com/LedgerHQ/ledger-live/commit/96d6c1af0048108952ac2a5183127816baa478bc) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Give the receive verify-address tests back to Coin-integration (QAA-1500)
+
+  `1d62665e5e9` moved `receive.address.spec.ts` off Wallet XP but carved XRP and
+  Tezos out to `Team.BST` — on desktop through two `teamOwner` overrides, on mobile
+  through `BST_VERIFY_ADDRESS_CURRENCIES`. Every test split from B2CQA-249 and
+  B2CQA-651 belongs to Coin-integration, so both carve-outs go, and with them the
+  now-dead `teamOwner?` field on `ReceiveTestCase`.
+
+  Ownership feeds Allure's `owner`/`parentSuite`/`feature` and the `team` CI
+  dropdown, which `e2e/tooling/filter/teamSpecs.mjs` resolves by grepping
+  `Team.<MEMBER>` per spec _file_ — so a single `Team.BST` line pulled the whole
+  file into `team=bst`. `--list-teams` now reports `bst` at 9 desktop spec files
+  instead of 10 and 120 mobile instead of 130, with `coin-integration` unchanged.
+
+  Mobile also linked only the B2CQA-249-family key for eight of the ten currencies
+  while desktop linked both families. The missing B2CQA-651-family keys (2687, 2688,
+  2689, 2690, 2691, 2693, 2694, 2696) are added so both suites report the same Xray
+  tests.
+
+- [#21878](https://github.com/LedgerHQ/ledger-live/pull/21878) [`c2d5d6a`](https://github.com/LedgerHQ/ledger-live/commit/c2d5d6ae477d616cd9ef61d45595ffa62cdfb126) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Scroll the portfolio hero back into view before asserting on it (QAA-1571)
+
+  Android detaches off-screen FlatList rows from the native view hierarchy, so once
+  the portfolio list is scrolled past its first row the balance and the quick-action
+  CTAs are absent rather than under-visible, and no wait recovers them. The nightly
+  hierarchy dumps show the list arriving ~1194px down — the exact height of that row
+  — with `market-banner-container` as the first attached child at y=54 instead of
+  y=1248, which is why `quick-actions-ctas` and `portfolio-balance-normal` timed out
+  on Android while iOS stayed green.
+
+  Every portfolio accessor that targets the balance or the quick actions now scrolls
+  the list up to its own target first, via `scrollToId(target, list, undefined, "up")`.
+  Visibility thresholds and timeouts are unchanged. Detox's `scrollTo("top")` is not
+  usable here: the list's pull-to-refresh control means the action never reports a top
+  edge and force-breaks its loop.
+
+## 0.38.0
+
+### Minor Changes
+
+- [#21206](https://github.com/LedgerHQ/ledger-live/pull/21206) [`750bdd4`](https://github.com/LedgerHQ/ledger-live/commit/750bdd4bbaaf7a1c591c8a8f21479f6c64fc9c95) Thanks [@RobinVncnt](https://github.com/RobinVncnt)! - Add mobile E2E for the post-onboarding hub mock flow (LIVE-31323).
+
+- [#21332](https://github.com/LedgerHQ/ledger-live/pull/21332) [`08201e0`](https://github.com/LedgerHQ/ledger-live/commit/08201e0c9e14ed5436972d544bffc7484fad3703) Thanks [@dilaouid](https://github.com/dilaouid)! - feat(send): open the MAD for the new send flow on LWM
+
+- [#21312](https://github.com/LedgerHQ/ledger-live/pull/21312) [`a6db426`](https://github.com/LedgerHQ/ledger-live/commit/a6db4268cedf2523669ba946a683e1680ea4033e) Thanks [@jeportie](https://github.com/jeportie)! - Wait for the transfer bottom sheet to settle before tapping it (QAA-1522)
+
+  `tapById` does not wait, and `openReceiveDrawer` tapped the sheet's receive button
+  immediately after asking the sheet to open. `toBeVisible()` is satisfied at 75%,
+  which a bottom sheet meets while still sliding, so on Android CI the tap landed
+  either on a moving view — Espresso refusing the action with `target view does not
+match one or more of the following constraints` — or before the button had
+  mounted at all. 3/5 nightlies, still failing in the latest.
+
+  Each of the three sheet taps now waits for the sheet's own container
+  (`transfer-drawer`) at 100% visibility, per `e2e/mobile/docs/add-or-update-e2e.md` rules 11
+  and 12: anchor on the state that proves the sheet is at rest rather than adding a
+  retry or lengthening a timeout.
+
+- [#21328](https://github.com/LedgerHQ/ledger-live/pull/21328) [`e9bdc14`](https://github.com/LedgerHQ/ledger-live/commit/e9bdc141bf251f0b94cdf58024386f1842adb7c7) Thanks [@jeportie](https://github.com/jeportie)! - Wait for the portfolio balance to resolve before reading it (QAA-1523)
+
+  `expectTotalBalanceCounterValue` read `portfolio-balance-amount` with no prior
+  wait. The balance section renders a skeleton in place of that element until the
+  counter values resolve, so straight after a counter-value change the element does
+  not exist. `getLabelOfElement` wraps its read in `retryUntilTimeout`, which
+  retries on throw — so it polled a missing element for 60s and failed with
+  `❌ [retryUntilTimeout] Timed out after 60000ms`, naming neither the element nor
+  the reason. 3/5 nightlies on Android.
+
+  The assertion now waits for `portfolio-balance-normal`, which the section carries
+  only once the balance is available, before reading the amount. That puts the
+  budget on the step that is actually slow and separates "the balance never
+  resolved" from "it resolved in the wrong currency".
+
+- [#21313](https://github.com/LedgerHQ/ledger-live/pull/21313) [`42f8610`](https://github.com/LedgerHQ/ledger-live/commit/42f86106adef416c279d7306508d1e454311d565) Thanks [@jeportie](https://github.com/jeportie)! - Wait for the portfolio quick-action row to settle before tapping it (QAA-1524)
+
+  `tapById` does not wait, so the quick-action taps were issued as soon as the
+  portfolio rendered. The row mounts after the portfolio's own data resolves, so on
+  Android CI the tap could land before it existed — `No views in hierarchy found
+matching ... quick-action-buy ... VISIBLE`, 3/5 nightlies.
+
+  Each press now waits for the row's own container at 100% visibility, which proves
+  the row is mounted and laid out. Anchoring the wait rather than lengthening a
+  timeout or adding a retry, per `e2e/mobile/docs/add-or-update-e2e.md` rules 11 and 12.
+
+- [#21412](https://github.com/LedgerHQ/ledger-live/pull/21412) [`3acaa6d`](https://github.com/LedgerHQ/ledger-live/commit/3acaa6d3038d086d0011100c8695724726bfa029) Thanks [@jeportie](https://github.com/jeportie)! - Make `CommonPage.successViewDetails()` fail on the app's error modal instead of waiting out its full
+  60s budget on a success screen that can no longer appear. The step is shared by every mobile
+  send/delegate/stake spec, and it waited on `validate-success-screen` with a bare `toBeVisible`. When
+  the signing job fails, the flow renders `GenericErrorView` in place of the success screen, so the
+  wait could only ever time out — and reported "success screen never appears", which hid the real
+  error and mis-attributed QAA-1540 for four nightlies.
+
+  The wait now passes `errorElementId: generic-error-modal`, the fail-fast option `waitForElement`
+  already offers and that `swap.page.ts` already uses, so the failure is raised within ~1s of the
+  error modal appearing and names it.
+
+  This does not make the underlying NEAR/Stax delegate failure less frequent — see QAA-1540 for the
+  30s `GeneralDmkError` it exposes.
+
+- [#21449](https://github.com/LedgerHQ/ledger-live/pull/21449) [`b08a530`](https://github.com/LedgerHQ/ledger-live/commit/b08a5308ccad03cdfc95a8f18230a2bc13f80a55) Thanks [@jeportie](https://github.com/jeportie)! - Trim the portfolio page object comments to one line each
+
+  The two settle helpers carried four comment blocks, 15 lines, restating the root
+  cause already recorded in the QAA-1522 and QAA-1524 pull requests. Long comments
+  go stale and the analysis is easier to correct where people look for it.
+
+  The two container id fields lose their comments entirely — the field names already
+  say they are containers. Each settle helper keeps one line, holding only the fact a
+  future reader needs to not remove the wait, plus its ticket reference.
+
+## 0.38.0-next.0
+
+### Minor Changes
+
+- [#21206](https://github.com/LedgerHQ/ledger-live/pull/21206) [`750bdd4`](https://github.com/LedgerHQ/ledger-live/commit/750bdd4bbaaf7a1c591c8a8f21479f6c64fc9c95) Thanks [@RobinVncnt](https://github.com/RobinVncnt)! - Add mobile E2E for the post-onboarding hub mock flow (LIVE-31323).
+
+- [#21332](https://github.com/LedgerHQ/ledger-live/pull/21332) [`08201e0`](https://github.com/LedgerHQ/ledger-live/commit/08201e0c9e14ed5436972d544bffc7484fad3703) Thanks [@dilaouid](https://github.com/dilaouid)! - feat(send): open the MAD for the new send flow on LWM
+
+- [#21312](https://github.com/LedgerHQ/ledger-live/pull/21312) [`a6db426`](https://github.com/LedgerHQ/ledger-live/commit/a6db4268cedf2523669ba946a683e1680ea4033e) Thanks [@jeportie](https://github.com/jeportie)! - Wait for the transfer bottom sheet to settle before tapping it (QAA-1522)
+
+  `tapById` does not wait, and `openReceiveDrawer` tapped the sheet's receive button
+  immediately after asking the sheet to open. `toBeVisible()` is satisfied at 75%,
+  which a bottom sheet meets while still sliding, so on Android CI the tap landed
+  either on a moving view — Espresso refusing the action with `target view does not
+match one or more of the following constraints` — or before the button had
+  mounted at all. 3/5 nightlies, still failing in the latest.
+
+  Each of the three sheet taps now waits for the sheet's own container
+  (`transfer-drawer`) at 100% visibility, per `e2e/mobile/docs/add-or-update-e2e.md` rules 11
+  and 12: anchor on the state that proves the sheet is at rest rather than adding a
+  retry or lengthening a timeout.
+
+- [#21328](https://github.com/LedgerHQ/ledger-live/pull/21328) [`e9bdc14`](https://github.com/LedgerHQ/ledger-live/commit/e9bdc141bf251f0b94cdf58024386f1842adb7c7) Thanks [@jeportie](https://github.com/jeportie)! - Wait for the portfolio balance to resolve before reading it (QAA-1523)
+
+  `expectTotalBalanceCounterValue` read `portfolio-balance-amount` with no prior
+  wait. The balance section renders a skeleton in place of that element until the
+  counter values resolve, so straight after a counter-value change the element does
+  not exist. `getLabelOfElement` wraps its read in `retryUntilTimeout`, which
+  retries on throw — so it polled a missing element for 60s and failed with
+  `❌ [retryUntilTimeout] Timed out after 60000ms`, naming neither the element nor
+  the reason. 3/5 nightlies on Android.
+
+  The assertion now waits for `portfolio-balance-normal`, which the section carries
+  only once the balance is available, before reading the amount. That puts the
+  budget on the step that is actually slow and separates "the balance never
+  resolved" from "it resolved in the wrong currency".
+
+- [#21313](https://github.com/LedgerHQ/ledger-live/pull/21313) [`42f8610`](https://github.com/LedgerHQ/ledger-live/commit/42f86106adef416c279d7306508d1e454311d565) Thanks [@jeportie](https://github.com/jeportie)! - Wait for the portfolio quick-action row to settle before tapping it (QAA-1524)
+
+  `tapById` does not wait, so the quick-action taps were issued as soon as the
+  portfolio rendered. The row mounts after the portfolio's own data resolves, so on
+  Android CI the tap could land before it existed — `No views in hierarchy found
+matching ... quick-action-buy ... VISIBLE`, 3/5 nightlies.
+
+  Each press now waits for the row's own container at 100% visibility, which proves
+  the row is mounted and laid out. Anchoring the wait rather than lengthening a
+  timeout or adding a retry, per `e2e/mobile/docs/add-or-update-e2e.md` rules 11 and 12.
+
+- [#21412](https://github.com/LedgerHQ/ledger-live/pull/21412) [`3acaa6d`](https://github.com/LedgerHQ/ledger-live/commit/3acaa6d3038d086d0011100c8695724726bfa029) Thanks [@jeportie](https://github.com/jeportie)! - Make `CommonPage.successViewDetails()` fail on the app's error modal instead of waiting out its full
+  60s budget on a success screen that can no longer appear. The step is shared by every mobile
+  send/delegate/stake spec, and it waited on `validate-success-screen` with a bare `toBeVisible`. When
+  the signing job fails, the flow renders `GenericErrorView` in place of the success screen, so the
+  wait could only ever time out — and reported "success screen never appears", which hid the real
+  error and mis-attributed QAA-1540 for four nightlies.
+
+  The wait now passes `errorElementId: generic-error-modal`, the fail-fast option `waitForElement`
+  already offers and that `swap.page.ts` already uses, so the failure is raised within ~1s of the
+  error modal appearing and names it.
+
+  This does not make the underlying NEAR/Stax delegate failure less frequent — see QAA-1540 for the
+  30s `GeneralDmkError` it exposes.
+
+- [#21449](https://github.com/LedgerHQ/ledger-live/pull/21449) [`b08a530`](https://github.com/LedgerHQ/ledger-live/commit/b08a5308ccad03cdfc95a8f18230a2bc13f80a55) Thanks [@jeportie](https://github.com/jeportie)! - Trim the portfolio page object comments to one line each
+
+  The two settle helpers carried four comment blocks, 15 lines, restating the root
+  cause already recorded in the QAA-1522 and QAA-1524 pull requests. Long comments
+  go stale and the analysis is easier to correct where people look for it.
+
+  The two container id fields lose their comments entirely — the field names already
+  say they are containers. Each settle helper keeps one line, holding only the fact a
+  future reader needs to not remove the wait, plus its ticket reference.
+
+## 0.37.0
+
+### Minor Changes
+
+- [#21331](https://github.com/LedgerHQ/ledger-live/pull/21331) [`7e9416b`](https://github.com/LedgerHQ/ledger-live/commit/7e9416b629ae3cf4cf6da97b5a50e1197a2a101c) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Remove dead code from the e2e test suites: page-object methods and locators with no callers are deleted, members used only inside their own class are made `private`, and symbols exported but only referenced in their own file lose the `export`. Two empty page classes left behind by the sweep (`portfolioEmptyState.page.ts`, `transferMenu.drawer.ts`) are removed along with their `Application` wiring.
+
+  Also fixes `e2e/mobile/scripts/typecheck.js`, which passed the raw `tsconfig.json` to `parseJsonConfigFileContent` and so never resolved the `extends` chain. It reported 466 phantom errors on a clean tree, which hid real ones — including the `app.<page>.<method>()` calls that break at runtime with `TypeError: ... is not a function` when a page-object method is deleted while a caller in `e2e/mobile/models/` remains. It now uses `getParsedCommandLineOfConfigFile` and reports clean.
+
+- [#20931](https://github.com/LedgerHQ/ledger-live/pull/20931) [`75711a2`](https://github.com/LedgerHQ/ledger-live/commit/75711a26b6a6e23a8ee1e9e34e3e574a08f76a95) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Split the Ledger Wallet Mobile Ledger Sync E2E test into five suites, one per Xray ticket, each
+  booting the app already a member of a freshly created trustchain and destroying it afterwards. The
+  mobile suite now shares the Ledger Sync CLI layer from `live-e2e-shared` instead of keeping a
+  near-verbatim copy, and a `TrustchainPage` asserts trustchain contents through the CLI. On the app
+  side this adds a Detox-only `importTrustchain` bridge message so a test can pre-seed the trustchain,
+  and testIDs on the `TinyCard` CTA and the manage-instances row so the synchronized instances list is
+  reachable from tests — the card's testID sat on a non-touchable container, so taps on it did nothing.
+
+  Also fixes `addAccountAtIndex`, which cleared the selection whenever exactly one account was
+  discovered: it tapped "deselect all" only for multiple accounts but tapped the account row
+  unconditionally, and a lone account arrives already selected, so Confirm was disabled and account
+  discovery timed out.
+
+## 0.37.0-next.0
+
+### Minor Changes
+
+- [#21331](https://github.com/LedgerHQ/ledger-live/pull/21331) [`7e9416b`](https://github.com/LedgerHQ/ledger-live/commit/7e9416b629ae3cf4cf6da97b5a50e1197a2a101c) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Remove dead code from the e2e test suites: page-object methods and locators with no callers are deleted, members used only inside their own class are made `private`, and symbols exported but only referenced in their own file lose the `export`. Two empty page classes left behind by the sweep (`portfolioEmptyState.page.ts`, `transferMenu.drawer.ts`) are removed along with their `Application` wiring.
+
+  Also fixes `e2e/mobile/scripts/typecheck.js`, which passed the raw `tsconfig.json` to `parseJsonConfigFileContent` and so never resolved the `extends` chain. It reported 466 phantom errors on a clean tree, which hid real ones — including the `app.<page>.<method>()` calls that break at runtime with `TypeError: ... is not a function` when a page-object method is deleted while a caller in `e2e/mobile/models/` remains. It now uses `getParsedCommandLineOfConfigFile` and reports clean.
+
+- [#20931](https://github.com/LedgerHQ/ledger-live/pull/20931) [`75711a2`](https://github.com/LedgerHQ/ledger-live/commit/75711a26b6a6e23a8ee1e9e34e3e574a08f76a95) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Split the Ledger Wallet Mobile Ledger Sync E2E test into five suites, one per Xray ticket, each
+  booting the app already a member of a freshly created trustchain and destroying it afterwards. The
+  mobile suite now shares the Ledger Sync CLI layer from `live-e2e-shared` instead of keeping a
+  near-verbatim copy, and a `TrustchainPage` asserts trustchain contents through the CLI. On the app
+  side this adds a Detox-only `importTrustchain` bridge message so a test can pre-seed the trustchain,
+  and testIDs on the `TinyCard` CTA and the manage-instances row so the synchronized instances list is
+  reachable from tests — the card's testID sat on a non-touchable container, so taps on it did nothing.
+
+  Also fixes `addAccountAtIndex`, which cleared the selection whenever exactly one account was
+  discovered: it tapped "deselect all" only for multiple accounts but tapped the account row
+  unconditionally, and a lone account arrives already selected, so Confirm was disabled and account
+  discovery timed out.
+
+## 0.36.0
+
+### Minor Changes
+
+- [#20991](https://github.com/LedgerHQ/ledger-live/pull/20991) [`3bea41d`](https://github.com/LedgerHQ/ledger-live/commit/3bea41dcb6a5ef8d26547be31dee94bc42448e46) Thanks [@jeportie](https://github.com/jeportie)! - Assert the mobile Buy/Sell handoff instead of the partner's checkout page, matching what
+  `e2e/desktop` already does. The app records the `WebPTXPlayer` handoff URL in a
+  `Config.DETOX`-guarded store and exposes it over the e2e bridge as `getPtxHandoff`, so the
+  specs verify the provider and query parameters without ever loading Transak's or MoonPay's
+  site — removing a dependency on a third party's uptime, and the ~70s per test spent waiting
+  on it. Parsing lives in `libs/live-e2e-shared/src/buySellHandoff.ts` and handles the
+  double-encoded URL that made `new URL()` throw, plus provider aliases such as Mercuryo's
+  `mrcr`. Also fixes the sell flow asserting a minimum amount the flow never types, since it
+  taps the 75% button, and makes the "Buy and sell query parameters" test actually assert
+  query parameters.
+
+- [#20964](https://github.com/LedgerHQ/ledger-live/pull/20964) [`183706d`](https://github.com/LedgerHQ/ledger-live/commit/183706d1664336ef9798e3bebc06551803fe00bd) Thanks [@tonykhaov](https://github.com/tonykhaov)! - Disable the large-screen upsell modal in E2E defaults so "Spot scams before signing" cannot cover Wallet 4.0 navigation.
+
+- [#20992](https://github.com/LedgerHQ/ledger-live/pull/20992) [`4fc5ef0`](https://github.com/LedgerHQ/ledger-live/commit/4fc5ef09554a541cbf6a497f227df4373bb06470) Thanks [@jeportie](https://github.com/jeportie)! - Record `fetch` traffic in the e2e network log alongside axios, so RTK Query — and therefore
+  every CAL token lookup — is no longer invisible in CI artifacts, and attach a per-host
+  summary with peak concurrency so a fan-out is legible without reading several hundred
+  entries. Query strings, fragments and any `user:pass@` userinfo are stripped before a URL is
+  recorded, and no bodies or headers are captured.
+
+- [#20959](https://github.com/LedgerHQ/ledger-live/pull/20959) [`6bbb468`](https://github.com/LedgerHQ/ledger-live/commit/6bbb4682ec313ea2d4b8fba2261a05e84386ba7d) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Add the Borrow cold-start E2E test to the Ledger Wallet Mobile suite (B2CQA-6062): the portfolio
+  entry point opens the Borrow live app and shows the "Introducing Crypto Loan" modal. Broadcasts
+  nothing and runs on an isolated seed, so it needs no device and is safe to run in parallel.
+  Verified on Android and iOS. The portfolio entry point taps the card that was scrolled into view
+  rather than the CTA nested inside it — both share the same `onPress`, but only the card is
+  guaranteed on screen after the scroll.
+
+## 0.36.0-next.0
+
+### Minor Changes
+
+- [#20991](https://github.com/LedgerHQ/ledger-live/pull/20991) [`3bea41d`](https://github.com/LedgerHQ/ledger-live/commit/3bea41dcb6a5ef8d26547be31dee94bc42448e46) Thanks [@jeportie](https://github.com/jeportie)! - Assert the mobile Buy/Sell handoff instead of the partner's checkout page, matching what
+  `e2e/desktop` already does. The app records the `WebPTXPlayer` handoff URL in a
+  `Config.DETOX`-guarded store and exposes it over the e2e bridge as `getPtxHandoff`, so the
+  specs verify the provider and query parameters without ever loading Transak's or MoonPay's
+  site — removing a dependency on a third party's uptime, and the ~70s per test spent waiting
+  on it. Parsing lives in `libs/live-e2e-shared/src/buySellHandoff.ts` and handles the
+  double-encoded URL that made `new URL()` throw, plus provider aliases such as Mercuryo's
+  `mrcr`. Also fixes the sell flow asserting a minimum amount the flow never types, since it
+  taps the 75% button, and makes the "Buy and sell query parameters" test actually assert
+  query parameters.
+
+- [#20964](https://github.com/LedgerHQ/ledger-live/pull/20964) [`183706d`](https://github.com/LedgerHQ/ledger-live/commit/183706d1664336ef9798e3bebc06551803fe00bd) Thanks [@tonykhaov](https://github.com/tonykhaov)! - Disable the large-screen upsell modal in E2E defaults so "Spot scams before signing" cannot cover Wallet 4.0 navigation.
+
+- [#20992](https://github.com/LedgerHQ/ledger-live/pull/20992) [`4fc5ef0`](https://github.com/LedgerHQ/ledger-live/commit/4fc5ef09554a541cbf6a497f227df4373bb06470) Thanks [@jeportie](https://github.com/jeportie)! - Record `fetch` traffic in the e2e network log alongside axios, so RTK Query — and therefore
+  every CAL token lookup — is no longer invisible in CI artifacts, and attach a per-host
+  summary with peak concurrency so a fan-out is legible without reading several hundred
+  entries. Query strings, fragments and any `user:pass@` userinfo are stripped before a URL is
+  recorded, and no bodies or headers are captured.
+
+- [#20959](https://github.com/LedgerHQ/ledger-live/pull/20959) [`6bbb468`](https://github.com/LedgerHQ/ledger-live/commit/6bbb4682ec313ea2d4b8fba2261a05e84386ba7d) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Add the Borrow cold-start E2E test to the Ledger Wallet Mobile suite (B2CQA-6062): the portfolio
+  entry point opens the Borrow live app and shows the "Introducing Crypto Loan" modal. Broadcasts
+  nothing and runs on an isolated seed, so it needs no device and is safe to run in parallel.
+  Verified on Android and iOS. The portfolio entry point taps the card that was scrolled into view
+  rather than the CTA nested inside it — both share the same `onPress`, but only the card is
+  guaranteed on screen after the scroll.
+
+## 0.35.0
+
+### Minor Changes
+
+- [#20571](https://github.com/LedgerHQ/ledger-live/pull/20571) [`7c8d5df`](https://github.com/LedgerHQ/ledger-live/commit/7c8d5dfa862a2e9c3a35251b5d06a3cd4f905d2a) Thanks [@live-github-bot](https://github.com/apps/live-github-bot)! - Thread the coin-module `Context` (ADR-019) explicitly through the coin-evm, coin-vechain and coin-near api and logic layers instead of resolving configuration from the module-level `getCoinConfig` singleton. Exported logic functions now take the context as their first argument, resolve `config` from it (`await context.config(currencyId)`), and pass an explicit, required `config` down to the network layer — no `config?` optionals and no singleton reads on the data path. `getCoinConfig`/`setCoinConfig` remain only as the compatibility surface for the classic account bridge. Ledger Live consumers (live-common, desktop, mobile and coin-celo) are updated to resolve and pass config/context explicitly. Also fixes a coin-polkadot type-inference issue where `getTransactionMaterialWithMetadata`'s cache-key extractor narrowed the cached signature and dropped the `config` argument.
+
+- [#20743](https://github.com/LedgerHQ/ledger-live/pull/20743) [`ac097e6`](https://github.com/LedgerHQ/ledger-live/commit/ac097e6a452e747c4fde117da38da22e9da85ed7) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Fix scroll targeting and silent failures in the Ledger Wallet Mobile E2E suite: target leaf rows
+  instead of viewport-tall wrappers so assertions reach the default 75% visibility honestly, delete the
+  `visibilityPercentage` parameter so no site can lower the gate, name the scroll container at every
+  call site that used to let the engine guess one, replace the unexplained pixel steps with the default,
+  count rows by existence rather than by what fits the screen, log the scroll errors `scrollOnce`
+  used to swallow and correct its `"bottom"` fallback direction, make the `isIdVisible`/`isIdPresent`
+  probes index-safe so a shared id stops being reported as invisible, and assert visibility where the
+  suite previously only proved an element existed in the tree. On the app side, the accounts list
+  scrollable now carries a stable `accounts-list` testID instead of one keyed on the account count.
+
+- [#20716](https://github.com/LedgerHQ/ledger-live/pull/20716) [`7277426`](https://github.com/LedgerHQ/ledger-live/commit/7277426ab6387ba6faff6d06eefa1a25125f3734) Thanks [@jeportie](https://github.com/jeportie)! - Fix mobile swap cross-account warning E2E: pin the send account (Ethereum 1) so it can't collapse onto the receive account when the drawer re-orders USDT accounts by balance
+
+- [#19909](https://github.com/LedgerHQ/ledger-live/pull/19909) [`311e79f`](https://github.com/LedgerHQ/ledger-live/commit/311e79f15f334f2a7b0499dbbfe57fa835e8b0b2) Thanks [@henri-ly](https://github.com/henri-ly)! - add new send flow tokens test, and type the amount in crypto (the step opens in fiat) by tagging
+  the amount fiat/crypto toggle with a `amount-mode-toggle` testID
+
+## 0.35.0-next.0
+
+### Minor Changes
+
+- [#20571](https://github.com/LedgerHQ/ledger-live/pull/20571) [`7c8d5df`](https://github.com/LedgerHQ/ledger-live/commit/7c8d5dfa862a2e9c3a35251b5d06a3cd4f905d2a) Thanks [@live-github-bot](https://github.com/apps/live-github-bot)! - Thread the coin-module `Context` (ADR-019) explicitly through the coin-evm, coin-vechain and coin-near api and logic layers instead of resolving configuration from the module-level `getCoinConfig` singleton. Exported logic functions now take the context as their first argument, resolve `config` from it (`await context.config(currencyId)`), and pass an explicit, required `config` down to the network layer — no `config?` optionals and no singleton reads on the data path. `getCoinConfig`/`setCoinConfig` remain only as the compatibility surface for the classic account bridge. Ledger Live consumers (live-common, desktop, mobile and coin-celo) are updated to resolve and pass config/context explicitly. Also fixes a coin-polkadot type-inference issue where `getTransactionMaterialWithMetadata`'s cache-key extractor narrowed the cached signature and dropped the `config` argument.
+
+- [#20743](https://github.com/LedgerHQ/ledger-live/pull/20743) [`ac097e6`](https://github.com/LedgerHQ/ledger-live/commit/ac097e6a452e747c4fde117da38da22e9da85ed7) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Fix scroll targeting and silent failures in the Ledger Wallet Mobile E2E suite: target leaf rows
+  instead of viewport-tall wrappers so assertions reach the default 75% visibility honestly, delete the
+  `visibilityPercentage` parameter so no site can lower the gate, name the scroll container at every
+  call site that used to let the engine guess one, replace the unexplained pixel steps with the default,
+  count rows by existence rather than by what fits the screen, log the scroll errors `scrollOnce`
+  used to swallow and correct its `"bottom"` fallback direction, make the `isIdVisible`/`isIdPresent`
+  probes index-safe so a shared id stops being reported as invisible, and assert visibility where the
+  suite previously only proved an element existed in the tree. On the app side, the accounts list
+  scrollable now carries a stable `accounts-list` testID instead of one keyed on the account count.
+
+- [#20716](https://github.com/LedgerHQ/ledger-live/pull/20716) [`7277426`](https://github.com/LedgerHQ/ledger-live/commit/7277426ab6387ba6faff6d06eefa1a25125f3734) Thanks [@jeportie](https://github.com/jeportie)! - Fix mobile swap cross-account warning E2E: pin the send account (Ethereum 1) so it can't collapse onto the receive account when the drawer re-orders USDT accounts by balance
+
+- [#19909](https://github.com/LedgerHQ/ledger-live/pull/19909) [`311e79f`](https://github.com/LedgerHQ/ledger-live/commit/311e79f15f334f2a7b0499dbbfe57fa835e8b0b2) Thanks [@henri-ly](https://github.com/henri-ly)! - add new send flow tokens test, and type the amount in crypto (the step opens in fiat) by tagging
+  the amount fiat/crypto toggle with a `amount-mode-toggle` testID
+
+## 0.34.0
+
+### Minor Changes
+
+- [#20619](https://github.com/LedgerHQ/ledger-live/pull/20619) [`0175f1f`](https://github.com/LedgerHQ/ledger-live/commit/0175f1ffab7a31fe882b3538d5a87619c331bf54) Thanks [@qperrot](https://github.com/qperrot)! - Chore: add tests for memo on the new send flow
+
+## 0.34.0-next.0
+
+### Minor Changes
+
+- [#20619](https://github.com/LedgerHQ/ledger-live/pull/20619) [`0175f1f`](https://github.com/LedgerHQ/ledger-live/commit/0175f1ffab7a31fe882b3538d5a87619c331bf54) Thanks [@qperrot](https://github.com/qperrot)! - Chore: add tests for memo on the new send flow
+
+## 0.33.0
+
+### Minor Changes
+
+- [#20232](https://github.com/LedgerHQ/ledger-live/pull/20232) [`d467088`](https://github.com/LedgerHQ/ledger-live/commit/d4670885d7eb77c035d09c225eff9dca0151abb3) Thanks [@dilaouid](https://github.com/dilaouid)! - feat(lwdm): a/b testing show recent banner
+
+- [#20273](https://github.com/LedgerHQ/ledger-live/pull/20273) [`6e1f9f3`](https://github.com/LedgerHQ/ledger-live/commit/6e1f9f3e5301d4e64dcde807e836924f9359dc5a) Thanks [@VicAlbr](https://github.com/VicAlbr)! - test(e2e): harmonize LWD and LWM test names for Allure reports
+
+- [#20214](https://github.com/LedgerHQ/ledger-live/pull/20214) [`be5e007`](https://github.com/LedgerHQ/ledger-live/commit/be5e007ce64443de9a139e304f005d507dc34f0b) Thanks [@kentoforik](https://github.com/kentoforik)! - Revert temporary hardcoded HBAR to XRP swap amount workaround (LIVE-33611); provider-side minimum amount bug is now fixed.
+
+- [#20261](https://github.com/LedgerHQ/ledger-live/pull/20261) [`ba6e9c1`](https://github.com/LedgerHQ/ledger-live/commit/ba6e9c1e542ad28a59b0163e3b453e2f047a48b9) Thanks [@ysitbon](https://github.com/ysitbon)! - Import currency accessors from the domain layer instead of the `@ledgerhq/live-common/currencies` barrel.
+
+  Crypto accessors (`getCryptoCurrencyById`, `findCryptoCurrencyById`, `findCryptoCurrencyByKeyword`, `findCryptoCurrencyByTicker`, `listCryptoCurrencies`, `findCryptoCurrency`, `findCryptoCurrencyByScheme`, `hasCryptoCurrencyId`) now come from `@domain/entity-currency-crypto`, and fiat accessors (`getFiatCurrencyByTicker`, `findFiatCurrencyByTicker`, `listFiatCurrencies`, `hasFiatCurrencyTicker`) from `@domain/entity-currency-fiat`. The re-exports that forwarded them through `@ledgerhq/live-common/currencies` are removed; the barrel keeps its formatting, colour, helper, marketcap, support and URI-scheme exports. Behaviour is unchanged — the barrel already delegated to these same domain functions.
+
+## 0.33.0-next.0
+
+### Minor Changes
+
+- [#20232](https://github.com/LedgerHQ/ledger-live/pull/20232) [`d467088`](https://github.com/LedgerHQ/ledger-live/commit/d4670885d7eb77c035d09c225eff9dca0151abb3) Thanks [@dilaouid](https://github.com/dilaouid)! - feat(lwdm): a/b testing show recent banner
+
+- [#20273](https://github.com/LedgerHQ/ledger-live/pull/20273) [`6e1f9f3`](https://github.com/LedgerHQ/ledger-live/commit/6e1f9f3e5301d4e64dcde807e836924f9359dc5a) Thanks [@VicAlbr](https://github.com/VicAlbr)! - test(e2e): harmonize LWD and LWM test names for Allure reports
+
+- [#20214](https://github.com/LedgerHQ/ledger-live/pull/20214) [`be5e007`](https://github.com/LedgerHQ/ledger-live/commit/be5e007ce64443de9a139e304f005d507dc34f0b) Thanks [@kentoforik](https://github.com/kentoforik)! - Revert temporary hardcoded HBAR to XRP swap amount workaround (LIVE-33611); provider-side minimum amount bug is now fixed.
+
+- [#20261](https://github.com/LedgerHQ/ledger-live/pull/20261) [`ba6e9c1`](https://github.com/LedgerHQ/ledger-live/commit/ba6e9c1e542ad28a59b0163e3b453e2f047a48b9) Thanks [@ysitbon](https://github.com/ysitbon)! - Import currency accessors from the domain layer instead of the `@ledgerhq/live-common/currencies` barrel.
+
+  Crypto accessors (`getCryptoCurrencyById`, `findCryptoCurrencyById`, `findCryptoCurrencyByKeyword`, `findCryptoCurrencyByTicker`, `listCryptoCurrencies`, `findCryptoCurrency`, `findCryptoCurrencyByScheme`, `hasCryptoCurrencyId`) now come from `@domain/entity-currency-crypto`, and fiat accessors (`getFiatCurrencyByTicker`, `findFiatCurrencyByTicker`, `listFiatCurrencies`, `hasFiatCurrencyTicker`) from `@domain/entity-currency-fiat`. The re-exports that forwarded them through `@ledgerhq/live-common/currencies` are removed; the barrel keeps its formatting, colour, helper, marketcap, support and URI-scheme exports. Behaviour is unchanged — the barrel already delegated to these same domain functions.
+
+## 0.32.0
+
+### Minor Changes
+
+- [#19828](https://github.com/LedgerHQ/ledger-live/pull/19828) [`f08cad1`](https://github.com/LedgerHQ/ledger-live/commit/f08cad15e523a210054d9a10f0bbb69bf42a963a) Thanks [@henri-ly](https://github.com/henri-ly)! - new send flow e2e mobile native send
+
+## 0.32.0-next.0
+
+### Minor Changes
+
+- [#19828](https://github.com/LedgerHQ/ledger-live/pull/19828) [`f08cad1`](https://github.com/LedgerHQ/ledger-live/commit/f08cad15e523a210054d9a10f0bbb69bf42a963a) Thanks [@henri-ly](https://github.com/henri-ly)! - new send flow e2e mobile native send
+
 ## 0.31.0
 
 ### Minor Changes
@@ -44,603 +584,4 @@
 
 - [#18831](https://github.com/LedgerHQ/ledger-live/pull/18831) [`17a58a8`](https://github.com/LedgerHQ/ledger-live/commit/17a58a8589b703a956f867f8cdcddba4a7d3d867) Thanks [@deepyjr](https://github.com/deepyjr)! - Add Wallet 4.0 asset aggregation and detail mobile E2E coverage.
 
-## 0.29.0
-
-### Minor Changes
-
-- [#19062](https://github.com/LedgerHQ/ledger-live/pull/19062) [`5ccd2a9`](https://github.com/LedgerHQ/ledger-live/commit/5ccd2a9c229e8007851c6eb8b01c866c8e605932) Thanks [@abdurrahman-ledger](https://github.com/abdurrahman-ledger)! - Extract E2E test-support code out of `@ledgerhq/live-common`
-
-  Moved the E2E enums, models, family helpers and speculos/device utilities that lived under
-  `@ledgerhq/live-common/e2e/*` into a new dedicated, private package `@ledgerhq/live-e2e-shared`
-  (located under `e2e/`, alongside the Desktop and Mobile E2E suites). This keeps test-only code
-  out of `live-common`, which is in maintenance mode.
-
-  - `@ledgerhq/live-common`: removed the internal `./e2e` export.
-  - `@shared/feature-flags`: now exports `getAllFeatureFlags` (previously in the live-common e2e
-    module), so production debug tooling no longer depends on test code.
-  - `ledger-live-desktop`: the `devices` reducer now derives the Speculos device model from a small
-    local map instead of importing from the e2e module.
-  - Desktop/Mobile apps and E2E suites now import from `@ledgerhq/live-e2e-shared`.
-
-- [#17564](https://github.com/LedgerHQ/ledger-live/pull/17564) [`babad68`](https://github.com/LedgerHQ/ledger-live/commit/babad685139d06343f6a647686c713992ad1ac1a) Thanks [@dilaouid](https://github.com/dilaouid)! - tests(e2e): add detox for evm native staking (sei_evm) and mock smoke under `apps/ledger-live-mobile/e2e` and Speculos delegate flow under `e2e/mobile`
-
-- [#19084](https://github.com/LedgerHQ/ledger-live/pull/19084) [`01034a2`](https://github.com/LedgerHQ/ledger-live/commit/01034a299c997d6696af00d28a8a485ea9e089ca) Thanks [@VicAlbr](https://github.com/VicAlbr)! - E2E Allure report overview now reflects the feature flags actually applied at runtime (e2e defaults + workflow `E2E_FEATURE_FLAGS_JSON` overrides, with JSON taking precedence), instead of Firebase-only values. FF resolution is centralised per platform via a shared `getMergedFeatureFlags()` used by both the test setup and the report teardown, so the overview and per-test data share one source of truth.
-
-- [#18760](https://github.com/LedgerHQ/ledger-live/pull/18760) [`a286589`](https://github.com/LedgerHQ/ledger-live/commit/a286589723c65406c33b8f4a964a6d9d23cb725f) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - Add mobile E2E coverage for Wallet 4.0 asset discoverability: stocks empty-discovery and holdings sections on the portfolio, and the global search categories and result ranking.
-
-- [#18889](https://github.com/LedgerHQ/ledger-live/pull/18889) [`487f2f2`](https://github.com/LedgerHQ/ledger-live/commit/487f2f25505c304a71fd7a42072c3f492ea98f67) Thanks [@semeano](https://github.com/semeano)! - Disable TON E2E tests
-
-## 0.29.0-next.0
-
-### Minor Changes
-
-- [#19062](https://github.com/LedgerHQ/ledger-live/pull/19062) [`5ccd2a9`](https://github.com/LedgerHQ/ledger-live/commit/5ccd2a9c229e8007851c6eb8b01c866c8e605932) Thanks [@abdurrahman-ledger](https://github.com/abdurrahman-ledger)! - Extract E2E test-support code out of `@ledgerhq/live-common`
-
-  Moved the E2E enums, models, family helpers and speculos/device utilities that lived under
-  `@ledgerhq/live-common/e2e/*` into a new dedicated, private package `@ledgerhq/live-e2e-shared`
-  (located under `e2e/`, alongside the Desktop and Mobile E2E suites). This keeps test-only code
-  out of `live-common`, which is in maintenance mode.
-
-  - `@ledgerhq/live-common`: removed the internal `./e2e` export.
-  - `@shared/feature-flags`: now exports `getAllFeatureFlags` (previously in the live-common e2e
-    module), so production debug tooling no longer depends on test code.
-  - `ledger-live-desktop`: the `devices` reducer now derives the Speculos device model from a small
-    local map instead of importing from the e2e module.
-  - Desktop/Mobile apps and E2E suites now import from `@ledgerhq/live-e2e-shared`.
-
-- [#17564](https://github.com/LedgerHQ/ledger-live/pull/17564) [`babad68`](https://github.com/LedgerHQ/ledger-live/commit/babad685139d06343f6a647686c713992ad1ac1a) Thanks [@dilaouid](https://github.com/dilaouid)! - tests(e2e): add detox for evm native staking (sei_evm) and mock smoke under `apps/ledger-live-mobile/e2e` and Speculos delegate flow under `e2e/mobile`
-
-- [#19084](https://github.com/LedgerHQ/ledger-live/pull/19084) [`01034a2`](https://github.com/LedgerHQ/ledger-live/commit/01034a299c997d6696af00d28a8a485ea9e089ca) Thanks [@VicAlbr](https://github.com/VicAlbr)! - E2E Allure report overview now reflects the feature flags actually applied at runtime (e2e defaults + workflow `E2E_FEATURE_FLAGS_JSON` overrides, with JSON taking precedence), instead of Firebase-only values. FF resolution is centralised per platform via a shared `getMergedFeatureFlags()` used by both the test setup and the report teardown, so the overview and per-test data share one source of truth.
-
-- [#18760](https://github.com/LedgerHQ/ledger-live/pull/18760) [`a286589`](https://github.com/LedgerHQ/ledger-live/commit/a286589723c65406c33b8f4a964a6d9d23cb725f) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - Add mobile E2E coverage for Wallet 4.0 asset discoverability: stocks empty-discovery and holdings sections on the portfolio, and the global search categories and result ranking.
-
-- [#18889](https://github.com/LedgerHQ/ledger-live/pull/18889) [`487f2f2`](https://github.com/LedgerHQ/ledger-live/commit/487f2f25505c304a71fd7a42072c3f492ea98f67) Thanks [@semeano](https://github.com/semeano)! - Disable TON E2E tests
-
-## 0.28.0
-
-### Minor Changes
-
-- [#18681](https://github.com/LedgerHQ/ledger-live/pull/18681) [`ad68778`](https://github.com/LedgerHQ/ledger-live/commit/ad68778ad71686c9e4f397276917e606a099f573) Thanks [@mitchellv-ledger](https://github.com/mitchellv-ledger)! - Remove llmAnalyticsOptInPrompt feature flag and unused variant B code
-
-## 0.28.0-next.0
-
-### Minor Changes
-
-- [#18681](https://github.com/LedgerHQ/ledger-live/pull/18681) [`ad68778`](https://github.com/LedgerHQ/ledger-live/commit/ad68778ad71686c9e4f397276917e606a099f573) Thanks [@mitchellv-ledger](https://github.com/mitchellv-ledger)! - Remove llmAnalyticsOptInPrompt feature flag and unused variant B code
-
-## 0.27.0
-
-### Minor Changes
-
-- [#18421](https://github.com/LedgerHQ/ledger-live/pull/18421) [`8b3c998`](https://github.com/LedgerHQ/ledger-live/commit/8b3c99867c109bd6502cf10ecd2d15b0c2f4680a) Thanks [@jeportie](https://github.com/jeportie)! - Use a dynamic minimum sell amount in the buy/sell E2E specs: fetch the live per-currency `maxOfMin` from the sell `cryptoLimitations` API (with a USD-countervalues fallback) instead of hardcoded amounts, so sell flows always clear every provider's threshold. Extract `getAmountFromUSD` into a shared `currencyUtils` helper.
-
-- [#18386](https://github.com/LedgerHQ/ledger-live/pull/18386) [`24d19cc`](https://github.com/LedgerHQ/ledger-live/commit/24d19ccd6aad7603d022ac17e025e7ea343f8e21) Thanks [@ysitbon](https://github.com/ysitbon)! - Repoint the remaining `@ledgerhq/types-live` feature-type consumers (desktop app + desktop/mobile e2e) onto `@shared/feature-flags`, taking in-repo usage of the legacy types-live feature types to zero. Also drop now-dead feature-flag tooling config: the `@ledgerhq/live-common/featureFlags/index` `unimported` entry in `live-dmk-desktop`, and the deleted `FeatureFlagsContextBridge` eslint-guardrail exemptions in both apps (the block rules against re-introducing the deleted module are kept).
-
-- [#18435](https://github.com/LedgerHQ/ledger-live/pull/18435) [`136ca7c`](https://github.com/LedgerHQ/ledger-live/commit/136ca7c3bc4a489e49a8df647e2f87585cd705c5) Thanks [@beths-ledger](https://github.com/beths-ledger)! - Align delegate and earn v2 e2e tests (desktop and mobile) with the versioned stakePrograms feature-flag values. ETH staking now redirects into the earn deposit webview instead of a native staking flow, so the affected cold-start, inline add-account, partner-dapp CTA and delegate assertions drive the deposit webview for ETH (amount → provider → partner dapp) while other assets keep the native staking checks. Keeps the test environment in sync with production.
-
-## 0.27.0-next.0
-
-### Minor Changes
-
-- [#18421](https://github.com/LedgerHQ/ledger-live/pull/18421) [`8b3c998`](https://github.com/LedgerHQ/ledger-live/commit/8b3c99867c109bd6502cf10ecd2d15b0c2f4680a) Thanks [@jeportie](https://github.com/jeportie)! - Use a dynamic minimum sell amount in the buy/sell E2E specs: fetch the live per-currency `maxOfMin` from the sell `cryptoLimitations` API (with a USD-countervalues fallback) instead of hardcoded amounts, so sell flows always clear every provider's threshold. Extract `getAmountFromUSD` into a shared `currencyUtils` helper.
-
-- [#18386](https://github.com/LedgerHQ/ledger-live/pull/18386) [`24d19cc`](https://github.com/LedgerHQ/ledger-live/commit/24d19ccd6aad7603d022ac17e025e7ea343f8e21) Thanks [@ysitbon](https://github.com/ysitbon)! - Repoint the remaining `@ledgerhq/types-live` feature-type consumers (desktop app + desktop/mobile e2e) onto `@shared/feature-flags`, taking in-repo usage of the legacy types-live feature types to zero. Also drop now-dead feature-flag tooling config: the `@ledgerhq/live-common/featureFlags/index` `unimported` entry in `live-dmk-desktop`, and the deleted `FeatureFlagsContextBridge` eslint-guardrail exemptions in both apps (the block rules against re-introducing the deleted module are kept).
-
-- [#18435](https://github.com/LedgerHQ/ledger-live/pull/18435) [`136ca7c`](https://github.com/LedgerHQ/ledger-live/commit/136ca7c3bc4a489e49a8df647e2f87585cd705c5) Thanks [@beths-ledger](https://github.com/beths-ledger)! - Align delegate and earn v2 e2e tests (desktop and mobile) with the versioned stakePrograms feature-flag values. ETH staking now redirects into the earn deposit webview instead of a native staking flow, so the affected cold-start, inline add-account, partner-dapp CTA and delegate assertions drive the deposit webview for ETH (amount → provider → partner dapp) while other assets keep the native staking checks. Keeps the test environment in sync with production.
-
-## 0.26.0
-
-### Minor Changes
-
-- [#18246](https://github.com/LedgerHQ/ledger-live/pull/18246) [`dcd0ed9`](https://github.com/LedgerHQ/ledger-live/commit/dcd0ed903aa7f5a455dacc2259ac7ca1e5d26491) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Assign an owning team to every mobile e2e test via Allure `owner`/`parentSuite` labels (new `setTeamOwner` helper), mirroring the desktop team system so reports can be grouped and filtered by team.
-
-- [#17814](https://github.com/LedgerHQ/ledger-live/pull/17814) [`b16aa2c`](https://github.com/LedgerHQ/ledger-live/commit/b16aa2c4ba83aa9f67e6ba24a6f522de3956e16d) Thanks [@LucasWerey](https://github.com/LucasWerey)! - add wallet 4.0 my wallet e2e tests
-
-- [#18076](https://github.com/LedgerHQ/ledger-live/pull/18076) [`a3025cf`](https://github.com/LedgerHQ/ledger-live/commit/a3025cffe9bef6c082dd45a75523cadfe6677001) Thanks [@ooke-ledger](https://github.com/ooke-ledger)! - Update data-testId
-
-- [#18149](https://github.com/LedgerHQ/ledger-live/pull/18149) [`7ee8538`](https://github.com/LedgerHQ/ledger-live/commit/7ee8538247a0d48c587354f04c05fff4e69bb3b4) Thanks [@cunhabruno](https://github.com/cunhabruno)! - Declare `@babel/plugin-transform-dynamic-import` and `@babel/plugin-transform-modules-commonjs` as explicit devDependencies. They were referenced by `babel.config.js` since #18119 but resolved via pnpm hoist luck, causing `Cannot find module '@babel/plugin-transform-dynamic-import'` on jest globalSetup.
-
-- [#18119](https://github.com/LedgerHQ/ledger-live/pull/18119) [`537e45b`](https://github.com/LedgerHQ/ledger-live/commit/537e45b1dac506a7cee61485f22e560f27fa274c) Thanks [@gre-ledger](https://github.com/gre-ledger)! - Fix mobile e2e jest loading of ESM-only live-common: transpile `lib-es` to CommonJS in the jest main process (config/globalSetup/reporters) via an swc require-hook, and transform `@ledgerhq` packages in jest workers (`ESM_PACKAGES` + babel `modules-commonjs`/`dynamic-import`). Resolves `ERR_MODULE_NOT_FOUND` on extensionless `device-core` imports after live-common became ESM-only.
-
-## 0.26.0-next.0
-
-### Minor Changes
-
-- [#18246](https://github.com/LedgerHQ/ledger-live/pull/18246) [`dcd0ed9`](https://github.com/LedgerHQ/ledger-live/commit/dcd0ed903aa7f5a455dacc2259ac7ca1e5d26491) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Assign an owning team to every mobile e2e test via Allure `owner`/`parentSuite` labels (new `setTeamOwner` helper), mirroring the desktop team system so reports can be grouped and filtered by team.
-
-- [#17814](https://github.com/LedgerHQ/ledger-live/pull/17814) [`b16aa2c`](https://github.com/LedgerHQ/ledger-live/commit/b16aa2c4ba83aa9f67e6ba24a6f522de3956e16d) Thanks [@LucasWerey](https://github.com/LucasWerey)! - add wallet 4.0 my wallet e2e tests
-
-- [#18076](https://github.com/LedgerHQ/ledger-live/pull/18076) [`a3025cf`](https://github.com/LedgerHQ/ledger-live/commit/a3025cffe9bef6c082dd45a75523cadfe6677001) Thanks [@ooke-ledger](https://github.com/ooke-ledger)! - Update data-testId
-
-- [#18149](https://github.com/LedgerHQ/ledger-live/pull/18149) [`7ee8538`](https://github.com/LedgerHQ/ledger-live/commit/7ee8538247a0d48c587354f04c05fff4e69bb3b4) Thanks [@cunhabruno](https://github.com/cunhabruno)! - Declare `@babel/plugin-transform-dynamic-import` and `@babel/plugin-transform-modules-commonjs` as explicit devDependencies. They were referenced by `babel.config.js` since #18119 but resolved via pnpm hoist luck, causing `Cannot find module '@babel/plugin-transform-dynamic-import'` on jest globalSetup.
-
-- [#18119](https://github.com/LedgerHQ/ledger-live/pull/18119) [`537e45b`](https://github.com/LedgerHQ/ledger-live/commit/537e45b1dac506a7cee61485f22e560f27fa274c) Thanks [@gre-ledger](https://github.com/gre-ledger)! - Fix mobile e2e jest loading of ESM-only live-common: transpile `lib-es` to CommonJS in the jest main process (config/globalSetup/reporters) via an swc require-hook, and transform `@ledgerhq` packages in jest workers (`ESM_PACKAGES` + babel `modules-commonjs`/`dynamic-import`). Resolves `ERR_MODULE_NOT_FOUND` on extensionless `device-core` imports after live-common became ESM-only.
-
-## 0.25.0
-
-### Minor Changes
-
-- [#17775](https://github.com/LedgerHQ/ledger-live/pull/17775) [`1d39f17`](https://github.com/LedgerHQ/ledger-live/commit/1d39f1747ce2004248e7df36901fccb6c5d79654) Thanks [@abdurrahman-ledger](https://github.com/abdurrahman-ledger)! - Defer pending operation account updates until after broadcast success navigation transitions complete
-
-- [#17802](https://github.com/LedgerHQ/ledger-live/pull/17802) [`b61e421`](https://github.com/LedgerHQ/ledger-live/commit/b61e42102019c04ee5d7df1aca22e30ba4a69e7d) Thanks [@liviuciulinaru](https://github.com/liviuciulinaru)! - Add `E2E_FEATURE_FLAGS_JSON` env override for Mobile E2E feature flags, exposed as a `feature_flags_json` input on the Mobile E2E workflow (parity with Desktop).
-
-## 0.25.0-next.0
-
-### Minor Changes
-
-- [#17775](https://github.com/LedgerHQ/ledger-live/pull/17775) [`1d39f17`](https://github.com/LedgerHQ/ledger-live/commit/1d39f1747ce2004248e7df36901fccb6c5d79654) Thanks [@abdurrahman-ledger](https://github.com/abdurrahman-ledger)! - Defer pending operation account updates until after broadcast success navigation transitions complete
-
-- [#17802](https://github.com/LedgerHQ/ledger-live/pull/17802) [`b61e421`](https://github.com/LedgerHQ/ledger-live/commit/b61e42102019c04ee5d7df1aca22e30ba4a69e7d) Thanks [@liviuciulinaru](https://github.com/liviuciulinaru)! - Add `E2E_FEATURE_FLAGS_JSON` env override for Mobile E2E feature flags, exposed as a `feature_flags_json` input on the Mobile E2E workflow (parity with Desktop).
-
-## 0.24.0
-
-### Minor Changes
-
-- [#17541](https://github.com/LedgerHQ/ledger-live/pull/17541) [`daffb50`](https://github.com/LedgerHQ/ledger-live/commit/daffb50773bcb8af5de8305180361fdcf4a7b411) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - Disable aggregatedAssets flag in Wallet 4.0 e2e feature flags
-
-- [#17580](https://github.com/LedgerHQ/ledger-live/pull/17580) [`9b2fe05`](https://github.com/LedgerHQ/ledger-live/commit/9b2fe05703fcb4d09ed69c10161b08d61631a725) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Fix mobile deeplinks E2E nightly flake by excluding 1inch from the random discover pool and add a dedicated Kiln deeplink test (QAA-1225).
-
-- [#17636](https://github.com/LedgerHQ/ledger-live/pull/17636) [`70a1e58`](https://github.com/LedgerHQ/ledger-live/commit/70a1e58f493b2e6e546f615a7c38586d66bed4b5) Thanks [@sergiubreban](https://github.com/sergiubreban)! - test: change selector to match for earn inline account
-
-## 0.24.0-next.0
-
-### Minor Changes
-
-- [#17541](https://github.com/LedgerHQ/ledger-live/pull/17541) [`daffb50`](https://github.com/LedgerHQ/ledger-live/commit/daffb50773bcb8af5de8305180361fdcf4a7b411) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - Disable aggregatedAssets flag in Wallet 4.0 e2e feature flags
-
-- [#17580](https://github.com/LedgerHQ/ledger-live/pull/17580) [`9b2fe05`](https://github.com/LedgerHQ/ledger-live/commit/9b2fe05703fcb4d09ed69c10161b08d61631a725) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Fix mobile deeplinks E2E nightly flake by excluding 1inch from the random discover pool and add a dedicated Kiln deeplink test (QAA-1225).
-
-- [#17636](https://github.com/LedgerHQ/ledger-live/pull/17636) [`70a1e58`](https://github.com/LedgerHQ/ledger-live/commit/70a1e58f493b2e6e546f615a7c38586d66bed4b5) Thanks [@sergiubreban](https://github.com/sergiubreban)! - test: change selector to match for earn inline account
-
-## 0.23.0
-
-### Minor Changes
-
-- [#17010](https://github.com/LedgerHQ/ledger-live/pull/17010) [`69984e6`](https://github.com/LedgerHQ/ledger-live/commit/69984e656ff685e969edb754ca6e0ad5a6169812) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Add mobile swap E2E coverage for QAA-1127.
-
-## 0.23.0-next.0
-
-### Minor Changes
-
-- [#17010](https://github.com/LedgerHQ/ledger-live/pull/17010) [`69984e6`](https://github.com/LedgerHQ/ledger-live/commit/69984e656ff685e969edb754ca6e0ad5a6169812) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Add mobile swap E2E coverage for QAA-1127.
-
-## 0.22.0
-
-### Minor Changes
-
-- [#16417](https://github.com/LedgerHQ/ledger-live/pull/16417) [`ab011dd`](https://github.com/LedgerHQ/ledger-live/commit/ab011dd9d3636d3f951e13b9316bde9940323c52) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Align desktop and mobile send E2E coverage with release validation for ZEC and SOL/SPL
-
-- [#16702](https://github.com/LedgerHQ/ledger-live/pull/16702) [`890bc73`](https://github.com/LedgerHQ/ledger-live/commit/890bc7390737386ac12972372968078ac658aac9) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Add mobile E2E coverage for receive warning messages and the default Solana delegation validator flow.
-
-- [#16051](https://github.com/LedgerHQ/ledger-live/pull/16051) [`772a16e`](https://github.com/LedgerHQ/ledger-live/commit/772a16eb188ac03fb9c3c509282ea58b7a840831) Thanks [@amaslakov](https://github.com/amaslakov)! - Add E2E send test for Concordium testnet (mobile)
-
-- [#16466](https://github.com/LedgerHQ/ledger-live/pull/16466) [`1ff42c2`](https://github.com/LedgerHQ/ledger-live/commit/1ff42c2658cb8afbe0143c284a1581fb6a872d7b) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Add mobile swap E2E tests matching desktop send.swap pairs and TMS IDs
-
-- [#16716](https://github.com/LedgerHQ/ledger-live/pull/16716) [`df992ba`](https://github.com/LedgerHQ/ledger-live/commit/df992ba149c629f70290506045e11944821874a5) Thanks [@jeportie](https://github.com/jeportie)! - Add ERC20 swap history export E2E test coverage (QAA-702).
-
-## 0.22.0-next.0
-
-### Minor Changes
-
-- [#16417](https://github.com/LedgerHQ/ledger-live/pull/16417) [`ab011dd`](https://github.com/LedgerHQ/ledger-live/commit/ab011dd9d3636d3f951e13b9316bde9940323c52) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Align desktop and mobile send E2E coverage with release validation for ZEC and SOL/SPL
-
-- [#16702](https://github.com/LedgerHQ/ledger-live/pull/16702) [`890bc73`](https://github.com/LedgerHQ/ledger-live/commit/890bc7390737386ac12972372968078ac658aac9) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Add mobile E2E coverage for receive warning messages and the default Solana delegation validator flow.
-
-- [#16051](https://github.com/LedgerHQ/ledger-live/pull/16051) [`772a16e`](https://github.com/LedgerHQ/ledger-live/commit/772a16eb188ac03fb9c3c509282ea58b7a840831) Thanks [@amaslakov](https://github.com/amaslakov)! - Add E2E send test for Concordium testnet (mobile)
-
-- [#16466](https://github.com/LedgerHQ/ledger-live/pull/16466) [`1ff42c2`](https://github.com/LedgerHQ/ledger-live/commit/1ff42c2658cb8afbe0143c284a1581fb6a872d7b) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Add mobile swap E2E tests matching desktop send.swap pairs and TMS IDs
-
-- [#16716](https://github.com/LedgerHQ/ledger-live/pull/16716) [`df992ba`](https://github.com/LedgerHQ/ledger-live/commit/df992ba149c629f70290506045e11944821874a5) Thanks [@jeportie](https://github.com/jeportie)! - Add ERC20 swap history export E2E test coverage (QAA-702).
-
-## 0.21.0
-
-### Minor Changes
-
-- [#16248](https://github.com/LedgerHQ/ledger-live/pull/16248) [`17d7027`](https://github.com/LedgerHQ/ledger-live/commit/17d7027e38a4f67c869d6ecc24e914cb4d94dba2) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Skip swap network-fee validation E2E cases while the sponsored program is active
-
-- [#16049](https://github.com/LedgerHQ/ledger-live/pull/16049) [`11cd80f`](https://github.com/LedgerHQ/ledger-live/commit/11cd80f7c262f3e44fbbb19a8b034e9767c02db6) Thanks [@henri-ly](https://github.com/henri-ly)! - remove Ledger default validator for MultiversX
-
-- [#16084](https://github.com/LedgerHQ/ledger-live/pull/16084) [`50e1fc6`](https://github.com/LedgerHQ/ledger-live/commit/50e1fc618cee9ec01603108e230358a6b7b6a91e) Thanks [@sergiubreban](https://github.com/sergiubreban)! - test: add e2e tests for earn v2 on mobile
-
-- [#15798](https://github.com/LedgerHQ/ledger-live/pull/15798) [`fd2311d`](https://github.com/LedgerHQ/ledger-live/commit/fd2311d643f4002c1441bfa4fe79d7288df04c21) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - chore: use `coin-module-framework` from npmjs and remove the now migrated `coin-framework`
-
-## 0.21.0-next.0
-
-### Minor Changes
-
-- [#16248](https://github.com/LedgerHQ/ledger-live/pull/16248) [`17d7027`](https://github.com/LedgerHQ/ledger-live/commit/17d7027e38a4f67c869d6ecc24e914cb4d94dba2) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Skip swap network-fee validation E2E cases while the sponsored program is active
-
-- [#16049](https://github.com/LedgerHQ/ledger-live/pull/16049) [`11cd80f`](https://github.com/LedgerHQ/ledger-live/commit/11cd80f7c262f3e44fbbb19a8b034e9767c02db6) Thanks [@henri-ly](https://github.com/henri-ly)! - remove Ledger default validator for MultiversX
-
-- [#16084](https://github.com/LedgerHQ/ledger-live/pull/16084) [`50e1fc6`](https://github.com/LedgerHQ/ledger-live/commit/50e1fc618cee9ec01603108e230358a6b7b6a91e) Thanks [@sergiubreban](https://github.com/sergiubreban)! - test: add e2e tests for earn v2 on mobile
-
-- [#15798](https://github.com/LedgerHQ/ledger-live/pull/15798) [`fd2311d`](https://github.com/LedgerHQ/ledger-live/commit/fd2311d643f4002c1441bfa4fe79d7288df04c21) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - chore: use `coin-module-framework` from npmjs and remove the now migrated `coin-framework`
-
-## 0.20.0
-
-### Minor Changes
-
-- [#15753](https://github.com/LedgerHQ/ledger-live/pull/15753) [`3093380`](https://github.com/LedgerHQ/ledger-live/commit/3093380655b975b6d62f9b201b6a06889392bb11) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Enhance mobile E2E test coverage: add Celo lock/vote tests, character-set validation for language change, and re-enable account rename test
-
-- [#15938](https://github.com/LedgerHQ/ledger-live/pull/15938) [`6d55392`](https://github.com/LedgerHQ/ledger-live/commit/6d5539208dcdde2c166cba895092f54c68f3fb93) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Fix flaky expectCharacterSet using detox native assertion
-
-- [#15966](https://github.com/LedgerHQ/ledger-live/pull/15966) [`7f5b6a1`](https://github.com/LedgerHQ/ledger-live/commit/7f5b6a18cf8f67f1d84cc1feb87acfaaeb0df264) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Fix incorrect celo manage assets page assertions and vote flow
-
-- [#15884](https://github.com/LedgerHQ/ledger-live/pull/15884) [`f42c78b`](https://github.com/LedgerHQ/ledger-live/commit/f42c78bd02b8ebde6b5b787a406c36e13515da45) Thanks [@hedi-edelbloute](https://github.com/hedi-edelbloute)! - test: send icp support
-
-- [#15244](https://github.com/LedgerHQ/ledger-live/pull/15244) [`bacf788`](https://github.com/LedgerHQ/ledger-live/commit/bacf788d12d75ae2a2d5e9da8686041fb1220043) Thanks [@liviuciulinaru](https://github.com/liviuciulinaru)! - Add accessibility metadata and stable test IDs in swap flows across desktop and mobile, including swap history.
-
-- [#15979](https://github.com/LedgerHQ/ledger-live/pull/15979) [`82d076e`](https://github.com/LedgerHQ/ledger-live/commit/82d076e3fe0a8192d1e6a10302cae36af7975556) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Move spec helper functions into page object files for better test structure
-
-- [#15798](https://github.com/LedgerHQ/ledger-live/pull/15798) [`fd2311d`](https://github.com/LedgerHQ/ledger-live/commit/fd2311d643f4002c1441bfa4fe79d7288df04c21) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - chore: use `coin-module-framework` from npmjs and remove the now migrated `coin-framework`
-
-### Patch Changes
-
-- Updated dependencies [[`008a4bd`](https://github.com/LedgerHQ/ledger-live/commit/008a4bdb87f0e65fa23de3a29818a4d02f28f4f8)]:
-  - @ledgerhq/logs@6.17.0
-
-## 0.20.0-next.0
-
-### Minor Changes
-
-- [#15753](https://github.com/LedgerHQ/ledger-live/pull/15753) [`3093380`](https://github.com/LedgerHQ/ledger-live/commit/3093380655b975b6d62f9b201b6a06889392bb11) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Enhance mobile E2E test coverage: add Celo lock/vote tests, character-set validation for language change, and re-enable account rename test
-
-- [#15938](https://github.com/LedgerHQ/ledger-live/pull/15938) [`6d55392`](https://github.com/LedgerHQ/ledger-live/commit/6d5539208dcdde2c166cba895092f54c68f3fb93) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Fix flaky expectCharacterSet using detox native assertion
-
-- [#15966](https://github.com/LedgerHQ/ledger-live/pull/15966) [`7f5b6a1`](https://github.com/LedgerHQ/ledger-live/commit/7f5b6a18cf8f67f1d84cc1feb87acfaaeb0df264) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Fix incorrect celo manage assets page assertions and vote flow
-
-- [#15884](https://github.com/LedgerHQ/ledger-live/pull/15884) [`f42c78b`](https://github.com/LedgerHQ/ledger-live/commit/f42c78bd02b8ebde6b5b787a406c36e13515da45) Thanks [@hedi-edelbloute](https://github.com/hedi-edelbloute)! - test: send icp support
-
-- [#15244](https://github.com/LedgerHQ/ledger-live/pull/15244) [`bacf788`](https://github.com/LedgerHQ/ledger-live/commit/bacf788d12d75ae2a2d5e9da8686041fb1220043) Thanks [@liviuciulinaru](https://github.com/liviuciulinaru)! - Add accessibility metadata and stable test IDs in swap flows across desktop and mobile, including swap history.
-
-- [#15979](https://github.com/LedgerHQ/ledger-live/pull/15979) [`82d076e`](https://github.com/LedgerHQ/ledger-live/commit/82d076e3fe0a8192d1e6a10302cae36af7975556) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Move spec helper functions into page object files for better test structure
-
-- [#15798](https://github.com/LedgerHQ/ledger-live/pull/15798) [`fd2311d`](https://github.com/LedgerHQ/ledger-live/commit/fd2311d643f4002c1441bfa4fe79d7288df04c21) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - chore: use `coin-module-framework` from npmjs and remove the now migrated `coin-framework`
-
-### Patch Changes
-
-- Updated dependencies [[`008a4bd`](https://github.com/LedgerHQ/ledger-live/commit/008a4bdb87f0e65fa23de3a29818a4d02f28f4f8)]:
-  - @ledgerhq/logs@6.17.0-next.0
-
-## 0.19.0
-
-### Minor Changes
-
-- [#15690](https://github.com/LedgerHQ/ledger-live/pull/15690) [`b037edf`](https://github.com/LedgerHQ/ledger-live/commit/b037edf31c35b6caa0fe18b39b65b2dde960f045) Thanks [@ishaba](https://github.com/ishaba)! - feat: add mobile send E2E test for Sui
-
-## 0.19.0-next.0
-
-### Minor Changes
-
-- [#15690](https://github.com/LedgerHQ/ledger-live/pull/15690) [`b037edf`](https://github.com/LedgerHQ/ledger-live/commit/b037edf31c35b6caa0fe18b39b65b2dde960f045) Thanks [@ishaba](https://github.com/ishaba)! - feat: add mobile send E2E test for Sui
-
-## 0.18.0
-
-### Minor Changes
-
-- [#15392](https://github.com/LedgerHQ/ledger-live/pull/15392) [`703907c`](https://github.com/LedgerHQ/ledger-live/commit/703907cacf6c37d5530b12e443dc1279d1a7ab04) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Update e2e test currencies: replace Sepolia ETH with mainnet ETH and BTC Legacy with BTC Native SegWit
-
-- [#15291](https://github.com/LedgerHQ/ledger-live/pull/15291) [`a221ae8`](https://github.com/LedgerHQ/ledger-live/commit/a221ae85b846c6d5dc6efb55ed873942d7720b05) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - feat: add `ledger-wallet-framework`
-
-- [#14907](https://github.com/LedgerHQ/ledger-live/pull/14907) [`dd98891`](https://github.com/LedgerHQ/ledger-live/commit/dd98891e9c2e1bd4795b8adcb64b3c8c45b9eb75) Thanks [@gre-ledger](https://github.com/gre-ledger)! - Replace usages of Math.random() for id generation by uuid()
-
-## 0.18.0-next.0
-
-### Minor Changes
-
-- [#15392](https://github.com/LedgerHQ/ledger-live/pull/15392) [`703907c`](https://github.com/LedgerHQ/ledger-live/commit/703907cacf6c37d5530b12e443dc1279d1a7ab04) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Update e2e test currencies: replace Sepolia ETH with mainnet ETH and BTC Legacy with BTC Native SegWit
-
-- [#15291](https://github.com/LedgerHQ/ledger-live/pull/15291) [`a221ae8`](https://github.com/LedgerHQ/ledger-live/commit/a221ae85b846c6d5dc6efb55ed873942d7720b05) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - feat: add `ledger-wallet-framework`
-
-- [#14907](https://github.com/LedgerHQ/ledger-live/pull/14907) [`dd98891`](https://github.com/LedgerHQ/ledger-live/commit/dd98891e9c2e1bd4795b8adcb64b3c8c45b9eb75) Thanks [@gre-ledger](https://github.com/gre-ledger)! - Replace usages of Math.random() for id generation by uuid()
-
-## 0.17.0
-
-### Minor Changes
-
-- [#15038](https://github.com/LedgerHQ/ledger-live/pull/15038) [`20a2915`](https://github.com/LedgerHQ/ledger-live/commit/20a2915559e589c838600366b26394fad669a712) Thanks [@cunhabruno](https://github.com/cunhabruno)! - Adapt mobile E2E tests to support Wallet 4.0 feature flag toggle via CI checkbox or env var
-
-- [#15151](https://github.com/LedgerHQ/ledger-live/pull/15151) [`868bd15`](https://github.com/LedgerHQ/ledger-live/commit/868bd158de9a5242c5edd3f1ffabe6cc0f1a5c22) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Update speculos-x-other-account E2E test userdata with current blockchain state
-
-### Patch Changes
-
-- Updated dependencies [[`c8d7be6`](https://github.com/LedgerHQ/ledger-live/commit/c8d7be6964aa9d8defd77de0b77ba7d42f472025)]:
-  - @ledgerhq/logs@6.16.0
-
-## 0.17.0-next.0
-
-### Minor Changes
-
-- [#15038](https://github.com/LedgerHQ/ledger-live/pull/15038) [`20a2915`](https://github.com/LedgerHQ/ledger-live/commit/20a2915559e589c838600366b26394fad669a712) Thanks [@cunhabruno](https://github.com/cunhabruno)! - Adapt mobile E2E tests to support Wallet 4.0 feature flag toggle via CI checkbox or env var
-
-- [#15151](https://github.com/LedgerHQ/ledger-live/pull/15151) [`868bd15`](https://github.com/LedgerHQ/ledger-live/commit/868bd158de9a5242c5edd3f1ffabe6cc0f1a5c22) Thanks [@VicAlbr](https://github.com/VicAlbr)! - Update speculos-x-other-account E2E test userdata with current blockchain state
-
-### Patch Changes
-
-- Updated dependencies [[`c8d7be6`](https://github.com/LedgerHQ/ledger-live/commit/c8d7be6964aa9d8defd77de0b77ba7d42f472025)]:
-  - @ledgerhq/logs@6.16.0-next.0
-
-## 0.16.0
-
-### Minor Changes
-
-- [#14913](https://github.com/LedgerHQ/ledger-live/pull/14913) [`dceb492`](https://github.com/LedgerHQ/ledger-live/commit/dceb4921a811ffc3cba96ff532ffcb5d1205431f) Thanks [@gre-ledger](https://github.com/gre-ledger)! - Update TypeScript to latest 5.8.x
-
-- [#15201](https://github.com/LedgerHQ/ledger-live/pull/15201) [`96415c0`](https://github.com/LedgerHQ/ledger-live/commit/96415c06aaf69381811987eb13cd00d1b59b4c4d) Thanks [@martijnhjk](https://github.com/martijnhjk)! - Update speculos-x-other-account E2E test userdata with current blockchain state
-
-### Patch Changes
-
-- Updated dependencies [[`dceb492`](https://github.com/LedgerHQ/ledger-live/commit/dceb4921a811ffc3cba96ff532ffcb5d1205431f)]:
-  - @ledgerhq/logs@6.15.0
-
-## 0.16.0-next.1
-
-### Minor Changes
-
-- [#15201](https://github.com/LedgerHQ/ledger-live/pull/15201) [`96415c0`](https://github.com/LedgerHQ/ledger-live/commit/96415c06aaf69381811987eb13cd00d1b59b4c4d) Thanks [@martijnhjk](https://github.com/martijnhjk)! - Update speculos-x-other-account E2E test userdata with current blockchain state
-
-## 0.16.0-next.0
-
-### Minor Changes
-
-- [#14913](https://github.com/LedgerHQ/ledger-live/pull/14913) [`dceb492`](https://github.com/LedgerHQ/ledger-live/commit/dceb4921a811ffc3cba96ff532ffcb5d1205431f) Thanks [@gre-ledger](https://github.com/gre-ledger)! - Update TypeScript to latest 5.8.x
-
-### Patch Changes
-
-- Updated dependencies [[`dceb492`](https://github.com/LedgerHQ/ledger-live/commit/dceb4921a811ffc3cba96ff532ffcb5d1205431f)]:
-  - @ledgerhq/logs@6.15.0-next.0
-
-## 0.15.0
-
-### Minor Changes
-
-- [#14666](https://github.com/LedgerHQ/ledger-live/pull/14666) [`e239c48`](https://github.com/LedgerHQ/ledger-live/commit/e239c4866a194cc4db90247eee7d84389ac2333f) Thanks [@LucasWerey](https://github.com/LucasWerey)! - Bump lumen for mobile and desktop + fix e2e marketbanner
-
-## 0.15.0-next.0
-
-### Minor Changes
-
-- [#14666](https://github.com/LedgerHQ/ledger-live/pull/14666) [`e239c48`](https://github.com/LedgerHQ/ledger-live/commit/e239c4866a194cc4db90247eee7d84389ac2333f) Thanks [@LucasWerey](https://github.com/LucasWerey)! - Bump lumen for mobile and desktop + fix e2e marketbanner
-
-## 0.14.0
-
-### Minor Changes
-
-- [#13829](https://github.com/LedgerHQ/ledger-live/pull/13829) [`ff67587`](https://github.com/LedgerHQ/ledger-live/commit/ff67587241e5c521b4e1be2074985450fb6f9edc) Thanks [@mdomanski-ext-ledger](https://github.com/mdomanski-ext-ledger)! - test: e2e send hbar
-
-## 0.14.0-next.0
-
-### Minor Changes
-
-- [#13829](https://github.com/LedgerHQ/ledger-live/pull/13829) [`ff67587`](https://github.com/LedgerHQ/ledger-live/commit/ff67587241e5c521b4e1be2074985450fb6f9edc) Thanks [@mdomanski-ext-ledger](https://github.com/mdomanski-ext-ledger)! - test: e2e send hbar
-
-## 0.13.0
-
-### Minor Changes
-
-- [#14131](https://github.com/LedgerHQ/ledger-live/pull/14131) [`8006565`](https://github.com/LedgerHQ/ledger-live/commit/8006565f77487fa0e38bf5f8d7bb4cda4cdba1f5) Thanks [@Canestin](https://github.com/Canestin)! - chore: remove ethereum holesky
-
-## 0.13.0-next.0
-
-### Minor Changes
-
-- [#14131](https://github.com/LedgerHQ/ledger-live/pull/14131) [`8006565`](https://github.com/LedgerHQ/ledger-live/commit/8006565f77487fa0e38bf5f8d7bb4cda4cdba1f5) Thanks [@Canestin](https://github.com/Canestin)! - chore: remove ethereum holesky
-
-## 0.12.0
-
-### Minor Changes
-
-- [#13893](https://github.com/LedgerHQ/ledger-live/pull/13893) [`df8c49d`](https://github.com/LedgerHQ/ledger-live/commit/df8c49dfcde22f381d7df4ee169531c37440f175) Thanks [@CremaFR](https://github.com/CremaFR)! - fix swap E2E with the removal of fee drawer
-
-- [#13833](https://github.com/LedgerHQ/ledger-live/pull/13833) [`556dd22`](https://github.com/LedgerHQ/ledger-live/commit/556dd22dd505b4b5ae865ffe36fc5b5aa22a4f81) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - Remove MarketWidget feature
-
-## 0.12.0-next.0
-
-### Minor Changes
-
-- [#13893](https://github.com/LedgerHQ/ledger-live/pull/13893) [`df8c49d`](https://github.com/LedgerHQ/ledger-live/commit/df8c49dfcde22f381d7df4ee169531c37440f175) Thanks [@CremaFR](https://github.com/CremaFR)! - fix swap E2E with the removal of fee drawer
-
-- [#13833](https://github.com/LedgerHQ/ledger-live/pull/13833) [`556dd22`](https://github.com/LedgerHQ/ledger-live/commit/556dd22dd505b4b5ae865ffe36fc5b5aa22a4f81) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - Remove MarketWidget feature
-
-## 0.11.0
-
-### Minor Changes
-
-- [#13633](https://github.com/LedgerHQ/ledger-live/pull/13633) [`9cf9c5b`](https://github.com/LedgerHQ/ledger-live/commit/9cf9c5b0500d5b07e624b1c62ffa2d7a2b50f1c5) Thanks [@gre-ledger](https://github.com/gre-ledger)! - Update express, body-parser, qs libraries
-
-- [#13396](https://github.com/LedgerHQ/ledger-live/pull/13396) [`b9a3e43`](https://github.com/LedgerHQ/ledger-live/commit/b9a3e431be33943ab4feb4294d6a7f27b966e61b) Thanks [@gre-ledger](https://github.com/gre-ledger)! - Update Jest to v30
-
-- [#13604](https://github.com/LedgerHQ/ledger-live/pull/13604) [`512bf7d`](https://github.com/LedgerHQ/ledger-live/commit/512bf7de22950456f88a9dd7522827005d4b0fec) Thanks [@RobinVncnt](https://github.com/RobinVncnt)! - feat: add displayedPosition and campaignName to action cards tracking
-
-- [#13670](https://github.com/LedgerHQ/ledger-live/pull/13670) [`057ee77`](https://github.com/LedgerHQ/ledger-live/commit/057ee77b7d8a51742dcd0c56640ed1de4ea128d0) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - Rename newArch folders to mvvm
-
-### Patch Changes
-
-- Updated dependencies [[`b9a3e43`](https://github.com/LedgerHQ/ledger-live/commit/b9a3e431be33943ab4feb4294d6a7f27b966e61b)]:
-  - @ledgerhq/logs@6.14.0
-
-## 0.11.0-next.0
-
-### Minor Changes
-
-- [#13633](https://github.com/LedgerHQ/ledger-live/pull/13633) [`9cf9c5b`](https://github.com/LedgerHQ/ledger-live/commit/9cf9c5b0500d5b07e624b1c62ffa2d7a2b50f1c5) Thanks [@gre-ledger](https://github.com/gre-ledger)! - Update express, body-parser, qs libraries
-
-- [#13396](https://github.com/LedgerHQ/ledger-live/pull/13396) [`b9a3e43`](https://github.com/LedgerHQ/ledger-live/commit/b9a3e431be33943ab4feb4294d6a7f27b966e61b) Thanks [@gre-ledger](https://github.com/gre-ledger)! - Update Jest to v30
-
-- [#13604](https://github.com/LedgerHQ/ledger-live/pull/13604) [`512bf7d`](https://github.com/LedgerHQ/ledger-live/commit/512bf7de22950456f88a9dd7522827005d4b0fec) Thanks [@RobinVncnt](https://github.com/RobinVncnt)! - feat: add displayedPosition and campaignName to action cards tracking
-
-- [#13670](https://github.com/LedgerHQ/ledger-live/pull/13670) [`057ee77`](https://github.com/LedgerHQ/ledger-live/commit/057ee77b7d8a51742dcd0c56640ed1de4ea128d0) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - Rename newArch folders to mvvm
-
-### Patch Changes
-
-- Updated dependencies [[`b9a3e43`](https://github.com/LedgerHQ/ledger-live/commit/b9a3e431be33943ab4feb4294d6a7f27b966e61b)]:
-  - @ledgerhq/logs@6.14.0-next.0
-
-## 0.10.0
-
-### Minor Changes
-
-- [#13259](https://github.com/LedgerHQ/ledger-live/pull/13259) [`8cb7d40`](https://github.com/LedgerHQ/ledger-live/commit/8cb7d40e0a55e47f42adc5cd522740cab1fd4de4) Thanks [@iqbalibrahim-ledger](https://github.com/iqbalibrahim-ledger)! - Bump styled-components to v6 on mobile and icons to prepare react 19 migration
-
-## 0.10.0-next.0
-
-### Minor Changes
-
-- [#13259](https://github.com/LedgerHQ/ledger-live/pull/13259) [`8cb7d40`](https://github.com/LedgerHQ/ledger-live/commit/8cb7d40e0a55e47f42adc5cd522740cab1fd4de4) Thanks [@iqbalibrahim-ledger](https://github.com/iqbalibrahim-ledger)! - Bump styled-components to v6 on mobile and icons to prepare react 19 migration
-
-## 0.9.0
-
-### Minor Changes
-
-- [#13038](https://github.com/LedgerHQ/ledger-live/pull/13038) [`ef276b7`](https://github.com/LedgerHQ/ledger-live/commit/ef276b7654ab32c7253ee812ceac3f89316ded4b) Thanks [@gre-ledger](https://github.com/gre-ledger)! - Uses crypto-icons everywhere and drop the legacy crypto-icons-ui for design unification and performance gain
-
-- [#13156](https://github.com/LedgerHQ/ledger-live/pull/13156) [`adbabc7`](https://github.com/LedgerHQ/ledger-live/commit/adbabc7d3b7ed8915503120a027d19304adc1fc8) Thanks [@gre-ledger](https://github.com/gre-ledger)! - ws@8.18.3 in catalog
-
-- [#13142](https://github.com/LedgerHQ/ledger-live/pull/13142) [`bdacedf`](https://github.com/LedgerHQ/ledger-live/commit/bdacedfe32bea8ffce96ab675a44c0d7cf395143) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - upgrade typescript-eslint rules & versions
-
-- [#13155](https://github.com/LedgerHQ/ledger-live/pull/13155) [`aadb3d5`](https://github.com/LedgerHQ/ledger-live/commit/aadb3d57f5719cc2cc397975eafec8094b160afe) Thanks [@gre-ledger](https://github.com/gre-ledger)! - rxjs@7.8.2 everywhere
-
-## 0.9.0-next.0
-
-### Minor Changes
-
-- [#13038](https://github.com/LedgerHQ/ledger-live/pull/13038) [`ef276b7`](https://github.com/LedgerHQ/ledger-live/commit/ef276b7654ab32c7253ee812ceac3f89316ded4b) Thanks [@gre-ledger](https://github.com/gre-ledger)! - Uses crypto-icons everywhere and drop the legacy crypto-icons-ui for design unification and performance gain
-
-- [#13156](https://github.com/LedgerHQ/ledger-live/pull/13156) [`adbabc7`](https://github.com/LedgerHQ/ledger-live/commit/adbabc7d3b7ed8915503120a027d19304adc1fc8) Thanks [@gre-ledger](https://github.com/gre-ledger)! - ws@8.18.3 in catalog
-
-- [#13142](https://github.com/LedgerHQ/ledger-live/pull/13142) [`bdacedf`](https://github.com/LedgerHQ/ledger-live/commit/bdacedfe32bea8ffce96ab675a44c0d7cf395143) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - upgrade typescript-eslint rules & versions
-
-- [#13155](https://github.com/LedgerHQ/ledger-live/pull/13155) [`aadb3d5`](https://github.com/LedgerHQ/ledger-live/commit/aadb3d57f5719cc2cc397975eafec8094b160afe) Thanks [@gre-ledger](https://github.com/gre-ledger)! - rxjs@7.8.2 everywhere
-
-## 0.8.0
-
-### Minor Changes
-
-- [#12563](https://github.com/LedgerHQ/ledger-live/pull/12563) [`b4a4e16`](https://github.com/LedgerHQ/ledger-live/commit/b4a4e160aae6fd64f944ab25633f6931dc4358d3) Thanks [@fAnselmi-Ledger](https://github.com/fAnselmi-Ledger)! - Add DMK speculos transport and device controller
-
-- [#12891](https://github.com/LedgerHQ/ledger-live/pull/12891) [`c5cfce0`](https://github.com/LedgerHQ/ledger-live/commit/c5cfce008b12ddb2f9b4291807a3d4fdfdfb8949) Thanks [@lpaquet-ledger](https://github.com/lpaquet-ledger)! - remove select device
-
-- [#11549](https://github.com/LedgerHQ/ledger-live/pull/11549) [`6baa679`](https://github.com/LedgerHQ/ledger-live/commit/6baa679f53c04fff0e2a2e71ed2815d5ed78c856) Thanks [@ysitbon](https://github.com/ysitbon)! - Migrate to React-Native New-Architecture
-
-## 0.8.0-next.0
-
-### Minor Changes
-
-- [#12563](https://github.com/LedgerHQ/ledger-live/pull/12563) [`b4a4e16`](https://github.com/LedgerHQ/ledger-live/commit/b4a4e160aae6fd64f944ab25633f6931dc4358d3) Thanks [@fAnselmi-Ledger](https://github.com/fAnselmi-Ledger)! - Add DMK speculos transport and device controller
-
-- [#12891](https://github.com/LedgerHQ/ledger-live/pull/12891) [`c5cfce0`](https://github.com/LedgerHQ/ledger-live/commit/c5cfce008b12ddb2f9b4291807a3d4fdfdfb8949) Thanks [@lpaquet-ledger](https://github.com/lpaquet-ledger)! - remove select device
-
-- [#11549](https://github.com/LedgerHQ/ledger-live/pull/11549) [`6baa679`](https://github.com/LedgerHQ/ledger-live/commit/6baa679f53c04fff0e2a2e71ed2815d5ed78c856) Thanks [@ysitbon](https://github.com/ysitbon)! - Migrate to React-Native New-Architecture
-
-## 0.7.0
-
-### Minor Changes
-
-- [#12566](https://github.com/LedgerHQ/ledger-live/pull/12566) [`68cbd45`](https://github.com/LedgerHQ/ledger-live/commit/68cbd45fed262e95d301351e55852dcfc020e542) Thanks [@RobinVncnt](https://github.com/RobinVncnt)! - feat: add Deeplinks for asset page
-
-- [#12529](https://github.com/LedgerHQ/ledger-live/pull/12529) [`5b41dd5`](https://github.com/LedgerHQ/ledger-live/commit/5b41dd56e024a5d03ba0e49084113c04887395db) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - Cleanup llmMarketQuickActions Feature flag
-
-## 0.7.0-next.0
-
-### Minor Changes
-
-- [#12566](https://github.com/LedgerHQ/ledger-live/pull/12566) [`68cbd45`](https://github.com/LedgerHQ/ledger-live/commit/68cbd45fed262e95d301351e55852dcfc020e542) Thanks [@RobinVncnt](https://github.com/RobinVncnt)! - feat: add Deeplinks for asset page
-
-- [#12529](https://github.com/LedgerHQ/ledger-live/pull/12529) [`5b41dd5`](https://github.com/LedgerHQ/ledger-live/commit/5b41dd56e024a5d03ba0e49084113c04887395db) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - Cleanup llmMarketQuickActions Feature flag
-
-## 0.6.0
-
-### Minor Changes
-
-- [#12141](https://github.com/LedgerHQ/ledger-live/pull/12141) [`3691bed`](https://github.com/LedgerHQ/ledger-live/commit/3691bed5f5706f010037f54e2396ad71e48cf208) Thanks [@adammino-ledger](https://github.com/adammino-ledger)! - update 1inch domain from .io to .com
-
-## 0.6.0-next.0
-
-### Minor Changes
-
-- [#12141](https://github.com/LedgerHQ/ledger-live/pull/12141) [`3691bed`](https://github.com/LedgerHQ/ledger-live/commit/3691bed5f5706f010037f54e2396ad71e48cf208) Thanks [@adammino-ledger](https://github.com/adammino-ledger)! - update 1inch domain from .io to .com
-
-## 0.5.0
-
-### Minor Changes
-
-- [#11944](https://github.com/LedgerHQ/ledger-live/pull/11944) [`12d86b2`](https://github.com/LedgerHQ/ledger-live/commit/12d86b226c89ec24ce956d18c6301a4dc415c719) Thanks [@hedi-edelbloute](https://github.com/hedi-edelbloute)! - Update B2CQA-650 test
-
-## 0.5.0-next.0
-
-### Minor Changes
-
-- [#11944](https://github.com/LedgerHQ/ledger-live/pull/11944) [`12d86b2`](https://github.com/LedgerHQ/ledger-live/commit/12d86b226c89ec24ce956d18c6301a4dc415c719) Thanks [@hedi-edelbloute](https://github.com/hedi-edelbloute)! - Update B2CQA-650 test
-
-## 0.4.0
-
-### Minor Changes
-
-- [#11989](https://github.com/LedgerHQ/ledger-live/pull/11989) [`9492d4a`](https://github.com/LedgerHQ/ledger-live/commit/9492d4a0071ff695113f67b873c215ff95a1e1ab) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - Update B2CQA-650 test
-
-## 0.4.0-next.0
-
-### Minor Changes
-
-- [#11989](https://github.com/LedgerHQ/ledger-live/pull/11989) [`9492d4a`](https://github.com/LedgerHQ/ledger-live/commit/9492d4a0071ff695113f67b873c215ff95a1e1ab) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - Update B2CQA-650 test
-
-## 0.3.0
-
-### Minor Changes
-
-- [#10766](https://github.com/LedgerHQ/ledger-live/pull/10766) [`d053a79`](https://github.com/LedgerHQ/ledger-live/commit/d053a7969ac7976ea6d10955c3cfa47621be1b32) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - Remove llmNetworkBasedAddAccountFlow FF
-
-## 0.3.0-next.0
-
-### Minor Changes
-
-- [#10766](https://github.com/LedgerHQ/ledger-live/pull/10766) [`d053a79`](https://github.com/LedgerHQ/ledger-live/commit/d053a7969ac7976ea6d10955c3cfa47621be1b32) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - Remove llmNetworkBasedAddAccountFlow FF
-
-## 0.2.0
-
-## 0.2.0-next.0
-
-### Minor Changes
-
-- [#10799](https://github.com/LedgerHQ/ledger-live/pull/10799) [`2769bd7`](https://github.com/LedgerHQ/ledger-live/commit/2769bd7afae9b7b4794cb06deb95344e5e674129) Thanks [@buyochini](https://github.com/buyochini)! - remove hardcoded ptxSwapLiveAppMobile feature flag from E2E mobile tests
-
-## 0.1.0
-
-### Minor Changes
-
-- [#10551](https://github.com/LedgerHQ/ledger-live/pull/10551) [`99385c9`](https://github.com/LedgerHQ/ledger-live/commit/99385c9a7ecac9328ffa29c039e8c0cf2317c431) Thanks [@Wozacosta](https://github.com/Wozacosta)! - fix: revert generic bridge xrp
-
-- [#10217](https://github.com/LedgerHQ/ledger-live/pull/10217) [`e04d215`](https://github.com/LedgerHQ/ledger-live/commit/e04d21576919fa21cb3ab6e1c4e8e50fb6c17eca) Thanks [@Wozacosta](https://github.com/Wozacosta)! - feat: update transactionintent generic types + remove xrp bridge and introduce the generic alpaca bridge in LLC
-
-## 0.1.0-next.1
-
-### Minor Changes
-
-- [#10551](https://github.com/LedgerHQ/ledger-live/pull/10551) [`99385c9`](https://github.com/LedgerHQ/ledger-live/commit/99385c9a7ecac9328ffa29c039e8c0cf2317c431) Thanks [@Wozacosta](https://github.com/Wozacosta)! - fix: revert generic bridge xrp
-
-## 0.1.0-next.0
-
-### Minor Changes
-
-- [#10217](https://github.com/LedgerHQ/ledger-live/pull/10217) [`e04d215`](https://github.com/LedgerHQ/ledger-live/commit/e04d21576919fa21cb3ab6e1c4e8e50fb6c17eca) Thanks [@Wozacosta](https://github.com/Wozacosta)! - feat: update transactionintent generic types + remove xrp bridge and introduce the generic alpaca bridge in LLC
-
-## 0.0.2
-
-### Patch Changes
-
-- Updated dependencies [[`ebbbd47`](https://github.com/LedgerHQ/ledger-live/commit/ebbbd47efe76d82047a956cb5849be5831f58772), [`f29e4ba`](https://github.com/LedgerHQ/ledger-live/commit/f29e4bae00a4bf470a0c1ca143e505b731543f95)]:
-  - @ledgerhq/logs@6.13.0
-
-## 0.0.2-next.1
-
-### Patch Changes
-
-- Updated dependencies [[`ebbbd47`](https://github.com/LedgerHQ/ledger-live/commit/ebbbd47efe76d82047a956cb5849be5831f58772)]:
-  - @ledgerhq/logs@6.13.0-next.1
-
-## 0.0.2-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`f29e4ba`](https://github.com/LedgerHQ/ledger-live/commit/f29e4bae00a4bf470a0c1ca143e505b731543f95)]:
-  - @ledgerhq/logs@6.13.0-next.0
+<!-- changelog-pruned: older entries were removed to keep this file small. Full history is in `git log -p CHANGELOG.md` and in the GitHub release for each version. -->

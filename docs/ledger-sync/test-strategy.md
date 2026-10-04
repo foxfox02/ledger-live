@@ -9,7 +9,7 @@ flowchart TB
         lkrp["LKRP scenarios<br/>(device APDU + Trustchain API)"]
     end
     subgraph unit["unit"]
-        wsdm["WalletSyncDataManager<br/>(generic + specific + compatibility)"]
+        wsdm["CloudSyncDataManager<br/>(generic + specific + compatibility)"]
     end
     lkrp -.-> wsdm
 ```
@@ -23,16 +23,16 @@ fully deterministically by **mocking everything external**: HTTP via `msw`, devi
 The trick: a scenario is recorded **once** end-to-end against a real Speculos device + staging
 API, then **replayed** deterministically forever after.
 
-- Record missing snapshots: the lib's `e2e` script
-  ([`scripts/e2e.ts`](../../libs/ledger-key-ring-protocol/scripts/e2e.ts)). To regenerate one,
+- Record missing snapshots: the lib's `e2e` script (now in ts-libs)
+  ([`scripts/e2e.ts`](https://github.com/LedgerHQ/ts-libs/blob/develop/libs/ledger-key-ring-protocol/scripts/e2e.ts)). To regenerate one,
   delete its JSON and re-run.
-- Snapshots live in [`mocks/scenarios/*.json`](../../libs/ledger-key-ring-protocol/mocks/scenarios)
+- Snapshots live in [`mocks/scenarios/*.json`](https://github.com/LedgerHQ/ts-libs/tree/develop/libs/ledger-key-ring-protocol/mocks/scenarios)
   (recorded `apdus`, `http.transactions`, and `crypto` randomness).
 - Replayed by `src/__tests__/integration/sdk.test.ts` (against the real SDK) and the mock SDK.
 
 A scenario is a single **isomorphic** TypeScript file — the *same* function is used to record and
 to replay, so an assertion failure is caught in either mode. They live in
-[`tests/scenarios/`](../../libs/ledger-key-ring-protocol/tests/scenarios) (start from
+[`tests/scenarios/`](https://github.com/LedgerHQ/ts-libs/tree/develop/libs/ledger-key-ring-protocol/tests/scenarios) (start from
 `_template.ts`). Example:
 
 ```ts
@@ -58,17 +58,10 @@ several members in one scenario — see `_template.ts`.)
 The recorder/replayer glue (< 200 LoC) is in `tests/test-helpers/`. See
 [behaviour scenarios](./scenarios.md) for the catalogue of what these cover.
 
-## WalletSyncDataManager unit tests
+## CloudSyncDataManager unit tests
 
-The [WalletSyncDataManager](./05-wallet-sync-data-manager.md) is tested in three complementary
-ways under [`src/walletsync/__tests__`](../../libs/live-wallet/src/walletsync/__tests__):
+The [CloudSyncDataManager](./05-wallet-sync-data-manager.md) is tested per module:
 
-- **Generic** (`generic.test.ts`) — verifies the invariant properties *every* module must hold,
-  run against all modules with a large bank of randomly generated states. Catches a broken module
-  implementation early and locks in non-regressions. Requires each module to provide state
-  generators in [`__mocks__/`](../../libs/live-wallet/src/walletsync/__mocks__) (see its README).
-- **Specific** (`specific.test.ts` + `__tests__/modules/*.test.ts`) — hand-written expectations
-  for known, specific scenarios per module (e.g. `accounts.test.ts`).
-- **Compatibility** (`compatibility.test.ts`) — proves the module set can evolve (modules added
-  or removed) and that Wallet Sync still behaves correctly — the basis for the
-  [forward-compatibility guarantee](./05-wallet-sync-data-manager.md#a-modular-architecture).
+- **Accounts** — [`libs/live-wallet/src/accounts/__tests__/cloudSyncModule.test.ts`](../../libs/live-wallet/src/accounts/__tests__/cloudSyncModule.test.ts)
+- **Account names** — [`domain/entity/account-name/src/__tests__/`](../../domain/entity/account-name/src/__tests__/)
+- **Recent addresses** — [`domain/entity/recent-addresses/src/cloudSyncModule.test.ts`](../../domain/entity/recent-addresses/src/cloudSyncModule.test.ts)

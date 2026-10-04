@@ -3,9 +3,11 @@ import { useDomain } from "@ledgerhq/domain-service/hooks/index";
 import { isLoaded } from "@ledgerhq/domain-service/hooks/logic";
 import type { DomainServiceStatus } from "@ledgerhq/domain-service/hooks/types";
 import { InvalidAddressBecauseDestinationIsAlsoSource } from "@ledgerhq/ledger-wallet-framework/errors";
+import { selectContacts } from "@domain/entity-contact";
 import { getAccountCurrency, getMainAccount } from "@ledgerhq/live-common/account/index";
 import { sendFeatures } from "@ledgerhq/live-common/bridge/descriptor/send/features";
 import { useBridgeRecipientValidation } from "@ledgerhq/live-common/flows/send/recipient/hooks/useBridgeRecipientValidation";
+import { findMatchedContact } from "@ledgerhq/live-common/flows/send/recipient/utils/findMatchedContact";
 import type {
   AddressSearchResult,
   AddressValidationError,
@@ -20,8 +22,11 @@ import type { TokenCurrency } from "@domain/entity-currency-token";
 import type { Account, AccountLike, Operation } from "@ledgerhq/types-live";
 import { useSelector } from "LLD/hooks/redux";
 import { useCallback, useMemo, useRef, useState } from "react";
+import { t } from "~/renderer/i18n/init";
 import { accountsSelector } from "~/renderer/reducers/accounts";
 import { useMaybeAccountName } from "~/renderer/reducers/wallet";
+import { useLLDCoinFamily } from "~/renderer/families";
+import { getAccountSelfTransferTarget } from "../../../utils/selfTransferTarget";
 import { useFormattedAccountBalance } from "./useFormattedAccountBalance";
 
 function isDomainLoading(domain: DomainServiceStatus): boolean {
@@ -73,6 +78,7 @@ type UseAddressValidationProps = Readonly<{
   transaction?: Transaction | null;
   currentAccountId?: string;
   recipientSupportsDomain?: boolean;
+  canSearchContactsByName?: boolean;
 }>;
 
 type UseAddressValidationResult = {
@@ -89,6 +95,7 @@ export function useAddressValidation({
   transaction,
   currentAccountId,
   recipientSupportsDomain = false,
+  canSearchContactsByName = false,
 }: UseAddressValidationProps): UseAddressValidationResult {
   const [validationState, setValidationState] = useState<{
     status: AddressValidationStatus;
@@ -100,10 +107,11 @@ export function useAddressValidation({
     isSanctioned: false,
   });
 
-  const lastSearchValueRef = useRef<string>("");
+  const lastValidationKeyRef = useRef<string>("");
   const validationTriggeredRef = useRef<boolean>(false);
 
   const allAccounts = useSelector(accountsSelector);
+  const contacts = useSelector(selectContacts);
 
   const domainServiceResponse = useDomain(recipientSupportsDomain ? searchValue : "", "ens");
   const domainIsLoading = recipientSupportsDomain && isDomainLoading(domainServiceResponse);
@@ -116,15 +124,44 @@ export function useAddressValidation({
     return null;
   }, [domainServiceResponse, recipientSupportsDomain]);
 
-  // Use resolved address for bridge validation (ENS resolved address or original searchValue)
-  const addressForBridgeValidation = useMemo(() => {
-    return ensResolution?.address ?? searchValue;
-  }, [ensResolution?.address, searchValue]);
-
   const mainAccount = useMemo(
     () => (account ? getMainAccount(account, parentAccount) : null),
     [account, parentAccount],
   );
+  const sanctionCurrency = currency.type === "TokenCurrency" ? mainAccount?.currency : currency;
+
+  // Every address by which a candidate account can be recognized as the
+  // recipient, per the coin-families contract (defaults to the fresh address
+  // alone -- see `getAccountRecipientAddresses` on `LLDCoinFamily`).
+  const family = useLLDCoinFamily(mainAccount?.currency.family);
+  const getRecipientAddresses = useCallback(
+    (candidate: Account): string[] =>
+      family.getAccountRecipientAddresses?.(candidate) ?? [candidate.freshAddress],
+    [family],
+  );
+
+  const matchedContact = useMemo(() => {
+    if (!searchValue || !sanctionCurrency) {
+      return undefined;
+    }
+
+    return findMatchedContact(contacts, searchValue, currency.id, ensResolution?.address, {
+      matchName: canSearchContactsByName && !domainIsLoading,
+    });
+  }, [
+    canSearchContactsByName,
+    contacts,
+    currency.id,
+    domainIsLoading,
+    ensResolution?.address,
+    sanctionCurrency,
+    searchValue,
+  ]);
+
+  const addressForBridgeValidation = useMemo(() => {
+    return matchedContact?.address ?? ensResolution?.address ?? searchValue;
+  }, [ensResolution?.address, matchedContact?.address, searchValue]);
+  const validationKey = `${sanctionCurrency?.id ?? ""}:${addressForBridgeValidation}`;
 
   // Bridge validation for recipient/sender errors and warnings
   const bridgeValidation = useBridgeRecipientValidation({
@@ -135,7 +172,7 @@ export function useAddressValidation({
     enabled: Boolean(
       addressForBridgeValidation &&
       account &&
-      (!recipientSupportsDomain || ensResolution || !domainIsLoading),
+      (matchedContact || !recipientSupportsDomain || ensResolution || !domainIsLoading),
     ),
   });
 
@@ -157,7 +194,9 @@ export function useAddressValidation({
   const recentSendRecipients = useMemo(() => {
     const loadedOperations = account?.operations ?? [];
     const userAccountsByAddress = new Map(
-      userAccountsForCurrency.map(acc => [acc.freshAddress.toLowerCase(), acc]),
+      userAccountsForCurrency.flatMap(acc =>
+        getRecipientAddresses(acc).map(address => [address.toLowerCase(), acc] as const),
+      ),
     );
 
     const deduplicatedAddresses = new Map<string, RecentAddress>();
@@ -182,7 +221,7 @@ export function useAddressValidation({
     return Array.from(deduplicatedAddresses.values()).sort(
       (a, b) => b.lastUsedAt.getTime() - a.lastUsedAt.getTime(),
     );
-  }, [account?.operations, currency, userAccountsForCurrency]);
+  }, [account?.operations, currency, userAccountsForCurrency, getRecipientAddresses]);
 
   const matchedRecentAddress = useMemo(() => {
     if (!canMatchValidatedRecipient) return undefined;
@@ -198,30 +237,62 @@ export function useAddressValidation({
     if (!canMatchValidatedRecipient) return [];
 
     const normalizedRecipientAddress = addressForBridgeValidation.toLowerCase();
-    return userAccountsForCurrency.filter(
-      acc => acc.freshAddress.toLowerCase() === normalizedRecipientAddress,
+    return userAccountsForCurrency.filter(acc =>
+      getRecipientAddresses(acc).some(
+        address => address.toLowerCase() === normalizedRecipientAddress,
+      ),
     );
-  }, [canMatchValidatedRecipient, userAccountsForCurrency, addressForBridgeValidation]);
+  }, [
+    canMatchValidatedRecipient,
+    userAccountsForCurrency,
+    addressForBridgeValidation,
+    getRecipientAddresses,
+  ]);
 
   const currentAccountMatch = useMemo(() => {
     if (!canMatchValidatedRecipient || !account || !mainAccount) return null;
 
     const selfTransferPolicy = sendFeatures.getSelfTransferPolicy(currency);
-    const addressMatches =
-      addressForBridgeValidation.toLowerCase() === mainAccount.freshAddress.toLowerCase();
+    const normalizedRecipientAddress = addressForBridgeValidation.toLowerCase();
+    const addressMatches = getRecipientAddresses(mainAccount).some(
+      address => address.toLowerCase() === normalizedRecipientAddress,
+    );
 
     if (addressMatches && (selfTransferPolicy === "free" || selfTransferPolicy === "warning")) {
       return mainAccount;
     }
 
     return null;
-  }, [canMatchValidatedRecipient, account, mainAccount, currency, addressForBridgeValidation]);
+  }, [
+    canMatchValidatedRecipient,
+    account,
+    mainAccount,
+    currency,
+    addressForBridgeValidation,
+    getRecipientAddresses,
+  ]);
 
   const matchedLedgerAccount = currentAccountMatch ?? matchedLedgerAccounts[0];
 
   const { formattedBalance, formattedCounterValue } =
     useFormattedAccountBalance(matchedLedgerAccount);
-  const accountName = useMaybeAccountName(matchedLedgerAccount);
+  const matchedLedgerAccountName = useMaybeAccountName(matchedLedgerAccount);
+
+  // A pasted address matching the account being sent from is its self-transfer
+  // target (the account's other pool): show the pool label ("Private balance")
+  // rather than the account's own name, the same label the self-transfer
+  // shortcut already produces on click. Any other self-match (e.g. the pool
+  // currently being spent from) keeps the account name.
+  const selfTransferPoolLabel = useMemo(() => {
+    if (!currentAccountMatch) return undefined;
+    const target = getAccountSelfTransferTarget(currentAccountMatch, transaction);
+    if (!target || target.address.toLowerCase() !== addressForBridgeValidation.toLowerCase()) {
+      return undefined;
+    }
+    return t(`newSendFlow.${target.translationKey}.label`);
+  }, [currentAccountMatch, transaction, addressForBridgeValidation]);
+
+  const accountName = selfTransferPoolLabel ?? matchedLedgerAccountName;
 
   const validateAddress = useCallback(async () => {
     if (!searchValue) {
@@ -232,11 +303,10 @@ export function useAddressValidation({
     setValidationState({ status: "loading", error: null, isSanctioned: false });
 
     try {
-      const addressToCheck = ensResolution?.address ?? searchValue;
+      const addressToCheck = matchedContact?.address ?? ensResolution?.address ?? searchValue;
 
-      const isCryptoCurrency = "id" in currency && !("tokenType" in currency);
-      if (isCryptoCurrency) {
-        const sanctioned = await isAddressSanctioned(currency, addressToCheck);
+      if (sanctionCurrency) {
+        const sanctioned = await isAddressSanctioned(sanctionCurrency, addressToCheck);
         if (sanctioned) {
           setValidationState({
             status: "sanctioned",
@@ -268,11 +338,11 @@ export function useAddressValidation({
         isSanctioned: false,
       });
     }
-  }, [searchValue, ensResolution, currency]);
+  }, [searchValue, matchedContact?.address, ensResolution, sanctionCurrency]);
 
-  // Auto-validate when searchValue changes
-  if (searchValue !== lastSearchValueRef.current) {
-    lastSearchValueRef.current = searchValue;
+  // Revalidate when the effective address changes, including after ENS resolution.
+  if (validationKey !== lastValidationKeyRef.current) {
+    lastValidationKeyRef.current = validationKey;
     validationTriggeredRef.current = false;
     // If searchValue is cleared, immediately reset validation state
     if (!searchValue) {
@@ -280,8 +350,12 @@ export function useAddressValidation({
     }
   }
 
-  // Trigger validation once when searchValue changes
-  if (searchValue && !validationTriggeredRef.current && validationState.status !== "loading") {
+  // Trigger validation once for each effective address.
+  if (
+    addressForBridgeValidation &&
+    !validationTriggeredRef.current &&
+    validationState.status !== "loading"
+  ) {
     validationTriggeredRef.current = true;
     // Use queueMicrotask to trigger validation after render
     queueMicrotask(() => {
@@ -297,7 +371,8 @@ export function useAddressValidation({
         ]
       : matchedLedgerAccounts;
 
-    const isFirstInteraction = !matchedRecentAddress && allMatchedAccounts.length === 0;
+    const isFirstInteraction =
+      !matchedRecentAddress && allMatchedAccounts.length === 0 && !matchedContact;
 
     const matchedAccounts: MatchedAccount[] = allMatchedAccounts.map(acc => ({
       account: acc,
@@ -306,7 +381,9 @@ export function useAddressValidation({
       accountBalanceFormatted: undefined,
     }));
 
-    const filteredBridgeErrors: BridgeValidationErrors = { ...bridgeValidation.errors };
+    const filteredBridgeErrors: BridgeValidationErrors = {
+      ...bridgeValidation.errors,
+    };
     if (ensResolution && filteredBridgeErrors.recipient?.name === "InvalidAddress") {
       delete filteredBridgeErrors.recipient;
     }
@@ -314,16 +391,29 @@ export function useAddressValidation({
     const isImpossibleSelfTransferAttempt =
       mainAccount &&
       sendFeatures.getSelfTransferPolicy(currency) === "impossible" &&
-      addressForBridgeValidation.toLowerCase() === mainAccount.freshAddress.toLowerCase();
+      getRecipientAddresses(mainAccount).some(
+        address => address.toLowerCase() === addressForBridgeValidation.toLowerCase(),
+      );
 
     if (isImpossibleSelfTransferAttempt && !filteredBridgeErrors.recipient) {
       filteredBridgeErrors.recipient = new InvalidAddressBecauseDestinationIsAlsoSource();
     }
 
+    // The address that actually matched, not the account's fresh address: a
+    // family can recognize an account by more than its fresh address (see
+    // `getRecipientAddresses`), and resolving to the wrong one of those two
+    // would silently redirect the send (e.g. a shielded match resolving to the
+    // transparent address).
+    const matchedAddress = matchedLedgerAccount
+      ? getRecipientAddresses(matchedLedgerAccount).find(
+          address => address.toLowerCase() === addressForBridgeValidation.toLowerCase(),
+        )
+      : undefined;
+
     return {
       status: validationState.status,
       error: validationState.error,
-      resolvedAddress: matchedLedgerAccount?.freshAddress ?? ensResolution?.address,
+      resolvedAddress: matchedAddress ?? matchedContact?.address ?? ensResolution?.address,
       ensName: ensResolution?.domain,
       isLedgerAccount: allMatchedAccounts.length > 0,
       accountName,
@@ -332,6 +422,7 @@ export function useAddressValidation({
       isFirstInteraction,
       matchedRecentAddress,
       matchedAccounts,
+      matchedContact,
       bridgeErrors: filteredBridgeErrors,
       bridgeWarnings: bridgeValidation.warnings,
       isBridgeLoading: bridgeValidation.isLoading && bridgeValidation.status === null,
@@ -344,12 +435,14 @@ export function useAddressValidation({
     matchedLedgerAccounts,
     currentAccountMatch,
     matchedRecentAddress,
+    matchedContact,
     formattedBalance,
     formattedCounterValue,
     accountName,
     mainAccount,
     currency,
     addressForBridgeValidation,
+    getRecipientAddresses,
     bridgeValidation.errors,
     bridgeValidation.warnings,
     bridgeValidation.isLoading,
@@ -360,7 +453,7 @@ export function useAddressValidation({
     result,
     isLoading:
       validationState.status === "loading" ||
-      domainIsLoading ||
+      (domainIsLoading && !matchedContact) ||
       (bridgeValidation.isLoading && bridgeValidation.status === null),
     validateAddress,
   };

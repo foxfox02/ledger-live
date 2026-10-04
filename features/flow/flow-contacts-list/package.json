@@ -1,0 +1,80 @@
+{
+  "name": "@features/flow-contacts-list",
+  "version": "0.8.0",
+  "private": true,
+  "description": "Shared Contacts list flow for Desktop and Mobile",
+  "main": "src/index.ts",
+  "react-native": "src/index.native.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "react-native": "./src/index.native.ts",
+      "default": "./src/index.ts"
+    },
+    "./native": "./src/index.native.ts",
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "format": "oxfmt src",
+    "format:check": "oxfmt src --check",
+    "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.native.json",
+    "test": "jest",
+    "coverage": "jest --coverage",
+    "unimported": "pnpm knip --directory ../../.. -c features/flow/flow-contacts-list/knip.web.config.mjs -W features/flow/flow-contacts-list --tsConfig tsconfig.web.json && pnpm knip --directory ../../.. -c features/flow/flow-contacts-list/knip.native.config.mjs -W features/flow/flow-contacts-list --tsConfig tsconfig.native.json"
+  },
+  "dependencies": {
+    "@domain/entity-contact": "workspace:*",
+    "@features/platform-contacts": "workspace:^",
+    "class-variance-authority": "catalog:",
+    "clsx": "catalog:",
+    "tailwind-merge": "catalog:"
+  },
+  "peerDependencies": {
+    "react": ">=19.0.0",
+    "react-native": ">=0.70.0",
+    "react-native-safe-area-context": ">=4.0.0",
+    "react-redux": ">=9.0.0",
+    "@ledgerhq/lumen-ui-react": "catalog:",
+    "@ledgerhq/lumen-ui-rnative": "catalog:"
+  },
+  "peerDependenciesMeta": {
+    "react-native": {
+      "optional": true
+    },
+    "react-native-safe-area-context": {
+      "optional": true
+    },
+    "@ledgerhq/lumen-ui-react": {
+      "optional": true
+    },
+    "@ledgerhq/lumen-ui-rnative": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@support/jest-features-flow": "workspace:*",
+    "@ledgerhq/lumen-ui-react": "catalog:",
+    "@ledgerhq/lumen-ui-rnative": "catalog:",
+    "@reduxjs/toolkit": "catalog:",
+    "@swc/core": "catalog:",
+    "@swc/jest": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/react-native": "catalog:",
+    "@testing-library/dom": "catalog:",
+    "@testing-library/jest-dom": "catalog:",
+    "@types/jest": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "jest": "catalog:",
+    "jest-environment-jsdom": "catalog:",
+    "oxfmt": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-native": "catalog:",
+    "react-native-safe-area-context": "catalog:",
+    "react-test-renderer": "catalog:",
+    "react-redux": "catalog:",
+    "typescript": "catalog:"
+  }
+}

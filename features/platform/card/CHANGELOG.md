@@ -1,0 +1,311 @@
+# @features/platform-card
+
+## 0.6.0
+
+### Minor Changes
+
+- [#22003](https://github.com/LedgerHQ/ledger-live/pull/22003) [`40d296b`](https://github.com/LedgerHQ/ledger-live/commit/40d296b822381cc5d05616acafa1bca61e500dce) Thanks [@liviuciulinaru](https://github.com/liviuciulinaru)! - Record the provider app the Card login redirect names, and send x-us-env on every Card request of a US holder
+
+- [#22184](https://github.com/LedgerHQ/ledger-live/pull/22184) [`75038d5`](https://github.com/LedgerHQ/ledger-live/commit/75038d59735ac63ab43baf7bd298969890241b3b) Thanks [@liviuciulinaru](https://github.com/liviuciulinaru)! - Open the provider's top up page from the card on mobile.
+
+  - The Top up button takes the place of the disabled "Coming soon" action on the card face, and it comes back at the bottom of the card details sheet.
+  - Mobile opens `/topup` in the secure browser, which carries the provider session. A US card holder gets the US `app_id` on the query, so the page reaches the US tenant.
+
+- [#22183](https://github.com/LedgerHQ/ledger-live/pull/22183) [`d9d1111`](https://github.com/LedgerHQ/ledger-live/commit/d9d1111733e757cc58b6249fdda568dd56d40757) Thanks [@liviuciulinaru](https://github.com/liviuciulinaru)! - Open the provider's top up page from the card on desktop.
+
+  - `CardTopUpButton` carries the action. On desktop it stays at the bottom of the card panel, above the scrolling content.
+  - Desktop opens `/topup` on the hosted live app manifest, the way the signup page already opens.
+  - A US card holder gets the US `app_id` on the query, so the page reaches the US tenant.
+  - Desktop ends the provider session in the webview on each entry of the Pay tab, so a session left behind by a top up cannot sign the previous holder back in. The login and the signup drop their own wipe: every one of them starts from an entry of the Pay tab.
+  - The top up button in the asset details dialog opens the same page, with the asset pre-selected on the query.
+
+### Patch Changes
+
+- Updated dependencies [[`40d296b`](https://github.com/LedgerHQ/ledger-live/commit/40d296b822381cc5d05616acafa1bca61e500dce), [`4d1d640`](https://github.com/LedgerHQ/ledger-live/commit/4d1d64049a0bb0562a1a0c8ad2555fe967acdd7f), [`72367fc`](https://github.com/LedgerHQ/ledger-live/commit/72367fcf2343fa488008236f1005da589e6e3054), [`233e44e`](https://github.com/LedgerHQ/ledger-live/commit/233e44e3dd724cc9d4f14a02c7e62e39d2e9079b), [`6741356`](https://github.com/LedgerHQ/ledger-live/commit/67413566f84b895e6f4ae2b5d646bfc2e82c6926), [`dafadf0`](https://github.com/LedgerHQ/ledger-live/commit/dafadf005a54007d5430203c11b8718c1636a6e4), [`9652494`](https://github.com/LedgerHQ/ledger-live/commit/96524949cbf8fa1d102a0156f40004ff12a30475), [`5492648`](https://github.com/LedgerHQ/ledger-live/commit/5492648988e327c8e3e6e7d5ead1e0fa2bd9929e), [`a915d4a`](https://github.com/LedgerHQ/ledger-live/commit/a915d4a577dfe7bb778364c4b0269bc61203075a), [`eb06f77`](https://github.com/LedgerHQ/ledger-live/commit/eb06f77c9548a2e4641c37da90c34b4fcffba667), [`287f042`](https://github.com/LedgerHQ/ledger-live/commit/287f04286e4933e31e31952a3ac6485e145e34f2), [`6fe6efb`](https://github.com/LedgerHQ/ledger-live/commit/6fe6efb9f2c9211d6002dd17f4369f90390021bf), [`43e1a21`](https://github.com/LedgerHQ/ledger-live/commit/43e1a21f2060d53875256b001e054cf0b1f7b86a)]:
+  - @shared/api-services@0.8.0
+  - @domain/api-card-management@0.7.0
+
+## 0.6.0-next.0
+
+### Minor Changes
+
+- [#22003](https://github.com/LedgerHQ/ledger-live/pull/22003) [`40d296b`](https://github.com/LedgerHQ/ledger-live/commit/40d296b822381cc5d05616acafa1bca61e500dce) Thanks [@liviuciulinaru](https://github.com/liviuciulinaru)! - Record the provider app the Card login redirect names, and send x-us-env on every Card request of a US holder
+
+- [#22184](https://github.com/LedgerHQ/ledger-live/pull/22184) [`75038d5`](https://github.com/LedgerHQ/ledger-live/commit/75038d59735ac63ab43baf7bd298969890241b3b) Thanks [@liviuciulinaru](https://github.com/liviuciulinaru)! - Open the provider's top up page from the card on mobile.
+
+  - The Top up button takes the place of the disabled "Coming soon" action on the card face, and it comes back at the bottom of the card details sheet.
+  - Mobile opens `/topup` in the secure browser, which carries the provider session. A US card holder gets the US `app_id` on the query, so the page reaches the US tenant.
+
+- [#22183](https://github.com/LedgerHQ/ledger-live/pull/22183) [`d9d1111`](https://github.com/LedgerHQ/ledger-live/commit/d9d1111733e757cc58b6249fdda568dd56d40757) Thanks [@liviuciulinaru](https://github.com/liviuciulinaru)! - Open the provider's top up page from the card on desktop.
+
+  - `CardTopUpButton` carries the action. On desktop it stays at the bottom of the card panel, above the scrolling content.
+  - Desktop opens `/topup` on the hosted live app manifest, the way the signup page already opens.
+  - A US card holder gets the US `app_id` on the query, so the page reaches the US tenant.
+  - Desktop ends the provider session in the webview on each entry of the Pay tab, so a session left behind by a top up cannot sign the previous holder back in. The login and the signup drop their own wipe: every one of them starts from an entry of the Pay tab.
+  - The top up button in the asset details dialog opens the same page, with the asset pre-selected on the query.
+
+### Patch Changes
+
+- Updated dependencies [[`40d296b`](https://github.com/LedgerHQ/ledger-live/commit/40d296b822381cc5d05616acafa1bca61e500dce), [`4d1d640`](https://github.com/LedgerHQ/ledger-live/commit/4d1d64049a0bb0562a1a0c8ad2555fe967acdd7f), [`72367fc`](https://github.com/LedgerHQ/ledger-live/commit/72367fcf2343fa488008236f1005da589e6e3054), [`233e44e`](https://github.com/LedgerHQ/ledger-live/commit/233e44e3dd724cc9d4f14a02c7e62e39d2e9079b), [`6741356`](https://github.com/LedgerHQ/ledger-live/commit/67413566f84b895e6f4ae2b5d646bfc2e82c6926), [`dafadf0`](https://github.com/LedgerHQ/ledger-live/commit/dafadf005a54007d5430203c11b8718c1636a6e4), [`9652494`](https://github.com/LedgerHQ/ledger-live/commit/96524949cbf8fa1d102a0156f40004ff12a30475), [`5492648`](https://github.com/LedgerHQ/ledger-live/commit/5492648988e327c8e3e6e7d5ead1e0fa2bd9929e), [`a915d4a`](https://github.com/LedgerHQ/ledger-live/commit/a915d4a577dfe7bb778364c4b0269bc61203075a), [`eb06f77`](https://github.com/LedgerHQ/ledger-live/commit/eb06f77c9548a2e4641c37da90c34b4fcffba667), [`287f042`](https://github.com/LedgerHQ/ledger-live/commit/287f04286e4933e31e31952a3ac6485e145e34f2), [`6fe6efb`](https://github.com/LedgerHQ/ledger-live/commit/6fe6efb9f2c9211d6002dd17f4369f90390021bf), [`43e1a21`](https://github.com/LedgerHQ/ledger-live/commit/43e1a21f2060d53875256b001e054cf0b1f7b86a)]:
+  - @shared/api-services@0.8.0-next.0
+  - @domain/api-card-management@0.7.0-next.0
+
+## 0.5.0
+
+### Minor Changes
+
+- [#21920](https://github.com/LedgerHQ/ledger-live/pull/21920) [`b49d5b5`](https://github.com/LedgerHQ/ledger-live/commit/b49d5b573e84bd63ac460ae398657f1035613141) Thanks [@ysitbon](https://github.com/ysitbon)! - Give each dual-platform feature package its own web and native TypeScript project
+
+  These packages keep `.web.*` and `.native.*` sources side by side but typechecked both
+  in a single program, so `tsc` resolved suffix-free imports without knowing which
+  platform it was checking. Each package now carries a solution-style `tsconfig.json`
+  that owns no files and references one project per platform it targets, as described in
+  `docs/tsconfig-in-ddd.md`. The web project sets `moduleSuffixes: [".web", ""]` and
+  excludes the native sources, the native project does the reverse and also excludes the
+  unsuffixed web barrel, and `typecheck` runs both passes. `@features/flow-large-screen-upsell`
+  is web-only and gets a web project on its own.
+
+  Separating the two programs surfaced cross-platform leaks that a single program could
+  not see, so this also fixes them. Barrels that hard-pinned one platform's file, in the
+  Contacts button and the Market banner, now import suffix-free and let `moduleSuffixes`
+  choose, which makes their parallel `index.native.ts` barrels redundant. The three
+  packages whose web entry was `src/web.ts` now expose it as `src/index.ts`, so a native
+  program resolving the package can find the `index.native.ts` beside it instead of
+  falling through to the web barrel and dragging web components into the native program.
+  `@features/platform-style` gives its web implementations the `.web` suffix they were
+  missing, which stops its native program from typechecking web code against native
+  components. One web test reached for `require`, which only resolved because React
+  Native's global typings were leaking in from the native files sharing its program, and
+  now imports normally.
+
+### Patch Changes
+
+- Updated dependencies [[`8f62cdb`](https://github.com/LedgerHQ/ledger-live/commit/8f62cdbb6d93e207efd7e551af65a41953d28242), [`de19b3e`](https://github.com/LedgerHQ/ledger-live/commit/de19b3e4e56a0c28fcc1a3ca929059e84fc7bebf), [`799219e`](https://github.com/LedgerHQ/ledger-live/commit/799219e262e80a339272113ea164fa506243b438), [`e37413b`](https://github.com/LedgerHQ/ledger-live/commit/e37413b588873a1a2a028ebf4c1971e4fa92ed2a), [`9e61582`](https://github.com/LedgerHQ/ledger-live/commit/9e61582edfcbb98046d0f74111ccf4061ec44bb3), [`3f34609`](https://github.com/LedgerHQ/ledger-live/commit/3f34609edecc5ae85a9a9ac1b76ab47e30a9c66e), [`c6f7bfe`](https://github.com/LedgerHQ/ledger-live/commit/c6f7bfead8593c148fe6e3d177ff8dd734728f5a), [`fcc2ac4`](https://github.com/LedgerHQ/ledger-live/commit/fcc2ac4c5ed270fb63df4c0079068ad6dac94612), [`eddc89e`](https://github.com/LedgerHQ/ledger-live/commit/eddc89e7b86a13aeedfc0ae4956c2dcd08494e5f), [`37f5759`](https://github.com/LedgerHQ/ledger-live/commit/37f57595f11d40562914794645cb3c7f6e55dc8b), [`a2a0288`](https://github.com/LedgerHQ/ledger-live/commit/a2a028844dbfbfa019f1f971bf6fdbed9005b9ec), [`8b3320d`](https://github.com/LedgerHQ/ledger-live/commit/8b3320d7aab0ff25eeb8930dafa536fb94962c79), [`e65a6b3`](https://github.com/LedgerHQ/ledger-live/commit/e65a6b3e67e271343b7029613498176b1da2d7d2), [`9d0b721`](https://github.com/LedgerHQ/ledger-live/commit/9d0b721dbfd8b71d32d2d16db22ad8e54f45f541)]:
+  - @domain/api-card-management@0.6.0
+  - @shared/api-services@0.7.0
+
+## 0.5.0-next.0
+
+### Minor Changes
+
+- [#21920](https://github.com/LedgerHQ/ledger-live/pull/21920) [`b49d5b5`](https://github.com/LedgerHQ/ledger-live/commit/b49d5b573e84bd63ac460ae398657f1035613141) Thanks [@ysitbon](https://github.com/ysitbon)! - Give each dual-platform feature package its own web and native TypeScript project
+
+  These packages keep `.web.*` and `.native.*` sources side by side but typechecked both
+  in a single program, so `tsc` resolved suffix-free imports without knowing which
+  platform it was checking. Each package now carries a solution-style `tsconfig.json`
+  that owns no files and references one project per platform it targets, as described in
+  `docs/tsconfig-in-ddd.md`. The web project sets `moduleSuffixes: [".web", ""]` and
+  excludes the native sources, the native project does the reverse and also excludes the
+  unsuffixed web barrel, and `typecheck` runs both passes. `@features/flow-large-screen-upsell`
+  is web-only and gets a web project on its own.
+
+  Separating the two programs surfaced cross-platform leaks that a single program could
+  not see, so this also fixes them. Barrels that hard-pinned one platform's file, in the
+  Contacts button and the Market banner, now import suffix-free and let `moduleSuffixes`
+  choose, which makes their parallel `index.native.ts` barrels redundant. The three
+  packages whose web entry was `src/web.ts` now expose it as `src/index.ts`, so a native
+  program resolving the package can find the `index.native.ts` beside it instead of
+  falling through to the web barrel and dragging web components into the native program.
+  `@features/platform-style` gives its web implementations the `.web` suffix they were
+  missing, which stops its native program from typechecking web code against native
+  components. One web test reached for `require`, which only resolved because React
+  Native's global typings were leaking in from the native files sharing its program, and
+  now imports normally.
+
+### Patch Changes
+
+- Updated dependencies [[`8f62cdb`](https://github.com/LedgerHQ/ledger-live/commit/8f62cdbb6d93e207efd7e551af65a41953d28242), [`de19b3e`](https://github.com/LedgerHQ/ledger-live/commit/de19b3e4e56a0c28fcc1a3ca929059e84fc7bebf), [`799219e`](https://github.com/LedgerHQ/ledger-live/commit/799219e262e80a339272113ea164fa506243b438), [`e37413b`](https://github.com/LedgerHQ/ledger-live/commit/e37413b588873a1a2a028ebf4c1971e4fa92ed2a), [`9e61582`](https://github.com/LedgerHQ/ledger-live/commit/9e61582edfcbb98046d0f74111ccf4061ec44bb3), [`3f34609`](https://github.com/LedgerHQ/ledger-live/commit/3f34609edecc5ae85a9a9ac1b76ab47e30a9c66e), [`c6f7bfe`](https://github.com/LedgerHQ/ledger-live/commit/c6f7bfead8593c148fe6e3d177ff8dd734728f5a), [`fcc2ac4`](https://github.com/LedgerHQ/ledger-live/commit/fcc2ac4c5ed270fb63df4c0079068ad6dac94612), [`eddc89e`](https://github.com/LedgerHQ/ledger-live/commit/eddc89e7b86a13aeedfc0ae4956c2dcd08494e5f), [`37f5759`](https://github.com/LedgerHQ/ledger-live/commit/37f57595f11d40562914794645cb3c7f6e55dc8b), [`a2a0288`](https://github.com/LedgerHQ/ledger-live/commit/a2a028844dbfbfa019f1f971bf6fdbed9005b9ec), [`8b3320d`](https://github.com/LedgerHQ/ledger-live/commit/8b3320d7aab0ff25eeb8930dafa536fb94962c79), [`e65a6b3`](https://github.com/LedgerHQ/ledger-live/commit/e65a6b3e67e271343b7029613498176b1da2d7d2), [`9d0b721`](https://github.com/LedgerHQ/ledger-live/commit/9d0b721dbfd8b71d32d2d16db22ad8e54f45f541)]:
+  - @domain/api-card-management@0.6.0-next.0
+  - @shared/api-services@0.7.0
+
+## 0.4.0
+
+### Minor Changes
+
+- [#21194](https://github.com/LedgerHQ/ledger-live/pull/21194) [`2bd6a1c`](https://github.com/LedgerHQ/ledger-live/commit/2bd6a1c4b9d0cd229a8c9207108672b1a580968a) Thanks [@liviuciulinaru](https://github.com/liviuciulinaru)! - Refresh Baanx Pay Card sessions after a 401, and keep the credentials out of every reader of redux.
+
+  The two OAuth2 grants are RTK Query endpoints again. Both opt out of the Bearer and out of the
+  renewal, both run with `track: false`, so no session becomes a cache entry, and neither has a hook.
+
+  The desktop redux logger and both DevTools configurations now strip every Card action, which also
+  closes a live leak: the code exchange logs its code and its code verifier in production, into the
+  file users attach to a support ticket.
+
+### Patch Changes
+
+- Updated dependencies [[`60ee73c`](https://github.com/LedgerHQ/ledger-live/commit/60ee73c7b89b101dde708a04ded260341ef86d44), [`55bd216`](https://github.com/LedgerHQ/ledger-live/commit/55bd2166238ab3e03c33226bb5f5eb2e8646a818), [`08ee05c`](https://github.com/LedgerHQ/ledger-live/commit/08ee05cfb66f393b14fdf1377ed6c54c4831a87c), [`543b17d`](https://github.com/LedgerHQ/ledger-live/commit/543b17d7a6b49728001c0311c184c665e8c9bbb2), [`a7d54c0`](https://github.com/LedgerHQ/ledger-live/commit/a7d54c0d6af65abe7aa2170053b3fd07ae9b05ab), [`d60ce38`](https://github.com/LedgerHQ/ledger-live/commit/d60ce38581fe06b7f4fa72ba40259af2eabfe11f), [`7aa3071`](https://github.com/LedgerHQ/ledger-live/commit/7aa3071a532c98804a4357ff36a001b23351da73), [`2bd6a1c`](https://github.com/LedgerHQ/ledger-live/commit/2bd6a1c4b9d0cd229a8c9207108672b1a580968a)]:
+  - @shared/api-services@0.7.0
+  - @domain/api-card-management@0.5.0
+
+## 0.4.0-next.0
+
+### Minor Changes
+
+- [#21194](https://github.com/LedgerHQ/ledger-live/pull/21194) [`2bd6a1c`](https://github.com/LedgerHQ/ledger-live/commit/2bd6a1c4b9d0cd229a8c9207108672b1a580968a) Thanks [@liviuciulinaru](https://github.com/liviuciulinaru)! - Refresh Baanx Pay Card sessions after a 401, and keep the credentials out of every reader of redux.
+
+  The two OAuth2 grants are RTK Query endpoints again. Both opt out of the Bearer and out of the
+  renewal, both run with `track: false`, so no session becomes a cache entry, and neither has a hook.
+
+  The desktop redux logger and both DevTools configurations now strip every Card action, which also
+  closes a live leak: the code exchange logs its code and its code verifier in production, into the
+  file users attach to a support ticket.
+
+### Patch Changes
+
+- Updated dependencies [[`60ee73c`](https://github.com/LedgerHQ/ledger-live/commit/60ee73c7b89b101dde708a04ded260341ef86d44), [`55bd216`](https://github.com/LedgerHQ/ledger-live/commit/55bd2166238ab3e03c33226bb5f5eb2e8646a818), [`08ee05c`](https://github.com/LedgerHQ/ledger-live/commit/08ee05cfb66f393b14fdf1377ed6c54c4831a87c), [`543b17d`](https://github.com/LedgerHQ/ledger-live/commit/543b17d7a6b49728001c0311c184c665e8c9bbb2), [`a7d54c0`](https://github.com/LedgerHQ/ledger-live/commit/a7d54c0d6af65abe7aa2170053b3fd07ae9b05ab), [`d60ce38`](https://github.com/LedgerHQ/ledger-live/commit/d60ce38581fe06b7f4fa72ba40259af2eabfe11f), [`7aa3071`](https://github.com/LedgerHQ/ledger-live/commit/7aa3071a532c98804a4357ff36a001b23351da73), [`2bd6a1c`](https://github.com/LedgerHQ/ledger-live/commit/2bd6a1c4b9d0cd229a8c9207108672b1a580968a)]:
+  - @shared/api-services@0.7.0-next.0
+  - @domain/api-card-management@0.5.0-next.0
+
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [[`6918e5b`](https://github.com/LedgerHQ/ledger-live/commit/6918e5b285afe016d54f95090d44db3c1467fcec), [`e8c2316`](https://github.com/LedgerHQ/ledger-live/commit/e8c23168916415e569b27b530c71785e0dd2f29e), [`9f130fb`](https://github.com/LedgerHQ/ledger-live/commit/9f130fb908ad4596ef5697189633a3470935de75)]:
+  - @domain/api-card-management@0.4.0
+
+## 0.3.1-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`6918e5b`](https://github.com/LedgerHQ/ledger-live/commit/6918e5b285afe016d54f95090d44db3c1467fcec), [`e8c2316`](https://github.com/LedgerHQ/ledger-live/commit/e8c23168916415e569b27b530c71785e0dd2f29e), [`9f130fb`](https://github.com/LedgerHQ/ledger-live/commit/9f130fb908ad4596ef5697189633a3470935de75)]:
+  - @domain/api-card-management@0.4.0-next.0
+
+## 0.3.0
+
+### Minor Changes
+
+- [#20809](https://github.com/LedgerHQ/ledger-live/pull/20809) [`e732d3e`](https://github.com/LedgerHQ/ledger-live/commit/e732d3e258c653fc83e1474434f3bb02c136ae62) Thanks [@liviuciulinaru](https://github.com/liviuciulinaru)! - Keep the Pay Card session in OS secure storage (LIVE-34742)
+
+  `cardSession` now stores the whole session — both tokens and both lifetimes — through
+  `react-native-keychain` on native, and through renderer memory on web and desktop. The app already
+  uses that library for the app password, so the session needs no second secure-storage package.
+
+  Each key is a keychain `service` of its own, and the access token sits alone in one of them, so the
+  base query reads one small value per request. `AFTER_FIRST_UNLOCK` on iOS and `AES_GCM_NO_AUTH` on
+  Android state the same rule: no prompt, and a value a background launch can read, but nothing before
+  the first unlock after boot.
+
+  `cardSession.get` reads all three keys, so it waits its turn behind a write. A login over a live
+  session replaces the two cold keys before the access token, and a read between the two would report
+  the previous access token with the new refresh token.
+
+- [#20808](https://github.com/LedgerHQ/ledger-live/pull/20808) [`f64ceec`](https://github.com/LedgerHQ/ledger-live/commit/f64ceecbdaccec2c56ace4cc459d670db5920b68) Thanks [@liviuciulinaru](https://github.com/liviuciulinaru)! - Read the Pay Card session token asynchronously (LIVE-34742)
+
+  `cardApiExtra.getCardSessionToken` now returns a promise, and the Card base query awaits it. The
+  session is about to live in OS secure storage, which only reads asynchronously. Behaviour does not
+  change yet: the accessor still answers from memory.
+
+  An await can reject, and `BaseQueryFn` must always answer with a result. A session port that rejects
+  now gives a `CUSTOM_ERROR` result, so every caller still reads an `error.status`.
+
+- [#20983](https://github.com/LedgerHQ/ledger-live/pull/20983) [`eba4d17`](https://github.com/LedgerHQ/ledger-live/commit/eba4d175ad10f1431a222a4fa98481ea4285e891) Thanks [@liviuciulinaru](https://github.com/liviuciulinaru)! - Open the Baanx authorize page directly, and drop the CSRF state (LIVE-36301)
+
+  The login no longer asks the backend where to send the user. It builds the authorize URL itself and
+  opens the secure browser on it, and the provider hosts the page and owns the redirect. That removes a
+  network call, a machine state and one way a login could fail.
+
+  ```
+  GET {CARD_API_URL}/v1/auth/oauth2/authorize
+    ?client_id=…&response_type=code
+    &scope=openid profile email offline_access
+    &redirect_uri=…&code_challenge=…&code_challenge_method=S256&prompt=consent
+  ```
+
+  The attempt is now a PKCE pair alone. The redirect carries `code`, and the `state` that used to travel
+  with it is gone, because PKCE already ties the code to the verifier on disk: the provider issues the
+  code against this attempt's challenge, so no other attempt can exchange it. Both token grants move to
+  `/v1/auth/oauth2/token`, and neither repeats `redirect_uri` there: Baanx's contract for that endpoint
+  takes only `grant_type`, `code`, and `code_verifier`.
+
+  `oauthConfig` gains `apiUrl`, which is the host the authorize page lives on.
+
+  `prepareAttempt` builds the authorize URL, rather than the transition that follows it. The URL builder
+  throws on a misconfigured `apiUrl`, and a throw inside an action stops the machine instead of reaching
+  a transition. From the actor it lands on `onError`, which wipes the stored attempt and reports a
+  failure the user can retry.
+
+  A live exchange against Baanx's UAT environment answered with no `refresh_token_expires_in`, which
+  `PayCardSessionResponseSchema` required. That field is gone from the schema, the session, and the
+  stored lifetimes: Baanx's contract carries no lifetime for the refresh token, only for the access
+  token, so nothing here can track one.
+
+### Patch Changes
+
+- Updated dependencies [[`d5ea888`](https://github.com/LedgerHQ/ledger-live/commit/d5ea888d3a154feeb29b452841749d358629b8c1), [`0ad6182`](https://github.com/LedgerHQ/ledger-live/commit/0ad6182ac7fa955c01a8fd679182f7fe3b83cace), [`eba4d17`](https://github.com/LedgerHQ/ledger-live/commit/eba4d175ad10f1431a222a4fa98481ea4285e891)]:
+  - @domain/api-card-management@0.3.0
+
+## 0.3.0-next.0
+
+### Minor Changes
+
+- [#20809](https://github.com/LedgerHQ/ledger-live/pull/20809) [`e732d3e`](https://github.com/LedgerHQ/ledger-live/commit/e732d3e258c653fc83e1474434f3bb02c136ae62) Thanks [@liviuciulinaru](https://github.com/liviuciulinaru)! - Keep the Pay Card session in OS secure storage (LIVE-34742)
+
+  `cardSession` now stores the whole session — both tokens and both lifetimes — through
+  `react-native-keychain` on native, and through renderer memory on web and desktop. The app already
+  uses that library for the app password, so the session needs no second secure-storage package.
+
+  Each key is a keychain `service` of its own, and the access token sits alone in one of them, so the
+  base query reads one small value per request. `AFTER_FIRST_UNLOCK` on iOS and `AES_GCM_NO_AUTH` on
+  Android state the same rule: no prompt, and a value a background launch can read, but nothing before
+  the first unlock after boot.
+
+  `cardSession.get` reads all three keys, so it waits its turn behind a write. A login over a live
+  session replaces the two cold keys before the access token, and a read between the two would report
+  the previous access token with the new refresh token.
+
+- [#20808](https://github.com/LedgerHQ/ledger-live/pull/20808) [`f64ceec`](https://github.com/LedgerHQ/ledger-live/commit/f64ceecbdaccec2c56ace4cc459d670db5920b68) Thanks [@liviuciulinaru](https://github.com/liviuciulinaru)! - Read the Pay Card session token asynchronously (LIVE-34742)
+
+  `cardApiExtra.getCardSessionToken` now returns a promise, and the Card base query awaits it. The
+  session is about to live in OS secure storage, which only reads asynchronously. Behaviour does not
+  change yet: the accessor still answers from memory.
+
+  An await can reject, and `BaseQueryFn` must always answer with a result. A session port that rejects
+  now gives a `CUSTOM_ERROR` result, so every caller still reads an `error.status`.
+
+- [#20983](https://github.com/LedgerHQ/ledger-live/pull/20983) [`eba4d17`](https://github.com/LedgerHQ/ledger-live/commit/eba4d175ad10f1431a222a4fa98481ea4285e891) Thanks [@liviuciulinaru](https://github.com/liviuciulinaru)! - Open the Baanx authorize page directly, and drop the CSRF state (LIVE-36301)
+
+  The login no longer asks the backend where to send the user. It builds the authorize URL itself and
+  opens the secure browser on it, and the provider hosts the page and owns the redirect. That removes a
+  network call, a machine state and one way a login could fail.
+
+  ```
+  GET {CARD_API_URL}/v1/auth/oauth2/authorize
+    ?client_id=…&response_type=code
+    &scope=openid profile email offline_access
+    &redirect_uri=…&code_challenge=…&code_challenge_method=S256&prompt=consent
+  ```
+
+  The attempt is now a PKCE pair alone. The redirect carries `code`, and the `state` that used to travel
+  with it is gone, because PKCE already ties the code to the verifier on disk: the provider issues the
+  code against this attempt's challenge, so no other attempt can exchange it. Both token grants move to
+  `/v1/auth/oauth2/token`, and neither repeats `redirect_uri` there: Baanx's contract for that endpoint
+  takes only `grant_type`, `code`, and `code_verifier`.
+
+  `oauthConfig` gains `apiUrl`, which is the host the authorize page lives on.
+
+  `prepareAttempt` builds the authorize URL, rather than the transition that follows it. The URL builder
+  throws on a misconfigured `apiUrl`, and a throw inside an action stops the machine instead of reaching
+  a transition. From the actor it lands on `onError`, which wipes the stored attempt and reports a
+  failure the user can retry.
+
+  A live exchange against Baanx's UAT environment answered with no `refresh_token_expires_in`, which
+  `PayCardSessionResponseSchema` required. That field is gone from the schema, the session, and the
+  stored lifetimes: Baanx's contract carries no lifetime for the refresh token, only for the access
+  token, so nothing here can track one.
+
+### Patch Changes
+
+- Updated dependencies [[`d5ea888`](https://github.com/LedgerHQ/ledger-live/commit/d5ea888d3a154feeb29b452841749d358629b8c1), [`0ad6182`](https://github.com/LedgerHQ/ledger-live/commit/0ad6182ac7fa955c01a8fd679182f7fe3b83cace), [`eba4d17`](https://github.com/LedgerHQ/ledger-live/commit/eba4d175ad10f1431a222a4fa98481ea4285e891)]:
+  - @domain/api-card-management@0.3.0-next.0
+
+## 0.2.0
+
+### Minor Changes
+
+- [#20702](https://github.com/LedgerHQ/ledger-live/pull/20702) [`e07e0ba`](https://github.com/LedgerHQ/ledger-live/commit/e07e0baca2e4edfe90163367047459257034f7cc) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - Scaffold the Card API on a single endpoint-less `cardApi` service (DDD, CMC/DADA pattern): add the `services/card` transport in `@shared/api-services` with Bearer + `x-client-key` (`CARD_BAANX_CLIENT_KEY`) + one 401-refresh, the `@domain/api-card-management` endpoint injector, the `@features/platform-card` in-memory session and `getCardSessionToken`/`refreshCardSession` accessors, the `CARD_API_URL` / `CARD_BAANX_CLIENT_KEY` envs, and register `cardApi` in both apps. The legacy `payCardApi` Card Auth holdout is left untouched pending its migration onto `cardApi` (LIVE-33829).
+
+## 0.2.0-next.0
+
+### Minor Changes
+
+- [#20702](https://github.com/LedgerHQ/ledger-live/pull/20702) [`e07e0ba`](https://github.com/LedgerHQ/ledger-live/commit/e07e0baca2e4edfe90163367047459257034f7cc) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - Scaffold the Card API on a single endpoint-less `cardApi` service (DDD, CMC/DADA pattern): add the `services/card` transport in `@shared/api-services` with Bearer + `x-client-key` (`CARD_BAANX_CLIENT_KEY`) + one 401-refresh, the `@domain/api-card-management` endpoint injector, the `@features/platform-card` in-memory session and `getCardSessionToken`/`refreshCardSession` accessors, the `CARD_API_URL` / `CARD_BAANX_CLIENT_KEY` envs, and register `cardApi` in both apps. The legacy `payCardApi` Card Auth holdout is left untouched pending its migration onto `cardApi` (LIVE-33829).

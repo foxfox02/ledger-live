@@ -1,0 +1,782 @@
+import { render, screen, userEvent } from "@support/jest-devtools/native";
+import PayCard from "./PayCard";
+import type { PayCardToolProps } from "../types";
+
+function buildProps(): PayCardToolProps {
+  return {
+    flags: {
+      payTabEnabled: false,
+      cardNativeParam: false,
+      cardLiveAppParam: false,
+      cardDisclaimerParam: false,
+      legacyTopUpParam: false,
+      ptxCardEnabled: false,
+      setPayTabEnabled: jest.fn(),
+      setCardNativeParam: jest.fn(),
+      setCardLiveAppParam: jest.fn(),
+      setCardDisclaimerParam: jest.fn(),
+      setLegacyTopUpParam: jest.fn(),
+      setPtxCardEnabled: jest.fn(),
+    },
+    cardOnboarding: {
+      steps: [],
+      completedCount: 0,
+      isFetching: false,
+      error: undefined,
+      raw: "{}",
+      refresh: jest.fn(),
+      setStepDone: jest.fn(),
+      clearMocks: jest.fn(),
+      isMockingEnabled: true,
+    },
+    interaction: {
+      probes: [],
+      details: {
+        imageUrl: undefined,
+        isFetching: false,
+        error: undefined,
+        request: jest.fn(),
+        clear: jest.fn(),
+      },
+    },
+    balance: {
+      baanxWallets: [],
+      linkedWallets: [],
+      combinedWallets: [],
+      isFetching: false,
+      errors: [],
+      mock: {
+        available: true,
+        isOverridden: false,
+        fill: jest.fn(),
+        empty: jest.fn(),
+        fund: jest.fn(),
+        clear: jest.fn(),
+      },
+      load: jest.fn(),
+      refresh: jest.fn(),
+    },
+    transactions: {
+      available: true,
+      isOverridden: false,
+      count: 0,
+      fill: jest.fn(),
+      empty: jest.fn(),
+      receive: jest.fn(),
+      receiveMultiAsset: jest.fn(),
+      clear: jest.fn(),
+    },
+    reorder: {
+      available: true,
+      enabled: false,
+      setEnabled: jest.fn(),
+    },
+    currencyMapping: [{ key: "usdc.ethereum", ledgerId: "ethereum/erc20/usd__coin" }],
+    hasSeenFeatureTour: false,
+    resetPayCardFeatureTourSeen: jest.fn(),
+    hasSeenReceiveVerifyHint: false,
+    resetReceiveVerifyHintSeen: jest.fn(),
+    hasSeenLoginIntro: false,
+    resetPayCardLoginIntroSeen: jest.fn(),
+    hasCompletedCardOnboarding: false,
+    resetCardOnboarding: jest.fn(),
+  };
+}
+
+function buildAuth(): NonNullable<PayCardToolProps["auth"]> {
+  return {
+    session: {
+      accessToken: "at_fake_access_token",
+      refreshToken: "rt_fake_refresh_token",
+    },
+    sessionError: null,
+    busy: false,
+    lastResult: { id: 1, message: "clear → cleared", failed: false },
+    readTokens: jest.fn(),
+    renewNow: jest.fn(),
+    breakAccessToken: jest.fn(),
+    breakRefreshToken: jest.fn(),
+    clearSession: jest.fn(),
+    signOut: jest.fn(),
+    fetchUser: jest.fn(),
+    mock: {
+      available: false,
+      response: "pass",
+      responses: [],
+      setResponse: jest.fn(),
+      renewals: 0,
+      resetRenewals: jest.fn(),
+      armUnauthorized: jest.fn(),
+    },
+    mockSession: {
+      available: false,
+      signIn: jest.fn(),
+    },
+  };
+}
+
+describe("PayCard (native)", () => {
+  it("renders every section", () => {
+    render(<PayCard {...buildProps()} />);
+    expect(screen.getByText("Card Debug")).toBeTruthy();
+    expect(screen.getByText("Card interaction")).toBeTruthy();
+    expect(screen.getByText("Balance & Wallets")).toBeTruthy();
+    expect(screen.getByText("Transactions")).toBeTruthy();
+    expect(screen.getByText("Feature flags")).toBeTruthy();
+    expect(screen.getByText("MSW")).toBeTruthy();
+    expect(screen.getByText("Allow wallet reorder")).toBeTruthy();
+    expect(screen.getByText("Feature tour")).toBeTruthy();
+    expect(screen.getByText("Request verify hint")).toBeTruthy();
+    expect(screen.getByText("Card login intro")).toBeTruthy();
+  });
+
+  it("receives a transaction for the selected asset", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(<PayCard {...props} />);
+
+    await user.press(screen.getByText("Transactions"));
+    await user.press(screen.getByText("Receive USDC"));
+
+    expect(props.transactions.receive).toHaveBeenCalledWith("usdc");
+  });
+
+  it("receives a transaction funded by several assets", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(<PayCard {...props} />);
+
+    await user.press(screen.getByText("Transactions"));
+    await user.press(screen.getByText("Receive multi-asset"));
+
+    expect(props.transactions.receiveMultiAsset).toHaveBeenCalledTimes(1);
+  });
+
+  it("switches between full, empty, and provider transaction answers", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(<PayCard {...props} />);
+
+    await user.press(screen.getByText("Transactions"));
+    await user.press(screen.getByText("Full fixture"));
+    await user.press(screen.getByText("Empty list"));
+    await user.press(screen.getByText("Use provider"));
+
+    expect(props.transactions.fill).toHaveBeenCalledTimes(1);
+    expect(props.transactions.empty).toHaveBeenCalledTimes(1);
+    expect(props.transactions.clear).toHaveBeenCalledTimes(1);
+  });
+
+  it("resets the feature tour", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(<PayCard {...props} />);
+
+    await user.press(screen.getByText("Reset feature tour"));
+    expect(props.resetPayCardFeatureTourSeen).toHaveBeenCalledTimes(1);
+  });
+
+  it("resets the request verify hint", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(<PayCard {...props} />);
+
+    await user.press(screen.getByText("Reset verify hint"));
+    expect(props.resetReceiveVerifyHintSeen).toHaveBeenCalledTimes(1);
+  });
+
+  it("resets the card login intro", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(<PayCard {...props} />);
+
+    await user.press(screen.getByText("Reset card login intro"));
+    expect(props.resetPayCardLoginIntroSeen).toHaveBeenCalledTimes(1);
+    expect(props.resetPayCardFeatureTourSeen).not.toHaveBeenCalled();
+  });
+
+  it("hides quick actions when the host does not pass navigation", () => {
+    render(<PayCard {...buildProps()} />);
+    expect(screen.queryByText("Quick actions")).toBeNull();
+  });
+
+  it("navigates to Portfolio and Pay when the host wires the actions", async () => {
+    const user = userEvent.setup();
+    const onNavigateToPortfolio = jest.fn();
+    const onNavigateToPayTab = jest.fn();
+    const onNavigateToPaySuccess = jest.fn();
+    const onNavigateToPaySuccessMe = jest.fn();
+    const onNavigateToSendSuccess = jest.fn();
+    render(
+      <PayCard
+        {...buildProps()}
+        onNavigateToPortfolio={onNavigateToPortfolio}
+        onNavigateToPayTab={onNavigateToPayTab}
+        onNavigateToPaySuccess={onNavigateToPaySuccess}
+        onNavigateToPaySuccessMe={onNavigateToPaySuccessMe}
+        onNavigateToSendSuccess={onNavigateToSendSuccess}
+      />,
+    );
+
+    expect(screen.getByText("Quick actions")).toBeTruthy();
+    await user.press(screen.getByText("Go to Portfolio"));
+    await user.press(screen.getByText("Go to Pay tab"));
+    await user.press(screen.getByText("Pay contact success"));
+    await user.press(screen.getByText("Pay contact success (Me)"));
+    await user.press(screen.getByText("Send success"));
+    expect(onNavigateToPortfolio).toHaveBeenCalledTimes(1);
+    expect(onNavigateToPayTab).toHaveBeenCalledTimes(1);
+    expect(onNavigateToPaySuccess).toHaveBeenCalledTimes(1);
+    expect(onNavigateToPaySuccessMe).toHaveBeenCalledTimes(1);
+    expect(onNavigateToSendSuccess).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the secure browser section on a host that has no browser", () => {
+    render(<PayCard {...buildProps()} />);
+    expect(screen.queryByText("Secure browser")).toBeNull();
+  });
+
+  it("shows the secure browser section when the host built one", () => {
+    render(<PayCard {...buildProps()} openSecureBrowser={jest.fn()} />);
+    expect(screen.getByText("Secure browser")).toBeTruthy();
+  });
+
+  it("opens the interaction screen and runs a probe", async () => {
+    const user = userEvent.setup();
+    const run = jest.fn();
+    const props = buildProps();
+    render(
+      <PayCard
+        {...props}
+        interaction={{
+          ...props.interaction,
+          probes: [
+            {
+              id: "card-status",
+              label: "Card Status",
+              isFetching: false,
+              result: undefined,
+              error: undefined,
+              run,
+            },
+          ],
+        }}
+      />,
+    );
+
+    await user.press(screen.getByText("Card interaction"));
+    // The tool swaps its whole body for the probes, so the flag rows are gone.
+    expect(screen.queryByText("Feature flags")).toBeNull();
+
+    // The probe names itself; there is no generic "Fetch".
+    await user.press(screen.getByText("Card Status"));
+    expect(run).toHaveBeenCalledTimes(1);
+
+    await user.press(screen.getByText("Back"));
+    expect(screen.getByText("Feature flags")).toBeTruthy();
+  });
+
+  it("shows what a probe came back with", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(
+      <PayCard
+        {...props}
+        interaction={{
+          ...props.interaction,
+          probes: [
+            {
+              id: "card-status",
+              label: "Card Status",
+              isFetching: false,
+              result: '{ "status": "ACTIVE" }',
+              error: undefined,
+              run: jest.fn(),
+            },
+          ],
+        }}
+      />,
+    );
+
+    await user.press(screen.getByText("Card interaction"));
+
+    expect(screen.getByText('{ "status": "ACTIVE" }')).toBeTruthy();
+  });
+
+  const baanxWallets = [
+    {
+      id: "w-usdc",
+      balance: "125.40",
+      currency: "usdc",
+      address: "0xusdc",
+      addressMemo: null,
+    },
+  ];
+
+  // The second link has no Baanx wallet behind it, which is what the join has to show.
+  const linkedWallets = [
+    {
+      id: "w-usdc",
+      address: "0xusdc",
+      currency: "usdc",
+      network: "ethereum",
+      priority: 0,
+      ledgerId: "ethereum/erc20/usd__coin",
+    },
+    // Resolved to nothing, so the screen has to say the pair is unmapped rather than blank.
+    {
+      id: "w-sol",
+      address: "sol-addr",
+      currency: "sol",
+      network: "solana",
+      priority: 1,
+    },
+  ];
+
+  const combinedWallets = [
+    {
+      id: "w-usdc",
+      address: "0xusdc",
+      currency: "usdc",
+      network: "ethereum",
+      priority: 0,
+      balance: "125.40",
+      ledgerId: "ethereum/erc20/usd__coin",
+      ledgerCurrencyId: "ethereum/erc20/usd__coin",
+    },
+    {
+      id: "w-sol",
+      address: "sol-addr",
+      currency: "sol",
+      network: "solana",
+      priority: 1,
+      balance: null,
+      ledgerCurrencyId: null,
+    },
+  ];
+
+  it("requests the wallets when the balance screen opens", async () => {
+    const user = userEvent.setup();
+    const load = jest.fn();
+    const props = buildProps();
+    render(<PayCard {...props} balance={{ ...props.balance, load }} />);
+
+    await user.press(screen.getByText("Balance & Wallets"));
+
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it("funds one asset from the balance devtool", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+
+    render(<PayCard {...props} />);
+    await user.press(screen.getByText("Balance & Wallets"));
+    await user.press(screen.getByText("Fund USDC"));
+
+    expect(props.balance.mock.fund).toHaveBeenCalledWith("usdc");
+  });
+
+  it("switches between full, empty, and provider wallet balances", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+
+    render(<PayCard {...props} />);
+    await user.press(screen.getByText("Balance & Wallets"));
+    await user.press(screen.getByText("Fund all"));
+    await user.press(screen.getByText("Empty balances"));
+    await user.press(screen.getByText("Use provider"));
+
+    expect(props.balance.mock.fill).toHaveBeenCalledTimes(1);
+    expect(props.balance.mock.empty).toHaveBeenCalledTimes(1);
+    expect(props.balance.mock.clear).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the two responses and the join under a section each", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(
+      <PayCard
+        {...props}
+        balance={{
+          ...props.balance,
+          baanxWallets,
+          linkedWallets,
+          combinedWallets,
+        }}
+      />,
+    );
+
+    await user.press(screen.getByText("Balance & Wallets"));
+
+    expect(screen.getByText("Baanx wallets")).toBeTruthy();
+    expect(screen.getByText("Card linked wallets")).toBeTruthy();
+    expect(screen.getByText("Card linked combined wallets")).toBeTruthy();
+    expect(screen.getAllByText("count")).toHaveLength(3);
+  });
+
+  it("counts an empty section, so no answer does not read as no section", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(<PayCard {...props} balance={{ ...props.balance, baanxWallets }} />);
+
+    await user.press(screen.getByText("Balance & Wallets"));
+
+    // One Baanx wallet read, and nothing from the other two endpoints.
+    expect(screen.getByText("1")).toBeTruthy();
+    expect(screen.getAllByText("0")).toHaveLength(2);
+  });
+
+  it("shows every field the Baanx response carried, memo included", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(<PayCard {...props} balance={{ ...props.balance, baanxWallets }} />);
+
+    await user.press(screen.getByText("Balance & Wallets"));
+
+    expect(screen.getByText("125.40")).toBeTruthy();
+    expect(screen.getByText("0xusdc")).toBeTruthy();
+    // The provider sends `null` for a wallet with no memo, and omits the key on others. They have
+    // to read differently, because telling them apart is what the schema had to get right.
+    expect(screen.getByText("null")).toBeTruthy();
+  });
+
+  it("tells a memo the provider omitted from one it sent as null", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    const [withMemo] = baanxWallets;
+    const { addressMemo: _addressMemo, ...withoutMemo } = withMemo!;
+    render(
+      <PayCard
+        {...props}
+        balance={{
+          ...props.balance,
+          baanxWallets: [{ ...withoutMemo, id: "w-nomemo" }],
+        }}
+      />,
+    );
+
+    await user.press(screen.getByText("Balance & Wallets"));
+
+    expect(screen.getByText("undefined")).toBeTruthy();
+  });
+
+  it("shows the provider's own unmapped currency and network for every link", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(<PayCard {...props} balance={{ ...props.balance, linkedWallets }} />);
+
+    await user.press(screen.getByText("Balance & Wallets"));
+
+    // Unmapped: what a currency mapping would have to be keyed on.
+    expect(screen.getByText("usdc")).toBeTruthy();
+    expect(screen.getByText("ethereum")).toBeTruthy();
+    expect(screen.getByText("sol")).toBeTruthy();
+    expect(screen.getByText("solana")).toBeTruthy();
+  });
+
+  it("shows the Ledger currency a joined wallet resolved to, and says when it has none", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(<PayCard {...props} balance={{ ...props.balance, combinedWallets }} />);
+
+    await user.press(screen.getByText("Balance & Wallets"));
+
+    // The row's ledgerId field and the currency resolved from it.
+    expect(screen.getAllByText("ethereum/erc20/usd__coin")).toHaveLength(2);
+    expect(screen.getByText("null — unmapped asset, or CAL has not answered")).toBeTruthy();
+  });
+
+  it("shows the Ledger currency each link resolved to, and says when one did not", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(<PayCard {...props} balance={{ ...props.balance, linkedWallets }} />);
+
+    await user.press(screen.getByText("Balance & Wallets"));
+
+    expect(screen.getByText("ethereum/erc20/usd__coin")).toBeTruthy();
+    expect(screen.getByText("undefined — this pair is not mapped")).toBeTruthy();
+  });
+
+  it("says a joined row has no balance rather than showing it as zero", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(<PayCard {...props} balance={{ ...props.balance, combinedWallets }} />);
+
+    await user.press(screen.getByText("Balance & Wallets"));
+
+    expect(screen.getByText("0. usdc / ethereum")).toBeTruthy();
+    expect(screen.getByText("1. sol / solana")).toBeTruthy();
+    expect(screen.getByText("null — still reading, or no Baanx wallet matched")).toBeTruthy();
+  });
+
+  it("lists the whole currency mapping, so a gap can be read against it", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(
+      <PayCard
+        {...props}
+        currencyMapping={[
+          { key: "btc.bitcoin", ledgerId: "bitcoin" },
+          { key: "usdc.ethereum", ledgerId: "ethereum/erc20/usd__coin" },
+        ]}
+      />,
+    );
+
+    await user.press(screen.getByText("Currency Mapping"));
+
+    expect(screen.getByText("currency.network")).toBeTruthy();
+    expect(screen.getByText("btc.bitcoin")).toBeTruthy();
+    expect(screen.getByText("bitcoin")).toBeTruthy();
+    expect(screen.getByText("usdc.ethereum")).toBeTruthy();
+    expect(screen.getByText("ethereum/erc20/usd__coin")).toBeTruthy();
+  });
+
+  it("returns to the tool from the mapping table", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(<PayCard {...props} />);
+
+    await user.press(screen.getByText("Currency Mapping"));
+    await user.press(screen.getByText("Back"));
+
+    expect(screen.getByText("Card Debug")).toBeTruthy();
+  });
+
+  it("shows which endpoint failed and what it answered", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(
+      <PayCard
+        {...props}
+        balance={{
+          ...props.balance,
+          errors: [
+            {
+              endpoint: "GET /v1/wallet/internal",
+              detail: '{ "status": "CUSTOM_ERROR", "error": "responseSchema rejected" }',
+            },
+          ],
+        }}
+      />,
+    );
+
+    await user.press(screen.getByText("Balance & Wallets"));
+
+    expect(screen.getByText("GET /v1/wallet/internal")).toBeTruthy();
+    expect(
+      screen.getByText('{ "status": "CUSTOM_ERROR", "error": "responseSchema rejected" }'),
+    ).toBeTruthy();
+  });
+
+  it("refetches the linked wallets from the balance screen", async () => {
+    const user = userEvent.setup();
+    const refresh = jest.fn();
+    const props = buildProps();
+    render(<PayCard {...props} balance={{ ...props.balance, refresh }} />);
+
+    await user.press(screen.getByText("Balance & Wallets"));
+    await user.press(screen.getByLabelText("Refresh"));
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("stands in for the card details until asked, then shows the image", async () => {
+    const user = userEvent.setup();
+    const request = jest.fn();
+    const props = buildProps();
+    const { rerender } = render(
+      <PayCard
+        {...props}
+        interaction={{
+          ...props.interaction,
+          details: { ...props.interaction.details, request },
+        }}
+      />,
+    );
+
+    await user.press(screen.getByText("Card interaction"));
+    await user.press(screen.getByLabelText("Request Card Details"));
+    // The colours are baked into the image, so they go out with the request. The stubbed theme
+    // reports no scheme, which is the light branch.
+    expect(request).toHaveBeenCalledWith({
+      cardBackgroundColor: "#f1f1f1",
+      cardTextColor: "#000000",
+      panBackgroundColor: "#ffffff",
+      panTextColor: "#000000",
+    });
+
+    rerender(
+      <PayCard
+        {...props}
+        interaction={{
+          ...props.interaction,
+          details: {
+            ...props.interaction.details,
+            imageUrl: "https://card.test/details-image?token=x",
+          },
+        }}
+      />,
+    );
+
+    // The placeholder gives way to the image, and the url is never shown as text.
+    expect(screen.queryByText("Request Card Details")).toBeNull();
+    expect(screen.getByLabelText("Card details")).toBeTruthy();
+    expect(screen.queryByText("https://card.test/details-image?token=x")).toBeNull();
+  });
+
+  it("drops the minted url on the way back, so returning asks for a fresh one", async () => {
+    const user = userEvent.setup();
+    const clear = jest.fn();
+    const props = buildProps();
+    render(
+      <PayCard
+        {...props}
+        interaction={{
+          ...props.interaction,
+          details: { ...props.interaction.details, clear },
+        }}
+      />,
+    );
+
+    await user.press(screen.getByText("Card interaction"));
+    await user.press(screen.getByText("Back"));
+
+    expect(clear).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Feature flags")).toBeTruthy();
+  });
+
+  it("hides the auth sections and the toast on a host that builds no session controls", () => {
+    render(<PayCard {...buildProps()} />);
+
+    expect(screen.queryByText("Auth session")).toBeNull();
+    expect(screen.queryByText("Device secure storage")).toBeNull();
+  });
+
+  it("shows the auth sections and the last result when the host builds them", () => {
+    render(<PayCard {...buildProps()} auth={buildAuth()} />);
+
+    expect(screen.getByText("Auth session")).toBeTruthy();
+    expect(screen.getByText("Device secure storage")).toBeTruthy();
+    expect(screen.getByText("Send API requests")).toBeTruthy();
+    expect(screen.getByText("MSW Auth Renewal Mock")).toBeTruthy();
+    expect(screen.getByText("clear → cleared")).toBeTruthy();
+  });
+
+  const onboardingSteps = [
+    { id: "create-account", isDone: true, canToggle: true },
+    { id: "choose-card-type", isDone: true, canToggle: true },
+    { id: "top-up-card", isDone: false, canToggle: true },
+    { id: "first-purchase", isDone: false, canToggle: false },
+  ];
+
+  it("opens the card onboarding screen and asks for a fresh answer", async () => {
+    const user = userEvent.setup();
+    const refresh = jest.fn();
+    const props = buildProps();
+    render(<PayCard {...props} cardOnboarding={{ ...props.cardOnboarding, refresh }} />);
+
+    await user.press(screen.getByText("Card onboarding"));
+
+    expect(screen.getByText("Derived response")).toBeTruthy();
+    // Opening the screen re-asks, so a step is never read off a stale answer.
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows each step by the id the app keys it on", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    render(
+      <PayCard
+        {...props}
+        cardOnboarding={{
+          ...props.cardOnboarding,
+          steps: onboardingSteps,
+          completedCount: 2,
+        }}
+      />,
+    );
+
+    await user.press(screen.getByText("Card onboarding"));
+
+    expect(screen.getByText("top-up-card")).toBeTruthy();
+    // Two done, two not: the labels have to tell them apart.
+    expect(screen.getAllByText("done")).toHaveLength(2);
+    expect(screen.getAllByText("open")).toHaveLength(2);
+  });
+
+  it("sets a step by the answer behind it, and leaves the unanswerable one alone", async () => {
+    const user = userEvent.setup();
+    const setStepDone = jest.fn();
+    const props = buildProps();
+    render(
+      <PayCard
+        {...props}
+        cardOnboarding={{
+          ...props.cardOnboarding,
+          steps: onboardingSteps,
+          setStepDone,
+        }}
+      />,
+    );
+
+    await user.press(screen.getByText("Card onboarding"));
+
+    // Three steps a request decides, so three toggles; the purchase step has none.
+    expect(screen.queryByLabelText("first-purchase")).toBeNull();
+
+    await user.press(screen.getByLabelText("top-up-card"));
+    expect(setStepDone).toHaveBeenCalledWith("top-up-card", true);
+
+    await user.press(screen.getByLabelText("create-account"));
+    expect(setStepDone).toHaveBeenCalledWith("create-account", false);
+  });
+
+  it("hands the endpoints back to the provider", async () => {
+    const user = userEvent.setup();
+    const clearMocks = jest.fn();
+    const props = buildProps();
+    render(<PayCard {...props} cardOnboarding={{ ...props.cardOnboarding, clearMocks }} />);
+
+    await user.press(screen.getByText("Card onboarding"));
+    await user.press(screen.getByText("Use the real answers"));
+
+    expect(clearMocks).toHaveBeenCalledTimes(1);
+  });
+
+  it("says so when the host is not intercepting requests, rather than offering a dead toggle", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    const steps = onboardingSteps.map(step => ({
+      ...step,
+      canToggle: false,
+    }));
+    render(
+      <PayCard
+        {...props}
+        cardOnboarding={{
+          ...props.cardOnboarding,
+          steps,
+          isMockingEnabled: false,
+        }}
+      />,
+    );
+
+    await user.press(screen.getByText("Card onboarding"));
+
+    expect(screen.getByText(/Request mocking is off/)).toBeTruthy();
+    expect(screen.queryByText("Use the real answers")).toBeNull();
+    expect(screen.queryByLabelText("top-up-card")).toBeNull();
+  });
+
+  it("shows the derived answer itself, because the steps are worked out and not fetched", async () => {
+    const user = userEvent.setup();
+    const props = buildProps();
+    const raw = JSON.stringify({ steps: onboardingSteps, completedCount: 2 }, null, 2);
+    render(<PayCard {...props} cardOnboarding={{ ...props.cardOnboarding, raw }} />);
+
+    await user.press(screen.getByText("Card onboarding"));
+
+    expect(screen.getByText(raw)).toBeTruthy();
+  });
+});

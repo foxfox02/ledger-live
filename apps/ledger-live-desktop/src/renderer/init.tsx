@@ -10,17 +10,25 @@ import { backfillOnboardingDate } from "~/renderer/components/PostOnboardingHub/
 import {
   LARGE_SCREEN_UPSELL_MODAL,
   restoreLargeScreenUpsellModalState,
-} from "@domain/entity-large-screen-upsell-modal";
-import i18n from "i18next";
+} from "@features/flow-large-screen-upsell";
+import { restorePayCardBalanceFilter } from "@features/flow-pay-balance/state";
+import { restorePayCardFeatureTour } from "@features/flow-pay-feature-tour/state";
+import { restoreReceiveVerifyHint } from "@features/flow-pay-request/state";
+import { restorePayCardLoginIntro } from "@features/flow-pay-card-auth/state";
+import { restorePayCardOnboardingWidget } from "@features/flow-pay-card-widget/state";
+import i18n from "~/renderer/i18n/init";
 import { webFrame, ipcRenderer } from "electron";
 import each from "lodash/each";
 import { reload, getKey } from "~/renderer/storage";
 import "~/renderer/styles/global";
 import { registerTransportModules } from "~/renderer/live-common-setup";
+import { bootstrapMockServerTransport } from "~/renderer/mockServerTransport";
+import { getMockServerSessionToken } from "@ledgerhq/live-dmk-desktop";
 import { getLocalStorageEnvs } from "~/renderer/experimental";
-import "~/renderer/i18n/init";
+import "~/renderer/analytics/registerTransactionObserver";
 import { hydrateCurrency } from "~/renderer/bridge/cache";
-import { setupCryptoAssetsStore } from "~/config/bridge-setup";
+import { setupCryptoAssetsStore, setupRateLookups } from "~/config/bridge-setup";
+import { setSwapQuotesStore } from "@ledgerhq/live-common/wallet-api/Exchange/quotes/state-manager/store";
 import { findCryptoCurrencyById } from "@domain/entity-currency-crypto";
 import { restoreTokensToCache, parsePersistedCAL } from "@domain/api-currency-token";
 import logger, { enableDebugLogger } from "./logger";
@@ -29,6 +37,7 @@ import { setEnvOnAllThreads } from "~/helpers/env";
 import dbMiddleware from "~/renderer/middlewares/db";
 import type { ReduxStore, AppDispatch } from "~/state-manager/configureStore";
 import createStore from "~/state-manager/configureStore";
+import { bootstrapCardSession } from "./bootstrapCardSession";
 import { setupListeners } from "@reduxjs/toolkit/query";
 import events from "~/renderer/events";
 import { initAccounts } from "~/renderer/actions/accounts";
@@ -42,6 +51,10 @@ import {
   migrateLegacyCryptoCounterValue,
 } from "~/renderer/reducers/settings";
 import { liveBlindSigningReporter } from "@ledgerhq/live-dmk-shared";
+import { evmAddressBookProvider } from "@ledgerhq/live-signer-evm";
+import { tronAddressBookProvider } from "@ledgerhq/live-signer-tron";
+import { toEvmAddressBook, toTronAddressBook } from "@features/platform-contacts";
+import { selectContacts } from "@domain/entity-contact";
 import ReactRoot from "~/renderer/ReactRoot";
 import AppError from "~/renderer/AppError";
 import { expectOperatingSystemSupportStatus } from "~/support/os";
@@ -54,7 +67,8 @@ import { importMarketBannerState } from "./reducers/marketBanner";
 import { importKnownDevices, mapPersistedKnownDeviceToKnownDevice } from "./reducers/knownDevices";
 import { fetchWallet } from "./actions/wallet";
 import { fetchTrustchain } from "./actions/trustchain";
-import { setupRecentAddressesStore } from "./recentAddresses";
+import { connectRecentAddressesStore } from "@domain/entity-recent-addresses";
+import { recentAddressesSelector } from "~/renderer/reducers/wallet";
 import { startAnalytics } from "./analytics/segment";
 import { initIdentities } from "~/renderer/helpers/identities";
 import {
@@ -71,7 +85,9 @@ import {
 import { LiveConfig } from "@ledgerhq/live-config/LiveConfig";
 import { installLiveConfigProvider } from "~/firebase/remoteConfig";
 import { setAnalyticsFeatureFlagMethod } from "~/renderer/analytics/segment";
+import { getVersionedRedirects } from "LLD/hooks/useVersionedStakePrograms";
 import { initHistory } from "~/renderer/reducers/history";
+import { installEarnLifecycleHost } from "@ledgerhq/transaction-observability";
 
 const rootNode = document.getElementById("react-root");
 
@@ -131,8 +147,10 @@ async function init() {
   const dispatch: AppDispatch = store.dispatch;
 
   setupListeners(store.dispatch);
-  setupRecentAddressesStore(store);
+  connectRecentAddressesStore(store, recentAddressesSelector);
   setupCryptoAssetsStore(store);
+  setupRateLookups();
+  setSwapQuotesStore(store.dispatch);
 
   // Feature flags: install the LiveConfig provider (serves non-feature `config_*` keys) and
   // point analytics at the Redux slice. The middleware (wired at store creation) drives the
@@ -143,6 +161,17 @@ async function init() {
     ((key: FeatureId) => selectFeature(store.getState(), key) ?? null) as Parameters<
       typeof setAnalyticsFeatureFlagMethod
     >[0],
+  );
+  store.subscribe(
+    installEarnLifecycleHost({
+      platform: "desktop",
+      readEnabled: () =>
+        selectFeature(store.getState(), "earnTxLifecycleMonitoring")?.enabled ?? false,
+      readStakePrograms: () => selectFeature(store.getState(), "stakePrograms"),
+      resolveVersionedRedirects: getVersionedRedirects,
+      readAppVersion: () => LiveConfig.instance.appVersion || "0.0.0",
+      apiBaseUrl: process.env.EARN_API_BASE_URL,
+    }),
   );
 
   // Hydrate persisted crypto assets tokens from app.json
@@ -163,6 +192,10 @@ async function init() {
     // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
     (window as Window & { __STORE__?: ReduxStore }).__STORE__ = store;
   }
+
+  // Dev and E2E only; packaged builds honor it only when launched with PLAYWRIGHT_RUN.
+  await bootstrapCardSession(dispatch);
+
   await initIdentities(store);
   let deepLinkUrl; // Nb In some cases `fetchSettings` runs after this, voiding the deep link.
   if (process.env.LEDGER_LIVE_DEEPLINK) {
@@ -176,6 +209,8 @@ async function init() {
   const initialSettings = (await getKey("app", "settings")) || {};
 
   liveBlindSigningReporter.setConsentSource(() => trackingEnabledSelector(store.getState()));
+  evmAddressBookProvider.setSource(() => toEvmAddressBook(selectContacts(store.getState())));
+  tronAddressBookProvider.setSource(() => toTronAddressBook(selectContacts(store.getState())));
 
   const settingsToLoad = { ...initialSettings };
 
@@ -233,8 +268,7 @@ async function init() {
   );
   const accountData = await getKey("app", "accounts", []);
   if (accountData) {
-    const e = initAccounts(accountData);
-    store.dispatch(e);
+    dispatch(initAccounts(accountData));
   } else {
     // if accountData is falsy, it's a lock case, we need to globally decrypted the app data, we use app.accounts as general safe guard for possible other app.* encrypted fields
     store.dispatch(lock());
@@ -332,6 +366,18 @@ async function init() {
     store.dispatch(restoreLargeScreenUpsellModalState(largeScreenUpsellModalState));
   }
 
+  const payCardState = await getKey("app", "payCard");
+  if (payCardState !== undefined) {
+    store.dispatch(restorePayCardFeatureTour(payCardState));
+    store.dispatch(restoreReceiveVerifyHint(payCardState));
+    store.dispatch(restorePayCardBalanceFilter(payCardState));
+    store.dispatch(restorePayCardLoginIntro(payCardState));
+    store.dispatch(restorePayCardOnboardingWidget(payCardState));
+  }
+
+  // Seed the mock server session/device before the DMK is built (if enabled).
+  await bootstrapMockServerTransport();
+
   r(<ReactRoot store={store} language={language} initialCountervalues={initialCountervalues} />);
 
   await dispatch(fetchTrustchain());
@@ -415,6 +461,7 @@ async function init() {
     resetDevices: () => {
       store.dispatch(resetDevices());
     },
+    getMockServerSessionToken,
   };
 }
 const root = rootNode ? createRoot(rootNode) : null;

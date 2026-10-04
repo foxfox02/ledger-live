@@ -13,15 +13,18 @@ import {
   PayloadSignatureComputedFormat,
 } from "@ledgerhq/hw-app-exchange";
 import { ErrorStatus } from "@ledgerhq/hw-app-exchange/ReturnCode";
-import { getDefaultAccountName } from "@ledgerhq/live-wallet/accountName";
+import { getDefaultAccountName } from "@domain/entity-account-name";
 import { log } from "@ledgerhq/logs";
 import BigNumber from "bignumber.js";
 import invariant from "invariant";
 import { Observable } from "rxjs";
 import { secp256k1 } from "@noble/curves/secp256k1";
+import { p256 } from "@noble/curves/nist";
+import { sha256 } from "../../crypto";
 import { getCurrencyExchangeConfig } from "../";
 import { getAccountCurrency, getMainAccount } from "../../account";
 import { getAccountBridge } from "../../bridge";
+import { buildArcAliasTransfer } from "../../families/evm/exchange";
 import { handleHederaTrustedFlow } from "../../families/hedera/exchange";
 import { withDevicePromise } from "../../hw/deviceAccess";
 import { delay } from "../../promise";
@@ -32,11 +35,30 @@ import { CEXProviderConfig } from "../providers/swap";
 import { isAddressSanctioned } from "@ledgerhq/ledger-wallet-framework/sanction/index";
 import { AddressesSanctionedError } from "@ledgerhq/ledger-wallet-framework/sanction/errors";
 import { getCryptoCurrencyById } from "@domain/entity-currency-crypto";
+import type { Unit } from "@domain/entity-currency-unit";
+import { formatCurrencyUnit } from "../../currencies";
 
 const COMPLETE_EXCHANGE_LOG = "SWAP-CompleteExchange";
 const LIFI_GAS_LIMIT_BUFFER_MULTIPLIER = 1.3;
+const HYPEREVM_GAS_LIMIT_CAP = new BigNumber(2_900_000);
 
 const ARC_CURRENCY_IDS = new Set(["arc", "arc_testnet"]);
+
+export function getBufferedDexGasLimit({
+  gasLimit,
+  fromCurrencyId,
+}: {
+  gasLimit: BigNumber;
+  fromCurrencyId: string;
+}): BigNumber {
+  const bufferedGasLimit = gasLimit
+    .times(LIFI_GAS_LIMIT_BUFFER_MULTIPLIER)
+    .integerValue(BigNumber.ROUND_UP);
+
+  return fromCurrencyId === "hyperevm"
+    ? BigNumber.minimum(bufferedGasLimit, HYPEREVM_GAS_LIMIT_CAP)
+    : bufferedGasLimit;
+}
 
 export function shouldForceZeroAmountForDexSwap({
   isDex,
@@ -51,6 +73,153 @@ export function shouldForceZeroAmountForDexSwap({
 }): boolean {
   if (!isDex || family !== "evm") return false;
   return hasSubAccountId || ARC_CURRENCY_IDS.has(fromCurrencyId);
+}
+
+export function shouldSendArcAsAliasTransfer({
+  isDex,
+  family,
+  hasSubAccountId,
+  fromCurrencyId,
+}: {
+  isDex: boolean;
+  family: string;
+  hasSubAccountId: boolean;
+  fromCurrencyId: string;
+}): boolean {
+  return !isDex && family === "evm" && !hasSubAccountId && ARC_CURRENCY_IDS.has(fromCurrencyId);
+}
+
+const EVM_NOT_ENOUGH_GAS_DIAGNOSTIC_KEYS = [
+  "nativeBalance",
+  "nativeCurrency",
+  "totalFees",
+  "gasLimit",
+  "gasPrice",
+  "maxFeePerGas",
+  "maxPriorityFeePerGas",
+] as const;
+
+export type EvmNotEnoughGasDiagnostics = Partial<
+  Record<(typeof EVM_NOT_ENOUGH_GAS_DIAGNOSTIC_KEYS)[number], string>
+>;
+
+type EvmNotEnoughGasContext = {
+  family: string;
+  nativeBalance: BigNumber;
+  nativeCurrency: string;
+  totalFees: BigNumber;
+  gasLimit?: BigNumber;
+  gasPrice?: BigNumber;
+  maxFeePerGas?: BigNumber;
+  maxPriorityFeePerGas?: BigNumber;
+};
+
+function assignBigNumber<Key extends string>(
+  target: Partial<Record<Key, string>>,
+  key: Key,
+  value: BigNumber | undefined,
+) {
+  if (BigNumber.isBigNumber(value)) {
+    target[key] = value.toString();
+  }
+}
+
+export function enrichEvmNotEnoughGasError(error: Error, context: EvmNotEnoughGasContext): Error {
+  if (context.family !== "evm" || error.name !== "NotEnoughGas") return error;
+
+  const diagnostics: EvmNotEnoughGasDiagnostics = {
+    nativeBalance: context.nativeBalance.toString(),
+    nativeCurrency: context.nativeCurrency,
+    totalFees: context.totalFees.toString(),
+  };
+  assignBigNumber(diagnostics, "gasLimit", context.gasLimit);
+  assignBigNumber(diagnostics, "gasPrice", context.gasPrice);
+  assignBigNumber(diagnostics, "maxFeePerGas", context.maxFeePerGas);
+  assignBigNumber(diagnostics, "maxPriorityFeePerGas", context.maxPriorityFeePerGas);
+  Object.assign(error, diagnostics);
+  return error;
+}
+
+export function readEvmNotEnoughGasDiagnostics(
+  error: unknown,
+): EvmNotEnoughGasDiagnostics | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const source = error as { name?: unknown } & Record<string, unknown>;
+  if (source.name !== "NotEnoughGas") return undefined;
+
+  const diagnostics: EvmNotEnoughGasDiagnostics = {};
+  for (const key of EVM_NOT_ENOUGH_GAS_DIAGNOSTIC_KEYS) {
+    const value = source[key];
+    if (typeof value === "string" && value.length > 0) {
+      diagnostics[key] = value;
+    }
+  }
+  if (typeof diagnostics.nativeBalance !== "string") return undefined;
+  return diagnostics;
+}
+
+const NOT_ENOUGH_BALANCE_DIAGNOSTIC_KEYS = [
+  "balance",
+  "spendableBalance",
+  "pendingOperationsCount",
+] as const;
+
+export type NotEnoughBalanceDiagnostics = Partial<
+  Record<(typeof NOT_ENOUGH_BALANCE_DIAGNOSTIC_KEYS)[number], string>
+>;
+
+type NotEnoughBalanceContext = {
+  balance: BigNumber;
+  spendableBalance: BigNumber;
+  pendingOperationsCount: number;
+  unit: Unit;
+};
+
+function formatDiagnosticBalance(unit: Unit, value: BigNumber): string {
+  return formatCurrencyUnit(unit, value, {
+    disableRounding: true,
+    useGrouping: false,
+  });
+}
+
+export function enrichNotEnoughBalanceError(error: Error, context: NotEnoughBalanceContext): Error {
+  if (error.name !== "NotEnoughBalance") return error;
+
+  const diagnostics: NotEnoughBalanceDiagnostics = {
+    balance: formatDiagnosticBalance(context.unit, context.balance),
+    spendableBalance: formatDiagnosticBalance(context.unit, context.spendableBalance),
+    pendingOperationsCount: String(context.pendingOperationsCount),
+  };
+  Object.assign(error, diagnostics);
+  return error;
+}
+
+export function readNotEnoughBalanceDiagnostics(
+  error: unknown,
+): NotEnoughBalanceDiagnostics | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const source = error as { name?: unknown } & Record<string, unknown>;
+  if (source.name !== "NotEnoughBalance") return undefined;
+
+  const diagnostics: NotEnoughBalanceDiagnostics = {};
+  for (const key of NOT_ENOUGH_BALANCE_DIAGNOSTIC_KEYS) {
+    const value = source[key];
+    if (typeof value === "string" && value.length > 0) {
+      diagnostics[key] = value;
+    }
+  }
+  if (typeof diagnostics.balance !== "string") return undefined;
+  return diagnostics;
+}
+
+function readOptionalBigNumber(source: object, key: string): BigNumber | undefined {
+  const value = (source as Record<string, unknown>)[key];
+  return BigNumber.isBigNumber(value) ? value : undefined;
+}
+
+function readTotalFees(status: object, estimatedFees: BigNumber): BigNumber {
+  const totalFees = (status as { totalFees?: unknown }).totalFees;
+  return BigNumber.isBigNumber(totalFees) ? totalFees : estimatedFees;
 }
 
 /**
@@ -84,6 +253,112 @@ export function enrichSwapDeserializationError(
   return new CompleteExchangeError(step, errorName, violation.message);
 }
 
+type SwapPartnerPublicKey = { curve: "secp256k1" | "secp256r1"; data: Buffer };
+
+/**
+ * Stable, privacy-safe classification of a device SIGN_VERIFICATION_FAIL (0x9d1a). Every value
+ * is a fixed enum string that carries no user data (no payload, signature, key, address or hash),
+ * so it can be forwarded verbatim to `/swap/cancelled` and Datadog.
+ */
+type SwapSignatureDiagnostic =
+  // Signature is mathematically valid over the exact input the device hashes, yet the device
+  // still rejected it. The `_leading_zero_*` variants flag the suspected firmware R/S-to-DER
+  // edge case (a 32-byte r/s starting with 0x00 becomes a 31-byte DER integer).
+  | "device_mismatch"
+  | "device_mismatch_leading_zero_r"
+  | "device_mismatch_leading_zero_s"
+  | "device_mismatch_leading_zero_rs"
+  // Backend signed the base64url payload but omitted the JWS "." prefix the device expects.
+  | "backend_signed_without_dot_prefix"
+  // Backend signed the decoded protobuf bytes instead of the base64url payload string.
+  | "backend_signed_raw_protobuf"
+  // Signature verifies against none of the known inputs: a genuine payload/signature mismatch.
+  | "signature_invalid_all_inputs";
+
+function classifySwapSignatureFailure(
+  binaryPayload: string,
+  signature: string,
+  publicKey: SwapPartnerPublicKey,
+): SwapSignatureDiagnostic | undefined {
+  try {
+    const curve = publicKey.curve === "secp256r1" ? p256 : secp256k1;
+    const compactSignature = base64UrlDecode(signature);
+    // Only compact 64-byte r||s signatures can be classified; anything else is malformed and is
+    // left to the device error so we don't invent misleading diagnostics.
+    if (compactSignature.length !== 64) return undefined;
+
+    const publicKeyBytes = Uint8Array.from(publicKey.data);
+    // Mirror the device: SHA-256 prehash, and disable the low-S policy so we test mathematical
+    // validity (the Exchange app accepts high-S signatures) rather than signature canonicalization.
+    const verifies = (message: Buffer): boolean =>
+      curve.verify(compactSignature, sha256(message), publicKeyBytes, {
+        prehash: false,
+        lowS: false,
+        format: "compact",
+      });
+
+    // The device hashes the JWS signing input: "." + base64url(payload).
+    if (verifies(Buffer.from("." + binaryPayload))) {
+      const rLeadingZero = compactSignature[0] === 0x00;
+      const sLeadingZero = compactSignature[32] === 0x00;
+      if (rLeadingZero && sLeadingZero) return "device_mismatch_leading_zero_rs";
+      if (rLeadingZero) return "device_mismatch_leading_zero_r";
+      if (sLeadingZero) return "device_mismatch_leading_zero_s";
+      return "device_mismatch";
+    }
+
+    if (verifies(Buffer.from(binaryPayload))) return "backend_signed_without_dot_prefix";
+    if (verifies(base64UrlDecode(binaryPayload))) return "backend_signed_raw_protobuf";
+
+    return "signature_invalid_all_inputs";
+  } catch {
+    // Malformed key/signature or an unexpected verification error: defer to the device error.
+    return undefined;
+  }
+}
+
+/**
+ * Device stays the source of truth: only once it rejects the partner signature with a generic
+ * SIGN_VERIFICATION_FAIL (0x9d1a) do we re-verify locally to explain why. The device error's title
+ * (a translation key) is preserved so the user-facing copy is unchanged; we only enrich the message
+ * with a stable diagnostic code for logs/analytics and the `/swap/cancelled` report.
+ * Returns undefined for unrelated errors, legacy swaps, missing key, malformed inputs or when no
+ * diagnostic applies, so callers fall back to the device error.
+ */
+export function enrichSwapSignatureVerificationError({
+  step,
+  isSwapNg,
+  binaryPayload,
+  signature,
+  publicKey,
+  error,
+}: {
+  step: CompleteExchangeStep;
+  isSwapNg: boolean;
+  binaryPayload: string;
+  signature: string;
+  publicKey: SwapPartnerPublicKey | undefined;
+  error: unknown;
+}): CompleteExchangeError | undefined {
+  const transportErr = error as { name?: string; statusCode?: number } | null | undefined;
+  if (
+    transportErr?.name !== "TransportStatusError" ||
+    transportErr?.statusCode !== ErrorStatus.SIGN_VERIFICATION_FAIL ||
+    step !== "CHECK_TRANSACTION_SIGNATURE"
+  ) {
+    return undefined;
+  }
+
+  // Diagnostics only cover Swap NG, whose compact JWS signature we can reconstruct locally.
+  if (!isSwapNg || !publicKey) return undefined;
+
+  const diagnostic = classifySwapSignatureFailure(binaryPayload, signature, publicKey);
+  if (!diagnostic) return undefined;
+
+  const { errorName, errorMessage } = getExchangeErrorMessage(transportErr.statusCode, step);
+  return new CompleteExchangeError(step, errorName, `${errorMessage} [diagnostic=${diagnostic}]`);
+}
+
 const completeExchange = (
   input: CompleteExchangeInputSwap,
 ): Observable<CompleteExchangeRequestEvent> => {
@@ -106,6 +381,10 @@ const completeExchange = (
     let unsubscribed = false;
     let ignoreTransportError = false;
     let currentStep: CompleteExchangeStep = "INIT";
+    // Captured for the failure path so signature diagnostics can re-verify the partner signature
+    // outside the device transport scope. Undefined until the partner config is resolved.
+    let partnerPublicKey: SwapPartnerPublicKey | undefined;
+    let isSwapNgTransaction = false;
 
     const confirmExchange = async () => {
       if (deviceId === undefined) {
@@ -117,8 +396,12 @@ const completeExchange = (
         if (providerConfig.useInExchangeApp === false) {
           throw new Error(`Unsupported provider type ${providerConfig.type}`);
         }
+        // Narrow on the discriminant instead of casting: only CEX providers expose a partner
+        // public key. A DEX provider leaves it undefined, so diagnostics safely no-op.
+        partnerPublicKey = providerConfig.type === "CEX" ? providerConfig.publicKey : undefined;
 
         const exchange = createExchange(transport, exchangeType, rateType, providerConfig.version);
+        isSwapNgTransaction = exchange.transactionType === ExchangeTypes.SwapNg;
 
         const refundAccount = getMainAccount(fromAccount, fromParentAccount);
         const payoutAccount = getMainAccount(toAccount, toParentAccount);
@@ -173,6 +456,24 @@ const completeExchange = (
             amount: BigNumber(0),
           };
           transaction = await accountBridge.prepareTransaction(refundAccount, transactionFixed);
+        } else if (
+          shouldSendArcAsAliasTransfer({
+            isDex,
+            family: transaction.family,
+            hasSubAccountId: Boolean(transaction.subAccountId),
+            fromCurrencyId: mainRefundCurrency.id,
+          })
+        ) {
+          const transactionFixed = {
+            ...transaction,
+            subAccountId: undefined,
+            ...buildArcAliasTransfer({
+              currencyId: mainRefundCurrency.id,
+              recipient: transaction.recipient,
+              amount: transaction.amount,
+            }),
+          };
+          transaction = await accountBridge.prepareTransaction(refundAccount, transactionFixed);
         } else {
           transaction = await accountBridge.prepareTransaction(refundAccount, transaction);
         }
@@ -199,9 +500,10 @@ const completeExchange = (
           transaction.gasLimit &&
           BigNumber.isBigNumber(transaction.gasLimit)
         ) {
-          const gasLimit = transaction.gasLimit
-            .times(LIFI_GAS_LIMIT_BUFFER_MULTIPLIER)
-            .integerValue(BigNumber.ROUND_UP);
+          const gasLimit = getBufferedDexGasLimit({
+            gasLimit: transaction.gasLimit,
+            fromCurrencyId: mainRefundCurrency.id,
+          });
           const transactionFixed = {
             ...transaction,
             fees: undefined, // to be recalculated
@@ -210,15 +512,38 @@ const completeExchange = (
           transaction = await accountBridge.prepareTransaction(refundAccount, transactionFixed);
         }
 
-        const { errors, estimatedFees } = await accountBridge.getTransactionStatus(
-          refundAccount,
-          transaction,
-        );
+        const status = await accountBridge.getTransactionStatus(refundAccount, transaction);
+        const { errors, estimatedFees } = status;
         if (unsubscribed) return;
 
         const errorsKeys = Object.keys(errors);
 
-        if (errorsKeys.length > 0) throw errors[errorsKeys[0]]; // throw the first error
+        if (errorsKeys.length > 0) {
+          const firstError = errors[errorsKeys[0]];
+          if (firstError instanceof Error) {
+            throw enrichNotEnoughBalanceError(
+              enrichEvmNotEnoughGasError(firstError, {
+                family: transaction.family,
+                nativeBalance: refundAccount.balance,
+                nativeCurrency: mainRefundCurrency.ticker,
+                totalFees: readTotalFees(status, estimatedFees),
+                gasLimit:
+                  readOptionalBigNumber(transaction, "customGasLimit") ??
+                  readOptionalBigNumber(transaction, "gasLimit"),
+                gasPrice: readOptionalBigNumber(transaction, "gasPrice"),
+                maxFeePerGas: readOptionalBigNumber(transaction, "maxFeePerGas"),
+                maxPriorityFeePerGas: readOptionalBigNumber(transaction, "maxPriorityFeePerGas"),
+              }),
+              {
+                balance: fromAccount.balance,
+                spendableBalance: fromAccount.spendableBalance,
+                pendingOperationsCount: fromAccount.pendingOperations.length,
+                unit: getAccountCurrency(fromAccount).units[0],
+              },
+            );
+          }
+          throw firstError;
+        }
 
         currentStep = "SET_PARTNER_KEY";
         await exchange.setPartnerKey(
@@ -367,6 +692,16 @@ const completeExchange = (
         const enrichedError = enrichSwapDeserializationError(currentStep, binaryPayload, e);
         if (enrichedError) throw enrichedError;
 
+        const enrichedSignatureError = enrichSwapSignatureVerificationError({
+          step: currentStep,
+          isSwapNg: isSwapNgTransaction,
+          binaryPayload,
+          signature,
+          publicKey: partnerPublicKey,
+          error: e,
+        });
+        if (enrichedSignatureError) throw enrichedSignatureError;
+
         throw convertTransportError(currentStep, e);
       });
       await delay(3000);
@@ -401,8 +736,8 @@ function convertSignature(signature: string, exchangeType: ExchangeTypes): Buffe
   return exchangeType === ExchangeTypes.SwapNg
     ? base64UrlDecode(signature)
     : (() => {
-        const sig = secp256k1.Signature.fromCompact(Buffer.from(signature, "hex"));
-        return Buffer.from(sig.toDERRawBytes());
+        const sig = secp256k1.Signature.fromBytes(Buffer.from(signature, "hex"), "compact");
+        return Buffer.from(sig.toBytes("der"));
       })();
 }
 

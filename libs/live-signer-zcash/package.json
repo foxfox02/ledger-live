@@ -1,6 +1,6 @@
 {
   "name": "@ledgerhq/live-signer-zcash",
-  "version": "0.6.0",
+  "version": "0.10.0",
   "private": true,
   "description": "Ledger Hardware Wallet ZCash Application API",
   "keywords": [
@@ -28,13 +28,15 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@ledgerhq/device-management-kit": "catalog:",
-    "@ledgerhq/device-signer-kit-zcash": "0.4.3",
+    "@ledgerhq/device-signer-kit-zcash": "0.7.1",
     "rxjs": "catalog:"
   },
   "devDependencies": {
+    "@types/react": "catalog:",
+    "@ledgerhq/test-quarantine": "workspace:*",
     "@ledgerhq/types-live": "workspace:^",
-    "@swc/jest": "catalog:",
     "@swc/core": "catalog:",
+    "@swc/jest": "catalog:",
     "@types/jest": "catalog:",
     "@types/node": "catalog:",
     "jest": "catalog:",

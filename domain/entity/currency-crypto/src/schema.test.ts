@@ -1,10 +1,14 @@
-import {
-  ExplorerViewSchema,
-  BitcoinLikeInfoSchema,
-  EthereumLikeInfoSchema,
-  CryptoCurrencySchema,
-} from "./schema";
+import { ExplorerViewSchema, CryptoCurrencyIdSchema, CryptoCurrencySchema } from "./schema";
 import { mockCryptoCurrency } from "./schema.mock";
+
+describe("CryptoCurrencyIdSchema", () => {
+  it("accepts a non-empty string", () => {
+    expect(CryptoCurrencyIdSchema.parse("bitcoin")).toBe("bitcoin");
+  });
+  it("rejects an empty string", () => {
+    expect(() => CryptoCurrencyIdSchema.parse("")).toThrow();
+  });
+});
 
 describe("ExplorerViewSchema", () => {
   it("accepts an empty object", () => {
@@ -17,23 +21,6 @@ describe("ExplorerViewSchema", () => {
       address: "https://example.com/address/$address",
     };
     expect(ExplorerViewSchema.parse(view)).toEqual(view);
-  });
-});
-
-describe("BitcoinLikeInfoSchema", () => {
-  it("accepts valid bitcoin info", () => {
-    expect(BitcoinLikeInfoSchema.parse({ P2PKH: 0, P2SH: 5 })).toEqual({ P2PKH: 0, P2SH: 5 });
-  });
-
-  it("accepts XPUBVersion", () => {
-    const result = BitcoinLikeInfoSchema.parse({ P2PKH: 0, P2SH: 5, XPUBVersion: 76066276 });
-    expect(result.XPUBVersion).toBe(76066276);
-  });
-});
-
-describe("EthereumLikeInfoSchema", () => {
-  it("accepts valid chainId", () => {
-    expect(EthereumLikeInfoSchema.parse({ chainId: 1 })).toEqual({ chainId: 1 });
   });
 });
 

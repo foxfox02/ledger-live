@@ -3,12 +3,11 @@ import { getEnv } from "@shared/env";
 import { Device } from "@ledgerhq/live-common/hw/actions/types";
 import { DeviceModelId } from "@ledgerhq/devices";
 import { Handlers } from "./types";
-import { SettingsState } from "./settings";
 import { createSelector } from "@reduxjs/toolkit";
 
 // Maps the SPECULOS_DEVICE env var to a device model when running against a Speculos simulator.
 // Kept local so production code does not depend on E2E test-support packages.
-function getSpeculosModel(): DeviceModelId {
+export function getSpeculosModel(): DeviceModelId {
   switch (process.env.SPECULOS_DEVICE) {
     case "nanoS":
       return DeviceModelId.nanoS;
@@ -75,26 +74,8 @@ function setCurrentDevice(state: DevicesState) {
 }
 
 export const getCurrentDevice = createSelector(
-  [
-    (state: { devices: DevicesState }) => state.devices.currentDevice,
-    (state: { settings: SettingsState }) => state.settings.vaultSigner,
-  ],
-  (currentDevice, vaultSigner) => {
-    if (vaultSigner.enabled) {
-      const transportParams = new URLSearchParams();
-      transportParams.append("host", vaultSigner.host);
-      transportParams.append("token", vaultSigner.token);
-      transportParams.append("workspace", vaultSigner.workspace);
-
-      const deviceId = `vault-transport:${transportParams.toString()}`;
-
-      return {
-        deviceId,
-        wired: true,
-        modelId: DeviceModelId.nanoS,
-      };
-    }
-
+  [(state: { devices: DevicesState }) => state.devices.currentDevice],
+  currentDevice => {
     const envConditions = [
       { condition: getEnv("DEVICE_PROXY_URL"), modelId: DeviceModelId.nanoS },
       { condition: getEnv("MOCK") && !getEnv("MOCK_NO_BYPASS"), modelId: DeviceModelId.nanoS },

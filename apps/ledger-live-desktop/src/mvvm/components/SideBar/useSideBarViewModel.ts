@@ -11,8 +11,7 @@ import { sidebarCollapsedSelector, lastSeenDeviceSelector } from "~/renderer/red
 import { isNavigationLocked } from "~/renderer/reducers/application";
 import { openModal } from "~/renderer/actions/modals";
 import { setSidebarCollapsed } from "~/renderer/actions/settings";
-import { setTrackingSource } from "~/renderer/analytics/TrackPage";
-import { track } from "~/renderer/analytics/segment";
+import { setTrackingSource, track } from "@shared/analytics";
 import { RECEIVE_SOURCE_PAGE } from "LLD/features/Receive/types";
 import { useGetStakeLabelLocaleBased } from "~/renderer/hooks/useGetStakeLabelLocaleBased";
 import { useOpenSendFlow } from "LLD/features/Send/hooks/useOpenSendFlow";
@@ -147,6 +146,19 @@ export function useSideBarViewModel(): SideBarViewModel {
   const accountsSidebarPath = getAccountsSidebarPath(shouldDisplayAssetSection);
 
   const wasNarrowRef = useRef<boolean | null>(null);
+  const navRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const dropSideBarFocus = () => {
+      const focused = document.activeElement;
+      if (focused instanceof HTMLElement && navRef.current?.contains(focused)) {
+        focused.blur();
+      }
+    };
+
+    window.addEventListener("blur", dropSideBarFocus);
+    return () => window.removeEventListener("blur", dropSideBarFocus);
+  }, []);
 
   useEffect(() => {
     const handleResize = () => {
@@ -279,8 +291,14 @@ export function useSideBarViewModel(): SideBarViewModel {
         location.pathname,
         referralProgramConfig?.params?.path,
         shouldDisplayAssetSection,
+        location.search,
       ),
-    [location.pathname, referralProgramConfig?.params?.path, shouldDisplayAssetSection],
+    [
+      location.pathname,
+      referralProgramConfig?.params?.path,
+      shouldDisplayAssetSection,
+      location.search,
+    ],
   );
 
   const handleActiveChange = useCallback(
@@ -316,6 +334,7 @@ export function useSideBarViewModel(): SideBarViewModel {
   return {
     pathname: location.pathname,
     location,
+    navRef,
     collapsed,
     navigationLocked,
     noAccounts,

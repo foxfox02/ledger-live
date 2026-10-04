@@ -1,3 +1,4 @@
+import { track } from "@shared/analytics";
 import React, { useCallback, useMemo } from "react";
 import { Platform } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -6,7 +7,6 @@ import { useTranslation } from "~/context/Locale";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { ScreenName } from "~/const";
 import { getStackNavigatorConfig } from "~/navigation/navigatorConfig";
-import { track } from "~/analytics";
 import SelectDevice from "LLM/features/DeviceSelection/screens/SelectDevice";
 import StepHeader from "~/components/StepHeader";
 import { DeviceSelectionNavigatorParamsList } from "./types";
@@ -23,15 +23,36 @@ export default function Navigator() {
       button: "Close",
       screen: route.name,
     });
+    const params = route.params as { params?: { onCloseNavigation?: () => void } } | undefined;
+    params?.params?.onCloseNavigation?.();
     navigation.getParent()?.goBack();
   }, [route, navigation]);
+
+  const renderHeaderRight = useCallback(
+    () => <CloseWithConfirmation onClose={onClose} />,
+    [onClose],
+  );
+
+  const renderHeaderTitle = useCallback(
+    () => (
+      <StepHeader
+        subtitle={t("transfer.receive.stepperHeader.range", {
+          currentStep: "2",
+          totalSteps: 3,
+        })}
+        title={t("transfer.receive.stepperHeader.connectDevice")}
+        testID="receive-connect-device-header"
+      />
+    ),
+    [t],
+  );
 
   const stackNavigationConfig = useMemo(
     () => ({
       ...getStackNavigatorConfig(colors, true),
-      headerRight: () => <CloseWithConfirmation onClose={onClose} />,
+      headerRight: renderHeaderRight,
     }),
-    [colors, onClose],
+    [colors, renderHeaderRight],
   );
 
   return (
@@ -47,16 +68,7 @@ export default function Navigator() {
         component={SelectDevice}
         options={{
           header: undefined,
-          headerTitle: () => (
-            <StepHeader
-              subtitle={t("transfer.receive.stepperHeader.range", {
-                currentStep: "2",
-                totalSteps: 3,
-              })}
-              title={t("transfer.receive.stepperHeader.connectDevice")}
-              testID="receive-connect-device-header"
-            />
-          ),
+          headerTitle: renderHeaderTitle,
         }}
         initialParams={route.params}
       />

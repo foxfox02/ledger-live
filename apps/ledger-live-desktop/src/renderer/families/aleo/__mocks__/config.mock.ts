@@ -3,7 +3,10 @@ import type { AleoCoinConfig } from "@ledgerhq/live-common/families/aleo/types";
 
 export const mockAleoCoinConfig: AleoCoinConfig = {
   status: { type: "active" },
+  name: "Aleo",
+  unit: { name: "Aleo", code: "ALEO", magnitude: 6 },
   networkType: "mainnet",
+  defaultValidator: "aleo1q3vx8pet0h7739hx5xlekfxh9kus6qdlxhx9qdkxhh9rnva8q5gsskve3t",
   apiUrls: { node: "https://node.aleo.org", sdk: "https://sdk.aleo.org" },
   feeByTransactionType: {
     [TRANSACTION_TYPE.TRANSFER_PUBLIC]: 1000,
@@ -14,10 +17,16 @@ export const mockAleoCoinConfig: AleoCoinConfig = {
     [TRANSACTION_TYPE.TRANSFER_TOKEN_PRIVATE]: 2000,
     [TRANSACTION_TYPE.CONVERT_TOKEN_PUBLIC_TO_PRIVATE]: 3000,
     [TRANSACTION_TYPE.CONVERT_TOKEN_PRIVATE_TO_PUBLIC]: 4000,
+    [TRANSACTION_TYPE.BOND_PUBLIC]: 5621,
+    [TRANSACTION_TYPE.UNBOND_PUBLIC]: 10813,
+    [TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC]: 3066,
   },
   feeSafetyMultiplier: 1,
   isFeeSponsored: true,
   useEncryptedProve: false,
   enableTokens: false,
+  enableStaking: false,
   recordPickingStrategy: "manual",
+  liveBlockHeightPollMs: 10_000,
+  maxUnbondingSyncAttempts: 3,
 };

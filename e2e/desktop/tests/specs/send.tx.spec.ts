@@ -3,16 +3,16 @@ import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
 import { Account } from "@ledgerhq/live-e2e-shared/enum/Account";
 import { Fee } from "@ledgerhq/live-e2e-shared/enum/Fee";
 import { Transaction } from "@ledgerhq/live-e2e-shared/models/Transaction";
-import { addBugLink, addTmsLink } from "tests/utils/allureUtils";
-import { getDescription } from "tests/utils/customJsonReporter";
 import {
   getAccountAddress,
   liveDataWithRecipientAddressCommand,
   liveDataCommand,
 } from "@ledgerhq/live-e2e-shared/cliCommandsUtils";
+import { shareViewKeyCommand } from "@ledgerhq/live-e2e-shared/families/aleo";
 import { Addresses } from "@ledgerhq/live-e2e-shared/enum/Addresses";
 import { FF_NEW_SEND_FLOW_DISABLED } from "tests/utils/featureFlagUtils";
 import { buildTags, shouldSkipLNSTag } from "tests/utils/tagsUtils";
+import { skipSharedAccountOnSecondaryLeg } from "tests/utils/sharedAccountUtils";
 
 const transactionsAmountInvalid = [
   {
@@ -29,6 +29,7 @@ const transactionsAmountInvalid = [
     transaction: new Transaction(Account.XRP_1, Account.XRP_3, "0.1", undefined, "noTag"),
     expectedErrorMessage: "Recipient address is inactive. Send at least 1 XRP to activate it",
     xrayTicket: "B2CQA-2571",
+    teamOwner: Team.BST,
   },
   {
     transaction: new Transaction(Account.DOT_1, Account.DOT_3, "0.5"),
@@ -44,6 +45,7 @@ const transactionsAmountInvalid = [
     transaction: new Transaction(Account.HEDERA_1, Account.HEDERA_2, "100000", undefined, "noTag"),
     expectedErrorMessage: "Sorry, insufficient funds",
     xrayTicket: "B2CQA-4287",
+    teamOwner: Team.BST,
   },
 ];
 
@@ -71,6 +73,7 @@ const transactionsAddressInvalid = [
     address: undefined,
     expectedErrorMessage: "Recipient address is the same as the sender address",
     xrayTicket: "B2CQA-2712",
+    teamOwner: Team.BST,
   },
   {
     transaction: new Transaction(Account.ATOM_1, Account.ATOM_1, "0.00001"),
@@ -82,6 +85,7 @@ const transactionsAddressInvalid = [
     transaction: new Transaction(Account.HEDERA_1, Account.HEDERA_1, "0.00001", undefined, "noTag"),
     expectedErrorMessage: "Recipient address is the same as the sender address",
     xrayTicket: "B2CQA-4282",
+    teamOwner: Team.BST,
   },
 ];
 
@@ -89,46 +93,57 @@ const transactionAddressValid = [
   {
     transaction: new Transaction(Account.ETH_1, Account.ETH_3, "0.00001", Fee.MEDIUM),
     expectedWarningMessage: null,
+    testName: "new account",
     xrayTicket: "B2CQA-2714",
   },
   {
     transaction: new Transaction(Account.ETH_1, Account.ETH_2, "0.00001", Fee.MEDIUM),
     expectedWarningMessage: null,
-    xrayTicket: "B2CQA-2715, B2CQA-2716",
+    testName: "existing account",
+    xrayTicket: "B2CQA-2715",
   },
   {
     transaction: new Transaction(Account.ETH_1, Account.ETH_2_LOWER_CASE, "0.0001", Fee.MEDIUM),
     expectedWarningMessage: "Auto-verification not available: carefully verify the address",
+    testName: "lower case address",
     xrayTicket: "B2CQA-2717",
   },
   {
     transaction: new Transaction(Account.XRP_1, Account.XRP_2, "1", undefined, "123456"),
     expectedWarningMessage: null,
+    testName: "with tag",
     xrayTicket: "B2CQA-2718",
+    teamOwner: Team.BST,
   },
   {
     transaction: new Transaction(Account.XRP_1, Account.XRP_2, "2"),
     expectedWarningMessage: null,
+    testName: "without tag",
     xrayTicket: "B2CQA-2719",
+    teamOwner: Team.BST,
   },
   {
     transaction: new Transaction(Account.ATOM_1, Account.ATOM_2, "0.00001", undefined, "123456"),
     expectedWarningMessage: null,
+    testName: "with tag",
     xrayTicket: "B2CQA-2720",
   },
   {
     transaction: new Transaction(Account.ATOM_1, Account.ATOM_2, "0.0001"),
     expectedWarningMessage: null,
+    testName: "without tag",
     xrayTicket: "B2CQA-2721",
   },
   {
     transaction: new Transaction(Account.BTC_LEGACY_1, Account.BTC_LEGACY_2, "0.00001", Fee.MEDIUM),
     expectedWarningMessage: null,
+    testName: "legacy",
     xrayTicket: "B2CQA-2722",
   },
   {
     transaction: new Transaction(Account.BTC_SEGWIT_1, Account.BTC_SEGWIT_2, "0.00001", Fee.MEDIUM),
     expectedWarningMessage: null,
+    testName: "segwit",
     xrayTicket: "B2CQA-2723",
   },
   {
@@ -139,6 +154,7 @@ const transactionAddressValid = [
       Fee.MEDIUM,
     ),
     expectedWarningMessage: null,
+    testName: "native segwit",
     xrayTicket: "B2CQA-2724",
   },
   {
@@ -149,11 +165,13 @@ const transactionAddressValid = [
       Fee.MEDIUM,
     ),
     expectedWarningMessage: null,
+    testName: "taproot",
     xrayTicket: "B2CQA-2725",
   },
   {
     transaction: new Transaction(Account.BCH_1, Account.BCH_2, "0.00001", Fee.MEDIUM),
     expectedWarningMessage: null,
+    testName: "cash address",
     xrayTicket: "B2CQA-2726",
   },
 ];
@@ -162,52 +180,66 @@ const transactionE2E = [
   {
     transaction: new Transaction(Account.POL_1, Account.POL_2, "0.001", Fee.SLOW),
     xrayTicket: "B2CQA-2807",
-    bugTickets: ["LIVE-28070"],
+    disableBroadcast: true,
   },
   {
     transaction: new Transaction(Account.DOGE_1, Account.DOGE_2, "0.01", Fee.SLOW),
     xrayTicket: "B2CQA-2573",
+    disableBroadcast: true,
   },
   {
     transaction: new Transaction(Account.BCH_1, Account.BCH_2, "0.0001", Fee.SLOW),
     xrayTicket: "B2CQA-2808",
+    disableBroadcast: true,
   },
   {
     transaction: new Transaction(Account.DOT_1, Account.DOT_2, "0.0001"),
     xrayTicket: "B2CQA-2809",
+    disableBroadcast: true,
   },
   {
     transaction: new Transaction(Account.ALGO_1, Account.ALGO_2, "0.001"),
     xrayTicket: "B2CQA-2810",
+    disableBroadcast: true,
+    teamOwner: Team.BST,
   },
   {
     transaction: new Transaction(Account.SOL_1, Account.SOL_2, "0.000001", undefined, "noTag"),
     xrayTicket: "B2CQA-2811",
+    disableBroadcast: true,
   },
   {
     transaction: new Transaction(Account.TRX_1, Account.TRX_2, "0.01"),
     xrayTicket: "B2CQA-2812",
+    disableBroadcast: true,
   },
   {
     transaction: new Transaction(Account.XLM_1, Account.XLM_2, "0.0001", undefined, "noTag"),
     xrayTicket: "B2CQA-2813",
-    bugTickets: ["LIVE-24214", "LIVE-29554"],
+    disableBroadcast: true,
   },
   {
     transaction: new Transaction(Account.ATOM_1, Account.ATOM_2, "0.00001", undefined, "noTag"),
     xrayTicket: "B2CQA-2814",
+    disableBroadcast: true,
   },
   {
     transaction: new Transaction(Account.ADA_1, Account.ADA_2, "1", undefined, "noTag"),
     xrayTicket: "B2CQA-2815",
+    disableBroadcast: true,
+    teamOwner: Team.BST,
   },
   {
     transaction: new Transaction(Account.XRP_1, Account.XRP_2, "0.0001", undefined, "noTag"),
     xrayTicket: "B2CQA-2816",
+    disableBroadcast: true,
+    teamOwner: Team.BST,
   },
   {
     transaction: new Transaction(Account.APTOS_1, Account.APTOS_2, "0.0001"),
     xrayTicket: "B2CQA-2920",
+    disableBroadcast: true,
+    teamOwner: Team.BST,
   },
   {
     transaction: new Transaction(
@@ -216,52 +248,90 @@ const transactionE2E = [
       "0.00001",
       Fee.MEDIUM,
     ),
-    xrayTicket: "B2CQA-3925",
+    xrayTicket: "B2CQA-2724",
+    disableBroadcast: true,
   },
   {
     transaction: new Transaction(Account.ETH_1, Account.ETH_3, "0.0001", Fee.SLOW),
     xrayTicket: "B2CQA-3924",
+    disableBroadcast: true,
   },
   {
     transaction: new Transaction(Account.KASPA_1, Account.KASPA_2, "0.2"),
     xrayTicket: "B2CQA-3840",
+    disableBroadcast: true,
+    teamOwner: Team.BST,
   },
   {
     transaction: new Transaction(Account.SUI_1, Account.SUI_2, "0.0001", undefined),
     xrayTicket: "B2CQA-3802",
+    disableBroadcast: true,
+    teamOwner: Team.BST,
   },
   {
     transaction: new Transaction(Account.BASE_1, Account.BASE_2, "0.000001"),
     xrayTicket: "B2CQA-4225",
+    disableBroadcast: true,
     bugTickets: ["LIVE-28070"],
   },
   {
     transaction: new Transaction(Account.VET_1, Account.VET_2, "0.1"),
     xrayTicket: "B2CQA-4247",
+    disableBroadcast: true,
+    teamOwner: Team.BST,
   },
   {
     transaction: new Transaction(Account.ZEC_1, Account.ZEC_2, "0.001"),
     xrayTicket: "B2CQA-4299",
     disableBroadcast: true,
+    teamOwner: Team.BST,
   },
   {
     transaction: new Transaction(Account.HEDERA_1, Account.HEDERA_2, "0.00001", undefined, "noTag"),
     xrayTicket: "B2CQA-4284",
+    disableBroadcast: true,
+    teamOwner: Team.BST,
   },
   {
     transaction: new Transaction(Account.ICP_1, Account.ICP_2, "0.001"),
     xrayTicket: "B2CQA-4742",
+    disableBroadcast: true,
+    teamOwner: Team.BST,
+  },
+  {
+    transaction: new Transaction(Account.ALEO_1, Account.ALEO_2, "0.000001"),
+    xrayTicket: "B2CQA-6267",
+    teamOwner: Team.BST,
+    postSeedHook: shareViewKeyCommand(Account.ALEO_1),
+  },
+  {
+    // Mina 4 and Mina 5 are kept out of the staking pool, so a broadcasting night never sends two
+    // transactions from one account. Mobile sends the other way around, to share the fees.
+    transaction: new Transaction(Account.MINA_4, Account.MINA_5, "0.01"),
+    xrayTicket: "B2CQA-4778",
+    teamOwner: Team.BST,
+    sharedAccountAcrossLegs: true,
   },
 ];
 
-test.describe("Send flows", () => {
+test.describe("Send", () => {
   for (const transaction of transactionE2E) {
-    test.describe("legacy send flow - Send from 1 account to another", () => {
+    test.describe("Send from 1 account to another", () => {
+      if ((transaction as { sharedAccountAcrossLegs?: boolean }).sharedAccountAcrossLegs) {
+        skipSharedAccountOnSecondaryLeg(
+          `${transaction.transaction.accountToDebit.currency.testLabel} send`,
+        );
+      }
+
       test.use({
-        teamOwner: Team.COIN_INTEGRATION,
+        teamOwner: (transaction as { teamOwner?: Team }).teamOwner ?? Team.COIN_INTEGRATION,
         userdata: "skip-onboarding-with-last-seen-device",
         speculosApp: transaction.transaction.accountToDebit.currency.speculosApp,
-        cliCommands: [liveDataWithRecipientAddressCommand(transaction.transaction)],
+        cliCommands: [
+          liveDataWithRecipientAddressCommand(transaction.transaction, {
+            postSeedHook: transaction.postSeedHook,
+          }),
+        ],
         env: transaction.disableBroadcast ? { DISABLE_TRANSACTION_BROADCAST: "1" } : {},
         featureFlags: {
           ...FF_NEW_SEND_FLOW_DISABLED,
@@ -269,7 +339,7 @@ test.describe("Send flows", () => {
       });
 
       test(
-        `Send from ${transaction.transaction.accountToDebit.accountName} to ${transaction.transaction.accountToCredit.accountName}`,
+        `[${transaction.transaction.accountToDebit.currency.testLabel}] - Send`,
         {
           tag: buildTags({
             currencyId: transaction.transaction.accountToDebit.currency.id,
@@ -279,14 +349,12 @@ test.describe("Send flows", () => {
                 ? ["@smoke"]
                 : [],
           }),
-          annotation: { type: "TMS", description: transaction.xrayTicket },
+          annotation: [
+            { type: "TMS", description: transaction.xrayTicket },
+            ...(transaction.bugTickets ?? []).map(id => ({ type: "BUG", description: id })),
+          ],
         },
         async ({ app }) => {
-          await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-          if (transaction.bugTickets) {
-            await addBugLink(transaction.bugTickets);
-          }
-
           await app.mainNavigation.openTargetFromMainNavigation("accounts");
           await app.accounts.navigateToAccountByName(
             transaction.transaction.accountToDebit.accountName,
@@ -310,9 +378,9 @@ test.describe("Send flows", () => {
   }
 
   for (const transaction of transactionsAmountInvalid) {
-    test.describe("legacy send flow - Check invalid amount input error", () => {
+    test.describe("Send - invalid amount input", () => {
       test.use({
-        teamOwner: Team.COIN_INTEGRATION,
+        teamOwner: (transaction as { teamOwner?: Team }).teamOwner ?? Team.COIN_INTEGRATION,
         userdata: "skip-onboarding-with-last-seen-device",
         speculosApp: transaction.transaction.accountToDebit.currency.speculosApp,
         cliCommands: [liveDataWithRecipientAddressCommand(transaction.transaction)],
@@ -324,7 +392,7 @@ test.describe("Send flows", () => {
       const expectedErrorLabel = transaction.expectedErrorMessage ?? "no error message";
 
       test(
-        `Check "${expectedErrorLabel}" for ${transaction.transaction.accountToDebit.currency.name} - invalid amount ${transaction.transaction.amount} input error`,
+        `[${transaction.transaction.accountToDebit.currency.testLabel}] - Send invalid amount error: ${expectedErrorLabel} (${transaction.transaction.amount || "empty amount"})`,
         {
           tag: buildTags({
             currencyId: transaction.transaction.accountToDebit.currency.id,
@@ -333,8 +401,6 @@ test.describe("Send flows", () => {
           annotation: { type: "TMS", description: transaction.xrayTicket },
         },
         async ({ app }) => {
-          await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
           await app.mainNavigation.openTargetFromMainNavigation("accounts");
           await app.accounts.navigateToAccountByName(
             transaction.transaction.accountToDebit.accountName,
@@ -353,7 +419,7 @@ test.describe("Send flows", () => {
     });
   }
 
-  test.describe("legacy send flow - Verify send max user flow", () => {
+  test.describe("Send - max amount", () => {
     const transactionInputValid = new Transaction(
       Account.ETH_1,
       Account.ETH_2,
@@ -372,7 +438,7 @@ test.describe("Send flows", () => {
     });
 
     test(
-      `Check Valid amount input (${transactionInputValid.amount})`,
+      `[${transactionInputValid.accountToDebit.currency.testLabel}] - Send max amount`,
       {
         tag: buildTags({
           currencyId: transactionInputValid.accountToDebit.currency.id,
@@ -384,8 +450,6 @@ test.describe("Send flows", () => {
         },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
         await app.mainNavigation.openTargetFromMainNavigation("accounts");
         await app.accounts.navigateToAccountByName(
           transactionInputValid.accountToDebit.accountName,
@@ -402,9 +466,9 @@ test.describe("Send flows", () => {
   });
 
   for (const transaction of transactionAddressValid) {
-    test.describe("legacy send flow - Send funds step 1 (Recipient) - positive cases (Button enabled)", () => {
+    test.describe("Send - valid address input", () => {
       test.use({
-        teamOwner: Team.COIN_INTEGRATION,
+        teamOwner: (transaction as { teamOwner?: Team }).teamOwner ?? Team.COIN_INTEGRATION,
         userdata: "skip-onboarding-with-last-seen-device",
         speculosApp: transaction.transaction.accountToDebit.currency.speculosApp,
         cliCommands: [
@@ -416,7 +480,7 @@ test.describe("Send flows", () => {
       });
 
       test(
-        `Check button enabled (${transaction.transaction.amount} from ${transaction.transaction.accountToDebit.accountName} to ${transaction.transaction.accountToCredit.accountName}) - valid address input (${transaction.xrayTicket})`,
+        `[${transaction.transaction.accountToDebit.currency.testLabel}] - Send valid address input - ${transaction.testName}`,
         {
           tag: buildTags({
             currencyId: transaction.transaction.accountToDebit.currency.id,
@@ -428,8 +492,6 @@ test.describe("Send flows", () => {
           },
         },
         async ({ app }) => {
-          await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
           await app.mainNavigation.openTargetFromMainNavigation("accounts");
           await app.accounts.navigateToAccountByName(
             transaction.transaction.accountToDebit.accountName,
@@ -454,9 +516,9 @@ test.describe("Send flows", () => {
   }
 
   for (const transaction of transactionsAddressInvalid) {
-    test.describe("legacy send flow - Send funds step 1 (Recipient) - negative cases (Button disabled)", () => {
+    test.describe("Send - invalid address input", () => {
       test.use({
-        teamOwner: Team.COIN_INTEGRATION,
+        teamOwner: (transaction as { teamOwner?: Team }).teamOwner ?? Team.COIN_INTEGRATION,
         userdata: "skip-onboarding-with-last-seen-device",
         speculosApp: transaction.transaction.accountToDebit.currency.speculosApp,
         cliCommands: [
@@ -486,7 +548,7 @@ test.describe("Send flows", () => {
       const expectedErrorLabel = transaction.expectedErrorMessage ?? "no error message";
 
       test(
-        `Check "${expectedErrorLabel}" (from ${transaction.transaction.accountToDebit.accountName} to ${transaction.transaction.accountToCredit.accountName}) - invalid address input error`,
+        `[${transaction.transaction.accountToDebit.currency.testLabel}] - Send invalid address error: ${expectedErrorLabel}`,
         {
           tag: buildTags({
             currencyId: transaction.transaction.accountToDebit.currency.id,
@@ -498,8 +560,6 @@ test.describe("Send flows", () => {
           },
         },
         async ({ app }) => {
-          await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
           await app.mainNavigation.openTargetFromMainNavigation("accounts");
           await app.accounts.navigateToAccountByName(
             transaction.transaction.accountToDebit.accountName,
@@ -518,7 +578,7 @@ test.describe("Send flows", () => {
     });
   }
 
-  test.describe("legacy send flow - User sends funds to ENS address", () => {
+  test.describe("Send - ENS address", () => {
     const transactionEnsAddress = new Transaction(
       Account.ETH_1,
       Account.ETH_2_WITH_ENS,
@@ -538,7 +598,7 @@ test.describe("Send flows", () => {
     });
 
     test(
-      `User sends funds to ENS address - ${transactionEnsAddress.accountToCredit.ensName}`,
+      `[${transactionEnsAddress.accountToDebit.currency.testLabel}] - Send to ENS address`,
       {
         tag: buildTags({
           currencyId: transactionEnsAddress.accountToDebit.currency.id,
@@ -550,8 +610,6 @@ test.describe("Send flows", () => {
         },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
         await app.mainNavigation.openTargetFromMainNavigation("accounts");
         await app.accounts.navigateToAccountByName(
           transactionEnsAddress.accountToDebit.accountName,
@@ -572,7 +630,7 @@ test.describe("Send flows", () => {
     );
   });
 
-  test.describe("legacy send flow - Send Concordium (Testnet)", () => {
+  test.describe("Send from 1 account to another", () => {
     const ccdTx = new Transaction(
       Account.CCD_TESTNET_1,
       Account.CCD_TESTNET_2,
@@ -581,7 +639,7 @@ test.describe("Send flows", () => {
     );
 
     test.use({
-      teamOwner: Team.COIN_INTEGRATION,
+      teamOwner: Team.BST,
       userdata: "skip-onboarding-with-last-seen-device",
       speculosApp: ccdTx.accountToDebit.currency.speculosApp,
       cliCommands: [
@@ -600,12 +658,12 @@ test.describe("Send flows", () => {
       featureFlags: {
         ...FF_NEW_SEND_FLOW_DISABLED,
         currencyConcordiumTestnet: { enabled: true },
-        analyticsOptIn: { enabled: true, params: { policyVersion: 1, consentValidityDays: 365 } },
+        analyticsOptIn: { enabled: true, params: { policyVersion: 1 } },
       },
     });
 
     test(
-      `Send from ${ccdTx.accountToDebit.accountName} to ${ccdTx.accountToCredit.accountName}`,
+      `[${ccdTx.accountToDebit.currency.testLabel}] - Send`,
       {
         tag: buildTags({
           currencyId: ccdTx.accountToDebit.currency.id,
@@ -614,8 +672,6 @@ test.describe("Send flows", () => {
         annotation: { type: "TMS", description: "B2CQA-2949" },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
         await app.mainNavigation.openTargetFromMainNavigation("accounts");
         await app.accounts.navigateToAccountByName(ccdTx.accountToDebit.accountName);
 

@@ -1,6 +1,9 @@
 import { Step } from "jest-allure2-reporter/api";
 import invariant from "invariant";
 
+const PROVIDER_ROW_PREFIX = "provider-row-";
+const PROVIDER_ROW_REGEX = new RegExp(`^${PROVIDER_ROW_PREFIX}.+$`);
+
 export default class StakePage {
   celoLockAmountInput = "celo-lock-amount-input";
   celoVoteAmountId = "celo-vote-amount";
@@ -9,8 +12,6 @@ export default class StakePage {
   celoVoteSummaryContinueId = "enabled-celo-vote-summary-continue";
   searchPoolInput = "delegation-search-pool-input";
   selectAssetTitle = "select-asset-drawer-title";
-
-  madSearchBarId = "modular-drawer-search-input";
 
   delegationSummaryValidatorId = (currencyId: string) =>
     `${currencyId}-delegation-summary-validator`;
@@ -27,29 +28,29 @@ export default class StakePage {
   delegationAmountContinueId = (currencyId: string) =>
     `enabled-${currencyId}-delegation-amount-continue`;
   currencyRow = (currencyId: string) => `currency-row-${currencyId}`;
-  providerRow = (providerTicker: string) => `provider-row-${providerTicker}`;
+  providerRow = (providerTicker: string) => `${PROVIDER_ROW_PREFIX}${providerTicker}`;
 
-  @Step("Select currency")
+  @Step("Select currency {{{0}}}")
   async selectCurrency(currencyId: string) {
     const id = this.currencyRow(currencyId);
     await waitForElementById(id);
     await tapById(id);
   }
 
-  @Step("Click on start delegation button")
+  @Step("Click on start delegation button {{{0}}}")
   async delegationStart(currencyId: string) {
     await tapById(this.delegationStartId(currencyId));
     await waitForElementById(this.delegationSummaryValidatorId(currencyId));
   }
 
-  @Step("Dismiss delegation start page if displayed")
+  @Step("Dismiss delegation start page if displayed {{{0}}}")
   async dismissDelegationStart(currencyId: string) {
     if (await IsIdVisible(this.delegationStartId(currencyId))) {
       await this.delegationStart(currencyId);
     }
   }
 
-  @Step("Set delegated amount")
+  @Step("Set delegated amount {{{1}}} for {{{0}}}")
   async setAmount(currencyId: string, amount: string) {
     await waitForElementById(this.delegationSummaryAmountId(currencyId));
     await tapById(this.delegationSummaryAmountId(currencyId));
@@ -58,19 +59,19 @@ export default class StakePage {
     await waitForElementById(this.delegationAmountContinueId(currencyId)); // Issue with RN75 : QAA-370
   }
 
-  @Step("Set delegated amount percent")
+  @Step("Set delegated amount percent {{{1}}} for {{{0}}}")
   async setAmountPercent(currencyId: string, delegatedPercent: 25 | 50 | 75 | 100) {
     await waitForElementById(this.delegationSummaryAmountId(currencyId));
     await tapById(this.delegationSummaryAmountId(currencyId));
     await tapById(this.delegatedRatioId(currencyId, delegatedPercent));
   }
 
-  @Step("Expect provider in summary")
+  @Step("Expect provider {{{1}}} in summary")
   async expectProvider(currencyId: string, provider: string) {
     jestExpect(await this.delegationSummaryValidator(currencyId)).toContain(provider);
   }
 
-  @Step("Select new provider")
+  @Step("Select new provider {{{1}}}")
   async selectValidator(currencyId: string, provider: string) {
     const ticker = provider.split(" - ")[0];
     await tapById(this.delegationSummaryValidatorId(currencyId));
@@ -79,19 +80,38 @@ export default class StakePage {
     await tapById(this.providerRow(ticker));
   }
 
-  @Step("Verify fees visible in summary")
+  @Step("Select the first provider offered for {{{0}}}")
+  async selectFirstValidator(currencyId: string): Promise<string> {
+    await tapById(this.delegationSummaryValidatorId(currencyId));
+    await waitForElement(getElementById(PROVIDER_ROW_REGEX));
+    const rowId = await getIdByRegexp(PROVIDER_ROW_REGEX);
+    await tapById(rowId);
+    await waitForElementById(this.delegationSummaryValidatorId(currencyId));
+    return rowId.slice(PROVIDER_ROW_PREFIX.length);
+  }
+
+  // Families whose flow opens on the validator list have no summary row to tap first.
+  @Step("Select provider {{{0}}} from the validator list")
+  async selectValidatorFromList(provider: string) {
+    await waitForElementById(this.searchPoolInput);
+    await typeTextById(this.searchPoolInput, provider);
+    await waitForElementById(this.providerRow(provider));
+    await tapById(this.providerRow(provider));
+  }
+
+  @Step("Verify fees visible in summary {{{0}}}")
   async verifyFeesVisible(currencyId: string) {
     await detoxExpect(getElementById(this.delegationFees(currencyId))).toBeVisible();
   }
 
-  @Step("Get fees displayed in summary")
+  @Step("Get fees displayed in summary {{{0}}}")
   async getDisplayedFees(currencyId: string) {
     const fees = await getTextOfElement(this.delegationFees(currencyId));
     invariant(fees, "Fees empty in summary");
     return fees;
   }
 
-  @Step("Validate the amount entered")
+  @Step("Validate the amount entered {{{0}}}")
   async validateAmount(currencyId: string) {
     await tapById(this.delegationAmountContinueId(currencyId));
     if (currencyId !== Currency.CELO.id) {
@@ -99,14 +119,14 @@ export default class StakePage {
     }
   }
 
-  @Step("Click on continue button in summary")
+  @Step("Click on continue button in summary {{{0}}}")
   async summaryContinue(currencyId: string): Promise<void> {
     const id = this.summaryContinueButtonId(currencyId);
     await waitForElementById(id);
     await tapById(id);
   }
 
-  @Step("Set Celo lock amount")
+  @Step("Set Celo lock amount {{{0}}}")
   async setCeloLockAmount(amount: string) {
     await typeTextById(this.celoLockAmountInput, amount);
   }
@@ -116,7 +136,7 @@ export default class StakePage {
     await tapById(this.celoVoteAmountId);
   }
 
-  @Step("Set CELO vote amount")
+  @Step("Set CELO vote amount {{{0}}}")
   async setCeloVoteAmount(amount: string) {
     await waitForElementById(this.celoVoteAmountInputId);
     await typeTextById(this.celoVoteAmountInputId, amount);
@@ -131,11 +151,5 @@ export default class StakePage {
   async celoVoteSummaryContinue() {
     await waitForElementById(this.celoVoteSummaryContinueId);
     await tapById(this.celoVoteSummaryContinueId);
-  }
-
-  @Step("Verify choose asset page is visible")
-  async verifyChooseAssetPage() {
-    await waitForElementById(this.madSearchBarId);
-    await detoxExpect(getElementById(this.madSearchBarId)).toBeVisible();
   }
 }

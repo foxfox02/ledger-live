@@ -5,7 +5,7 @@
  * Boundary cast: SDK's `CoreClient` has 17 abstract methods, we cast through `unknown` and rely on
  * the audited resolver call set rather than zero-filling fields we don't honestly populate.
  */
-import { promiseAllBatched } from "@ledgerhq/live-promise";
+import { promiseAllBatched } from "@ledgerhq/coin-module-framework/promises";
 import { log } from "@ledgerhq/logs";
 import type { ClientWithCoreApi, SuiClientTypes } from "@mysten/sui/client";
 import type { TransactionPlugin } from "@mysten/sui/transactions";
@@ -161,8 +161,7 @@ export function makeSuiClientFromGraphQL(api: SuiGraphQLClient): ClientWithCoreA
         if (!next) break;
         cursor = next;
       }
-      // Mirror the JSON-RPC `client.core.getBalance` contract
-      // (`@mysten/sui/jsonRpc/core.ts:226-243`): `coinBalance` is the
+      // Mirror the SDK Core `getBalance` contract: `coinBalance` is the
       // total minus the SIP-58 address-balance reservation.
       const coinBalance = String(BigInt(total) - BigInt(addr));
       return {
@@ -179,7 +178,7 @@ export function makeSuiClientFromGraphQL(api: SuiGraphQLClient): ClientWithCoreA
       options: SuiClientTypes.ListCoinsOptions,
     ): Promise<SuiClientTypes.ListCoinsResponse> {
       const coinType = options.coinType ?? DEFAULT_SUI_COIN_TYPE;
-      // GraphQL caps `first:` at 50; JSON-RPC has no cap. Clamp here so a
+      // GraphQL caps `first:` at 50. Clamp here so a
       // caller passing a larger limit gets server-side pagination instead
       // of a query rejection.
       const first = Math.min(options.limit ?? GRAPHQL_PAGE_LIMIT, GRAPHQL_PAGE_LIMIT);

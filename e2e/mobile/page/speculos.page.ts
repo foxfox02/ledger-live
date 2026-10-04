@@ -1,6 +1,7 @@
 import { Step } from "jest-allure2-reporter/api";
 import {
   activateContractData,
+  enableBlindSigning,
   goToSettings,
   activateExpertMode,
   expectValidAddressDevice,
@@ -10,11 +11,14 @@ import {
   verifyAmountsAndAcceptSwapForDifferentSeed,
   verifyAmountsAndRejectSwap,
   approveToken,
+  approveContractTransaction,
   signTypedMessage as signTypedMessageDevice,
   acceptEnableTransactionCheck as acceptEnableTransactionCheckDevice,
+  acceptBlindSigningWarning as acceptBlindSigningWarningDevice,
   shareViewKey,
+  confirmContactAction as confirmContactActionDevice,
 } from "@ledgerhq/live-e2e-shared/speculos";
-import { setExchangeDependencies } from "../utils/speculosUtils";
+import { setExchangeDependencies } from "@e2e/utils/speculosUtils";
 import { TransactionType } from "@ledgerhq/live-e2e-shared/models/Transaction";
 import { DelegateType } from "@ledgerhq/live-e2e-shared/models/Delegate";
 import { Account, AccountType } from "@ledgerhq/live-e2e-shared/enum/Account";
@@ -25,17 +29,17 @@ function isSwap(value: SwapType | Account): value is SwapType {
 }
 
 export default class SpeculosPage {
-  @Step("Verify receive address correctness on device")
+  @Step("Verify receive address correctness on device {{{1}}}")
   async expectValidAddressDevice(account: AccountType, addressDisplayed: string) {
     await expectValidAddressDevice(account, addressDisplayed);
   }
 
-  @Step("Sign Send Transaction on Speculos")
+  @Step("Sign Send Transaction on Speculos {{{0.amount}}}")
   async signSendTransaction(tx: TransactionType) {
     await signSendTransaction(tx);
   }
 
-  @Step("Sign Delegation Transaction on Speculos")
+  @Step("Sign Delegation Transaction on Speculos {{{0.amount}}} to {{{0.provider}}}")
   async signDelegationTransaction(delegation: DelegateType) {
     await signDelegationTransaction(delegation);
   }
@@ -43,6 +47,16 @@ export default class SpeculosPage {
   @Step("Activate contract data on Speculos")
   async activateContractData() {
     await activateContractData();
+  }
+
+  @Step("Enable blind signing on Speculos")
+  async enableBlindSigning() {
+    await enableBlindSigning();
+  }
+
+  @Step("Accept the blind-signing risk warning on Speculos")
+  async acceptBlindSigningWarning() {
+    await acceptBlindSigningWarningDevice();
   }
 
   @Step("Go to settings on Speculos")
@@ -55,12 +69,12 @@ export default class SpeculosPage {
     await activateExpertMode();
   }
 
-  @Step("Verify amounts and accept swap")
+  @Step("Verify amounts and accept swap {{{1}}}")
   async verifyAmountsAndAcceptSwap(swap: SwapType, amount: string) {
     await verifyAmountsAndAcceptSwap(swap, amount);
   }
 
-  @Step("Verify amounts and accept swap for different seed")
+  @Step("Verify amounts {{{1}}} and accept swap for different seed")
   async verifyAmountsAndAcceptSwapForDifferentSeed(
     swap: SwapType,
     amount: string,
@@ -69,7 +83,7 @@ export default class SpeculosPage {
     await verifyAmountsAndAcceptSwapForDifferentSeed(swap, amount, errorMessage);
   }
 
-  @Step("Verify amounts and reject swap")
+  @Step("Verify amounts and reject swap {{{1}}}")
   async verifyAmountsAndRejectSwap(swap: SwapType, amount: string) {
     await verifyAmountsAndRejectSwap(swap, amount);
   }
@@ -81,7 +95,7 @@ export default class SpeculosPage {
 
   @Step("Sign EVM contract transaction on device")
   async signEvmContractTransaction() {
-    await approveToken();
+    await approveContractTransaction();
   }
 
   @Step("Sign typed message on device")
@@ -99,6 +113,11 @@ export default class SpeculosPage {
     await shareViewKey();
   }
 
+  @Step("Confirm contact action on Speculos")
+  async confirmContactAction() {
+    await confirmContactActionDevice();
+  }
+
   async setExchangeDependencies(swapOrFromAccount: SwapType | Account, toAccount?: Account) {
     let accounts: Account[];
     if (isSwap(swapOrFromAccount)) {
@@ -109,7 +128,7 @@ export default class SpeculosPage {
 
     setExchangeDependencies(
       accounts.map(acc => ({
-        name: acc.currency.speculosApp.name.replace(/ /g, "_"),
+        name: acc.currency.speculosApp.name.replaceAll(" ", "_"),
       })),
     );
   }

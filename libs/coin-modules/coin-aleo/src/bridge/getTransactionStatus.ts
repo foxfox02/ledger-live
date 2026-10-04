@@ -7,6 +7,7 @@ import {
   InvalidAddressBecauseDestinationIsAlsoSource,
 } from "@ledgerhq/ledger-wallet-framework/errors";
 import { BigNumber } from "bignumber.js";
+import { formatCurrencyUnit } from "@ledgerhq/coin-module-framework/currencies/index";
 import invariant from "invariant";
 import type {
   AleoAccount,
@@ -18,12 +19,13 @@ import type {
   AleoCoinConfig,
 } from "../types";
 import type { AleoUnspentRecord } from "../types/logic";
-import { estimateFees, validateAddress } from "../logic";
+import { estimateFees, getValidators, validateAddress } from "../logic";
 import {
   calculateAmount,
   getAvailableBalance,
   getRecordByCommitment,
   isPrivateTransaction,
+  isSelfStakingMode,
   isSelfTransferTransaction,
   isTokenTransaction,
   getAleoSubAccount,
@@ -33,14 +35,23 @@ import aleoCoinConfig from "../config";
 import {
   MAX_PRIVATE_RECORDS_PER_TRANSACTION,
   MAX_PRIVATE_TOKEN_RECORDS_PER_TRANSACTION,
+  MIN_BOND_AMOUNT_MICROCREDITS,
+  MIN_DELEGATOR_STAKE_MICROCREDITS,
+  TRANSACTION_TYPE,
 } from "../constants";
 import {
+  AleoAlreadyBondedElsewhere,
   AleoAmountRecordRequired,
   AleoAmountTooLargeForTransaction,
+  AleoBondAmountTooLow,
+  AleoClosedValidator,
   AleoFeeRecordInsufficientBalance,
   AleoFeeRecordRequired,
+  AleoNoClaimableUnbondedFunds,
+  AleoStakeAmountTooLow,
   AleoTooManyRecordsSelected,
   AleoTwoRecordsRequired,
+  AleoUnbondingValidator,
 } from "../errors";
 
 type Errors = Record<string, Error>;
@@ -220,6 +231,89 @@ async function validateRecipient({
   return null;
 }
 
+/**
+ * A validator absent from the committee, or a committee that cannot be fetched at all,
+ * deliberately passes: `isOpen` only exists in the committee response, and an outage must not
+ * block a legitimate bond.
+ */
+async function validateBondRecipient({
+  account,
+  recipient,
+  config,
+}: {
+  account: AleoAccount;
+  recipient: string;
+  config: AleoCoinConfig;
+}): Promise<Error | null> {
+  // credits.aleo rejects a bond to any validator other than the one already bonded.
+  const bondedValidator = account.aleoResources?.bondedValidator;
+  if (bondedValidator && bondedValidator !== recipient) {
+    return new AleoAlreadyBondedElsewhere(undefined, { bondedValidator });
+  }
+
+  try {
+    const validators = await getValidators(config);
+    const validator = validators.find(({ address }) => address === recipient);
+
+    if (!validator) return null;
+    if (validator.isUnbonding) return new AleoUnbondingValidator();
+    if (!validator.isOpen) return new AleoClosedValidator();
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The delegator floor is checked against the *projected* position, so a top-up on a stake that
+ * already clears it passes.
+ */
+function validateStakingAmount({
+  account,
+  transaction,
+  amount,
+}: {
+  account: AleoAccount;
+  transaction: TransactionSelfTransfer | TransactionTransfer;
+  amount: BigNumber;
+}): Error | null {
+  if (
+    transaction.mode !== TRANSACTION_TYPE.BOND_PUBLIC &&
+    transaction.mode !== TRANSACTION_TYPE.UNBOND_PUBLIC
+  ) {
+    return null;
+  }
+
+  // Neither mode has a downstream zero check the way a transfer does, and `useAllAmount` skips
+  // the generic guard on `transaction.amount`.
+  if (amount.lte(0)) {
+    return new AmountRequired();
+  }
+
+  if (transaction.mode !== TRANSACTION_TYPE.BOND_PUBLIC) {
+    return null;
+  }
+
+  const formatAmount = (value: number) =>
+    formatCurrencyUnit(account.currency.units[0], new BigNumber(value), { showCode: true });
+
+  if (amount.lt(MIN_BOND_AMOUNT_MICROCREDITS)) {
+    return new AleoBondAmountTooLow(undefined, {
+      minAmount: formatAmount(MIN_BOND_AMOUNT_MICROCREDITS),
+    });
+  }
+
+  const bondedBalance = account.aleoResources?.bondedBalance ?? new BigNumber(0);
+  if (bondedBalance.plus(amount).lt(MIN_DELEGATOR_STAKE_MICROCREDITS)) {
+    return new AleoStakeAmountTooLow(undefined, {
+      minAmount: formatAmount(MIN_DELEGATOR_STAKE_MICROCREDITS),
+    });
+  }
+
+  return null;
+}
+
 function validatePublicFees({
   account,
   transaction,
@@ -269,15 +363,51 @@ async function handleTransferTransaction({
   const recipientError = await validateRecipient({
     account,
     recipient: transaction.recipient,
-    allowSelfTransfer,
+    allowSelfTransfer: allowSelfTransfer || isSelfStakingMode(transaction),
   });
 
   if (recipientError) {
     errors.recipient = recipientError;
   }
 
-  if (!transaction.useAllAmount && transaction.amount.lte(0)) {
+  if (transaction.mode === TRANSACTION_TYPE.BOND_PUBLIC) {
+    const withdrawalError = await validateRecipient({
+      account,
+      recipient: transaction.withdrawal,
+      allowSelfTransfer: true,
+    });
+    if (withdrawalError) {
+      errors.withdrawal = withdrawalError;
+    }
+
+    if (!recipientError) {
+      const bondRecipientError = await validateBondRecipient({
+        account,
+        recipient: transaction.recipient,
+        config,
+      });
+      if (bondRecipientError) {
+        errors.recipient = bondRecipientError;
+      }
+    }
+  }
+
+  // A claim signs no amount, so the generic zero guard would reject every one of them.
+  if (
+    transaction.mode !== TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC &&
+    !transaction.useAllAmount &&
+    transaction.amount.lte(0)
+  ) {
     errors.amount = new AmountRequired();
+  } else {
+    const stakingAmountError = validateStakingAmount({
+      account,
+      transaction,
+      amount: calculatedAmount.amount,
+    });
+    if (stakingAmountError) {
+      errors.amount = stakingAmountError;
+    }
   }
 
   if (isPrivateTransaction(transaction)) {
@@ -295,7 +425,12 @@ async function handleTransferTransaction({
 
   Object.assign(errors, validatePublicFees({ account, transaction, config, estimatedFees }));
 
-  if (availableBalance.isLessThan(calculatedAmount.totalSpent)) {
+  if (transaction.mode === TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC) {
+    // Nothing to compare against — only whether anything has matured.
+    if (availableBalance.lte(0)) {
+      errors.amount = new AleoNoClaimableUnbondedFunds();
+    }
+  } else if (availableBalance.isLessThan(calculatedAmount.totalSpent)) {
     errors.amount = new NotEnoughBalance();
   }
 

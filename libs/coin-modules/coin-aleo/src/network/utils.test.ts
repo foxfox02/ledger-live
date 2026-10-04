@@ -1,35 +1,50 @@
 import BigNumber from "bignumber.js";
+import { log } from "@ledgerhq/logs";
 import { LedgerAPI4xx, LedgerAPI5xx } from "@ledgerhq/live-network/errors";
 import { AleoApiConfigurationResetError } from "../errors";
 import {
   EXPLORER_TRANSFER_TYPES,
   DEFAULT_RECORDS_PAGE_SIZE,
+  DEFAULT_TOKENS_PAGE_SIZE,
   PROGRAM_ID,
   TOKEN_RECORD_NAME,
-  RECIPIENT_ARG_INDEX,
-  AMOUNT_ARG_INDEX,
 } from "../constants";
 import { getMockedConfig } from "../__tests__/fixtures/config.fixture";
 import { sdkClient } from "../network/sdk";
-import type { ProvableApi } from "../types";
+import type { AleoTransition, ProvableApi } from "../types";
 import {
   getMockedRecord,
   getMockedPublicTransaction,
   getMockedTransactionDetails,
+  getMockedDecryptedRecord,
+  getMockedTokenDetails,
+  getMockedGetTokensResponse,
 } from "../__tests__/fixtures/api.fixture";
 import { getMockedOperation } from "../__tests__/fixtures/operation.fixture";
-import { accessProvableApi } from "./utils";
 import { apiClient } from "./api";
 import {
   fetchAccountTransactionsFromHeight,
   fetchAllOwnedRecords,
+  fetchAllTokens,
+  fetchTransitionPage,
   enrichPrivateRecord,
+  enrichPrivateRecords,
   patchPublicOperations,
   getTokenOutDetails,
+  getRecordScannerStatusOrThrow,
+  accessProvableApi,
+  decryptRecordAmount,
+  sumUnspentRecords,
+  getStakingPosition,
+  getUnbondingValidators,
+  resolveBondArguments,
 } from "./utils";
 
 jest.mock("./api");
 jest.mock("./sdk");
+jest.mock("@ledgerhq/logs", () => ({
+  log: jest.fn(),
+}));
 jest.mock("../logic/utils", () => ({
   ...jest.requireActual("../logic/utils"),
   generateUniqueUsername: jest.fn(),
@@ -97,7 +112,7 @@ describe("network/utils", () => {
           address: mockAddress,
           limit: 50,
           order: "asc",
-          cursor: "140",
+          cursor: { blockNumber: 140 },
         });
         expect(result.transactions).toHaveLength(4);
         expect(result.nextCursor).toBeNull();
@@ -262,7 +277,7 @@ describe("network/utils", () => {
           address: mockAddress,
           limit: 50,
           order: "asc",
-          cursor,
+          cursor: { blockNumber: Number(cursor) },
         });
       });
     });
@@ -395,6 +410,91 @@ describe("network/utils", () => {
     });
   });
 
+  describe("decryptRecordAmount", () => {
+    const mockViewKey = "AViewKey1abc";
+
+    it("should decrypt the record and parse the amount", async () => {
+      const record = getMockedRecord({ record_ciphertext: "ciphertext123" });
+      const details = getMockedDecryptedRecord({ data: { amount: "500000u64.private" } });
+      mockDecryptRecord.mockResolvedValueOnce(details);
+
+      const result = await decryptRecordAmount(mockConfig, mockViewKey, record);
+
+      expect(mockDecryptRecord).toHaveBeenCalledWith({
+        config: mockConfig,
+        viewKey: mockViewKey,
+        ciphertext: "ciphertext123",
+      });
+      expect(result.amount).toEqual(new BigNumber(500000));
+      expect(result.details).toEqual(details);
+    });
+
+    it.each([
+      ["balance", { balance: "200000u64.private" }],
+      ["microcredits", { microcredits: "100000u64.private" }],
+    ])("should fall back to %s when amount is missing", async (_label, data) => {
+      mockDecryptRecord.mockResolvedValueOnce(getMockedDecryptedRecord({ data }));
+
+      const result = await decryptRecordAmount(mockConfig, mockViewKey, getMockedRecord());
+
+      expect(result.amount).toEqual(new BigNumber(Object.values(data)[0].replace(/u64.*/, "")));
+    });
+
+    it("should return zero when no known amount field is present", async () => {
+      mockDecryptRecord.mockResolvedValueOnce(getMockedDecryptedRecord({ data: {} }));
+
+      const result = await decryptRecordAmount(mockConfig, mockViewKey, getMockedRecord());
+
+      expect(result.amount).toEqual(new BigNumber(0));
+    });
+  });
+
+  describe("getRecordScannerStatusOrThrow", () => {
+    const mockUUID = "uuid-abc-def";
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it("should return the scanner status", async () => {
+      const status = {
+        synced: true,
+        percentage: 100,
+        sync_start_height: 0,
+        synced_up_to: 20985061,
+      };
+      mockGetRecordScannerStatus.mockResolvedValue(status);
+
+      const result = await getRecordScannerStatusOrThrow(mockConfig, mockUUID);
+
+      expect(mockGetRecordScannerStatus).toHaveBeenCalledTimes(1);
+      expect(mockGetRecordScannerStatus).toHaveBeenCalledWith(mockConfig, mockUUID);
+      expect(result).toEqual(status);
+    });
+
+    it("should throw AleoApiConfigurationResetError on a 422 error", async () => {
+      const error422 = new LedgerAPI4xx("Unprocessable Entity", {
+        status: 422,
+        url: undefined,
+        method: "POST",
+      });
+      mockGetRecordScannerStatus.mockRejectedValue(error422);
+
+      await expect(getRecordScannerStatusOrThrow(mockConfig, mockUUID)).rejects.toThrow(
+        AleoApiConfigurationResetError,
+      );
+    });
+
+    it("should rethrow a non-422 error unchanged", async () => {
+      const networkError = new LedgerAPI5xx("Internal Server Error");
+      mockGetRecordScannerStatus.mockRejectedValue(networkError);
+
+      await expect(getRecordScannerStatusOrThrow(mockConfig, mockUUID)).rejects.toThrow(
+        LedgerAPI5xx,
+      );
+    });
+  });
+
   describe("accessProvableApi", () => {
     const mockViewKey = "AViewKey1mockviewkey";
     const mockUUID = "uuid-abc-def";
@@ -415,7 +515,12 @@ describe("network/utils", () => {
         };
 
         mockRegisterForScanningAccountRecords.mockResolvedValue({ uuid: mockUUID });
-        mockGetRecordScannerStatus.mockResolvedValue({ synced: false, percentage: 5 });
+        mockGetRecordScannerStatus.mockResolvedValue({
+          synced: false,
+          percentage: 5,
+          sync_start_height: 0,
+          synced_up_to: 0,
+        });
 
         const result = await accessProvableApi({
           config: mockConfig,
@@ -447,7 +552,12 @@ describe("network/utils", () => {
           scannerStatus: { synced: false, percentage: 50 },
         };
 
-        mockGetRecordScannerStatus.mockResolvedValue({ synced: false, percentage: 60 });
+        mockGetRecordScannerStatus.mockResolvedValue({
+          synced: false,
+          percentage: 60,
+          sync_start_height: 0,
+          synced_up_to: 0,
+        });
 
         const result = await accessProvableApi({
           config: mockConfig,
@@ -467,7 +577,12 @@ describe("network/utils", () => {
           scannerStatus: { synced: false, percentage: 50 },
         };
 
-        mockGetRecordScannerStatus.mockResolvedValue({ synced: true, percentage: 100 });
+        mockGetRecordScannerStatus.mockResolvedValue({
+          synced: true,
+          percentage: 100,
+          sync_start_height: 0,
+          synced_up_to: 20985061,
+        });
 
         const result = await accessProvableApi({
           config: mockConfig,
@@ -539,7 +654,12 @@ describe("network/utils", () => {
 
       it("should initialize scanner status with defaults when provableApi is null", async () => {
         mockRegisterForScanningAccountRecords.mockResolvedValue({ uuid: mockUUID });
-        mockGetRecordScannerStatus.mockResolvedValue({ synced: false, percentage: 0 });
+        mockGetRecordScannerStatus.mockResolvedValue({
+          synced: false,
+          percentage: 0,
+          sync_start_height: 0,
+          synced_up_to: 0,
+        });
 
         const result = await accessProvableApi({
           config: mockConfig,
@@ -637,45 +757,7 @@ describe("network/utils", () => {
       expect(mockDecryptRecord).not.toHaveBeenCalled();
     });
 
-    it("should return null when sender is this address and transition has fewer inputs than expected", async () => {
-      const rawRecord = getMockedRecord({
-        function_name: EXPLORER_TRANSFER_TYPES.PRIVATE_TO_PUBLIC,
-        sender: mockEnrichAddress,
-        transition_index: 0,
-      });
-      mockGetTransactionById.mockResolvedValueOnce(
-        getMockedTransactionDetails(rawRecord.transaction_id, {
-          execution: {
-            transitions: [
-              {
-                id: "au1",
-                scm: "s",
-                tcm: "t",
-                tpk: "tpk1",
-                inputs: [{ id: "in0", type: "public", value: "only_one_input" }], // only 1 input, needs 3 (indices 0, 1, 2)
-                outputs: [],
-                program: "credits.aleo",
-                function: "transfer_private_to_public",
-              },
-            ],
-          },
-        }),
-      );
-
-      const result = await enrichPrivateRecord({
-        config: mockConfig,
-        rawRecord,
-        address: mockEnrichAddress,
-        viewKey: mockViewKey,
-      });
-
-      expect(result).toBeNull();
-      expect(mockGetTransactionById).toHaveBeenCalledTimes(1);
-      expect(mockDecryptCiphertext).not.toHaveBeenCalled();
-      expect(mockDecryptRecord).not.toHaveBeenCalled();
-    });
-
-    it("should return null when sender is this address and transition inputs at recipient/amount indices have no value field (record type)", async () => {
+    it("should return null when no amount-shaped argument follows the recipient", async () => {
       const rawRecord = getMockedRecord({
         function_name: EXPLORER_TRANSFER_TYPES.PRIVATE,
         sender: mockEnrichAddress,
@@ -691,9 +773,9 @@ describe("network/utils", () => {
                 tcm: "t",
                 tpk: "tpk1",
                 inputs: [
-                  { id: "in0", type: "record", tag: "record_tag_0" }, // index 0
-                  { id: "in1", type: "record", tag: "record_tag_1" }, // RECIPIENT_ARG_INDEX = 1, no value field
-                  { id: "in2", type: "private", value: "ciphertext_amount" }, // AMOUNT_ARG_INDEX = 2
+                  { id: "in0", type: "record", tag: "record_tag_0" },
+                  { id: "in1", type: "private", value: "ciphertext_recipient" },
+                  { id: "in2", type: "record", tag: "record_tag_2" },
                 ],
                 outputs: [],
                 program: "credits.aleo",
@@ -703,6 +785,7 @@ describe("network/utils", () => {
           },
         }),
       );
+      mockDecryptCiphertext.mockResolvedValueOnce({ plaintext: "aleo1recipientnoamount" });
 
       const result = await enrichPrivateRecord({
         config: mockConfig,
@@ -713,8 +796,13 @@ describe("network/utils", () => {
 
       expect(result).toBeNull();
       expect(mockGetTransactionById).toHaveBeenCalledTimes(1);
-      expect(mockDecryptCiphertext).not.toHaveBeenCalled();
+      expect(mockDecryptCiphertext).toHaveBeenCalledTimes(1);
       expect(mockDecryptRecord).not.toHaveBeenCalled();
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(log).toHaveBeenCalledWith(
+        "aleo/sync",
+        `resolveTransferArguments: no recipient/amount arguments found in credits.aleo/transfer_private for tx ${rawRecord.transaction_id}`,
+      );
     });
 
     it("should return null when PRIVATE_TO_PUBLIC and recipient is own address", async () => {
@@ -733,9 +821,9 @@ describe("network/utils", () => {
                 tcm: "t",
                 tpk: "tpk1",
                 inputs: [
-                  { id: "in0", type: "public", value: "record_cipher" },
-                  { id: "in1", type: "public", value: mockEnrichAddress }, // RECIPIENT_ARG_INDEX = 1, self
-                  { id: "in2", type: "public", value: "500000u64" }, // AMOUNT_ARG_INDEX = 2
+                  { id: "in0", type: "record", tag: "record_tag_0" }, // leading spent record
+                  { id: "in1", type: "public", value: mockEnrichAddress }, // recipient, self
+                  { id: "in2", type: "public", value: "500000u64" }, // amount
                 ],
                 outputs: [],
                 program: "credits.aleo",
@@ -775,9 +863,9 @@ describe("network/utils", () => {
               tcm: "t",
               tpk: "tpk1",
               inputs: [
-                { id: "in0", type: "public", value: "record_cipher" },
-                { id: "in1", type: "public", value: recipientAddress }, // RECIPIENT_ARG_INDEX = 1
-                { id: "in2", type: "public", value: "500000u64" }, // AMOUNT_ARG_INDEX = 2
+                { id: "in0", type: "record", tag: "record_tag_0" }, // leading spent record
+                { id: "in1", type: "public", value: recipientAddress }, // recipient
+                { id: "in2", type: "public", value: "500000u64" }, // amount
               ],
               outputs: [],
               program: "credits.aleo",
@@ -823,9 +911,9 @@ describe("network/utils", () => {
               tcm: "t",
               tpk: "tpk_private",
               inputs: [
-                { id: "in0", type: "private", value: "ciphertext_record" },
-                { id: "in1", type: "private", value: "ciphertext_recipient" }, // RECIPIENT_ARG_INDEX = 1
-                { id: "in2", type: "private", value: "ciphertext_amount" }, // AMOUNT_ARG_INDEX = 2
+                { id: "in0", type: "record", tag: "record_tag_0" }, // leading spent record
+                { id: "in1", type: "private", value: "ciphertext_recipient" }, // recipient index = 1
+                { id: "in2", type: "private", value: "ciphertext_amount" }, // amount index = 2
               ],
               outputs: [],
               program: "credits.aleo",
@@ -860,7 +948,7 @@ describe("network/utils", () => {
         viewKey: mockViewKey,
         programId: rawRecord.program_name,
         functionName: rawRecord.function_name,
-        outputIndex: RECIPIENT_ARG_INDEX,
+        outputIndex: 1,
       });
       expect(mockDecryptCiphertext).toHaveBeenCalledWith({
         config: mockConfig,
@@ -869,7 +957,7 @@ describe("network/utils", () => {
         viewKey: mockViewKey,
         programId: rawRecord.program_name,
         functionName: rawRecord.function_name,
-        outputIndex: AMOUNT_ARG_INDEX,
+        outputIndex: 2,
       });
     });
 
@@ -1059,55 +1147,13 @@ describe("network/utils", () => {
       expect(mockDecryptCiphertext).not.toHaveBeenCalled();
     });
 
-    it("should use token input layout (index 0 = recipient, 1 = amount) for outgoing PRIVATE_TO_PUBLIC token record", async () => {
-      const recipientAddress = "aleo1tokenrecipient123";
+    it("should decrypt with the batcher transition's program/function, not the owned record's", async () => {
+      const recipientAddress = "aleo1batcherrecipient789";
       const rawRecord = getMockedRecord({
-        function_name: EXPLORER_TRANSFER_TYPES.PRIVATE_TO_PUBLIC,
-        sender: mockEnrichAddress,
-        record_name: TOKEN_RECORD_NAME,
-        transition_index: 0,
-      });
-      mockGetTransactionById.mockResolvedValueOnce(
-        getMockedTransactionDetails(rawRecord.transaction_id, {
-          execution: {
-            transitions: [
-              {
-                id: "au1",
-                scm: "s",
-                tcm: "t",
-                tpk: "tpk1",
-                inputs: [
-                  { id: "in0", type: "public", value: recipientAddress }, // index 0 = recipient for token
-                  { id: "in1", type: "public", value: "500000u64" }, // index 1 = amount for token
-                ],
-                outputs: [],
-                program: "token_program.aleo",
-                function: "transfer_private_to_public",
-              },
-            ],
-          },
-        }),
-      );
-
-      const result = await enrichPrivateRecord({
-        config: mockConfig,
-        rawRecord,
-        address: mockEnrichAddress,
-        viewKey: mockViewKey,
-      });
-
-      expect(result).not.toBeNull();
-      expect(result?.recipient).toBe(recipientAddress);
-      expect(result?.value).toEqual(new BigNumber(500000));
-      expect(mockDecryptCiphertext).not.toHaveBeenCalled();
-    });
-
-    it("should decrypt ciphertexts from token input indices (0 and 1) for outgoing PRIVATE token record", async () => {
-      const recipientAddress = "aleo1tokenrecipient456";
-      const rawRecord = getMockedRecord({
+        // the record belongs to the inner token program, the transition to Ledger's batching wrapper
         function_name: EXPLORER_TRANSFER_TYPES.PRIVATE,
         sender: mockEnrichAddress,
-        program_name: "token_program.aleo",
+        program_name: "usdcx_stablecoin.aleo",
         record_name: TOKEN_RECORD_NAME,
         transition_index: 0,
       });
@@ -1118,14 +1164,17 @@ describe("network/utils", () => {
               id: "au1",
               scm: "s",
               tcm: "t",
-              tpk: "tpk_token",
+              tpk: "tpk_batcher",
               inputs: [
-                { id: "in0", type: "private", value: "ciphertext_recipient" }, // index 0 = recipient for token
-                { id: "in1", type: "private", value: "ciphertext_amount" }, // index 1 = amount for token
+                { id: "in0", type: "external_record" }, // consumed record #1, no tag
+                { id: "in1", type: "external_record" }, // consumed record #2, no tag
+                { id: "in2", type: "private", value: "ciphertext_recipient" }, // recipient index = 2
+                { id: "in3", type: "private", value: "ciphertext_amount" }, // amount index = 3
+                { id: "in4", type: "private", value: "ciphertext_exclusion_proof" },
               ],
               outputs: [],
-              program: "token_program.aleo",
-              function: "transfer_private",
+              program: "ldg_usdcx_p_28.aleo",
+              function: "transfer_private_2",
             },
           ],
         },
@@ -1133,7 +1182,8 @@ describe("network/utils", () => {
       mockGetTransactionById.mockResolvedValueOnce(mockDetails);
       mockDecryptCiphertext
         .mockResolvedValueOnce({ plaintext: recipientAddress })
-        .mockResolvedValueOnce({ plaintext: "800000u64" });
+        .mockResolvedValueOnce({ plaintext: "250000u64" })
+        .mockResolvedValueOnce({ plaintext: "exclusion_proof_plaintext" });
 
       const result = await enrichPrivateRecord({
         config: mockConfig,
@@ -1142,34 +1192,227 @@ describe("network/utils", () => {
         viewKey: mockViewKey,
       });
 
-      expect(result).not.toBeNull();
       expect(result?.recipient).toBe(recipientAddress);
-      expect(result?.value).toEqual(new BigNumber(800000));
-      expect(mockDecryptCiphertext).toHaveBeenCalledTimes(2);
+      expect(result?.value).toEqual(new BigNumber(250000));
       expect(mockDecryptCiphertext).toHaveBeenCalledWith({
         config: mockConfig,
         ciphertext: "ciphertext_recipient",
-        tpk: "tpk_token",
+        tpk: "tpk_batcher",
         viewKey: mockViewKey,
-        programId: "token_program.aleo",
-        functionName: EXPLORER_TRANSFER_TYPES.PRIVATE,
-        outputIndex: RECIPIENT_ARG_INDEX - 1,
+        programId: "ldg_usdcx_p_28.aleo",
+        functionName: "transfer_private_2",
+        outputIndex: 2,
       });
-      expect(mockDecryptCiphertext).toHaveBeenCalledWith({
-        config: mockConfig,
-        ciphertext: "ciphertext_amount",
-        tpk: "tpk_token",
-        viewKey: mockViewKey,
-        programId: "token_program.aleo",
-        functionName: EXPLORER_TRANSFER_TYPES.PRIVATE,
-        outputIndex: AMOUNT_ARG_INDEX - 1,
-      });
+      expect(mockDecryptCiphertext).toHaveBeenCalledWith(
+        expect.objectContaining({ ciphertext: "ciphertext_amount", outputIndex: 3 }),
+      );
     });
 
-    it("should return null when token record has no value field at input index 0", async () => {
+    it.each(["join", "split"])(
+      "should return null for a record-management transition (%s) without decrypting or logging",
+      async functionName => {
+        const rawRecord = getMockedRecord({
+          function_name: functionName,
+          sender: mockEnrichAddress,
+          program_name: "usdcx_stablecoin.aleo",
+          record_name: TOKEN_RECORD_NAME,
+          transition_index: 0,
+        });
+        mockGetTransactionById.mockResolvedValueOnce(
+          getMockedTransactionDetails(rawRecord.transaction_id, {
+            execution: {
+              transitions: [
+                {
+                  id: "au1",
+                  scm: "s",
+                  tcm: "t",
+                  tpk: "tpk1",
+                  inputs: [
+                    { id: "in0", type: "record", tag: "record_tag_0" },
+                    { id: "in1", type: "private", value: "ciphertext_split_amount" },
+                  ],
+                  outputs: [],
+                  program: "usdcx_stablecoin.aleo",
+                  function: functionName,
+                },
+              ],
+            },
+          }),
+        );
+
+        const result = await enrichPrivateRecord({
+          config: mockConfig,
+          rawRecord,
+          address: mockEnrichAddress,
+          viewKey: mockViewKey,
+        });
+
+        expect(result).toBeNull();
+        expect(mockDecryptCiphertext).not.toHaveBeenCalled();
+        expect(log).not.toHaveBeenCalled();
+      },
+    );
+
+    it("should decrypt private-argument transfer_private_to_public (ARC-20 private flavour)", async () => {
+      const recipientAddress = "aleo1arc20privflavour99";
+      const rawRecord = getMockedRecord({
+        function_name: EXPLORER_TRANSFER_TYPES.PRIVATE_TO_PUBLIC,
+        sender: mockEnrichAddress,
+        program_name: "btcx_8e1ed4.aleo",
+        record_name: TOKEN_RECORD_NAME,
+        transition_index: 0,
+      });
+      mockGetTransactionById.mockResolvedValueOnce(
+        getMockedTransactionDetails(rawRecord.transaction_id, {
+          execution: {
+            transitions: [
+              {
+                id: "au1",
+                scm: "s",
+                tcm: "t",
+                tpk: "tpk_arc20_priv",
+                inputs: [
+                  { id: "in0", type: "record", tag: "record_tag_0" },
+                  { id: "in1", type: "private", value: "ciphertext_recipient" },
+                  { id: "in2", type: "private", value: "ciphertext_amount" },
+                ],
+                outputs: [],
+                program: "btcx_8e1ed4.aleo",
+                function: "transfer_private_to_public",
+              },
+            ],
+          },
+        }),
+      );
+      mockDecryptCiphertext
+        .mockResolvedValueOnce({ plaintext: recipientAddress })
+        .mockResolvedValueOnce({ plaintext: "25000u128" });
+
+      const result = await enrichPrivateRecord({
+        config: mockConfig,
+        rawRecord,
+        address: mockEnrichAddress,
+        viewKey: mockViewKey,
+      });
+
+      expect(result?.recipient).toBe(recipientAddress);
+      expect(result?.value).toEqual(new BigNumber(25000));
+    });
+
+    it("should locate recipient/amount at indices 1/2 when the token record has one leading record input (direct ARC-20-style call)", async () => {
+      const recipientAddress = "aleo1arc20explicit123";
       const rawRecord = getMockedRecord({
         function_name: EXPLORER_TRANSFER_TYPES.PRIVATE,
         sender: mockEnrichAddress,
+        program_name: "arc20_token.aleo",
+        record_name: TOKEN_RECORD_NAME,
+        transition_index: 0,
+      });
+      const mockDetails = getMockedTransactionDetails(rawRecord.transaction_id, {
+        execution: {
+          transitions: [
+            {
+              id: "au1",
+              scm: "s",
+              tcm: "t",
+              tpk: "tpk_arc20",
+              inputs: [
+                { id: "in0", type: "record", tag: "record_tag_0" }, // leading spent record
+                { id: "in1", type: "private", value: "ciphertext_recipient" }, // recipient index = 1
+                { id: "in2", type: "private", value: "ciphertext_amount" }, // amount index = 2
+              ],
+              outputs: [],
+              program: "arc20_token.aleo",
+              function: "transfer_private",
+            },
+          ],
+        },
+      });
+      mockGetTransactionById.mockResolvedValueOnce(mockDetails);
+      mockDecryptCiphertext
+        .mockResolvedValueOnce({ plaintext: recipientAddress })
+        .mockResolvedValueOnce({ plaintext: "150000u64" });
+
+      const result = await enrichPrivateRecord({
+        config: mockConfig,
+        rawRecord,
+        address: mockEnrichAddress,
+        viewKey: mockViewKey,
+      });
+
+      expect(result?.recipient).toBe(recipientAddress);
+      expect(result?.value).toEqual(new BigNumber(150000));
+      expect(mockDecryptCiphertext).toHaveBeenCalledTimes(2);
+      expect(mockDecryptCiphertext).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ciphertext: "ciphertext_recipient",
+          outputIndex: 1,
+        }),
+      );
+      expect(mockDecryptCiphertext).toHaveBeenCalledWith(
+        expect.objectContaining({ ciphertext: "ciphertext_amount", outputIndex: 2 }),
+      );
+    });
+
+    it("should locate recipient/amount after N leading external_record inputs (Ledger multi-record batcher wrapper)", async () => {
+      const recipientAddress = "aleo1batcherrecipient789";
+      const rawRecord = getMockedRecord({
+        function_name: "transfer_private_2",
+        sender: mockEnrichAddress,
+        program_name: "ldg_usdcx_p_28.aleo",
+        record_name: TOKEN_RECORD_NAME,
+        transition_index: 0,
+      });
+      const mockDetails = getMockedTransactionDetails(rawRecord.transaction_id, {
+        execution: {
+          transitions: [
+            {
+              id: "au1",
+              scm: "s",
+              tcm: "t",
+              tpk: "tpk_batcher",
+              inputs: [
+                { id: "in0", type: "external_record" }, // consumed record #1, no tag
+                { id: "in1", type: "external_record" }, // consumed record #2, no tag
+                { id: "in2", type: "private", value: "ciphertext_recipient" }, // recipient index = 2
+                { id: "in3", type: "private", value: "ciphertext_amount" }, // amount index = 3
+                { id: "in4", type: "private", value: "ciphertext_exclusion_proof" },
+              ],
+              outputs: [],
+              program: "ldg_usdcx_p_28.aleo",
+              function: "transfer_private_2",
+            },
+          ],
+        },
+      });
+      mockGetTransactionById.mockResolvedValueOnce(mockDetails);
+      mockDecryptCiphertext
+        .mockResolvedValueOnce({ plaintext: recipientAddress })
+        .mockResolvedValueOnce({ plaintext: "250000u64" })
+        .mockRejectedValueOnce(new Error("cannot decrypt exclusion proof"));
+
+      const result = await enrichPrivateRecord({
+        config: mockConfig,
+        rawRecord,
+        address: mockEnrichAddress,
+        viewKey: mockViewKey,
+      });
+
+      expect(result?.recipient).toBe(recipientAddress);
+      expect(result?.value).toEqual(new BigNumber(250000));
+      expect(mockDecryptCiphertext).toHaveBeenCalledWith(
+        expect.objectContaining({ ciphertext: "ciphertext_recipient", outputIndex: 2 }),
+      );
+      expect(mockDecryptCiphertext).toHaveBeenCalledWith(
+        expect.objectContaining({ ciphertext: "ciphertext_amount", outputIndex: 3 }),
+      );
+    });
+
+    it("should return null for a pure record-consolidation transition (join) with no recipient/amount", async () => {
+      const rawRecord = getMockedRecord({
+        function_name: "join",
+        sender: mockEnrichAddress,
+        program_name: "usdcx_stablecoin.aleo",
         record_name: TOKEN_RECORD_NAME,
         transition_index: 0,
       });
@@ -1183,12 +1426,12 @@ describe("network/utils", () => {
                 tcm: "t",
                 tpk: "tpk1",
                 inputs: [
-                  { id: "in0", type: "record", tag: "record_tag_0" }, // index 0 = no value field (recipient for token)
-                  { id: "in1", type: "private", value: "ciphertext_amount" }, // index 1 = amount for token
+                  { id: "in0", type: "record", tag: "record_tag_0" },
+                  { id: "in1", type: "record", tag: "record_tag_1" },
                 ],
                 outputs: [],
-                program: "token_program.aleo",
-                function: "transfer_private",
+                program: "usdcx_stablecoin.aleo",
+                function: "join",
               },
             ],
           },
@@ -1205,8 +1448,422 @@ describe("network/utils", () => {
       expect(result).toBeNull();
       expect(mockDecryptCiphertext).not.toHaveBeenCalled();
     });
+
+    it("should return null without logging for a record-splitting transition (split)", async () => {
+      const rawRecord = getMockedRecord({
+        function_name: "split",
+        sender: mockEnrichAddress,
+        program_name: "usdcx_stablecoin.aleo",
+        record_name: TOKEN_RECORD_NAME,
+        transition_index: 0,
+      });
+      mockGetTransactionById.mockResolvedValueOnce(
+        getMockedTransactionDetails(rawRecord.transaction_id, {
+          execution: {
+            transitions: [
+              {
+                id: "au1",
+                scm: "s",
+                tcm: "t",
+                tpk: "tpk1",
+                inputs: [
+                  { id: "in0", type: "record", tag: "record_tag_0" },
+                  { id: "in1", type: "private", value: "ciphertext_split_amount" },
+                ],
+                outputs: [],
+                program: "usdcx_stablecoin.aleo",
+                function: "split",
+              },
+            ],
+          },
+        }),
+      );
+
+      const result = await enrichPrivateRecord({
+        config: mockConfig,
+        rawRecord,
+        address: mockEnrichAddress,
+        viewKey: mockViewKey,
+      });
+
+      expect(result).toBeNull();
+      expect(mockDecryptCiphertext).not.toHaveBeenCalled();
+      expect(log).not.toHaveBeenCalled();
+    });
+
+    it("should locate recipient/amount after a leading record_with_dynamic_id input (ARC-20 token)", async () => {
+      const recipientAddress = "aleo1arc20dynamicid456";
+      const rawRecord = getMockedRecord({
+        function_name: EXPLORER_TRANSFER_TYPES.PRIVATE,
+        sender: mockEnrichAddress,
+        program_name: "arc20_eth.aleo",
+        record_name: TOKEN_RECORD_NAME,
+        transition_index: 0,
+      });
+      mockGetTransactionById.mockResolvedValueOnce(
+        getMockedTransactionDetails(rawRecord.transaction_id, {
+          execution: {
+            transitions: [
+              {
+                id: "au1",
+                scm: "s",
+                tcm: "t",
+                tpk: "tpk_arc20_dynamic",
+                inputs: [
+                  {
+                    id: "in0",
+                    type: "record_with_dynamic_id",
+                    tag: "record_tag_0",
+                    dynamic_id: "dynamic_id_0",
+                  },
+                  { id: "in1", type: "private", value: "ciphertext_recipient" },
+                  { id: "in2", type: "private", value: "ciphertext_amount" },
+                ],
+                outputs: [],
+                program: "arc20_eth.aleo",
+                function: "transfer_private",
+              },
+            ],
+          },
+        }),
+      );
+      mockDecryptCiphertext
+        .mockResolvedValueOnce({ plaintext: recipientAddress })
+        .mockResolvedValueOnce({ plaintext: "200000000000u128" });
+
+      const result = await enrichPrivateRecord({
+        config: mockConfig,
+        rawRecord,
+        address: mockEnrichAddress,
+        viewKey: mockViewKey,
+      });
+
+      expect(result?.recipient).toBe(recipientAddress);
+      expect(result?.value).toEqual(new BigNumber("200000000000"));
+      expect(mockDecryptCiphertext).toHaveBeenCalledWith(
+        expect.objectContaining({ ciphertext: "ciphertext_recipient", outputIndex: 1 }),
+      );
+      expect(mockDecryptCiphertext).toHaveBeenCalledWith(
+        expect.objectContaining({ ciphertext: "ciphertext_amount", outputIndex: 2 }),
+      );
+    });
+
+    it("should read the ARC-21 token_registry.aleo transfer_private layout (recipient, amount, record)", async () => {
+      const recipientAddress = "aleo1registryrecipient321";
+      const rawRecord = getMockedRecord({
+        function_name: EXPLORER_TRANSFER_TYPES.PRIVATE,
+        sender: mockEnrichAddress,
+        program_name: PROGRAM_ID.TOKEN_REGISTRY,
+        record_name: TOKEN_RECORD_NAME,
+        transition_index: 0,
+      });
+      mockGetTransactionById.mockResolvedValueOnce(
+        getMockedTransactionDetails(rawRecord.transaction_id, {
+          execution: {
+            transitions: [
+              {
+                id: "au1",
+                scm: "s",
+                tcm: "t",
+                tpk: "tpk_registry",
+                inputs: [
+                  { id: "in0", type: "private", value: "ciphertext_recipient" },
+                  { id: "in1", type: "private", value: "ciphertext_amount" },
+                  { id: "in2", type: "record", tag: "record_tag_2" },
+                ],
+                outputs: [],
+                program: PROGRAM_ID.TOKEN_REGISTRY,
+                function: "transfer_private",
+              },
+            ],
+          },
+        }),
+      );
+      mockDecryptCiphertext
+        .mockResolvedValueOnce({ plaintext: recipientAddress })
+        .mockResolvedValueOnce({ plaintext: "4500u128" });
+
+      const result = await enrichPrivateRecord({
+        config: mockConfig,
+        rawRecord,
+        address: mockEnrichAddress,
+        viewKey: mockViewKey,
+      });
+
+      expect(result?.recipient).toBe(recipientAddress);
+      expect(result?.value).toEqual(new BigNumber(4500));
+      expect(mockDecryptCiphertext).toHaveBeenCalledTimes(2);
+    });
+
+    it("should read the mainnet ARC-20 transfer_private_to_public layout without any decryption", async () => {
+      // real mainnet arc20_eth.aleo transition, tx at14yqq5na8e4j5eftaptylx6qgggvux5tz20fz6wwt0e2g9vv63sxq3khswj
+      const recipientAddress = "aleo1wha60jq3fw6j3spcdm88798f8s6a5pn57xa0j3yrnl86tflevvxs7jt2y7";
+      const rawRecord = getMockedRecord({
+        function_name: EXPLORER_TRANSFER_TYPES.PRIVATE_TO_PUBLIC,
+        sender: mockEnrichAddress,
+        program_name: "arc20_eth.aleo",
+        record_name: TOKEN_RECORD_NAME,
+        transition_index: 0,
+      });
+      mockGetTransactionById.mockResolvedValueOnce(
+        getMockedTransactionDetails(rawRecord.transaction_id, {
+          execution: {
+            transitions: [
+              {
+                id: "au1",
+                scm: "s",
+                tcm: "t",
+                tpk: "tpk_arc20_mainnet",
+                inputs: [
+                  {
+                    id: "in0",
+                    type: "record_with_dynamic_id",
+                    tag: "record_tag_0",
+                    dynamic_id:
+                      "5187684512444170691509259038386389946045003282669141330013325607829823143029field",
+                  },
+                  { id: "in1", type: "public", value: recipientAddress },
+                  { id: "in2", type: "public", value: "489473792514000772u128" },
+                ],
+                outputs: [],
+                program: "arc20_eth.aleo",
+                function: "transfer_private_to_public",
+              },
+            ],
+          },
+        }),
+      );
+
+      const result = await enrichPrivateRecord({
+        config: mockConfig,
+        rawRecord,
+        address: mockEnrichAddress,
+        viewKey: mockViewKey,
+      });
+
+      expect(result?.recipient).toBe(recipientAddress);
+      expect(result?.value).toEqual(new BigNumber("489473792514000772"));
+      expect(mockDecryptCiphertext).not.toHaveBeenCalled();
+    });
+
+    it("should skip a leading token_id ciphertext before the recipient ciphertext", async () => {
+      const recipientAddress = "aleo1wrappedarc20recipient";
+      const rawRecord = getMockedRecord({
+        function_name: EXPLORER_TRANSFER_TYPES.PRIVATE,
+        sender: mockEnrichAddress,
+        program_name: "arc20_wrapper.aleo",
+        record_name: TOKEN_RECORD_NAME,
+        transition_index: 0,
+      });
+      mockGetTransactionById.mockResolvedValueOnce(
+        getMockedTransactionDetails(rawRecord.transaction_id, {
+          execution: {
+            transitions: [
+              {
+                id: "au1",
+                scm: "s",
+                tcm: "t",
+                tpk: "tpk_wrapper",
+                inputs: [
+                  { id: "in0", type: "private", value: "ciphertext_token_id" },
+                  { id: "in1", type: "record_dynamic" },
+                  { id: "in2", type: "private", value: "ciphertext_recipient" },
+                  { id: "in3", type: "private", value: "ciphertext_amount" },
+                ],
+                outputs: [],
+                program: "arc20_wrapper.aleo",
+                function: "transfer_private_1",
+              },
+            ],
+          },
+        }),
+      );
+      mockDecryptCiphertext
+        .mockResolvedValueOnce({ plaintext: "1751493913335802797273486270field" })
+        .mockResolvedValueOnce({ plaintext: recipientAddress })
+        .mockResolvedValueOnce({ plaintext: "900u128" });
+
+      const result = await enrichPrivateRecord({
+        config: mockConfig,
+        rawRecord,
+        address: mockEnrichAddress,
+        viewKey: mockViewKey,
+      });
+
+      expect(result?.recipient).toBe(recipientAddress);
+      expect(result?.value).toEqual(new BigNumber(900));
+      expect(mockDecryptCiphertext).toHaveBeenCalledTimes(3);
+      expect(mockDecryptCiphertext).toHaveBeenCalledWith(
+        expect.objectContaining({ ciphertext: "ciphertext_recipient", outputIndex: 2 }),
+      );
+      expect(mockDecryptCiphertext).toHaveBeenCalledWith(
+        expect.objectContaining({ ciphertext: "ciphertext_amount", outputIndex: 3 }),
+      );
+    });
+
+    it("should ignore the trailing merkle proof argument (real ARC-22 layout)", async () => {
+      const recipientAddress = "aleo1arc22recipient777";
+      const rawRecord = getMockedRecord({
+        function_name: EXPLORER_TRANSFER_TYPES.PRIVATE,
+        sender: mockEnrichAddress,
+        program_name: "test_usad_stablecoin.aleo",
+        record_name: TOKEN_RECORD_NAME,
+        transition_index: 0,
+      });
+      mockGetTransactionById.mockResolvedValueOnce(
+        getMockedTransactionDetails(rawRecord.transaction_id, {
+          execution: {
+            transitions: [
+              {
+                id: "au1",
+                scm: "s",
+                tcm: "t",
+                tpk: "tpk_arc22",
+                inputs: [
+                  { id: "in0", type: "private", value: "ciphertext_recipient" },
+                  { id: "in1", type: "private", value: "ciphertext_amount" },
+                  { id: "in2", type: "record", tag: "record_tag_2" },
+                  { id: "in3", type: "private", value: "ciphertext_merkle_proof" },
+                ],
+                outputs: [],
+                program: "test_usad_stablecoin.aleo",
+                function: "transfer_private",
+              },
+            ],
+          },
+        }),
+      );
+      mockDecryptCiphertext
+        .mockResolvedValueOnce({ plaintext: recipientAddress })
+        .mockResolvedValueOnce({ plaintext: "1u128" })
+        .mockResolvedValueOnce({ plaintext: "{ siblings: [ 123field, 456field ] }" });
+
+      const result = await enrichPrivateRecord({
+        config: mockConfig,
+        rawRecord,
+        address: mockEnrichAddress,
+        viewKey: mockViewKey,
+      });
+
+      expect(result?.recipient).toBe(recipientAddress);
+      expect(result?.value).toEqual(new BigNumber(1));
+      expect(mockDecryptCiphertext).toHaveBeenCalledTimes(3);
+    });
+
+    it("should decrypt private-argument transfer_private_to_public (ARC-20 private flavour)", async () => {
+      const recipientAddress = "aleo1arc20privflavour99";
+      const rawRecord = getMockedRecord({
+        function_name: EXPLORER_TRANSFER_TYPES.PRIVATE_TO_PUBLIC,
+        sender: mockEnrichAddress,
+        program_name: "btcx_8e1ed4.aleo",
+        record_name: TOKEN_RECORD_NAME,
+        transition_index: 0,
+      });
+      mockGetTransactionById.mockResolvedValueOnce(
+        getMockedTransactionDetails(rawRecord.transaction_id, {
+          execution: {
+            transitions: [
+              {
+                id: "au1",
+                scm: "s",
+                tcm: "t",
+                tpk: "tpk_arc20_priv",
+                inputs: [
+                  { id: "in0", type: "record", tag: "record_tag_0" },
+                  { id: "in1", type: "private", value: "ciphertext_recipient" },
+                  { id: "in2", type: "private", value: "ciphertext_amount" },
+                ],
+                outputs: [],
+                program: "btcx_8e1ed4.aleo",
+                function: "transfer_private_to_public",
+              },
+            ],
+          },
+        }),
+      );
+      mockDecryptCiphertext
+        .mockResolvedValueOnce({ plaintext: recipientAddress })
+        .mockResolvedValueOnce({ plaintext: "25000u128" });
+
+      const result = await enrichPrivateRecord({
+        config: mockConfig,
+        rawRecord,
+        address: mockEnrichAddress,
+        viewKey: mockViewKey,
+      });
+
+      expect(result?.recipient).toBe(recipientAddress);
+      expect(result?.value).toEqual(new BigNumber(25000));
+    });
   });
 
+  describe("enrichPrivateRecords", () => {
+    const mockViewKey = "AViewKey1testviewkey";
+    // fee_private records short-circuit before any backend call, keeping these tests network-free
+    const feeRecords = (count: number) =>
+      Array.from({ length: count }, (_, index) =>
+        getMockedRecord({
+          function_name: EXPLORER_TRANSFER_TYPES.FEE_PRIVATE,
+          transaction_id: `tx${index}`,
+        }),
+      );
+
+    it("should return one entry per record, in order", async () => {
+      const records = feeRecords(3);
+
+      const result = await enrichPrivateRecords({
+        config: mockConfig,
+        viewKey: mockViewKey,
+        address: mockAddress,
+        records,
+      });
+
+      expect(result).toEqual([null, null, null]);
+    });
+
+    it("should return an empty array for no records", async () => {
+      const result = await enrichPrivateRecords({
+        config: mockConfig,
+        viewKey: mockViewKey,
+        address: mockAddress,
+        records: [],
+      });
+
+      expect(result).toEqual([]);
+    });
+
+    it("should report progress once per record with a stable total", async () => {
+      const onProgress = jest.fn();
+
+      await enrichPrivateRecords({
+        config: mockConfig,
+        viewKey: mockViewKey,
+        address: mockAddress,
+        records: feeRecords(2),
+        onProgress,
+      });
+
+      expect(onProgress.mock.calls).toEqual([
+        [1, 2],
+        [2, 2],
+      ]);
+    });
+
+    it("should throw AbortError when the signal is already aborted", async () => {
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(
+        enrichPrivateRecords({
+          config: mockConfig,
+          viewKey: mockViewKey,
+          address: mockAddress,
+          records: feeRecords(1),
+          signal: controller.signal,
+        }),
+      ).rejects.toMatchObject({ name: "AbortError" });
+    });
+  });
   describe("patchPublicOperations", () => {
     const patchAddress = "aleo1patchowner123";
     const ledgerAccountId = "js:2:aleo:aleo1patchowner123::AViewKey123";
@@ -1324,6 +1981,64 @@ describe("network/utils", () => {
       );
     });
 
+    it("should skip the leading token_id when decrypting a token_registry.aleo recipient", async () => {
+      // real mainnet token_registry.aleo transition, tx at1zlma4d7xdhaxnrv2hhnc6arpp959sj29y66vvhcsk50mrfsrm5gqmmpt2z
+      const txHash = "at1zlma4d7xdhaxnrv2hhnc6arpp959sj29y66vvhcsk50mrfsrm5gqmmpt2z";
+      const tokenId =
+        "6088188135219746443092391282916151282477828391085949070550825603498725268775field";
+      const publicOp = getMockedOperation({
+        hash: txHash,
+        type: "OUT",
+        extra: {
+          functionId: "transfer_public_to_private",
+          transactionType: "public",
+          programId: PROGRAM_ID.TOKEN_REGISTRY,
+        },
+      });
+      mockGetTransactionById.mockResolvedValueOnce(
+        getMockedTransactionDetails(txHash, {
+          block_height: 21152368,
+          execution: {
+            transitions: [
+              {
+                id: "au1",
+                scm: "s",
+                tcm: "t",
+                tpk: "tpk_registry_mainnet",
+                inputs: [
+                  { id: "in0", type: "public", value: tokenId },
+                  { id: "in1", type: "private", value: "ciphertext_recipient" },
+                  { id: "in2", type: "public", value: "730000u128" },
+                  { id: "in3", type: "public", value: "false" },
+                ],
+                outputs: [],
+                program: PROGRAM_ID.TOKEN_REGISTRY,
+                function: "transfer_public_to_private",
+              },
+            ],
+          },
+        }),
+      );
+      mockDecryptCiphertext.mockResolvedValueOnce({ plaintext: "aleo1registrytokenrecipient" });
+
+      const result = await patchPublicOperations({
+        config: mockConfig,
+        publicOperations: [publicOp],
+        privateRecords: [],
+        address: patchAddress,
+        ledgerAccountId,
+        viewKey: patchViewKey,
+      });
+
+      expect(result).toEqual([
+        expect.objectContaining({ recipients: ["aleo1registrytokenrecipient"] }),
+      ]);
+      expect(mockDecryptCiphertext).toHaveBeenCalledTimes(1);
+      expect(mockDecryptCiphertext).toHaveBeenCalledWith(
+        expect.objectContaining({ ciphertext: "ciphertext_recipient", outputIndex: 1 }),
+      );
+    });
+
     it("should give cloned operation a date 1ms after the original", async () => {
       const txHash = "at1clone_date";
       const opDate = new Date("2024-05-01T12:00:00.000Z");
@@ -1373,7 +2088,10 @@ describe("network/utils", () => {
               scm: "s",
               tcm: "t",
               tpk: "tpk_fee",
-              inputs: [{ id: "in0", type: "public", value: "cipher_recipient" }],
+              inputs: [
+                { id: "in0", type: "private", value: "cipher_recipient" },
+                { id: "in1", type: "public", value: "40000u64" },
+              ],
               outputs: [],
               program: "credits.aleo",
               function: "transfer_public_to_private",
@@ -1419,7 +2137,10 @@ describe("network/utils", () => {
               scm: "s",
               tcm: "t",
               tpk: "tpk1",
-              inputs: [{ id: "in0", type: "public", value: "cipher_addr" }],
+              inputs: [
+                { id: "in0", type: "private", value: "cipher_addr" },
+                { id: "in1", type: "public", value: "40000u64" },
+              ],
               outputs: [],
               program: "credits.aleo",
               function: "transfer_public_to_private",
@@ -1477,7 +2198,10 @@ describe("network/utils", () => {
               scm: "s",
               tcm: "t",
               tpk: "tpk1",
-              inputs: [{ id: "in0", type: "public", value: "cipher_addr" }],
+              inputs: [
+                { id: "in0", type: "private", value: "cipher_addr" },
+                { id: "in1", type: "public", value: "40000u64" },
+              ],
               outputs: [],
               program: "credits.aleo",
               function: "transfer_public_to_private",
@@ -1635,7 +2359,10 @@ describe("network/utils", () => {
               scm: "s",
               tcm: "t",
               tpk: "tpk1",
-              inputs: [{ id: "in0", type: "public", value: "cipher_addr" }],
+              inputs: [
+                { id: "in0", type: "private", value: "cipher_addr" },
+                { id: "in1", type: "public", value: "40000u64" },
+              ],
               outputs: [],
               program: "credits.aleo",
               function: "transfer_public_to_private",
@@ -1721,6 +2448,121 @@ describe("network/utils", () => {
     });
   });
 
+  describe("fetchTransitionPage", () => {
+    const mockGetAccountPublicTransactions = jest.mocked(apiClient.getAccountPublicTransactions);
+
+    const row = (blockNumber: number, transitionId: string) =>
+      getMockedPublicTransaction({ block_number: blockNumber, transition_id: transitionId });
+
+    it("should defer the block the page stops inside and resume from an exact row", async () => {
+      // Mirrors mainnet block 20413950: 4 transitions of one transaction, page cut after the 2nd.
+      mockGetAccountPublicTransactions.mockResolvedValueOnce({
+        address: mockAddress,
+        transactions: [row(100, "au1a"), row(101, "au1b"), row(101, "au1c")],
+        next_cursor: { block_number: 101, transition_id: "au1c" },
+      });
+
+      const result = await fetchTransitionPage({
+        config: mockConfig,
+        address: mockAddress,
+        limit: 3,
+      });
+
+      expect(result.transitions.map(tx => tx.transition_id)).toEqual(["au1a"]);
+      expect(result.next).toEqual({ blockNumber: 100, transitionId: "au1a" });
+    });
+
+    it("should keep paging when the whole page sits in one block", async () => {
+      mockGetAccountPublicTransactions
+        .mockResolvedValueOnce({
+          address: mockAddress,
+          transactions: [row(100, "au1a"), row(100, "au1b")],
+          next_cursor: { block_number: 100, transition_id: "au1b" },
+        })
+        .mockResolvedValueOnce({
+          address: mockAddress,
+          transactions: [row(100, "au1c"), row(102, "au1d")],
+          next_cursor: { block_number: 102, transition_id: "au1d" },
+        });
+
+      const result = await fetchTransitionPage({
+        config: mockConfig,
+        address: mockAddress,
+        limit: 2,
+      });
+
+      expect(mockGetAccountPublicTransactions).toHaveBeenCalledTimes(2);
+      // block 100 is now whole, block 102 is the new open block
+      expect(result.transitions.map(tx => tx.transition_id)).toEqual(["au1a", "au1b", "au1c"]);
+      expect(result.next).toEqual({ blockNumber: 100, transitionId: "au1c" });
+    });
+
+    it("should resume the second page from the transition id, not the block alone", async () => {
+      mockGetAccountPublicTransactions.mockResolvedValueOnce({
+        address: mockAddress,
+        transactions: [row(101, "au1c")],
+      });
+
+      await fetchTransitionPage({
+        config: mockConfig,
+        address: mockAddress,
+        cursor: { blockNumber: 100, transitionId: "au1a" },
+      });
+
+      expect(mockGetAccountPublicTransactions).toHaveBeenCalledTimes(1);
+      expect(mockGetAccountPublicTransactions).toHaveBeenCalledWith({
+        config: mockConfig,
+        address: mockAddress,
+        order: "asc",
+        cursor: { blockNumber: 100, transitionId: "au1a" },
+      });
+    });
+
+    it("should return next null once the stream is exhausted", async () => {
+      mockGetAccountPublicTransactions.mockResolvedValueOnce({
+        address: mockAddress,
+        transactions: [row(100, "au1a"), row(100, "au1b")],
+      });
+
+      const result = await fetchTransitionPage({ config: mockConfig, address: mockAddress });
+
+      expect(result.transitions).toHaveLength(2);
+      expect(result.next).toBeNull();
+    });
+
+    it("should treat an empty page as exhausted", async () => {
+      mockGetAccountPublicTransactions.mockResolvedValueOnce({
+        address: mockAddress,
+        transactions: [],
+        next_cursor: { block_number: 100, transition_id: "au1a" },
+      });
+
+      const result = await fetchTransitionPage({ config: mockConfig, address: mockAddress });
+
+      expect(result).toEqual({ transitions: [], next: null });
+    });
+
+    it("should drop batcher outer call transitions", async () => {
+      mockGetAccountPublicTransactions.mockResolvedValueOnce({
+        address: mockAddress,
+        transactions: [
+          getMockedPublicTransaction({
+            block_number: 100,
+            transition_id: "au1inner",
+            function_id: "transfer_private_to_public",
+            sender_address: "",
+            recipient_address: "",
+          }),
+          row(100, "au1real"),
+        ],
+      });
+
+      const result = await fetchTransitionPage({ config: mockConfig, address: mockAddress });
+
+      expect(result.transitions.map(tx => tx.transition_id)).toEqual(["au1real"]);
+    });
+  });
+
   describe("fetchAllOwnedRecords", () => {
     const mockUUID = "uuid-abc-def";
     const mockGetAccountOwnedRecords = jest.mocked(apiClient.getAccountOwnedRecords);
@@ -1795,6 +2637,31 @@ describe("network/utils", () => {
         ],
       });
       expect(result).toEqual([...page0, ...page1]);
+    });
+
+    it("should forward the block-height bounds on every page", async () => {
+      const pageSize = 1;
+      mockGetAccountOwnedRecords
+        .mockResolvedValueOnce([getMockedRecord({ tag: "t0" })])
+        .mockResolvedValueOnce([]);
+
+      await fetchAllOwnedRecords({
+        config: mockConfig,
+        uuid: mockUUID,
+        start: 100,
+        end: 200,
+        resultsPerPage: pageSize,
+      });
+
+      expect(mockGetAccountOwnedRecords).toHaveBeenCalledTimes(2);
+      expect(mockGetAccountOwnedRecords).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ start: 100, end: 200, page: 0 }),
+      );
+      expect(mockGetAccountOwnedRecords).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ start: 100, end: 200, page: 1 }),
+      );
     });
 
     it("should stop immediately when the first page is empty", async () => {
@@ -1969,6 +2836,177 @@ describe("network/utils", () => {
     });
   });
 
+  describe("fetchAllTokens", () => {
+    const mockGetTokens = jest.mocked(apiClient.getTokens);
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it("should return every token when they fit in a single page", async () => {
+      const tokenA = getMockedTokenDetails({ program_name: "token_a.aleo" });
+      const tokenB = getMockedTokenDetails({ program_name: "token_b.aleo" });
+      mockGetTokens.mockResolvedValueOnce(
+        getMockedGetTokensResponse({
+          data: [tokenA, tokenB],
+          pagination: {
+            limit: 100,
+            offset: 0,
+            total_count: 2,
+            has_next: false,
+            has_previous: false,
+          },
+        }),
+      );
+
+      const result = await fetchAllTokens({ config: mockConfig });
+
+      expect(mockGetTokens).toHaveBeenCalledTimes(1);
+      expect(mockGetTokens).toHaveBeenCalledWith({
+        config: mockConfig,
+        options: { limit: DEFAULT_TOKENS_PAGE_SIZE, offset: 0 },
+      });
+      expect(result).toEqual([tokenA, tokenB]);
+    });
+
+    it("should paginate using offset until has_next is false", async () => {
+      const pageSize = 2;
+      const tokenA = getMockedTokenDetails({ program_name: "token_a.aleo" });
+      const tokenB = getMockedTokenDetails({ program_name: "token_b.aleo" });
+      const tokenC = getMockedTokenDetails({ program_name: "token_c.aleo" });
+      mockGetTokens
+        .mockResolvedValueOnce(
+          getMockedGetTokensResponse({
+            data: [tokenA, tokenB],
+            pagination: {
+              limit: pageSize,
+              offset: 0,
+              total_count: 3,
+              has_next: true,
+              has_previous: false,
+            },
+          }),
+        )
+        .mockResolvedValueOnce(
+          getMockedGetTokensResponse({
+            data: [tokenC],
+            pagination: {
+              limit: pageSize,
+              offset: pageSize,
+              total_count: 3,
+              has_next: false,
+              has_previous: true,
+            },
+          }),
+        );
+
+      const result = await fetchAllTokens({ config: mockConfig, resultsPerPage: pageSize });
+
+      expect(mockGetTokens).toHaveBeenCalledTimes(2);
+      expect(mockGetTokens).toHaveBeenNthCalledWith(1, {
+        config: mockConfig,
+        options: { limit: pageSize, offset: 0 },
+      });
+      expect(mockGetTokens).toHaveBeenNthCalledWith(2, {
+        config: mockConfig,
+        options: { limit: pageSize, offset: pageSize },
+      });
+      expect(result).toEqual([tokenA, tokenB, tokenC]);
+    });
+
+    it("should return an empty array when the registry has no tokens", async () => {
+      mockGetTokens.mockResolvedValueOnce(getMockedGetTokensResponse({ data: [] }));
+
+      const result = await fetchAllTokens({ config: mockConfig });
+
+      expect(result).toEqual([]);
+    });
+
+    it("should propagate errors thrown by the underlying API call", async () => {
+      mockGetTokens.mockRejectedValueOnce(new Error("Tokens endpoint unavailable"));
+
+      await expect(fetchAllTokens({ config: mockConfig })).rejects.toThrow(
+        "Tokens endpoint unavailable",
+      );
+    });
+  });
+
+  describe("sumUnspentRecords", () => {
+    const mockViewKey = "AViewKey1sumtest";
+
+    it("returns zero without calling decryptRecord when there are no records", async () => {
+      const result = await sumUnspentRecords({
+        config: mockConfig,
+        viewKey: mockViewKey,
+        records: [],
+      });
+
+      expect(result.toFixed(0)).toBe("0");
+      expect(mockDecryptRecord).not.toHaveBeenCalled();
+    });
+
+    it("sums the decrypted amount of every unspent record", async () => {
+      const records = [
+        getMockedRecord({ commitment: "a", record_ciphertext: "cipher-a" }),
+        getMockedRecord({ commitment: "b", record_ciphertext: "cipher-b" }),
+      ];
+      mockDecryptRecord
+        .mockResolvedValueOnce(
+          getMockedDecryptedRecord({ data: { microcredits: "100u64.private" } }),
+        )
+        .mockResolvedValueOnce(
+          getMockedDecryptedRecord({ data: { microcredits: "250u64.private" } }),
+        );
+
+      const result = await sumUnspentRecords({
+        config: mockConfig,
+        viewKey: mockViewKey,
+        records,
+      });
+
+      expect(result.toFixed(0)).toBe("350");
+    });
+
+    it("excludes records scanned past maxBlockHeight", async () => {
+      const records = [
+        getMockedRecord({ commitment: "eligible", block_height: 100 }),
+        getMockedRecord({ commitment: "over-height", block_height: 101 }),
+      ];
+      mockDecryptRecord.mockResolvedValue(
+        getMockedDecryptedRecord({ data: { microcredits: "100u64.private" } }),
+      );
+
+      const result = await sumUnspentRecords({
+        config: mockConfig,
+        viewKey: mockViewKey,
+        records,
+        maxBlockHeight: 100,
+      });
+
+      expect(result.toFixed(0)).toBe("100");
+      expect(mockDecryptRecord).toHaveBeenCalledTimes(1);
+    });
+
+    it("sums every record when maxBlockHeight is omitted", async () => {
+      const records = [
+        getMockedRecord({ commitment: "a", block_height: 100 }),
+        getMockedRecord({ commitment: "b", block_height: 1_000_000 }),
+      ];
+      mockDecryptRecord.mockResolvedValue(
+        getMockedDecryptedRecord({ data: { microcredits: "50u64.private" } }),
+      );
+
+      const result = await sumUnspentRecords({
+        config: mockConfig,
+        viewKey: mockViewKey,
+        records,
+      });
+
+      expect(result.toFixed(0)).toBe("100");
+      expect(mockDecryptRecord).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe("getTokenOutDetails", () => {
     const mockViewKey = "AViewKey1testviewkey";
 
@@ -2018,9 +3056,10 @@ describe("network/utils", () => {
                 tcm: "t",
                 tpk: "tpk1",
                 inputs: [
-                  { id: "in0", type: "public", value: "record_cipher" },
+                  { id: "in0", type: "public", value: recipientAddress },
                   { id: "in1", type: "public", value: "750000u128.public" },
-                  { id: "in2", type: "public", value: recipientAddress },
+                  { id: "in2", type: "record", tag: "record_tag_2" },
+                  { id: "in3", type: "private", value: "ciphertext_merkle_proof" },
                 ],
                 outputs: [],
                 program: "token_program.aleo",
@@ -2045,73 +3084,7 @@ describe("network/utils", () => {
       expect(mockDecryptCiphertext).not.toHaveBeenCalled();
     });
 
-    it("should decrypt recipient and amount for fully private transfers", async () => {
-      const recipientAddress = "aleo1privaterecipient789";
-      const record = getMockedRecord({
-        function_name: EXPLORER_TRANSFER_TYPES.PRIVATE,
-        transaction_id: "tx_private",
-        transition_index: 0,
-        program_name: "token_program.aleo",
-      });
-      mockGetTransactionById.mockResolvedValueOnce(
-        getMockedTransactionDetails(record.transaction_id, {
-          fee_value: 9000,
-          execution: {
-            transitions: [
-              {
-                id: "au1",
-                scm: "s",
-                tcm: "t",
-                tpk: "tpk_private",
-                inputs: [
-                  { id: "in1", type: "private", value: "ciphertext_recipient" },
-                  { id: "in2", type: "private", value: "ciphertext_amount" },
-                ],
-                outputs: [],
-                program: record.program_name,
-                function: "transfer_private",
-              },
-            ],
-          },
-        }),
-      );
-      mockDecryptCiphertext
-        .mockResolvedValueOnce({ plaintext: recipientAddress })
-        .mockResolvedValueOnce({ plaintext: "300000u64" });
-
-      const result = await getTokenOutDetails({
-        config: mockConfig,
-        record,
-        viewKey: mockViewKey,
-      });
-
-      expect(result).toEqual({
-        amount: new BigNumber(300000),
-        recipient: recipientAddress,
-        fee: new BigNumber(9000),
-      });
-      expect(mockDecryptCiphertext).toHaveBeenCalledTimes(2);
-      expect(mockDecryptCiphertext).toHaveBeenCalledWith({
-        config: mockConfig,
-        ciphertext: "ciphertext_recipient",
-        tpk: "tpk_private",
-        viewKey: mockViewKey,
-        programId: record.program_name,
-        functionName: EXPLORER_TRANSFER_TYPES.PRIVATE,
-        outputIndex: RECIPIENT_ARG_INDEX - 1,
-      });
-      expect(mockDecryptCiphertext).toHaveBeenCalledWith({
-        config: mockConfig,
-        ciphertext: "ciphertext_amount",
-        tpk: "tpk_private",
-        viewKey: mockViewKey,
-        programId: record.program_name,
-        functionName: EXPLORER_TRANSFER_TYPES.PRIVATE,
-        outputIndex: AMOUNT_ARG_INDEX - 1,
-      });
-    });
-
-    it("should return null amount when private transfer has too few inputs", async () => {
+    it("should return null fields when no amount-shaped argument follows the recipient", async () => {
       const recipientAddress = "aleo1plaintextrecipient";
       const record = getMockedRecord({
         function_name: EXPLORER_TRANSFER_TYPES.PRIVATE,
@@ -2146,13 +3119,109 @@ describe("network/utils", () => {
 
       expect(result).toEqual({
         amount: null,
-        recipient: recipientAddress,
+        recipient: null,
         fee: new BigNumber(1000),
       });
       expect(mockDecryptCiphertext).not.toHaveBeenCalled();
     });
 
-    it("should return null fields when decryption fails", async () => {
+    it("should decrypt private arguments and return the sent amount, recipient and fee", async () => {
+      const recipientAddress = "aleo1privaterecipient789";
+      const record = getMockedRecord({
+        function_name: EXPLORER_TRANSFER_TYPES.PRIVATE,
+        transaction_id: "tx_private",
+        transition_index: 0,
+        program_name: "arc20_token.aleo",
+      });
+      mockGetTransactionById.mockResolvedValueOnce(
+        getMockedTransactionDetails(record.transaction_id, {
+          fee_value: 9000,
+          execution: {
+            transitions: [
+              {
+                id: "au1",
+                scm: "s",
+                tcm: "t",
+                tpk: "tpk_private",
+                inputs: [
+                  { id: "in0", type: "record", tag: "record_tag_0" },
+                  { id: "in1", type: "private", value: "ciphertext_recipient" },
+                  { id: "in2", type: "private", value: "ciphertext_amount" },
+                ],
+                outputs: [],
+                program: record.program_name,
+                function: EXPLORER_TRANSFER_TYPES.PRIVATE,
+              },
+            ],
+          },
+        }),
+      );
+      mockDecryptCiphertext
+        .mockResolvedValueOnce({ plaintext: recipientAddress })
+        .mockResolvedValueOnce({ plaintext: "300000u128" });
+
+      const result = await getTokenOutDetails({
+        config: mockConfig,
+        record,
+        viewKey: mockViewKey,
+      });
+
+      expect(result).toEqual({
+        amount: new BigNumber(300000),
+        recipient: recipientAddress,
+        fee: new BigNumber(9000),
+      });
+    });
+
+    it("should tolerate a decryption failure on an argument it did not need", async () => {
+      const recipientAddress = "aleo1proofrecipient";
+      const record = getMockedRecord({
+        function_name: EXPLORER_TRANSFER_TYPES.PRIVATE,
+        transaction_id: "tx_trailing_proof",
+        transition_index: 0,
+      });
+      mockGetTransactionById.mockResolvedValueOnce(
+        getMockedTransactionDetails("tx_trailing_proof", {
+          fee_value: 3000,
+          execution: {
+            transitions: [
+              {
+                id: "au1",
+                scm: "s",
+                tcm: "t",
+                tpk: "tpk1",
+                inputs: [
+                  { id: "in0", type: "private", value: "cipher_recipient" },
+                  { id: "in1", type: "private", value: "cipher_amount" },
+                  { id: "in2", type: "private", value: "cipher_merkle_proof" },
+                ],
+                outputs: [],
+                program: "usdcx_stablecoin.aleo",
+                function: EXPLORER_TRANSFER_TYPES.PRIVATE,
+              },
+            ],
+          },
+        }),
+      );
+      mockDecryptCiphertext
+        .mockResolvedValueOnce({ plaintext: recipientAddress })
+        .mockResolvedValueOnce({ plaintext: "4200u64" })
+        .mockRejectedValueOnce(new Error("decrypt failed"));
+
+      const result = await getTokenOutDetails({
+        config: mockConfig,
+        record,
+        viewKey: mockViewKey,
+      });
+
+      expect(result).toEqual({
+        amount: new BigNumber(4200),
+        recipient: recipientAddress,
+        fee: new BigNumber(3000),
+      });
+    });
+
+    it("should propagate a decryption failure instead of reporting a zero-amount transfer", async () => {
       const record = getMockedRecord({
         function_name: EXPLORER_TRANSFER_TYPES.PRIVATE,
         transaction_id: "tx_decrypt_fail",
@@ -2169,7 +3238,7 @@ describe("network/utils", () => {
                 tcm: "t",
                 tpk: "tpk1",
                 inputs: [
-                  { id: "in0", type: "private", value: "cipher_record" },
+                  { id: "in0", type: "record", tag: "record_tag_0" },
                   { id: "in1", type: "private", value: "cipher_recipient" },
                   { id: "in2", type: "private", value: "cipher_amount" },
                 ],
@@ -2183,17 +3252,9 @@ describe("network/utils", () => {
       );
       mockDecryptCiphertext.mockRejectedValue(new Error("decrypt failed"));
 
-      const result = await getTokenOutDetails({
-        config: mockConfig,
-        record,
-        viewKey: mockViewKey,
-      });
-
-      expect(result).toEqual({
-        amount: null,
-        recipient: null,
-        fee: new BigNumber(2000),
-      });
+      await expect(
+        getTokenOutDetails({ config: mockConfig, record, viewKey: mockViewKey }),
+      ).rejects.toThrow("decrypt failed");
     });
 
     it("should trim transaction_id whitespace before fetching details", async () => {
@@ -2232,5 +3293,306 @@ describe("network/utils", () => {
 
       expect(mockGetTransactionById).toHaveBeenCalledWith(mockConfig, "tx_with_spaces");
     });
+
+    it("should decrypt recipient and amount at indices 1/2 when there is one leading record input", async () => {
+      const recipientAddress = "aleo1arc20outrecipient";
+      const record = getMockedRecord({
+        function_name: EXPLORER_TRANSFER_TYPES.PRIVATE,
+        transaction_id: "tx_arc20_out",
+        transition_index: 0,
+        program_name: "arc20_token.aleo",
+      });
+      mockGetTransactionById.mockResolvedValueOnce(
+        getMockedTransactionDetails(record.transaction_id, {
+          fee_value: 7000,
+          execution: {
+            transitions: [
+              {
+                id: "au1",
+                scm: "s",
+                tcm: "t",
+                tpk: "tpk_arc20",
+                inputs: [
+                  { id: "in0", type: "record", tag: "record_tag_0" },
+                  { id: "in1", type: "private", value: "ciphertext_recipient" },
+                  { id: "in2", type: "private", value: "ciphertext_amount" },
+                ],
+                outputs: [],
+                program: record.program_name,
+                function: "transfer_private",
+              },
+            ],
+          },
+        }),
+      );
+      mockDecryptCiphertext
+        .mockResolvedValueOnce({ plaintext: recipientAddress })
+        .mockResolvedValueOnce({ plaintext: "600000u64" });
+
+      const result = await getTokenOutDetails({
+        config: mockConfig,
+        record,
+        viewKey: mockViewKey,
+      });
+
+      expect(result).toEqual({
+        amount: new BigNumber(600000),
+        recipient: recipientAddress,
+        fee: new BigNumber(7000),
+      });
+      expect(mockDecryptCiphertext).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ciphertext: "ciphertext_recipient",
+          outputIndex: 1,
+        }),
+      );
+      expect(mockDecryptCiphertext).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ciphertext: "ciphertext_amount",
+          outputIndex: 2,
+        }),
+      );
+    });
+  });
+});
+
+describe("getStakingPosition", () => {
+  const config = getMockedConfig("mainnet");
+  const ADDRESS = "aleo1d37xxnms3sq5qxcnnh3dtvzr35xemjzas4jcytjr8uvymfetnu9salav5n";
+  const BONDED_RAW = `{\n  validator: ${ADDRESS},\n  microcredits: 39339243096u64\n}`;
+  const WITHDRAW_RAW = "aleo1g5wrxvgyvckgtuceg36eg6pf024x3p6nex05lcefz0h6576rmgrs22dr4w";
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.mocked(apiClient.getBondedMapping).mockResolvedValue(null);
+    jest.mocked(apiClient.getUnbondingMapping).mockResolvedValue(null);
+    jest.mocked(apiClient.getWithdrawMapping).mockResolvedValue(null);
+  });
+
+  it("reads all three mappings for the address", async () => {
+    await getStakingPosition(config, ADDRESS);
+
+    expect(apiClient.getBondedMapping).toHaveBeenCalledTimes(1);
+    expect(apiClient.getBondedMapping).toHaveBeenCalledWith(config, ADDRESS);
+    expect(apiClient.getUnbondingMapping).toHaveBeenCalledTimes(1);
+    expect(apiClient.getUnbondingMapping).toHaveBeenCalledWith(config, ADDRESS);
+    expect(apiClient.getWithdrawMapping).toHaveBeenCalledTimes(1);
+    expect(apiClient.getWithdrawMapping).toHaveBeenCalledWith(config, ADDRESS);
+  });
+
+  it("returns the assembled position", async () => {
+    jest.mocked(apiClient.getBondedMapping).mockResolvedValue(BONDED_RAW);
+    jest.mocked(apiClient.getWithdrawMapping).mockResolvedValue(WITHDRAW_RAW);
+
+    const position = await getStakingPosition(config, ADDRESS);
+
+    expect(position.bondedBalance.toString()).toBe("39339243096");
+    expect(position.bondedValidator).toBe(ADDRESS);
+    expect(position.withdrawalAddress).toBe(WITHDRAW_RAW);
+  });
+
+  it("propagates a failure on any one of the three reads", async () => {
+    jest
+      .mocked(apiClient.getWithdrawMapping)
+      .mockRejectedValue(new LedgerAPI5xx("Internal Server Error"));
+
+    await expect(getStakingPosition(config, ADDRESS)).rejects.toThrow("Internal Server Error");
+  });
+});
+
+describe("getUnbondingValidators", () => {
+  const config = getMockedConfig("mainnet");
+  const UNBONDING = "aleo1l7avejc23yv6e8nx4udjwz89dw6mg95dzsp936hf77yuhnjywv9syl0ywc";
+  const SETTLED = "aleo1q3vx8pet0h7739hx5xlekfxh9kus6qdlxhx9qdkxhh9rnva8q5gsskve3t";
+  const UNBONDING_RAW = "{\n  microcredits: 10000000000u64,\n  height: 7862785u32\n}";
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest
+      .mocked(apiClient.getUnbondingMapping)
+      .mockImplementation(async (_config, address) =>
+        address === UNBONDING ? UNBONDING_RAW : null,
+      );
+  });
+
+  it("returns only the addresses that have an entry", async () => {
+    const unbonding = await getUnbondingValidators(config, [UNBONDING, SETTLED]);
+
+    expect([...unbonding]).toEqual([UNBONDING]);
+  });
+
+  it("reads the mapping once per address", async () => {
+    await getUnbondingValidators(config, [UNBONDING, SETTLED]);
+
+    expect(apiClient.getUnbondingMapping).toHaveBeenCalledTimes(2);
+    expect(apiClient.getUnbondingMapping).toHaveBeenCalledWith(config, UNBONDING);
+    expect(apiClient.getUnbondingMapping).toHaveBeenCalledWith(config, SETTLED);
+  });
+
+  // Any entry blocks the bond: the program asserts on `contains unbonding[validator]`, so a
+  // matured `height` still counts until `claim_unbond_public` removes the row.
+  it("counts a matured entry, not just one still within its unbonding period", async () => {
+    jest
+      .mocked(apiClient.getUnbondingMapping)
+      .mockResolvedValue("{\n  microcredits: 1u64,\n  height: 1u32\n}");
+
+    const unbonding = await getUnbondingValidators(config, [SETTLED]);
+
+    expect(unbonding.has(SETTLED)).toBe(true);
+  });
+
+  it("omits an address whose lookup fails rather than rejecting", async () => {
+    jest
+      .mocked(apiClient.getUnbondingMapping)
+      .mockImplementation(async (_config, address) =>
+        address === UNBONDING ? UNBONDING_RAW : Promise.reject(new LedgerAPI5xx("boom")),
+      );
+
+    const unbonding = await getUnbondingValidators(config, [UNBONDING, SETTLED]);
+
+    expect([...unbonding]).toEqual([UNBONDING]);
+  });
+});
+
+describe("resolveBondArguments", () => {
+  const config = getMockedConfig("mainnet");
+  const VALIDATOR = "aleo1q3vx8pet0h7739hx5xlekfxh9kus6qdlxhx9qdkxhh9rnva8q5gsskve3t";
+  const WITHDRAWAL = "aleo1a2ehlgqhvs3p7d4hqhs0tvgk954dr8gafu9kxse2mzu9a5sqxvpsrn98pr";
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const bondTransition = (overrides?: Partial<AleoTransition>): AleoTransition => ({
+    id: "au1bond",
+    scm: "cm1",
+    tcm: "cm2",
+    tpk: "tpk1",
+    // bond_public(validator, withdrawal, amount)
+    inputs: [
+      { id: "in0", type: "public", value: `${VALIDATOR}.public` },
+      { id: "in1", type: "public", value: `${WITHDRAWAL}.public` },
+      { id: "in2", type: "public", value: "2982828466682u64" },
+    ],
+    outputs: [],
+    program: PROGRAM_ID.CREDITS,
+    function: "bond_public",
+    ...overrides,
+  });
+
+  const bondTx = (transactionId: string) =>
+    getMockedPublicTransaction({ transaction_id: transactionId, function_id: "bond_public" });
+
+  const detailsWith = (transitions: AleoTransition[], transactionId = "bond-1") =>
+    getMockedTransactionDetails(transactionId, { execution: { transitions } });
+
+  it("reads the validator and amount off the credits.aleo transition", async () => {
+    mockGetTransactionById.mockResolvedValue(detailsWith([bondTransition()]));
+
+    const resolved = await resolveBondArguments({ config, transactions: [bondTx("bond-1")] });
+
+    expect(resolved.get("bond-1")).toEqual({
+      // the `.public` suffix is stripped
+      validator: VALIDATOR,
+      amount: new BigNumber("2982828466682"),
+    });
+  });
+
+  it("matches the credits.aleo transition rather than the first one", async () => {
+    const wrapper: AleoTransition = {
+      ...bondTransition(),
+      id: "au1wrapper",
+      program: "pondo_core_protocol.aleo",
+      function: "bond_public",
+      inputs: [{ id: "in0", type: "public", value: "1u64" }],
+    };
+    mockGetTransactionById.mockResolvedValue(detailsWith([wrapper, bondTransition()]));
+
+    const resolved = await resolveBondArguments({ config, transactions: [bondTx("bond-1")] });
+
+    expect(resolved.get("bond-1")?.validator).toBe(VALIDATOR);
+  });
+
+  it("resolves every transaction it is given, keyed by transaction id", async () => {
+    mockGetTransactionById.mockImplementation(async (_config, transactionId) =>
+      detailsWith([bondTransition()], transactionId),
+    );
+
+    const resolved = await resolveBondArguments({
+      config,
+      transactions: [bondTx("bond-1"), bondTx("bond-2")],
+    });
+
+    expect([...resolved.keys()].sort()).toEqual(["bond-1", "bond-2"]);
+  });
+
+  it("omits and logs a credits.aleo bond_public transition with too few inputs", async () => {
+    mockGetTransactionById.mockResolvedValue(detailsWith([bondTransition({ inputs: [] })]));
+
+    const resolved = await resolveBondArguments({ config, transactions: [bondTx("bond-1")] });
+
+    expect(resolved.size).toBe(0);
+    expect(log).toHaveBeenCalledWith(
+      "aleo/sync",
+      "resolveBondArguments: unreadable bond_public inputs for bond-1",
+    );
+  });
+
+  it("omits a transaction with no credits.aleo bond_public transition", async () => {
+    mockGetTransactionById.mockResolvedValue(
+      detailsWith([{ ...bondTransition(), function: "transfer_public" }]),
+    );
+
+    const resolved = await resolveBondArguments({ config, transactions: [bondTx("bond-1")] });
+
+    expect(resolved.size).toBe(0);
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it("omits and logs a transaction whose validator input is not an address", async () => {
+    mockGetTransactionById.mockResolvedValue(
+      detailsWith([
+        bondTransition({
+          inputs: [
+            { id: "in0", type: "public", value: "12345u64" },
+            { id: "in1", type: "public", value: `${WITHDRAWAL}.public` },
+            { id: "in2", type: "public", value: "100u64" },
+          ],
+        }),
+      ]),
+    );
+
+    const resolved = await resolveBondArguments({ config, transactions: [bondTx("bond-1")] });
+
+    expect(resolved.size).toBe(0);
+    expect(log).toHaveBeenCalledWith(
+      "aleo/sync",
+      "resolveBondArguments: unreadable bond_public inputs for bond-1",
+    );
+  });
+
+  it("omits a transaction whose amount input is private", async () => {
+    mockGetTransactionById.mockResolvedValue(
+      detailsWith([
+        bondTransition({
+          inputs: [
+            { id: "in0", type: "public", value: `${VALIDATOR}.public` },
+            { id: "in1", type: "public", value: `${WITHDRAWAL}.public` },
+            { id: "in2", type: "private", value: "" },
+          ],
+        }),
+      ]),
+    );
+
+    const resolved = await resolveBondArguments({ config, transactions: [bondTx("bond-1")] });
+
+    expect(resolved.size).toBe(0);
+  });
+
+  it("returns an empty map when given no transactions", async () => {
+    const resolved = await resolveBondArguments({ config, transactions: [] });
+
+    expect(resolved.size).toBe(0);
+    expect(mockGetTransactionById).not.toHaveBeenCalled();
   });
 });

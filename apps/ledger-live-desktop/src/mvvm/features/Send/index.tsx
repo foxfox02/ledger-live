@@ -12,28 +12,55 @@ import { SendFlowLayout } from "./components/SendFlowLayout";
 import { RecipientScreen } from "./screens/Recipient/RecipientScreen";
 import { AmountScreen } from "./screens/Amount/AmountScreen";
 import { RecentHistoryScreen } from "./screens/RecentHistory/RecentHistoryScreen";
+import { AddContactScreen } from "./screens/AddContact/AddContactScreen";
+import { AddNewContactScreen } from "./screens/AddNewContact/AddNewContactScreen";
+import { AddToExistingContactScreen } from "./screens/AddToExistingContact/AddToExistingContactScreen";
 import { CustomFeesScreen } from "./screens/CustomFees/CustomFeesScreen";
+import { FeePaymentScreen } from "./screens/FeePayment/FeePaymentScreen";
+import { SponsoredRentSignatureScreen } from "./screens/SponsoredRentSignature/SponsoredRentSignatureScreen";
+import { SponsoredPollingScreen } from "./screens/SponsoredPolling/SponsoredPollingScreen";
+import { SponsoredFailureScreen } from "./screens/SponsoredFailure/SponsoredFailureScreen";
 import { CoinControlScreen } from "./screens/CoinControl/CoinControlScreen";
+import { SkipMemoConfirmationScreen } from "./screens/SkipMemoConfirmation/SkipMemoConfirmationScreen";
+import { PaySuccessScreen } from "./screens/PaySuccess/PaySuccessScreen";
+import { BalanceTypeScreen } from "./screens/BalanceType/BalanceTypeScreen";
 import type { StepRegistry } from "@ledgerhq/live-common/flows/wizard/types";
+import { SendFlowTrackingProvider } from "./context/SendFlowTrackingContext";
+import { AddNewContactHeaderProvider } from "./context/AddNewContactHeaderContext";
+import { RecipientContactSelectionProvider } from "./context/RecipientContactSelectionContext";
+import { RecipientContinuationProvider } from "./context/RecipientContinuationContext";
+import { SponsoredSendProvider } from "./context/SponsoredSendContext";
 
 const stepRegistry: StepRegistry<SendFlowStep> = {
+  [SEND_FLOW_STEP.BALANCE_TYPE]: BalanceTypeScreen,
   [SEND_FLOW_STEP.RECIPIENT]: RecipientScreen,
+  [SEND_FLOW_STEP.SKIP_MEMO_CONFIRMATION]: SkipMemoConfirmationScreen,
   [SEND_FLOW_STEP.AMOUNT]: AmountScreen,
   [SEND_FLOW_STEP.RECENT_HISTORY]: RecentHistoryScreen,
+  [SEND_FLOW_STEP.ADD_CONTACT]: AddContactScreen,
+  [SEND_FLOW_STEP.ADD_NEW_CONTACT]: AddNewContactScreen,
+  [SEND_FLOW_STEP.ADD_TO_EXISTING_CONTACT]: AddToExistingContactScreen,
   [SEND_FLOW_STEP.CUSTOM_FEES]: CustomFeesScreen,
+  [SEND_FLOW_STEP.FEE_PAYMENT]: FeePaymentScreen,
+  [SEND_FLOW_STEP.SPONSORED_RENT_SIGNATURE]: SponsoredRentSignatureScreen,
+  [SEND_FLOW_STEP.SPONSORED_POLLING]: SponsoredPollingScreen,
+  [SEND_FLOW_STEP.SPONSORED_FAILURE]: SponsoredFailureScreen,
   [SEND_FLOW_STEP.COIN_CONTROL]: CoinControlScreen,
   [SEND_FLOW_STEP.SIGNATURE]: SignatureScreen,
   [SEND_FLOW_STEP.CONFIRMATION]: ConfirmationScreen,
+  [SEND_FLOW_STEP.PAY_SUCCESS]: PaySuccessScreen,
 };
 
 type SendWorkflowParams = Readonly<{
   account?: AccountLike;
   parentAccount?: Account;
   recipient?: string;
+  skipRecipientStep?: boolean;
   amount?: string;
   memo?: string;
   fromMAD?: boolean;
   startWithWarning?: boolean;
+  source?: string;
 }>;
 
 type SendWorkflowProps = Readonly<{
@@ -52,16 +79,28 @@ export function SendWorkflow({ onClose, params, isOpen }: SendWorkflowProps) {
       account: params?.account,
       parentAccount: params?.parentAccount,
       recipient: params?.recipient,
+      skipRecipientStep: params?.skipRecipientStep,
       amount: params?.amount,
       memo: params?.memo,
       fromMAD: params?.fromMAD ?? false,
+      source: params?.source,
     }),
     [params],
   );
 
   return (
     <SendFlowOrchestrator initParams={initParams} onClose={handleClose} stepRegistry={stepRegistry}>
-      <SendFlowLayout isOpen={isOpen} onClose={handleClose} />
+      <SendFlowTrackingProvider>
+        <AddNewContactHeaderProvider>
+          <RecipientContactSelectionProvider>
+            <RecipientContinuationProvider>
+              <SponsoredSendProvider>
+                <SendFlowLayout isOpen={isOpen} onClose={handleClose} />
+              </SponsoredSendProvider>
+            </RecipientContinuationProvider>
+          </RecipientContactSelectionProvider>
+        </AddNewContactHeaderProvider>
+      </SendFlowTrackingProvider>
     </SendFlowOrchestrator>
   );
 }

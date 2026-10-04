@@ -43,7 +43,7 @@ export default class ModularDrawer {
     }
   }
 
-  @Step("Select Account")
+  @Step("Select Account {{{0}}}")
   async selectAccount(accountName: string): Promise<void> {
     const accountItemId = this.accountItemNameId(accountName);
     await tapById(accountItemId);
@@ -54,18 +54,18 @@ export default class ModularDrawer {
     await tapById(this.drawerBackButtonId);
   }
 
-  @Step("Validate account(s) present on account list")
+  @Step("Validate account(s) present on account list {{{0}}}")
   async validateNumberOfAccounts(expectedCount: number) {
-    const elements = await countElementsById(this.accountItem);
+    const elements = await countElements(getElementsById(this.accountItem));
     jestExpect(elements).toBe(expectedCount);
   }
 
-  @Step("Perform search on modular drawer by ticker")
-  async performSearchByTicker(ticker: string) {
-    await typeTextByElement(this.searchBar(), ticker);
+  @Step("Perform search on modular drawer by ticker {{{0}}}")
+  async performSearchByTicker(ticker: string, closeKeyboard = true) {
+    await typeTextByElement(this.searchBar(), ticker, closeKeyboard);
   }
 
-  @Step("Select currency in receive list by ticker")
+  @Step("Select currency in receive list by ticker {{{0}}}")
   async selectCurrencyByTicker(ticker: string): Promise<void> {
     const assetItemId = this.assetItemByTicker(ticker);
     if (!(await IsIdVisible(assetItemId))) {
@@ -74,8 +74,8 @@ export default class ModularDrawer {
     await tapById(assetItemId, 0);
   }
 
-  @Step("Check asset $0 amount is masked in discreet mode")
-  async checkAssetAmountIsDiscreet(ticker: string): Promise<void> {
+  @Step("Check asset {{{0}}} amount is masked in discreet mode")
+  private async checkAssetAmountIsDiscreet(ticker: string): Promise<void> {
     await this.performSearchByTicker(ticker);
     const assetItemId = this.assetItemByTicker(ticker);
     await waitForElement(getElementById(assetItemId));
@@ -90,21 +90,21 @@ export default class ModularDrawer {
     ).toBeVisible();
   }
 
-  @Step("Check listed asset amounts are masked in discreet mode")
+  @Step("Check listed asset amounts are masked in discreet mode {{{0}}}")
   async checkAssetAmountsAreDiscreet(tickers: string[]): Promise<void> {
     for (const ticker of tickers) {
       await this.checkAssetAmountIsDiscreet(ticker);
     }
   }
 
-  @Step("Select network in list if needed")
+  @Step("Select network in list if needed {{{0}}}")
   async selectNetworkIfAsked(networkName: string): Promise<void> {
     if (await IsIdVisible(this.networkScreenId)) {
       await this.selectNetwork(networkName);
     }
   }
 
-  @Step("Select network")
+  @Step("Select network {{{0}}}")
   async selectNetwork(networkName: string): Promise<void> {
     const id = this.networkItemIdMAD(networkName);
     if (!(await IsIdVisible(id))) {
@@ -120,6 +120,11 @@ export default class ModularDrawer {
       if (await IsIdVisible(id)) return;
       await scrollView.swipe("up", "slow", 0.2, 0.5);
     }
+    // The last swipe is only useful if its result is checked, so probe once more before failing.
+    if (await IsIdVisible(id)) return;
+    throw new Error(
+      `Network item ${String(id)} not reachable after ${maxAttempts} swipes in ${this.networkSelectionScrollViewId}`,
+    );
   }
 
   private async selectAssetCurrencyAndNetwork(account: Account): Promise<void> {
@@ -129,19 +134,22 @@ export default class ModularDrawer {
     await this.selectNetworkIfAsked(networkName);
   }
 
-  @Step("Select currency in modular drawer")
+  @Step("Select currency in modular drawer {{{0.accountName}}}")
   async selectAsset(account: Account): Promise<void> {
     await this.selectAssetCurrencyAndNetwork(account);
     await this.selectFirstAccount();
   }
 
-  @Step("Select currency then a specific account in modular drawer")
+  @Step("Select currency then a specific account in modular drawer {{{0.accountName}}}")
   async selectAssetAndAccount(account: Account): Promise<void> {
     await this.selectAssetCurrencyAndNetwork(account);
-    await this.selectAccount(account.accountName);
+    // Token accounts are listed under their PARENT account's name in the drawer
+    // (useDetailedAccountsCore: name = parentAccountName ?? token name), so pin by parent.
+    const accountName = account.parentAccount?.accountName ?? account.accountName;
+    await this.selectAccount(accountName);
   }
 
-  @Step("Validate account(s) present on account list")
+  @Step("Validate account(s) present on account list {{{0}}}")
   async validateAccountsScreen(accounts?: string[]): Promise<void> {
     await waitForElement(getElementById(this.accountScreenId));
     jestExpect(await getTextOfElement(this.basedTitleIdMAD)).toMatch(/Select account.*/i);
@@ -155,7 +163,7 @@ export default class ModularDrawer {
     }
   }
 
-  @Step("Validate account name(s) visible on account list")
+  @Step("Validate account name(s) visible on account list {{{0}}}")
   async validateAccountNames(accounts: string[]): Promise<void> {
     for (const account of accounts) {
       const accountItemId = this.accountItemNameId(account);
@@ -163,7 +171,7 @@ export default class ModularDrawer {
     }
   }
 
-  @Step("Validate network(s) present on network list")
+  @Step("Validate network(s) present on network list {{{0}}}")
   async validateNetworksScreen(networks: string[]): Promise<void> {
     await waitForElement(getElementById(this.networkScreenId));
     jestExpect(await getTextOfElement(this.basedTitleIdMAD)).toMatch(/Select network.*/i);
@@ -175,7 +183,7 @@ export default class ModularDrawer {
     }
   }
 
-  @Step("Validate assets present on account list")
+  @Step("Validate assets present on account list {{{0}}}")
   async validateAssetsScreen(assets: string[]): Promise<void> {
     await waitForElement(getElementById(this.assetScreenId));
     jestExpect(await getLabelOfElement(this.basedTitleIdMAD)).toMatch(/Select asset.*/i);

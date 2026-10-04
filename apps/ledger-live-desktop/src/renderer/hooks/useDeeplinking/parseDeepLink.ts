@@ -172,6 +172,7 @@ export function createRoute(parsed: ParsedDeeplink): DeeplinkRoute {
         fromCurrency: query.fromCurrency,
         toCurrency: query.toCurrency,
         toAccountId: query.toAccountId,
+        ...(path === "history" && { history: true, swapId: query.swapId }),
       };
       return route;
     }
@@ -277,6 +278,9 @@ export function createRoute(parsed: ParsedDeeplink): DeeplinkRoute {
     case "paytab": {
       const route: PayTabRoute = {
         type: "paytab",
+        code: query.code,
+        state: query.state,
+        appId: query.app_id,
       };
       return route;
     }

@@ -4,12 +4,15 @@ import { HEDERA_TRANSACTION_MODES } from "@ledgerhq/live-common/families/hedera/
 import { NavigatorName, ScreenName } from "~/const";
 
 export type AccountKey =
+  | "aleo"
   | "algorand"
   | "cardano"
   | "celo"
   | "cosmos"
   | "ethereum"
   | "hedera"
+  | "internetComputer"
+  | "mina"
   | "multiversx"
   | "near"
   | "polkadot"
@@ -40,6 +43,9 @@ export type StakePromptCase = {
 export type MobileFamilyFlowExport = StakePromptCase["familyExportKey"];
 
 export const accountsByKey = {
+  aleo: genAccount("notifications-prompt-aleo", {
+    currency: getCryptoCurrencyById("aleo"),
+  }),
   algorand: genAccount("notifications-prompt-algorand", {
     currency: getCryptoCurrencyById("algorand"),
   }),
@@ -57,6 +63,12 @@ export const accountsByKey = {
   }),
   hedera: genAccount("notifications-prompt-hedera", {
     currency: getCryptoCurrencyById("hedera"),
+  }),
+  internetComputer: genAccount("notifications-prompt-internet-computer", {
+    currency: getCryptoCurrencyById("internet_computer"),
+  }),
+  mina: genAccount("notifications-prompt-mina", {
+    currency: getCryptoCurrencyById("mina"),
   }),
   multiversx: genAccount("notifications-prompt-multiversx", {
     currency: getCryptoCurrencyById("elrond"),
@@ -92,6 +104,32 @@ export const createOperation = (accountId: string, type: string) => ({
 
 export const stakePromptSource = { name: "NotificationsPromptStakeFlow" };
 export const stakePromptCases: StakePromptCase[] = [
+  {
+    label: "Aleo claim unbond",
+    bucket: "revoke/claim/lifecycle",
+    flowName: NavigatorName.AleoClaimUnbondFlow,
+    familyExportKey: "AleoClaimUnbondFlow",
+    successScreenName: ScreenName.AleoClaimUnbondValidationSuccess,
+    errorScreenName: ScreenName.AleoClaimUnbondValidationError,
+    accountKey: "aleo",
+    operationType: "WITHDRAW_UNBONDED",
+    transaction: {
+      family: "aleo",
+      mode: "claim_unbond_public",
+      recipient: accountsByKey.aleo.freshAddress,
+    },
+  },
+  {
+    label: "Aleo unbond",
+    bucket: "undelegation/unstaking",
+    flowName: NavigatorName.AleoUnbondFlow,
+    familyExportKey: "AleoUnbondFlow",
+    successScreenName: ScreenName.AleoUnbondValidationSuccess,
+    errorScreenName: ScreenName.AleoUnbondValidationError,
+    accountKey: "aleo",
+    operationType: "UNBOND",
+    transaction: { family: "aleo", mode: "unbond_public" },
+  },
   {
     label: "Algorand claim rewards",
     bucket: "revoke/claim/lifecycle",
@@ -353,6 +391,31 @@ export const stakePromptCases: StakePromptCase[] = [
       properties: { stakingNodeId: 1 },
     },
     params: { source: stakePromptSource },
+  },
+  {
+    // ICP has no undelegation counterpart: a neuron is dissolved and disbursed from the neuron
+    // management flow, which is not a stake-prompt flow.
+    label: "Internet Computer staking",
+    bucket: "delegation/staking",
+    flowName: NavigatorName.InternetComputerStakingFlow,
+    familyExportKey: "InternetComputerStakingFlow",
+    successScreenName: ScreenName.InternetComputerStakingValidationSuccess,
+    errorScreenName: ScreenName.InternetComputerStakingValidationError,
+    accountKey: "internetComputer",
+    operationType: "STAKE_NEURON",
+    transaction: { family: "internet_computer", type: "create_neuron" },
+    params: { source: stakePromptSource },
+  },
+  {
+    label: "Mina staking",
+    bucket: "delegation/staking",
+    flowName: NavigatorName.MinaStakingFlow,
+    familyExportKey: "MinaStakingFlow",
+    successScreenName: ScreenName.MinaStakingValidationSuccess,
+    errorScreenName: ScreenName.MinaStakingValidationError,
+    accountKey: "mina",
+    operationType: "DELEGATE",
+    transaction: { family: "mina", txType: "stake", recipient: "mina-validator" },
   },
   {
     label: "MultiversX claim rewards",

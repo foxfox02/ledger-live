@@ -26,7 +26,14 @@ describe("Cosmos Delegations Component", () => {
       delegatedBalance: BigNumber(0),
       unbondingBalance: BigNumber(0),
     } as unknown as CosmosResources,
-  } as CosmosAccount;
+    stakingResources: {
+      delegations: [],
+      pendingRewardsBalance: BigNumber(0),
+      unbondings: [],
+      delegatedBalance: BigNumber(0),
+      unbondingBalance: BigNumber(0),
+    },
+  } as unknown as CosmosAccount;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -62,6 +69,40 @@ describe("Cosmos Delegations Component", () => {
 
     expect(getCurrencyConfiguration).toHaveBeenCalledWith(mockCosmosAccount.currency.id);
     expect(screen.getByText("You can earn ATOM rewards by delegating your assets.")).toBeVisible();
+  });
+
+  it("should render without throwing when there are no delegations", () => {
+    (getCurrencyConfiguration as jest.Mock).mockReturnValue({ disableDelegation: false });
+
+    expect(() =>
+      render(<Delegations account={mockCosmosAccount} />, {
+        initialState: {
+          settings: {
+            ...INITIAL_STATE,
+          },
+        },
+      }),
+    ).not.toThrow();
+    expect(screen.getByText("You can earn ATOM rewards by delegating your assets.")).toBeVisible();
+  });
+
+  it("should enable the Earn rewards CTA when there is a spendable balance", () => {
+    (getCurrencyConfiguration as jest.Mock).mockReturnValue({ disableDelegation: false });
+
+    const accountWithBalance = {
+      ...mockCosmosAccount,
+      spendableBalance: BigNumber(1_000_000),
+    } as CosmosAccount;
+
+    render(<Delegations account={accountWithBalance} />, {
+      initialState: {
+        settings: {
+          ...INITIAL_STATE,
+        },
+      },
+    });
+
+    expect(screen.getByText("Earn rewards").closest("button")).not.toBeDisabled();
   });
 
   it("should not render Delegations component when we disable delegations", async () => {

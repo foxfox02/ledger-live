@@ -3,7 +3,17 @@ import {
   OPERATION_TYPE_OUT_FAMILY,
   OPERATION_TYPE_STAKE_FAMILY,
 } from "@ledgerhq/ledger-wallet-framework/operation";
-import type { Account, Operation, OperationType } from "@ledgerhq/types-live";
+import { getCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
+import type {
+  Account,
+  Operation,
+  OperationExtra,
+  OperationExtraRaw,
+  OperationType,
+  StakingDelegation,
+  StakingUnbonding,
+} from "@ledgerhq/types-live";
+import { isStakingAccount } from "@ledgerhq/types-live";
 import BigNumber from "bignumber.js";
 import { fromBigNumberToBigInt } from "@ledgerhq/coin-module-framework/utils";
 import type {
@@ -11,7 +21,11 @@ import type {
   Balance,
   Operation as CoreOperation,
   FeeEstimation,
+  MapMemo,
+  MemoNotSupported,
+  StakeState,
   StakingOperation,
+  StringMemo,
   TransactionIntent,
   TxData,
 } from "@ledgerhq/coin-module-framework/api/types";
@@ -25,9 +39,13 @@ import type {
   GasOptionsRaw,
   GenericTransaction,
   GenericTransactionRaw,
+  JsonSafe,
+  JsonSafeRecord,
   OperationCommon,
+  TransferFee,
 } from "./types";
 import { craftTransactionData as defaultCraftTransactionData } from "@ledgerhq/coin-module-framework/logic/craftTransactionData";
+import type { BridgeApi } from "@ledgerhq/ledger-wallet-framework/api/types";
 
 type BigNumberToBigIntDeep<T> = T extends BigNumber
   ? bigint
@@ -50,6 +68,79 @@ export function bigNumberToBigIntDeep<T>(obj: T): BigNumberToBigIntDeep<T> {
     ) as BigNumberToBigIntDeep<T>;
 
   return obj as BigNumberToBigIntDeep<T>;
+}
+
+function toJsonSafe(value: unknown): JsonSafe | undefined {
+  const json = JSON.stringify(value, jsonSafeReplacer);
+  return json === undefined ? undefined : (JSON.parse(json) as JsonSafe);
+}
+
+function jsonSafeReplacer(this: Record<string, unknown>, key: string, value: unknown): unknown {
+  const raw = this[key];
+  if (typeof raw === "bigint") return raw.toString();
+  if (BigNumber.isBigNumber(raw)) return raw.toFixed();
+  if (typeof value === "bigint") return value.toString();
+  return value;
+}
+
+const BUY_DEEPLINK = "ledgerlive://buy";
+
+/**
+ * Names the account being funded on a `ledgerlive://buy` deeplink a coin module put on an error.
+ *
+ * The PTX buy flow reads `?account=<Ledger Live account id>` to pre-select the account that ran out
+ * of gas (`screens/exchange/index.tsx` looks it up by `id`); without it the user lands on a generic
+ * buy screen. Composed here rather than in the coin module because that id is a wallet-side concept —
+ * a coin module is handed an address and an xpub, and giving it one would put a Ledger Live identifier
+ * into a contract meant to hold none. `useSwapTransaction.ts` builds its own link at this same layer.
+ *
+ * Left alone when the link already names an account, so a family that has the id by another route
+ * keeps its own answer.
+ */
+export function addAccountToBuyLinks(
+  errors: Record<string, Error>,
+  accountId: string,
+): Record<string, Error> {
+  for (const error of Object.values(errors)) {
+    const holder = error as { links?: unknown };
+    if (!Array.isArray(holder.links)) continue;
+
+    const links = holder.links.map(link =>
+      typeof link === "string" ? withBuyAccount(link, accountId) : link,
+    );
+    // Assigned only when something changed, and as a new array either way: a coin module is free to
+    // hand back a module-level constant, which must not be rewritten under it.
+    if (links.some((link, index) => link !== holder.links![index])) holder.links = links;
+  }
+
+  return errors;
+}
+
+function withBuyAccount(link: string, accountId: string): string {
+  const queryStart = link.indexOf("?");
+  const base = queryStart === -1 ? link : link.slice(0, queryStart);
+  // Exact host match, so a hypothetical `ledgerlive://buyback` is not treated as the buy flow.
+  if (base !== BUY_DEEPLINK && !base.startsWith(`${BUY_DEEPLINK}/`)) return link;
+
+  const params = new URLSearchParams(queryStart === -1 ? "" : link.slice(queryStart + 1));
+  if (params.has("account")) return link;
+
+  params.set("account", accountId);
+  return `${base}?${params.toString()}`;
+}
+
+/**
+ * Normalises a fee-estimation parameter bag into a JSON-safe record for `GenericTransaction.feeParameters`.
+ * `bigint`/`BigNumber` values become decimal strings; everything else is carried through. The bag
+ * rides on the live transaction, which the swap flow serialises with `JSON.stringify` — storing the
+ * estimation's raw `bigint` values there crashed EVM swaps on mobile and stalled them on desktop
+ * (LIVE-35482). Returns `undefined` for a missing bag so callers keep clearing stale figures.
+ */
+export function feeParametersToJsonSafe(
+  parameters: Record<string, unknown> | undefined,
+): JsonSafeRecord | undefined {
+  if (!parameters) return undefined;
+  return toJsonSafe(parameters) as JsonSafeRecord;
 }
 
 function toFeeDataFromUnknown(value: unknown): FeeData {
@@ -93,6 +184,24 @@ export function toGasOptionsFromUnknown(value: unknown): GasOptions | undefined 
   };
 }
 
+const TRANSFER_FEE_FIELDS = [
+  "maxTransferFee",
+  "transferFee",
+  "feePercent",
+  "feeBps",
+  "transferAmountIncludingFee",
+  "transferAmountExcludingFee",
+] satisfies ReadonlyArray<keyof TransferFee>;
+
+export function toTransferFeeFromUnknown(value: unknown): TransferFee | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const fee = value as Record<string, unknown>;
+  // `Number.isFinite` coerces nothing, so it rejects a non-number, NaN and Infinity alike.
+  return TRANSFER_FEE_FIELDS.every(field => Number.isFinite(fee[field]))
+    ? (fee as TransferFee)
+    : undefined;
+}
+
 export function findCryptoCurrencyByNetwork(network: string): CryptoCurrency | undefined {
   const networksRemap = {
     xrp: "ripple",
@@ -107,6 +216,21 @@ export function extractBalance(balances: Balance[], type: string): Balance {
       value: 0n,
     }
   );
+}
+
+/**
+ * Default `getTokenFromAsset` strategy for chains whose token registry is keyed by a bare,
+ * chain-specific reference string (VeChain's VTHO address, Stacks' SIP-010 composite key, etc.):
+ * guard native assets and an absent/empty reference, then look up by that reference directly.
+ */
+export function defaultGetTokenFromAssetByAddress(
+  currency: CryptoCurrency,
+  asset: AssetInfo,
+): Promise<TokenCurrency | undefined> {
+  if (asset.type === "native" || !("assetReference" in asset) || !asset.assetReference) {
+    return Promise.resolve(undefined);
+  }
+  return getCryptoAssetsStore().findTokenByAddressInCurrency(asset.assetReference, currency.id);
 }
 
 // A sponsored (gasless) transaction has its fee paid by a third party, not by the
@@ -142,6 +266,33 @@ export function getNativeSpendableAfterPending(account: Account): BigNumber {
   return BigNumber.max(0, account.spendableBalance.minus(pendingSpent));
 }
 
+/**
+ * Next transaction sequence (nonce) that accounts for locally-known pending operations.
+ *
+ * The network sequence source (indexer or a load-balanced RPC) can lag behind a
+ * just-broadcast transaction and briefly return an already-used nonce, causing a
+ * "nonce too low" on the next send. Taking the max with the highest pending
+ * sequence self-corrects once the network source catches up, without waiting for a sync.
+ */
+export function nextSequenceWithPending(
+  pendingOperations: Operation[],
+  networkSequence: bigint,
+): bigint {
+  let highestPending = -1n;
+  for (const op of pendingOperations) {
+    const rawSequence = op.transactionSequenceNumber;
+    // Skip missing or non-integer sequences; `.toFixed()` (not `.toString()`) avoids the
+    // exponential notation that BigInt() cannot parse.
+    if (!rawSequence?.isInteger()) {
+      continue;
+    }
+    const seq = BigInt(rawSequence.toFixed());
+    if (seq > highestPending) highestPending = seq;
+  }
+  const pendingFloor = highestPending >= 0n ? highestPending + 1n : 0n;
+  return networkSequence > pendingFloor ? networkSequence : pendingFloor;
+}
+
 // Used for token sub-accounts: lock `op.value` for pending ops that should reduce token spendable.
 // This includes OUT-family and STAKE-family types (stake-family is fee-only on native; see getOperationAmountNumber).
 function isOutgoingOperation(op: Operation): boolean {
@@ -165,9 +316,70 @@ export function getPendingTokenSpent(pendingOperations: Operation[]): BigNumber 
   );
 }
 
+/**
+ * The staking positions, in the `Balance` shape `getBalance` reported them in. Appended after the
+ * native balance, which stays first.
+ */
+function stakingBalances(account: Account): Balance[] {
+  // `isStakingAccount` only tests that the key is present, so the value can still be undefined.
+  const resources = isStakingAccount(account) ? account.stakingResources : undefined;
+  if (!resources) return [];
+
+  const toBalance = (
+    position: StakingDelegation | StakingUnbonding,
+    state: StakeState,
+    delegate: string | undefined,
+  ): Balance => ({
+    value: BigInt(position.amount.plus(position.lockedReserve ?? 0).toFixed()),
+    asset: { type: "native" },
+    stake: {
+      uid: position.positionId ?? "",
+      address: position.positionId ?? "",
+      state,
+      asset: { type: "native" },
+      amount: BigInt(position.amount.toFixed()),
+      ...(delegate ? { delegate } : {}),
+      actions: [],
+      details: {
+        ...numericDetailEntry("activeAmount", position.activeAmount),
+        ...numericDetailEntry("inactiveAmount", position.inactiveAmount),
+        ...numericDetailEntry("withdrawableAmount", position.withdrawableAmount),
+        ...numericDetailEntry("lockedReserve", position.lockedReserve),
+        ...(typeof position.canStake === "boolean" ? { canStake: position.canStake } : {}),
+        ...(typeof position.canWithdraw === "boolean" ? { canWithdraw: position.canWithdraw } : {}),
+      },
+    },
+  });
+
+  return [
+    ...resources.delegations.map(d =>
+      toBalance(d, d.status === "activating" ? "activating" : "active", d.validatorAddress),
+    ),
+    ...resources.unbondings.map(u =>
+      toBalance(
+        u,
+        u.status === "withdrawable" ? "withdrawable" : "deactivating",
+        u.validatorAddress,
+      ),
+    ),
+  ];
+}
+
+/**
+ * A value a double cannot hold exactly travels as a string; `optionalNumeric` reads both back.
+ */
+function numericDetailEntry(
+  key: string,
+  value: BigNumber | undefined,
+): Record<string, number | string> {
+  if (value === undefined) return {};
+  const fitsInADouble = value.isInteger() && value.abs().lte(Number.MAX_SAFE_INTEGER);
+  return { [key]: fitsInADouble ? value.toNumber() : value.toFixed() };
+}
+
 export function extractBalances(
   account: Account,
-  getAssetFromToken?: (token: TokenCurrency, owner: string) => AssetInfo,
+  getAssetFromToken?: (token: TokenCurrency, owner: string) => AssetInfo | undefined,
 ): Balance[] {
   const nativeReserve = BigNumber.max(account.balance.minus(account.spendableBalance), 0);
   const nativePending = getPendingNativeSpent(account.pendingOperations ?? []);
@@ -183,12 +395,15 @@ export function extractBalances(
     },
   ];
 
+  balances.push(...stakingBalances(account));
+
   if (!account.subAccounts?.length || !getAssetFromToken) {
     return balances;
   }
 
   for (const subAccount of account.subAccounts) {
     const asset = getAssetFromToken(subAccount.token, account.freshAddress);
+    if (!asset) continue;
     const tokenReserve = BigNumber.max(subAccount.balance.minus(subAccount.spendableBalance), 0);
     const tokenPending = getPendingTokenSpent(subAccount.pendingOperations ?? []);
     balances.push({
@@ -199,6 +414,17 @@ export function extractBalances(
   }
 
   return balances;
+}
+
+/**
+ * Reads a numeric field (bigint/number/string) as BigNumber, else `undefined`.
+ */
+export function optionalNumeric(value: unknown): BigNumber | undefined {
+  if (typeof value !== "bigint" && typeof value !== "number" && typeof value !== "string") {
+    return undefined;
+  }
+  const parsed = new BigNumber(value.toString());
+  return parsed.isFinite() ? parsed : undefined;
 }
 
 /** Reads a numeric `parameters` field (bigint/number/string) as BigNumber, else `fallback`. */
@@ -234,8 +460,72 @@ export function computeUseAllAmount(
   return raw.idiv(scale).times(scale);
 }
 
-function isStringArray(value: unknown): value is string[] {
+export function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(item => typeof item === "string");
+}
+
+const OPERATION_TYPES: ReadonlySet<string> = new Set<OperationType>([
+  "IN",
+  "OUT",
+  "NONE",
+  "CREATE",
+  "REVEAL",
+  "UNKNOWN",
+  "DELEGATE",
+  "UNDELEGATE",
+  "REDELEGATE",
+  "REWARD",
+  "FEES",
+  "FREEZE",
+  "UNFREEZE",
+  "WITHDRAW_EXPIRE_UNFREEZE",
+  "UNDELEGATE_RESOURCE",
+  "LEGACY_UNFREEZE",
+  "VOTE",
+  "REWARD_PAYOUT",
+  "BOND",
+  "UNBOND",
+  "WITHDRAW_UNBONDED",
+  "SET_CONTROLLER",
+  "SLASH",
+  "NOMINATE",
+  "CHILL",
+  "APPROVE",
+  "OPT_IN",
+  "OPT_OUT",
+  "LOCK",
+  "UNLOCK",
+  "WITHDRAW",
+  "REVOKE",
+  "ACTIVATE",
+  "REGISTER",
+  "NFT_IN",
+  "NFT_OUT",
+  "STAKE",
+  "UNSTAKE",
+  "WITHDRAW_UNSTAKED",
+  "FINALIZE_UNSTAKE",
+  "BURN",
+  "ASSOCIATE_TOKEN",
+  "CONTRACT_CALL",
+  "UPDATE_ACCOUNT",
+  "PRE_APPROVAL",
+  "TRANSFER_PROPOSAL",
+  "TRANSFER_REJECTED",
+  "TRANSFER_WITHDRAWN",
+  "SHIELDED_TX_SAPLING_IN",
+  "SHIELDED_TX_SAPLING_OUT",
+  "SHIELDED_TX_ORCHARD_IN",
+  "SHIELDED_TX_ORCHARD_OUT",
+  "SHIELDED_TX_IRONWOOD_IN",
+  "SHIELDED_TX_IRONWOOD_OUT",
+  "SHIELDED_TX_INTERNAL",
+  "STAKE_NEURON",
+  "TOP_UP_NEURON",
+]);
+
+export function isOperationType(value: string): value is OperationType {
+  return OPERATION_TYPES.has(value);
 }
 
 function isDelegationMode(mode: GenericTransaction["mode"]): mode is StakingOperation {
@@ -247,9 +537,8 @@ function isDelegationMode(mode: GenericTransaction["mode"]): mode is StakingOper
   );
 }
 
-type GenericCoinFrameworkMemo =
-  | { type: string; value?: string }
-  | { type: "map"; memos: Map<string, string> };
+// Use the framework's memo union — `{ type: memoType, value }` without `kind` is silently dropped by coin modules (LIVE-35735).
+type GenericCoinFrameworkMemo = MemoNotSupported | StringMemo<string> | MapMemo<string, string>;
 type GenericCoinFrameworkTxData = { type: string; value?: unknown };
 type GenericCoinFrameworkTransactionIntent = TransactionIntent & {
   memo?: GenericCoinFrameworkMemo;
@@ -306,23 +595,140 @@ export function cleanedOperation(operation: OperationCommon): OperationCommon {
   return { ...operation, extra: cleanedExtra };
 }
 
-export function adaptCoreOperationToLiveOperation(accountId: string, op: CoreOperation): Operation {
-  const opType = op.type as OperationType;
+/**
+ * The one `details` key a coin module owns outright; its contents are never inspected here. Only this
+ * reserved key is forwarded, never every unrecognised `details` key: `Operation.extra` is persisted,
+ * so a blanket forward would let a non-JSON value reach storage.
+ */
+const FAMILY_EXTRA_DETAILS_KEY = "familyExtra";
 
-  const extra: {
-    assetReference?: string;
-    assetOwner?: string;
-    assetAmount?: string | undefined;
-    assetSenders?: string[];
-    assetRecipients?: string[];
-    parentSenders?: string[];
-    parentRecipients?: string[];
-    ledgerOpType?: string | undefined;
-    memo?: string | undefined;
-    internal?: boolean;
-    feePayer?: string;
-    stake?: { address: string; amount: BigNumber };
-  } = {};
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+export function readFamilyExtra(details: CoreOperation["details"]): JsonSafeRecord | undefined {
+  const raw = asRecord(details?.[FAMILY_EXTRA_DETAILS_KEY]);
+  return raw ? (toJsonSafe(raw) as JsonSafeRecord) : undefined;
+}
+
+/** The `extra` keys `adaptCoreOperationToLiveOperation` writes. */
+type FrameworkOperationExtra = {
+  assetReference?: string;
+  assetOwner?: string;
+  assetAmount?: string | undefined;
+  assetSenders?: string[];
+  assetRecipients?: string[];
+  parentSenders?: string[];
+  parentRecipients?: string[];
+  ledgerOpType?: string | undefined;
+  memo?: string | undefined;
+  internal?: boolean;
+  feePayer?: string;
+  stake?: { address: string; amount: BigNumber };
+  transferId?: string;
+};
+
+// Maps memoType to its extra-field key; omit an entry to fall back to "memo".
+const MEMO_TYPE_TO_EXTRA_KEY: Readonly<Record<string, string>> = {
+  transferId: "transferId",
+};
+
+/**
+ * Every key of the above. The family bag lands flat beside these, so a collision is dropped rather
+ * than merged: each framework key is written *conditionally*, so a surviving family key would supply
+ * the framework's own answer on an operation where the framework wrote none.
+ *
+ * `satisfies Record<…, true>` keeps this list honest: adding a field to `FrameworkOperationExtra`
+ * without reserving it here fails to compile.
+ */
+const FRAMEWORK_RESERVED_EXTRA_KEYS: ReadonlySet<string> = new Set(
+  Object.keys({
+    assetReference: true,
+    assetOwner: true,
+    assetAmount: true,
+    assetSenders: true,
+    assetRecipients: true,
+    parentSenders: true,
+    parentRecipients: true,
+    ledgerOpType: true,
+    memo: true,
+    internal: true,
+    feePayer: true,
+    stake: true,
+    transferId: true,
+  } satisfies Record<keyof FrameworkOperationExtra, true>),
+);
+
+function stripFrameworkReservedKeys(bag: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(bag).filter(([key]) => !FRAMEWORK_RESERVED_EXTRA_KEYS.has(key)),
+  );
+}
+
+/**
+ * Every framework-owned `extra` key is a JSON-safe string, string array or boolean except
+ * `stake.amount`, a `BigNumber`. These two return **only** that converted key, never the whole bag:
+ * `mergeExtra` applies them last, so the framework can serialize its own half
+ * (`accountRawAssign.ts`) without a family hook that spreads the input being able to put the
+ * unconverted value back.
+ *
+ * A `stake.amount` that is not the expected type is left alone rather than coerced: it belongs to a
+ * shape this layer did not write, and `new BigNumber()` on it would store a NaN over real data.
+ */
+export function frameworkExtraToRaw(extra: OperationExtra): Record<string, unknown> | undefined {
+  const stake = asRecord(asRecord(extra)?.stake);
+  if (!stake || !BigNumber.isBigNumber(stake.amount)) return undefined;
+  return { stake: { ...stake, amount: stake.amount.toFixed() } };
+}
+
+export function frameworkExtraFromRaw(
+  extraRaw: OperationExtraRaw,
+): Record<string, unknown> | undefined {
+  const stake = asRecord(asRecord(extraRaw)?.stake);
+  if (!stake || typeof stake.amount !== "string") return undefined;
+  return { stake: { ...stake, amount: new BigNumber(stake.amount) } };
+}
+
+/**
+ * Precedence is per key, not per bag. `passthrough` (the untouched input) carries every key neither
+ * side maps, so a family mapping only its own keys cannot drop `ledgerOpType` or `memo`;
+ * `frameworkOwned` is applied last, so a hook written as `extra => ({ ...extra, ...ownKeys })`
+ * cannot carry an unconverted `stake` back over the framework's conversion.
+ *
+ * A family hook returning nothing usable leaves the passthrough plus the framework's own keys, rather
+ * than handing the serialization layer `undefined` and dropping the whole bag.
+ */
+export function mergeExtra(
+  passthrough: unknown,
+  familyPart: unknown,
+  frameworkOwned: Record<string, unknown> | undefined,
+): unknown {
+  const base = asRecord(passthrough);
+  const family = asRecord(familyPart);
+  if (!base) return family ? { ...family, ...frameworkOwned } : passthrough;
+  return { ...base, ...family, ...frameworkOwned };
+}
+
+function assignAssetExtra(op: CoreOperation, extra: FrameworkOperationExtra): void {
+  if (op.asset?.type === "native") return;
+  extra.assetReference =
+    "assetReference" in (op.asset ?? {}) ? (op.asset as any).assetReference : "";
+  extra.assetOwner = "assetOwner" in (op.asset ?? {}) ? (op.asset as any).assetOwner : "";
+}
+
+function buildStakeExtra(stake: unknown): FrameworkOperationExtra["stake"] | undefined {
+  if (!stake || typeof stake !== "object") return undefined;
+  const s = stake as { address?: string; amount?: bigint };
+  return {
+    address: s.address ?? "",
+    amount: new BigNumber(typeof s.amount === "bigint" ? s.amount.toString() : "0"),
+  };
+}
+
+function buildOperationExtra(op: CoreOperation): FrameworkOperationExtra {
+  const extra: FrameworkOperationExtra = {};
 
   if (op.details?.ledgerOpType !== undefined) {
     extra.ledgerOpType = op.details.ledgerOpType as string;
@@ -348,13 +754,14 @@ export function adaptCoreOperationToLiveOperation(accountId: string, op: CoreOpe
     extra.parentRecipients = op.details?.parentRecipients;
   }
 
-  if (op.asset?.type !== "native") {
-    extra.assetReference =
-      "assetReference" in (op.asset ?? {}) ? (op.asset as any).assetReference : "";
-    extra.assetOwner = "assetOwner" in (op.asset ?? {}) ? (op.asset as any).assetOwner : "";
-  }
+  assignAssetExtra(op, extra);
+
   if (op.details?.memo) {
     extra.memo = op.details.memo as string;
+  }
+
+  if (extra.memo === undefined && typeof op.details?.destinationTag === "number") {
+    extra.memo = op.details.destinationTag.toString();
   }
 
   if (op.details?.internal === true) {
@@ -365,27 +772,56 @@ export function adaptCoreOperationToLiveOperation(accountId: string, op: CoreOpe
     extra.feePayer = op.tx.feesPayer;
   }
 
-  if (op.details?.stake && typeof op.details.stake === "object") {
-    const s = op.details.stake as { address?: string; amount?: bigint };
-    extra.stake = {
-      address: s.address ?? "",
-      amount: new BigNumber(typeof s.amount === "bigint" ? s.amount.toString() : "0"),
-    };
+  const stake = buildStakeExtra(op.details?.stake);
+  if (stake) {
+    extra.stake = stake;
   }
 
-  const bnFees = new BigNumber(op.tx.fees.toString());
-  const hasFailed = op.tx.failed;
+  if (op.details?.transferId !== undefined) {
+    extra.transferId = op.details.transferId as string;
+  }
 
-  let value: BigNumber;
-  if (hasFailed) {
-    value = bnFees;
-  } else if (
+  return extra;
+}
+
+function computeOperationValue(
+  op: CoreOperation,
+  opType: OperationType,
+  bnFees: BigNumber,
+  hasFailed: boolean,
+): BigNumber {
+  if (hasFailed) return bnFees;
+  if (
     op.asset.type === "native" &&
     ["OUT", "FEES", "DELEGATE", "UNDELEGATE", "REDELEGATE"].includes(opType)
   ) {
-    value = new BigNumber(op.value.toString()).plus(bnFees);
-  } else {
-    value = new BigNumber(op.value.toString());
+    return new BigNumber(op.value.toString()).plus(bnFees);
+  }
+  return new BigNumber(op.value.toString());
+}
+
+export function adaptCoreOperationToLiveOperation(
+  accountId: string,
+  op: CoreOperation,
+  reviveFamilyExtra?: (extraRaw: OperationExtraRaw) => OperationExtra,
+): Operation {
+  const opType = op.type as OperationType;
+  const extra = buildOperationExtra(op);
+
+  const bnFees = new BigNumber(op.tx.fees.toString());
+  const hasFailed = op.tx.failed;
+  const value = computeOperationValue(op, opType, bnFees, hasFailed);
+
+  // Landed flat beside the framework's own keys and revived through the family's
+  // `fromOperationExtraRaw` — the same pair `accountRawAssign.ts` composes — so a family reads one
+  // shape whether an operation arrived from a fresh sync or from storage. The reserved-key strip runs
+  // *after* the reviver, and the framework's keys are spread last, so the bag can only fill what the
+  // framework left unwritten.
+  const familyExtra = readFamilyExtra(op.details);
+  let revivedFamilyExtra: Record<string, unknown> | undefined;
+  if (familyExtra) {
+    const revived = reviveFamilyExtra ? reviveFamilyExtra(familyExtra) : familyExtra;
+    revivedFamilyExtra = stripFrameworkReservedKeys(asRecord(revived) ?? familyExtra);
   }
 
   const res = {
@@ -400,11 +836,10 @@ export function adaptCoreOperationToLiveOperation(accountId: string, op: CoreOpe
     senders: extra.parentSenders ?? op.senders,
     recipients: extra.parentRecipients ?? op.recipients,
     date: op.tx.date,
-    transactionSequenceNumber: op.details?.sequence
-      ? new BigNumber(op.details?.sequence.toString())
-      : undefined,
+    transactionSequenceNumber:
+      op.details?.sequence != null ? new BigNumber(op.details.sequence.toString()) : undefined,
     hasFailed,
-    extra,
+    extra: revivedFamilyExtra ? { ...revivedFamilyExtra, ...extra } : extra,
   };
 
   return res;
@@ -458,7 +893,7 @@ function defaultComputeIntentType(transaction: GenericTransaction): string {
  * @returns A `TransactionIntent` object containing the standardized representation of the transaction.
  *   - Includes details such as type, sender, recipient, amount, fees, asset, and an optional memo.
  *   - If `assetReference` and `assetOwner` are provided, the asset is represented as a token.
- *   - If `memoType` and `memoValue` are provided, a memo is included; otherwise, a default memo of type "NO_MEMO" is added.
+ *   - If `memoType` and `memoValue` are provided, a `StringMemo` is included (with `memoType` as its `kind`); otherwise the framework's `MemoNotSupported` (`{ type: "none" }`) is used.
  *
  * @throws An error if the transaction mode is unsupported.
  */
@@ -467,6 +902,7 @@ export function transactionToIntent(
   transaction: GenericTransaction,
   computeIntentType?: (transaction: GenericTransaction) => string,
   craftTransactionData?: (intent: TransactionIntent) => TxData,
+  buildIntentData?: BridgeApi["buildIntentData"],
 ): GenericCoinFrameworkTransactionIntent {
   const intentType = (computeIntentType ?? defaultComputeIntentType)(transaction);
   const isStaking = ["stake", "unstake", "finalize_unstake"].includes(intentType);
@@ -478,6 +914,9 @@ export function transactionToIntent(
     intentType: isStaking || isDelegation ? "staking" : "transaction",
     type: intentType,
     sender: account.freshAddress,
+    // Needed upfront by families whose unsigned-tx builder embeds the public key (e.g. Stacks);
+    // signOperation overwrites it with a freshly fetched value before actually signing.
+    senderPublicKey: account.xpub,
     recipient: transaction.recipient,
     amount,
     asset: { type: "native", name: account.currency.name, unit: account.currency.units[0] },
@@ -509,23 +948,38 @@ export function transactionToIntent(
       memos: new Map([["destinationTag", String(transaction.tag)]]),
     };
   } else if (transaction.memoType && transaction.memoValue) {
+    // `memoType` carries the StringMemo `kind`; the coin module's `type === "string" && kind === "…"` guard requires this shape.
     res.memo = {
-      type: transaction.memoType,
+      type: "string",
+      kind: transaction.memoType,
       value: transaction.memoValue,
     };
   } else {
-    res.memo = { type: "NO_MEMO" };
+    res.memo = { type: "none" };
   }
 
-  if (!transaction.data || transaction.data.length === 0) {
-    const resolvedCraftTransactionData = craftTransactionData ?? defaultCraftTransactionData;
-    res.data = resolvedCraftTransactionData(res);
-  } else {
-    // We assume that if the transaction data is a buffer, the intent expect a buffer too
-    res.data = { type: "buffer", value: transaction.data };
-  }
+  res.data = resolveIntentData(transaction, res, craftTransactionData, buildIntentData);
 
   return res;
+}
+
+/**
+ * A transaction that already carries data wins over both crafting paths, since a buffer is already
+ * the crafted form. Otherwise the family's hook takes precedence over the coin module's crafting.
+ */
+function resolveIntentData(
+  transaction: GenericTransaction,
+  intent: GenericCoinFrameworkTransactionIntent,
+  craftTransactionData?: (intent: TransactionIntent) => TxData,
+  buildIntentData?: BridgeApi["buildIntentData"],
+): GenericCoinFrameworkTxData {
+  if (transaction.data && transaction.data.length > 0) {
+    return { type: "buffer", value: transaction.data };
+  }
+  if (buildIntentData) {
+    return buildIntentData(transaction);
+  }
+  return (craftTransactionData ?? defaultCraftTransactionData)(intent);
 }
 
 function toFeeDataRaw(data: FeeData): FeeDataRaw {
@@ -642,49 +1096,67 @@ function toGenericTransactionRaw(transaction: GenericTransaction): GenericTransa
     raw.dstValAddress = transaction.dstValAddress;
   }
 
+  if ("familySpecificData" in transaction) {
+    raw.familySpecificData = transaction.familySpecificData;
+  }
+
   return raw;
+}
+
+function defaultOperationType(mode: GenericTransaction["mode"]): OperationType {
+  switch (mode) {
+    case "changeTrust":
+      return "OPT_IN";
+    case "tokenAssociate":
+      return "ASSOCIATE_TOKEN";
+    case "delegate":
+      return "DELEGATE";
+    case "redelegate":
+      return "REDELEGATE";
+    case "undelegate":
+      return "UNDELEGATE";
+    case "withdraw":
+      return "WITHDRAW_UNBONDED";
+    case "stake":
+      return "STAKE";
+    case "unstake":
+      return "UNSTAKE";
+    case "finalize_unstake":
+      return "FINALIZE_UNSTAKE";
+    case "claimReward":
+    case "compoundReward":
+      return "REWARD";
+    default:
+      return "OUT";
+  }
+}
+
+function memoExtraFields(
+  memoType: string | null | undefined,
+  memoValue: string | null | undefined,
+): Record<string, string> {
+  if (!memoType || !memoValue) return {};
+  const extraKey = MEMO_TYPE_TO_EXTRA_KEY[memoType] ?? "memo";
+  return { [extraKey]: memoValue };
+}
+
+function grossOutgoingTokenAmount(transaction: GenericTransaction): BigNumber {
+  const including = transaction.transferFee?.transferAmountIncludingFee;
+  return including === undefined ? transaction.amount : new BigNumber(including);
 }
 
 export const buildOptimisticOperation = (
   account: Account,
   transaction: GenericTransaction,
   sequenceNumber?: bigint,
+  describeOptimisticOperation?: BridgeApi["describeOptimisticOperation"],
 ): Operation => {
-  let type: OperationType;
-  switch (transaction.mode) {
-    case "changeTrust":
-      type = "OPT_IN";
-      break;
-    case "delegate":
-      type = "DELEGATE";
-      break;
-    case "redelegate":
-      type = "REDELEGATE";
-      break;
-    case "undelegate":
-      type = "UNDELEGATE";
-      break;
-    case "withdraw":
-      type = "WITHDRAW_UNBONDED";
-      break;
-    case "stake":
-      type = "STAKE";
-      break;
-    case "unstake":
-      type = "UNSTAKE";
-      break;
-    case "finalize_unstake":
-      type = "FINALIZE_UNSTAKE";
-      break;
-    case "claimReward":
-    case "compoundReward":
-      type = "REWARD";
-      break;
-    default:
-      type = "OUT";
-      break;
-  }
-  const fees = BigInt(transaction.fees?.toString() || "0");
+  const { mode } = transaction;
+  const described =
+    mode !== undefined ? describeOptimisticOperation?.(mode, account, transaction) : undefined;
+  const type: OperationType = described?.type ?? defaultOperationType(mode);
+  // toFixed, not toString: BigNumber goes exponential above 1e21, which BigInt can't parse.
+  const fees = transaction.fees ? BigInt(transaction.fees.toFixed()) : 0n;
   const { subAccountId } = transaction;
   const { subAccounts } = account;
   const parentType = subAccountId ? "FEES" : type;
@@ -698,7 +1170,9 @@ export const buildOptimisticOperation = (
     id: encodeOperationId(account.id, "", parentType),
     hash: "",
     type: parentType,
-    value: subAccountId ? new BigNumber(fees.toString()) : transaction.amount, // match old behavior
+    value: subAccountId
+      ? new BigNumber(fees.toString()) // match old behavior
+      : (described?.value ?? transaction.amount),
     fee: new BigNumber(fees.toString()),
     blockHash: null,
     blockHeight: null,
@@ -715,6 +1189,14 @@ export const buildOptimisticOperation = (
         : {}),
     }),
     extra: {
+      // Reserved keys stripped and the framework's own spread last — the same contract
+      // `adaptCoreOperationToLiveOperation` applies to a family bag arriving from a sync. `blockTime`
+      // and `index` are this path's alone, which is why they are not in the reserved set.
+      ...(described?.extra ? stripFrameworkReservedKeys(described.extra) : {}),
+      // A family that describes its own operation uses the memo field as transport, not as a memo.
+      ...(described === undefined && (parentType === "OUT" || parentType === "FEES")
+        ? memoExtraFields(transaction.memoType, transaction.memoValue)
+        : {}),
       ledgerOpType: type,
       blockTime: new Date(),
       index: "0",
@@ -727,7 +1209,10 @@ export const buildOptimisticOperation = (
         id: `${subAccountId}--${type}`,
         hash: "",
         type,
-        value: transaction.useAllAmount ? tokenAccount.balance : transaction.amount,
+        // A Token-2022 transfer fee is debited on top, so the lock covers the gross amount.
+        value: transaction.useAllAmount
+          ? tokenAccount.balance
+          : grossOutgoingTokenAmount(transaction),
         fee: new BigNumber(fees.toString()),
         blockHash: null,
         blockHeight: null,

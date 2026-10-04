@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback, useState, type ReactElement, type ReactNode } from "react";
 import {
   ListItem,
   ListItemTitle,
@@ -6,10 +6,13 @@ import {
   ListItemDescription,
   ListItemLeading,
   ListItemTrailing,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@ledgerhq/lumen-ui-react";
 import { SquaredCryptoIcon } from "LLD/components/SquaredCryptoIcon";
 import { CryptoOrTokenCurrency } from "@domain/entity-currency";
-import type { ReactElement, ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 export type NetworkListItemData = {
   currency: CryptoOrTokenCurrency;
@@ -20,6 +23,8 @@ export type NetworkListItemData = {
 
 type NetworkListItemProps = NetworkListItemData & {
   onClick: () => void;
+  onDisabledClick?: () => void;
+  disabled?: boolean;
 };
 
 export const NetworkListItem = ({
@@ -28,10 +33,22 @@ export const NetworkListItem = ({
   rightElement,
   apy,
   onClick,
+  onDisabledClick,
+  disabled,
 }: NetworkListItemProps) => {
-  return (
+  const { t } = useTranslation();
+  const [isTooltipOpen, setIsTooltipOpen] = useState(false);
+
+  const handleDisabledItemClick = useCallback(() => {
+    onDisabledClick?.();
+    setIsTooltipOpen(true);
+  }, [onDisabledClick]);
+
+  const listItem = (
     <ListItem
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      aria-disabled={disabled || undefined}
       data-testid={`network-item-name-${currency.name}`}
       className="-outline-offset-2"
     >
@@ -47,5 +64,29 @@ export const NetworkListItem = ({
       </ListItemLeading>
       <ListItemTrailing>{rightElement}</ListItemTrailing>
     </ListItem>
+  );
+
+  if (!disabled) {
+    return listItem;
+  }
+
+  return (
+    <Tooltip open={isTooltipOpen} onOpenChange={setIsTooltipOpen}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="block w-full border-0 bg-transparent p-0 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+          aria-disabled
+          onClick={handleDisabledItemClick}
+        >
+          {listItem}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {t("modularAssetDrawer.unsupportedNetworkTooltip", {
+          network: currency.name,
+        })}
+      </TooltipContent>
+    </Tooltip>
   );
 };

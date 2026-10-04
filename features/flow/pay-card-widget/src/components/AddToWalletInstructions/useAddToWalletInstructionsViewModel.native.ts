@@ -1,0 +1,124 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AppState, type NativeEventSubscription } from "react-native";
+import { useDispatch } from "react-redux";
+import { useTranslation } from "@shared/i18n";
+import { Android, Apple } from "@ledgerhq/lumen-ui-rnative/symbols";
+import { startDigitalWalletProvisioning } from "../../state";
+import { getWalletPlatform } from "../getWalletPlatform.native";
+import { openGoogleWalletStore, openWalletApp } from "./openWalletApp";
+
+type WalletPlatformIcon = typeof Apple;
+
+const WALLET_CTA_ICON: Record<"Apple" | "Android", WalletPlatformIcon> = { Apple, Android };
+
+type InstructionsScene = {
+  readonly scene: "instructions";
+  readonly title: string;
+  readonly steps: readonly string[];
+  readonly ctaLabel: string;
+  readonly ctaIcon: WalletPlatformIcon;
+  readonly onPressCta: () => Promise<void>;
+  readonly isPending: boolean;
+};
+
+type ErrorScene = {
+  readonly scene: "error";
+  readonly title: string;
+  readonly description: string;
+  readonly actionLabel: string;
+  readonly backLabel: string;
+  readonly onPressAction: () => Promise<void>;
+  readonly onBack: () => void;
+  readonly isPending: boolean;
+};
+
+export type AddToWalletInstructionsViewProps = InstructionsScene | ErrorScene;
+
+type Params = {
+  onDone: () => void;
+};
+
+export function useAddToWalletInstructionsViewModel({
+  onDone,
+}: Params): AddToWalletInstructionsViewProps {
+  const { t } = useTranslation();
+  const dispatch = useDispatch();
+  const [scene, setScene] = useState<"instructions" | "error">("instructions");
+  const [isPending, setIsPending] = useState(false);
+  const walletReturn = useRef<NativeEventSubscription | null>(null);
+
+  const { i18nKey, icon } = getWalletPlatform();
+  const ctaIcon = WALLET_CTA_ICON[icon];
+
+  useEffect(() => {
+    return () => {
+      walletReturn.current?.remove();
+    };
+  }, []);
+
+  const openWallet = useCallback(async () => {
+    setIsPending(true);
+    const opened = await openWalletApp();
+    setIsPending(false);
+
+    if (!opened) {
+      setScene("error");
+      return;
+    }
+
+    let hasLeftApp = AppState.currentState !== "active";
+    walletReturn.current?.remove();
+    walletReturn.current = AppState.addEventListener("change", nextState => {
+      if (nextState !== "active") {
+        hasLeftApp = true;
+        return;
+      }
+
+      if (!hasLeftApp) {
+        return;
+      }
+
+      walletReturn.current?.remove();
+      walletReturn.current = null;
+      // The provider learns about the card from the card network, often well after the holder is
+      // back, so the Pay tab keeps re-asking for a while rather than reading it once here.
+      dispatch(startDigitalWalletProvisioning());
+      onDone();
+    });
+  }, [dispatch, onDone]);
+
+  const openStore = useCallback(async () => {
+    setIsPending(true);
+    await openGoogleWalletStore();
+    setIsPending(false);
+  }, []);
+
+  const showInstructions = useCallback(() => setScene("instructions"), []);
+
+  if (scene === "error") {
+    return {
+      scene,
+      title: t(`payTab.cardOnboarding.addToWallet.${i18nKey}.error.title`),
+      description: t(`payTab.cardOnboarding.addToWallet.${i18nKey}.error.description`),
+      actionLabel: t(`payTab.cardOnboarding.addToWallet.${i18nKey}.error.action`),
+      backLabel: t("payTab.cardOnboarding.addToWallet.error.back"),
+      onPressAction: i18nKey === "android" ? openStore : openWallet,
+      onBack: showInstructions,
+      isPending,
+    };
+  }
+
+  return {
+    scene,
+    title: t(`payTab.cardOnboarding.addToWallet.${i18nKey}.title`),
+    steps: [
+      t(`payTab.cardOnboarding.addToWallet.${i18nKey}.step1`),
+      t(`payTab.cardOnboarding.addToWallet.${i18nKey}.step2`),
+      t(`payTab.cardOnboarding.addToWallet.${i18nKey}.step3`),
+    ],
+    ctaLabel: t(`payTab.cardOnboarding.addToWallet.${i18nKey}.cta`),
+    ctaIcon,
+    onPressCta: openWallet,
+    isPending,
+  };
+}

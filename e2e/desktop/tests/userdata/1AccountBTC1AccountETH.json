@@ -23,7 +23,6 @@
       "loaded": true,
       "shareAnalytics": false,
       "sharePersonalizedRecommandations": false,
-      "hasSeenWalletV4Tour": true,
       "analyticsConsentInfo": {
         "consentDate": "2099-01-01T00:00:00.000Z",
         "privacyPolicyVersion": 1
@@ -62,7 +61,10 @@
           "languageId": 0,
           "seFlags": []
         },
-        "apps": []
+        "apps": [
+          { "name": "Bitcoin", "version": "2.5.1" },
+          { "name": "Ethereum", "version": "1.22.4" }
+        ]
       },
       "blacklistedTokenIds": [],
       "swapAcceptedProviderIds": [],

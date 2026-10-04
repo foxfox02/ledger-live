@@ -10,7 +10,8 @@ import {
 } from "@ledgerhq/ledger-wallet-framework/errors";
 import { AccountBridge } from "@ledgerhq/types-live";
 import { BigNumber } from "bignumber.js";
-import { fetchAccountDetails } from "./api";
+import { fetchAccountDetails } from "./network";
+import { getCoinConfig } from "./config";
 import { NEW_ACCOUNT_SIZE, YOCTO_THRESHOLD_VARIATION } from "./constants";
 import {
   NearNewAccountWarning,
@@ -25,6 +26,7 @@ import {
 import {
   isValidAddress,
   isImplicitAccount,
+  getFeeAvailableBalance,
   getMaxAmount,
   getTotalSpent,
   getYoctoThreshold,
@@ -53,7 +55,6 @@ export const getTransactionStatus: AccountBridge<
 
   const maxAmount = getMaxAmount(account, transaction, estimatedFees);
   const maxAmountWithFees = getMaxAmount(account, transaction);
-  const spendableBalanceWithFees = getMaxAmount(account, { ...transaction, mode: "stake" });
   const stakingThreshold = getYoctoThreshold();
 
   const totalSpent = getTotalSpent(account, transaction, estimatedFees);
@@ -62,11 +63,16 @@ export const getTransactionStatus: AccountBridge<
   const isStakeAndNotEnoughBalance =
     transaction.mode === "stake" &&
     (totalSpent.gt(maxAmountWithFees) || maxAmountWithFees.lt(estimatedFees));
-  const isUnstakeOrWithdrawAndNotEnoughBalance =
+  // An unstake or a withdraw only spends gas, which the protocol locks upfront: what matters is
+  // the liquid balance above the storage deposit, not the one our own reserve leaves over.
+  const cannotAffordStakingFees =
     ["unstake", "withdraw"].includes(transaction.mode) &&
-    (totalSpent.gt(spendableBalanceWithFees) || spendableBalanceWithFees.lt(estimatedFees));
+    estimatedFees.gt(getFeeAvailableBalance(account));
 
-  if (isStakeAndNotEnoughBalance || isUnstakeOrWithdrawAndNotEnoughBalance) {
+  // NotEnoughBalance is what LLD's shared NotEnoughFundsToUnstake banner keys off, so the
+  // fee shortfall keeps that name and the banner explains it with the balance and Buy/Swap/
+  // Deposit actions.
+  if (isStakeAndNotEnoughBalance || cannotAffordStakingFees) {
     errors.amount = new NotEnoughBalance();
   } else if (
     ["stake", "unstake", "withdraw"].includes(transaction.mode) &&
@@ -132,7 +138,7 @@ const getSendTransactionStatus = async (
       currencyName: account.currency.name,
     });
   } else {
-    const accountDetails = await fetchAccountDetails(transaction.recipient);
+    const accountDetails = await fetchAccountDetails(getCoinConfig(), transaction.recipient);
 
     if (!accountDetails) {
       recipientIsNewAccount = true;

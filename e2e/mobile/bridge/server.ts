@@ -4,19 +4,18 @@ import fs from "fs";
 import net from "net";
 import merge from "lodash/merge";
 
-import { NavigatorName } from "../../../apps/ledger-live-mobile/src/const";
-import type {
-  MessageData,
-  OverrideFeatureFlagPayload,
-  ServerData,
-} from "../../../apps/ledger-live-mobile/src/e2e/bridge/types";
-import type { OptionalFeatureMap, FeatureId } from "@shared/feature-flags";
+import { NavigatorName } from "~/const";
+import type { Contact } from "@domain/entity-contact";
+import type { MessageData, OverrideFeatureFlagPayload, ServerData } from "~/e2e/bridge/types";
+import type { PartialFeatures, FeatureId } from "@shared/feature-flags";
 import { FeatureIdSchema } from "@shared/feature-flags";
 import { log as detoxLog } from "detox";
 import { getSpeculosModel } from "@ledgerhq/live-e2e-shared/speculosAppVersion";
 import { v4 as uuid } from "uuid";
+import { TIMEOUT } from "@e2e/utils/timeouts";
 
-const RESPONSE_TIMEOUT = 10000;
+/** Round-trip to the app over the bridge. Exported so a caller can bound a bridge call from outside. */
+export const BRIDGE_RESPONSE_TIMEOUT = TIMEOUT.medium;
 
 export async function findFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -118,12 +117,26 @@ export async function loadConfig(fileName: string, agreed: true = true): Promise
     postMessage({ type: "importAccounts", id: uniqueId(), payload: data.accounts });
   }
 
+  // Written by LedgerSyncCliHelper.saveTrustchainToUserdata, so the app boots already a member
+  // of the trustchain the CLI created and skips the in-app activation flow.
+  if (data.trustchain) {
+    postMessage({ type: "importTrustchain", id: uniqueId(), payload: data.trustchain });
+  }
+
+  if (data.postOnboarding) {
+    postMessage({ type: "importPostOnboarding", id: uniqueId(), payload: data.postOnboarding });
+  }
+
+  if (data.payCard) {
+    postMessage({ type: "importPayCard", id: uniqueId(), payload: data.payCard });
+  }
+
   if (data.featureFlags?.overrides) {
     await setFeatureFlags(data.featureFlags.overrides);
   }
 }
 
-export async function setFeatureFlags(flags: OptionalFeatureMap) {
+export async function setFeatureFlags(flags: PartialFeatures) {
   for (const id in flags) {
     if (isFeatureId(id)) {
       setFeatureFlag({ id, value: flags[id] });
@@ -134,6 +147,10 @@ export async function setFeatureFlags(flags: OptionalFeatureMap) {
 
 export async function setFeatureFlag(flag: OverrideFeatureFlagPayload) {
   postMessage({ type: "overrideFeatureFlag", id: uniqueId(), payload: flag });
+}
+
+export async function importContacts(contacts: Contact[]) {
+  await fetchData({ type: "importContacts", id: uniqueId(), payload: contacts });
 }
 
 async function navigate(name: string) {
@@ -152,11 +169,11 @@ export async function swapSetup() {
 }
 
 export async function waitSwapReady() {
-  return fetchData({ type: "waitSwapReady", id: uniqueId() }, RESPONSE_TIMEOUT * 3);
+  return fetchData({ type: "waitSwapReady", id: uniqueId() }, TIMEOUT.xlarge, "waitSwapReady");
 }
 
 export async function waitEarnReady() {
-  return fetchData({ type: "waitEarnReady", id: uniqueId() }, RESPONSE_TIMEOUT * 3);
+  return fetchData({ type: "waitEarnReady", id: uniqueId() }, TIMEOUT.xlarge, "waitEarnReady");
 }
 
 export async function getLogs() {
@@ -171,20 +188,29 @@ export async function getEnvs() {
   return fetchData({ type: "getEnvs", id: uniqueId() });
 }
 
-async function fetchData(message: MessageData, timeout = RESPONSE_TIMEOUT): Promise<string> {
+/** Last Buy/Sell handoff URL (`goToManifest` + `goToURL`) seen by the app, or "" if none yet. */
+export async function getPtxHandoff() {
+  return fetchData({ type: "getPtxHandoff", id: uniqueId() });
+}
+
+async function fetchData(
+  message: MessageData,
+  timeout = BRIDGE_RESPONSE_TIMEOUT,
+  correlationKey: string = message.id,
+): Promise<string> {
   return new Promise<string>(resolve => {
     postMessage(message);
     const timeoutId = setTimeout(() => {
-      global.pendingCallbacks?.delete(message.type);
+      global.pendingCallbacks?.delete(correlationKey);
       delete webSocket.messages[message.id];
       console.warn(`Timeout while waiting for ${message.type}`);
       resolve("");
     }, timeout);
 
-    global.pendingCallbacks.set(message.type, {
+    global.pendingCallbacks.set(correlationKey, {
       callback: (data: string) => {
         clearTimeout(timeoutId);
-        global.pendingCallbacks?.delete(message.type);
+        global.pendingCallbacks?.delete(correlationKey);
         resolve(data);
       },
     });
@@ -203,6 +229,14 @@ export async function removeKnownSpeculos(address: string) {
   postMessage({ type: "removeKnownSpeculos", id: uniqueId(), payload: address });
 }
 
+/** Resolve the `fetchData` promise waiting on `key`, if any. Each response type does this. */
+function resolvePending(key: string, payload: string) {
+  const pending = global.pendingCallbacks?.get(key);
+  if (!pending) return;
+  global.pendingCallbacks.delete(key);
+  pending.callback(payload);
+}
+
 function onMessage(messageStr: string) {
   const msg: ServerData = JSON.parse(messageStr);
   log(`Message received ${msg.type}`);
@@ -215,54 +249,22 @@ function onMessage(messageStr: string) {
     case "walletAPIResponse":
       webSocket.e2eBridgeServer.next(msg);
       break;
-    case "appLogs": {
-      const pending = global.pendingCallbacks?.get("getLogs");
-      if (pending) {
-        global.pendingCallbacks.delete("getLogs");
-        pending.callback(msg.payload);
-      }
+    case "appLogs":
+    case "ptxHandoff":
+    case "appFlags":
+    case "appEnvs":
+    case "contactsImported":
+      resolvePending(msg.id, msg.payload);
       break;
-    }
-    case "appFlags": {
-      const pending = global.pendingCallbacks?.get("getFlags");
-      if (pending) {
-        global.pendingCallbacks.delete("getFlags");
-        pending.callback(msg.payload);
-      }
+    case "swapSetupDone":
+      resolvePending(msg.id, "swapSetup done");
       break;
-    }
-    case "appEnvs": {
-      const pending = global.pendingCallbacks?.get("getEnvs");
-      if (pending) {
-        global.pendingCallbacks.delete("getEnvs");
-        pending.callback(msg.payload);
-      }
+    case "swapLiveAppReady":
+      resolvePending("waitSwapReady", "Swap Live App is ready");
       break;
-    }
-    case "swapSetupDone": {
-      const pending = global.pendingCallbacks?.get("swapSetup");
-      if (pending) {
-        global.pendingCallbacks.delete("swapSetup");
-        pending.callback("swapSetup done");
-      }
+    case "earnLiveAppReady":
+      resolvePending("waitEarnReady", "Earn Live App is ready");
       break;
-    }
-    case "swapLiveAppReady": {
-      const pending = global.pendingCallbacks?.get("waitSwapReady");
-      if (pending) {
-        global.pendingCallbacks.delete("waitSwapReady");
-        pending.callback("Swap Live App is ready");
-      }
-      break;
-    }
-    case "earnLiveAppReady": {
-      const pending = global.pendingCallbacks?.get("waitEarnReady");
-      if (pending) {
-        global.pendingCallbacks.delete("waitEarnReady");
-        pending.callback("Earn Live App is ready");
-      }
-      break;
-    }
     case "appFile":
       try {
         const { fileName, fileContent }: { fileName: string; fileContent: string } = JSON.parse(

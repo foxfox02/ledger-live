@@ -1,0 +1,45 @@
+import { useCallback, useEffect } from "react";
+import { SEND_FLOW_STEP, type SendFlowStep } from "@ledgerhq/live-common/flows/send/types";
+import { useFlowWizard } from "../../../../FlowWizard/FlowWizardContext";
+import { useSendFlowTrackingProperties } from "../../../hooks/useSendFlowTrackingProperties";
+import { track, trackPage } from "@shared/analytics";
+
+type AddContactViewModel = Readonly<{
+  onAddNewContact?: () => void;
+  onAddToExistingContact?: () => void;
+}>;
+
+export function useAddContactViewModel(): AddContactViewModel {
+  const { navigation } = useFlowWizard<SendFlowStep>();
+  const trackingProperties = useSendFlowTrackingProperties();
+
+  useEffect(() => {
+    trackPage({
+      category: "Modal send - add contact options",
+      props: trackingProperties,
+    });
+  }, [trackingProperties]);
+
+  const onAddNewContact = useCallback(() => {
+    track("button_clicked", {
+      button: "add a new contact",
+      page: "add contact options",
+      ...trackingProperties,
+    });
+    navigation.goToStep(SEND_FLOW_STEP.ADD_NEW_CONTACT);
+  }, [navigation, trackingProperties]);
+
+  const onAddToExistingContact = useCallback(() => {
+    track("button_clicked", {
+      button: "add to an existing contact",
+      page: "add contact options",
+      ...trackingProperties,
+    });
+    navigation.goToStep(SEND_FLOW_STEP.ADD_TO_EXISTING_CONTACT);
+  }, [navigation, trackingProperties]);
+
+  return {
+    onAddNewContact,
+    onAddToExistingContact,
+  };
+}

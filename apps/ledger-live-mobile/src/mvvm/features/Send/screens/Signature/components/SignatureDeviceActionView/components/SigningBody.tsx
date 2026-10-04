@@ -1,5 +1,8 @@
+import { trackPage } from "@shared/analytics";
 import React, { useEffect } from "react";
 import type { Device } from "@ledgerhq/live-common/hw/actions/types";
+import type { getSendFlowTrackingProperties } from "LLM/features/Send/utils/tracking";
+import type { RecipientType } from "../../../../../utils/contactTracking";
 import { SimplifiedTransactionConfirm } from "../../SimplifiedTransactionConfirm";
 import { SignatureCancelledState } from "./SignatureCancelledState";
 import { SignatureErrorState } from "./SignatureErrorState";
@@ -15,9 +18,19 @@ type SigningBodyProps = Readonly<{
   request: NonNullable<SignatureDeviceActionViewModel["request"]>;
   onResult: SignatureDeviceActionViewModel["onDeviceActionResultCompleted"];
   onClose: () => void;
+  trackingProperties: ReturnType<typeof getSendFlowTrackingProperties>;
+  recipientType: RecipientType | null;
 }>;
 
-export function SigningBody({ device, action, request, onResult, onClose }: SigningBodyProps) {
+export function SigningBody({
+  device,
+  action,
+  request,
+  onResult,
+  onClose,
+  trackingProperties,
+  recipientType,
+}: SigningBodyProps) {
   const status = action.useHook(device, request);
   const payload = action.mapResult(status);
 
@@ -31,11 +44,23 @@ export function SigningBody({ device, action, request, onResult, onClose }: Sign
   }, [signedOperation, device, onResult]);
 
   const signError = status.transactionSignError ?? status.error ?? undefined;
+  const isUserRefused =
+    signError?.name === "UserRefusedOnDevice" || signError?.name === "TransactionRefusedOnDevice";
+
+  useEffect(() => {
+    if (!isUserRefused) {
+      return;
+    }
+    void trackPage({
+      category: "Modal send - action rejected",
+      props: {
+        ...trackingProperties,
+        recipientType,
+      },
+    });
+  }, [isUserRefused, recipientType, trackingProperties]);
 
   if (signError) {
-    const isUserRefused =
-      signError?.name === "UserRefusedOnDevice" || signError?.name === "TransactionRefusedOnDevice";
-
     return isUserRefused ? (
       <SignatureCancelledState onClose={onClose} onRetry={status.onRetry} />
     ) : (

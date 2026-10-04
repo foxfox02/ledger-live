@@ -1,23 +1,37 @@
 import React from "react";
 import { DialogBody } from "@ledgerhq/lumen-ui-react";
-import { cn } from "LLD/utils/cn";
-import type {
-  AddressSearchResult,
-  AddressValidationError as AddressValidationErrorType,
-} from "@ledgerhq/live-common/flows/send/recipient/types";
-import { shouldShowMatchedAddress } from "@ledgerhq/live-common/flows/send/recipient/utils/shouldShowMatchedAddress";
+import type { AddressValidationError as AddressValidationErrorType } from "@ledgerhq/live-common/flows/send/recipient/types";
+import type { CryptoCurrency } from "@domain/entity-currency-crypto";
+import type { Contact, ContactAddress } from "@domain/entity-contact";
+import {
+  ContactsFeatureIntroductionDialog,
+  type ContactsFeatureIntroduction,
+} from "@features/flow-contacts-introduction";
+import type { AddressMatchedSectionViewModel } from "../hooks/useAddressMatchedSectionViewModel";
 import { AddressMatchedSection } from "./AddressMatchedSection";
 import { AddressValidationError } from "./AddressValidationError";
 import EmptyList from "./EmptyList";
 import { LoadingState } from "./LoadingState";
+import { RecipientEmptyContactsState } from "./RecipientEmptyContactsState";
 import { RecipientIntroCard } from "./RecipientIntroCard";
 import { ValidationBanner } from "./ValidationBanner";
+import { RecipientContactsList } from "./RecipientContactsList";
+import { RecipientContactAddressSelection } from "./RecipientContactAddressSelection";
+import { SelfTransferSection } from "./SelfTransferSection";
+import { FamilySendRecipientNotice } from "./FamilySendRecipientNotice";
 
 type RecipientAddressModalViewProps = Readonly<{
-  searchValue: string;
   isLoading: boolean;
-  result: AddressSearchResult;
   showInitialState: boolean;
+  showContactsList: boolean;
+  showContactSearchResult: boolean;
+  showEmptyContactsState: boolean;
+  contactsOnNetwork: readonly Contact[];
+  contactSearchResult: Contact | undefined;
+  selectedContact: Contact | undefined;
+  network: CryptoCurrency;
+  handleContactSelect: (contact: Contact) => void;
+  handleContactAddressSelect: (address: ContactAddress, addressRank: number) => void;
   showMatchedAddress: boolean;
   showAddressValidationError: boolean;
   showEmptyState: boolean;
@@ -25,23 +39,27 @@ type RecipientAddressModalViewProps = Readonly<{
   showSanctionedBanner: boolean;
   showBridgeRecipientError: boolean;
   showBridgeRecipientWarning: boolean;
-  isSanctioned: boolean;
-  isAddressComplete: boolean;
   addressValidationErrorType: AddressValidationErrorType | null;
   bridgeRecipientError: Error | undefined;
   bridgeRecipientWarning: Error | undefined;
   bridgeSenderError: Error | undefined;
-  onAddressSelect: (address: string, ensName?: string) => void;
-  hasMemo: boolean;
   hasMemoValidationError: boolean;
-  hasFilledMemo: boolean;
+  addressMatchedSectionViewModel: AddressMatchedSectionViewModel;
+  featureIntroduction: ContactsFeatureIntroduction;
 }>;
 
 export function RecipientAddressModalView({
-  searchValue,
   isLoading,
-  result,
   showInitialState,
+  showContactsList,
+  showContactSearchResult,
+  showEmptyContactsState,
+  contactsOnNetwork,
+  contactSearchResult,
+  selectedContact,
+  network,
+  handleContactSelect,
+  handleContactAddressSelect,
   showMatchedAddress,
   showAddressValidationError,
   showEmptyState,
@@ -49,16 +67,13 @@ export function RecipientAddressModalView({
   showSanctionedBanner,
   showBridgeRecipientError,
   showBridgeRecipientWarning,
-  isSanctioned,
-  isAddressComplete,
   addressValidationErrorType,
   bridgeRecipientError,
   bridgeRecipientWarning,
   bridgeSenderError,
-  onAddressSelect,
-  hasMemo,
   hasMemoValidationError,
-  hasFilledMemo,
+  addressMatchedSectionViewModel,
+  featureIntroduction,
 }: RecipientAddressModalViewProps) {
   const shouldShowErrorBanner =
     !isLoading &&
@@ -67,34 +82,42 @@ export function RecipientAddressModalView({
       showBridgeRecipientError ||
       showBridgeRecipientWarning);
 
-  const isWaitingForMemo = hasMemo && isAddressComplete && !hasFilledMemo;
-  const showMatched = shouldShowMatchedAddress({
-    showMatchedAddress,
-    hasMemo,
-    hasFilledMemo,
-    hasMemoError: hasMemoValidationError,
-  });
+  // An empty memo no longer blocks the matched address: selecting it routes to the
+  // skip-memo confirmation step, which is where skipping is acknowledged.
+  const showMatched = showMatchedAddress && !hasMemoValidationError;
 
   return (
-    <DialogBody className={cn("flex flex-col py-16", !isWaitingForMemo && "min-h-[156px]")}>
-      {isLoading && !showMatched && (
-        <div className="flex flex-1 items-center">
-          <LoadingState />
-        </div>
+    <DialogBody className="flex min-h-[156px] flex-col py-16">
+      <SelfTransferSection />
+      <FamilySendRecipientNotice />
+      <ContactsFeatureIntroductionDialog {...featureIntroduction} />
+
+      {isLoading && !showMatched && <LoadingState />}
+
+      {showInitialState && showEmptyContactsState && <RecipientEmptyContactsState />}
+
+      {showInitialState && showContactsList && (
+        <RecipientContactsList contacts={contactsOnNetwork} onContactSelect={handleContactSelect} />
       )}
 
-      {showInitialState && <RecipientIntroCard />}
-
-      {showMatched && (
-        <AddressMatchedSection
-          searchResult={result}
-          searchValue={searchValue}
-          onSelect={onAddressSelect}
-          isSanctioned={isSanctioned}
-          isAddressComplete={isAddressComplete}
-          hasBridgeError={showBridgeRecipientError}
+      {showContactSearchResult && contactSearchResult && (
+        <RecipientContactsList
+          contacts={[contactSearchResult]}
+          onContactSelect={handleContactSelect}
         />
       )}
+
+      {showInitialState && !showEmptyContactsState && !showContactsList && <RecipientIntroCard />}
+
+      {selectedContact && (
+        <RecipientContactAddressSelection
+          contact={selectedContact}
+          network={network}
+          onAddressSelect={handleContactAddressSelect}
+        />
+      )}
+
+      {showMatched && <AddressMatchedSection viewModel={addressMatchedSectionViewModel} />}
 
       {showAddressValidationError && (
         <div className="flex flex-1 items-center justify-center">

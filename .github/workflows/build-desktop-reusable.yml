@@ -2,23 +2,38 @@ name: "[Desktop] - Build - Called"
 
 on:
   workflow_call:
+    inputs:
+      linux-only:
+        description: "Build Linux only, skipping the Windows and macOS matrix entries."
+        type: boolean
+        required: false
+        default: false
+      skip-artifact-upload:
+        description: "Skip uploading the built app. Set at the merge gate, where nothing consumes it."
+        type: boolean
+        required: false
+        default: false
     secrets:
       AWS_ACCOUNT_ID_PROD:
-        required: false
+        required: true
       AWS_CACHE_OIDC_ROLE_ARN_BRANCH:
-        required: false
+        required: true
       AWS_CACHE_OIDC_ROLE_ARN_DEVELOP:
-        required: false
+        required: true
       AWS_CACHE_REGION:
-        required: false
+        required: true
       AWS_CACHE_ROLE_NAME:
+        required: true
+      CARD_BAANX_API_URL:
         required: false
-      GH_BOT_CLIENT_ID:
+      CARD_BAANX_CLIENT_KEY:
         required: false
-      GH_BOT_PRIVATE_KEY:
+      CARD_BAANX_HOSTED_UI:
+        required: false
+      CARD_OAUTH_REDIRECT_URI:
         required: false
       NX_KEY:
-        required: false
+        required: true
   workflow_dispatch:
     inputs:
       ref:
@@ -30,10 +45,6 @@ on:
         required: false
       login:
         description: The GitHub username that triggered the workflow
-        type: string
-        required: false
-      base_ref:
-        description: The base branch to merge the head into when checking out the code
         type: string
         required: false
 
@@ -48,12 +59,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        config:
-          [
-            { name: "Linux", os: "ledger-live-linux-8CPU-32RAM", image: "linux-x86_64.AppImage", output-name: "linux" },
-            { name: "Windows", os: "windows-2022", dotnet: true, image: "win-x64.exe", output-name: "win" },
-            { name: "macOS", os: "macos-14", image: "mac.dmg", output-name: "mac" },
-          ]
+        config: >-
+          ${{ fromJSON(inputs.linux-only
+          && '[{"name":"Linux","os":"ledger-wallet-4cpu-aws-public","image":"linux-x86_64.AppImage","output-name":"linux"}]'
+          || '[{"name":"Linux","os":"ledger-wallet-4cpu-aws-public","image":"linux-x86_64.AppImage","output-name":"linux"},{"name":"Windows","os":"windows-2022","dotnet":true,"image":"win-x64.exe","output-name":"win"},{"name":"macOS","os":"macos-14","image":"mac.dmg","output-name":"mac"}]') }}
     name: "${{ matrix.config.name }} Build"
     runs-on: ${{ matrix.config.os }}
     timeout-minutes: 20
@@ -64,7 +73,15 @@ jobs:
 
     env:
       NODE_OPTIONS: "--max-old-space-size=7168"
+      NX_POWERPACK_CACHE_MODE: ${{ matrix.config.name == 'Windows' && 'read-only' || '' }}
     steps:
+      - name: Check out with LF line endings (Windows)
+        if: ${{ matrix.config.name == 'Windows' }}
+        shell: bash
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref || github.sha }}
@@ -101,95 +118,36 @@ jobs:
       - name: Build the app
         id: build-app
         env:
-          GENERATE_METAFILES: "lite"
+          CARD_BAANX_API_URL: ${{ secrets.CARD_BAANX_API_URL }}
+          CARD_BAANX_CLIENT_KEY: ${{ secrets.CARD_BAANX_CLIENT_KEY }}
+          CARD_BAANX_HOSTED_UI: ${{ secrets.CARD_BAANX_HOSTED_UI }}
+          CARD_OAUTH_REDIRECT_URI: ${{ secrets.CARD_OAUTH_REDIRECT_URI }}
         run: pnpm exec nx run ledger-live-desktop:build
 
       - name: Upload ${{ matrix.config.name }} app
+        if: ${{ !inputs.skip-artifact-upload }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ${{ steps.build-desktop.outputs.version }}-${{ matrix.config.image }}
           path: ${{ github.workspace }}/apps/ledger-live-desktop/dist/ledger-live-desktop-${{ steps.build-desktop.outputs.version }}-${{ matrix.config.image }}
 
-      - name: Upload bundle metafiles
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        if: ${{ !cancelled() }}
-        with:
-          name: ${{ matrix.config.output-name }}-js-bundle-metafiles
-          path: ${{ github.workspace }}/apps/ledger-live-desktop/metafile.*
+      - name: Validate electron-builder.yml
+        if: ${{ matrix.config.name == 'Linux' && !cancelled() }}
+        working-directory: apps/ledger-live-desktop
+        run: npx electron-builder --linux --dir --config electron-builder.yml -c.directories.output=${{ runner.temp }}/eb-configcheck --publish never
+
+      - name: Validate electron-builder-nightly.yml
+        if: ${{ matrix.config.name == 'Linux' && !cancelled() }}
+        working-directory: apps/ledger-live-desktop
+        run: npx electron-builder --linux --dir --config electron-builder-nightly.yml -c.directories.output=${{ runner.temp }}/eb-configcheck --publish never
+
+      - name: Validate electron-builder-pre.yml
+        if: ${{ matrix.config.name == 'Linux' && !cancelled() }}
+        working-directory: apps/ledger-live-desktop
+        run: npx electron-builder --linux --dir --config electron-builder-pre.yml -c.directories.output=${{ runner.temp }}/eb-configcheck --publish never
 
       - name: Push status
         id: status
         shell: bash
         if: ${{ !cancelled() }}
         run: echo "${{ matrix.config.name }}=${{ steps.build-app.outcome }}" >> $GITHUB_OUTPUT
-
-  report:
-    name: "Build Desktop > Report"
-    permissions:
-      pull-requests: write
-      contents: read
-    needs: build-desktop-app
-    runs-on: ubuntu-22.04
-    timeout-minutes: 5
-    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call' || github.event_name == 'pull_request' || github.event_name == 'push') && needs.build-desktop-app.outputs.linux == 'success' && needs.build-desktop-app.outputs.win == 'success' && needs.build-desktop-app.outputs.mac == 'success' }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ inputs.ref || github.sha }}
-
-      - name: generate token
-        id: generate-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          client-id: ${{ secrets.GH_BOT_CLIENT_ID }}
-          private-key: ${{ secrets.GH_BOT_PRIVATE_KEY }}
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        if: ${{ needs.build-desktop-app.outputs.linux == 'success' }}
-        with:
-          name: linux-js-bundle-metafiles
-          path: linux-js-bundle-metafiles
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        if: ${{ needs.build-desktop-app.outputs.win == 'success' }}
-        with:
-          name: win-js-bundle-metafiles
-          path: win-js-bundle-metafiles
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        if: ${{ needs.build-desktop-app.outputs.mac == 'success' }}
-        with:
-          name: mac-js-bundle-metafiles
-          path: mac-js-bundle-metafiles
-
-      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        name: Produce statuses of builds
-        id: statuses
-        with:
-          result-encoding: string
-          script: |
-            const obj = {
-              linux: "${{ needs.build-desktop-app.outputs.linux }}",
-              win: "${{ needs.build-desktop-app.outputs.win }}",
-              mac: "${{ needs.build-desktop-app.outputs.mac }}"
-            }
-            return JSON.stringify(obj);
-
-      - uses: LedgerHQ/ledger-live/tools/actions/build-checks@develop
-        if: ${{ !cancelled() && github.event.number != '' }}
-        with:
-          token: ${{ steps.generate-token.outputs.token }}
-          baseBranch: ${{ inputs.base_ref || 'develop' }}
-          prNumber: ${{ github.event.number}}
-          mode: desktop
-
-      - uses: LedgerHQ/ledger-live/tools/actions/desktop-report-build@develop
-        name: Report summary
-        with:
-          token: ${{ steps.generate-token.outputs.token }}
-          statuses: ${{ steps.statuses.outputs.result }}
-          attempt: ${{ github.run_attempt }}
-
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        name: Upload output
-        with:
-          path: ${{ github.workspace }}/summary-build-desktop.json
-          name: summary-build-desktop.json

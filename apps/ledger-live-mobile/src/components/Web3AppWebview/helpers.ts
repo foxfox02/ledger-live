@@ -1,3 +1,4 @@
+import { track } from "@shared/analytics";
 import { AppManifest, WalletAPIServer } from "@ledgerhq/live-common/wallet-api/types";
 import { getClientHeaders, getInitialURL } from "@ledgerhq/live-common/wallet-api/helpers";
 import { isUrlAllowedByManifestDomains } from "@ledgerhq/live-common/wallet-api/manifestDomainUtils";
@@ -11,7 +12,7 @@ import {
   useCacheBustedLiveApps,
   useDAppManifestCurrencyIds,
 } from "@ledgerhq/live-common/wallet-api/react";
-import { useDrawerConfiguration } from "@ledgerhq/live-common/dada-client/hooks/useDrawerConfiguration";
+import { useDrawerConfiguration } from "@ledgerhq/live-common/wallet-api/ModularDrawer/useDrawerConfiguration";
 import { useDappCurrentAccount, useDappLogic } from "@ledgerhq/live-common/wallet-api/useDappLogic";
 import type { AccountLike, Operation, Account } from "@ledgerhq/types-live";
 import type { Transaction } from "@ledgerhq/live-common/generated/types";
@@ -27,11 +28,9 @@ import { NavigatorName, ScreenName } from "~/const";
 import { flattenAccountsSelector } from "../../reducers/accounts";
 import { WebviewAPI, WebviewProps, WebviewState } from "./types";
 import prepareSignTransaction from "./liveSDKLogic";
-import { StackNavigatorNavigation } from "../RootNavigator/types/helpers";
-import { BaseNavigatorStackParamList } from "../RootNavigator/types/BaseNavigator";
+import { closePlatformExchange } from "./closePlatformExchange";
 import { mevProtectionSelector, trackingEnabledSelector } from "../../reducers/settings";
 import storage from "LLM/storage";
-import { track } from "../../analytics";
 import { userIdSelector } from "@domain/entity-client-identity";
 import { sendWalletAPIResponse } from "~/e2e/bridge/client";
 import Config from "react-native-config";
@@ -41,7 +40,7 @@ import {
   E2E_WEBVIEW_NETWORK_LOG_TYPE,
 } from "../../e2e/webviewNetworkLogCapture";
 import { webviewLogStore } from "../../e2e/webviewLogStore";
-import { currentRouteNameRef } from "../../analytics/screenRefs";
+import { getTrackingRouteLiveAppSource } from "./analytics";
 import { walletSelector } from "~/reducers/wallet";
 import {
   CacheMode,
@@ -52,9 +51,9 @@ import { Linking } from "react-native";
 import { useCacheBustedLiveAppsDB } from "~/screens/Platform/v2/hooks";
 import { useModularDrawerController } from "LLM/features/ModularDrawer";
 import { LiveAppManifest } from "@ledgerhq/live-common/platform/types";
-import { useFeature } from "@features/platform-feature-flags";
 import type { WalletApiDeviceIntentSignRequest } from "LLM/features/WalletApiSignature/components/TransactionSignatureDrawer";
 import type { WalletApiDeviceIntentSignMessageRequest } from "LLM/features/WalletApiSignature/components/MessageSignatureDrawer";
+import { useDeviceIntentSignEnabled } from "LLM/features/WalletApiSignature/hooks/useDeviceIntentSignEnabled";
 import { AccountPublicKeyUnavailable } from "@ledgerhq/live-common/errors";
 export function useWebView(
   {
@@ -64,6 +63,8 @@ export function useWebView(
     inputs,
     customHandlers,
     onWalletApiTransactionBroadcast,
+    onAccountRequestCancel,
+    onAccountRequestSuccess,
     manifestDomainCheckEnabled,
   }: Pick<
     WebviewProps,
@@ -73,6 +74,8 @@ export function useWebView(
     | "currentAccountHistDb"
     | "setCurrentAccountHistDb"
     | "onWalletApiTransactionBroadcast"
+    | "onAccountRequestCancel"
+    | "onAccountRequestSuccess"
   > & {
     manifestDomainCheckEnabled?: boolean;
   },
@@ -90,10 +93,7 @@ export function useWebView(
       trackingWrapper((eventName: string, properties?: Record<string, unknown> | null) =>
         track(eventName, {
           ...properties,
-          flowInitiatedFrom:
-            currentRouteNameRef.current === "Platform Catalog"
-              ? "Discover"
-              : currentRouteNameRef.current,
+          flowInitiatedFrom: getTrackingRouteLiveAppSource(),
         }),
       ),
     [],
@@ -140,6 +140,8 @@ export function useWebView(
     requestDeviceIntentSign: setDeviceIntentSignRequest,
     requestDeviceIntentSignMessage: setDeviceIntentSignMessageRequest,
     onPublicKeyUnavailable: setPublicKeyUnavailableError,
+    onAccountRequestCancel,
+    onAccountRequestSuccess,
   });
 
   const trackingEnabled = useSelector(trackingEnabledSelector);
@@ -181,7 +183,7 @@ export function useWebView(
     onLoadError,
     server,
   } = useWalletAPIServer({
-    walletState,
+    accountNames: walletState.accountNames,
     manifest: manifest satisfies AppManifest,
     accounts,
     tracking,
@@ -516,6 +518,8 @@ export interface Props {
    * to the SignMessage stack.
    */
   requestDeviceIntentSignMessage: (request: WalletApiDeviceIntentSignMessageRequest) => void;
+  onAccountRequestCancel?: () => void;
+  onAccountRequestSuccess?: () => void;
 }
 
 export function useUiHook({
@@ -524,25 +528,16 @@ export function useUiHook({
   onPublicKeyUnavailable,
   requestDeviceIntentSign,
   requestDeviceIntentSignMessage,
+  onAccountRequestCancel,
+  onAccountRequestSuccess,
 }: Props): UiHook {
   const navigation = useNavigation();
   const [device, setDevice] = useState<Device>();
   const { createDrawerConfiguration } = useDrawerConfiguration();
   const { openDrawer: openModularDrawer } = useModularDrawerController();
-  const deviceIntentSignFlag = useFeature("llmWalletApiDeviceIntentSign");
-  const enabledManifestIds = useMemo(
-    () => new Set(deviceIntentSignFlag?.params?.enabledManifestIds ?? []),
-    [deviceIntentSignFlag?.params?.enabledManifestIds],
-  );
-  // The device-intent sign flow is opt-in per live-app: only enabled when the flag is on
-  // and the current manifest id is in the configured allowlist.
-  const deviceIntentSignEnabled =
-    (deviceIntentSignFlag?.enabled ?? false) && enabledManifestIds.has(manifest.id);
+  const deviceIntentSignEnabled = useDeviceIntentSignEnabled(manifest.id);
 
-  const source =
-    currentRouteNameRef.current === "Platform Catalog"
-      ? "Discover"
-      : (currentRouteNameRef.current ?? "Unknown");
+  const source = getTrackingRouteLiveAppSource();
 
   const flow = manifest.name;
 
@@ -551,6 +546,7 @@ export function useUiHook({
       "account.request": async ({
         currencyIds,
         onSuccess,
+        onCancel,
         areCurrenciesFiltered,
         useCase,
         uiUseCase,
@@ -567,8 +563,14 @@ export function useUiHook({
           source: source,
           flow: flow,
           enableAccountSelection: true,
-          onAccountSelected: (account: AccountLike, parentAccount?: Account | undefined) =>
-            onSuccess(account, parentAccount),
+          onAccountSelected: (account: AccountLike, parentAccount?: Account | undefined) => {
+            onAccountRequestSuccess?.();
+            onSuccess(account, parentAccount);
+          },
+          onCancel: () => {
+            onCancel?.();
+            onAccountRequestCancel?.();
+          },
           currencies: areCurrenciesFiltered && shouldUseCurrencies ? currencyIds : undefined,
           areCurrenciesFiltered,
           useCase,
@@ -682,6 +684,8 @@ export function useUiHook({
               parentId: parentAccount ? parentAccount.id : undefined,
               appName: options?.hwAppId,
               dependencies: options?.dependencies,
+              manifestId: manifest.id,
+              manifestName: manifest.name,
               onSuccess,
               onError,
             },
@@ -709,6 +713,8 @@ export function useUiHook({
             broadcast,
             appName: options?.hwAppId,
             dependencies: options?.dependencies,
+            manifestId: manifest.id,
+            manifestName: manifest.name,
             onSuccess,
             onError,
           },
@@ -751,10 +757,7 @@ export function useUiHook({
                 onSuccess(result.startExchangeResult.nonce);
               }
 
-              const n =
-                navigation.getParent<StackNavigatorNavigation<BaseNavigatorStackParamList>>() ||
-                navigation;
-              n.pop();
+              closePlatformExchange(navigation);
             },
           },
         });
@@ -781,10 +784,7 @@ export function useUiHook({
                 onSuccess(result.operation.hash);
               }
               setDevice(undefined);
-              const n =
-                navigation.getParent<StackNavigatorNavigation<BaseNavigatorStackParamList>>() ||
-                navigation;
-              n.pop();
+              closePlatformExchange(navigation);
             },
           },
         });
@@ -803,6 +803,8 @@ export function useUiHook({
       requestDeviceIntentSignMessage,
       manifest.id,
       manifest.name,
+      onAccountRequestCancel,
+      onAccountRequestSuccess,
       onPublicKeyUnavailable,
     ],
   );
@@ -853,10 +855,7 @@ export function useSelectAccount({
       enableAccountSelection: true,
       onAccountSelected: onSelectAccountSuccess,
       flow: manifest.name,
-      source:
-        currentRouteNameRef.current === "Platform Catalog"
-          ? "Discover"
-          : (currentRouteNameRef.current ?? "Unknown"),
+      source: getTrackingRouteLiveAppSource(),
     });
   }, [currencyIds, onSelectAccountSuccess, manifest.name]);
 

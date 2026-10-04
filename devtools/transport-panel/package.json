@@ -1,6 +1,6 @@
 {
   "name": "@devtools/transport-panel",
-  "version": "0.1.0",
+  "version": "0.7.0",
   "private": true,
   "description": "Ledger Live DevTools — transport status panel",
   "main": "src/index.web.ts",
@@ -24,12 +24,15 @@
     "test:watch": "jest --watch",
     "coverage": "pnpm run coverage:web && pnpm run coverage:native && bash -c 'cat coverage/lcov.native.info >> coverage/lcov.info' --",
     "coverage:web": "jest --config jest.config.js --coverage",
-    "coverage:native": "jest --config jest.native.config.js --coverage"
+    "coverage:native": "jest --config jest.native.config.js --coverage",
+    "lint": "oxlint src",
+    "unimported": "pnpm knip --directory ../.. -c devtools/transport-panel/knip.web.config.mjs -W devtools/transport-panel --tsConfig tsconfig.web.json && pnpm knip --directory ../.. -c devtools/transport-panel/knip.native.config.mjs -W devtools/transport-panel --tsConfig tsconfig.native.json"
   },
   "dependencies": {
     "@devtools/transport": "workspace:*"
   },
   "devDependencies": {
+    "@support/jest-devtools": "workspace:*",
     "@testing-library/react": "catalog:",
     "@testing-library/react-native": "catalog:",
     "react-test-renderer": "catalog:",
@@ -59,6 +62,7 @@
     "jest-sonar": "0.2.16",
     "@ledgerhq/lumen-ui-react": "catalog:",
     "@ledgerhq/lumen-ui-rnative": "catalog:",
+    "react-native-vision-camera": "4.7.3",
     "@ledgerhq/lumen-design-core": "catalog:",
     "@ledgerhq/lumen-utils-shared": "catalog:",
     "@radix-ui/react-dialog": "catalog:",
@@ -73,6 +77,7 @@
   },
   "peerDependencies": {
     "react": ">=19",
+    "react-native-vision-camera": ">=4",
     "@ledgerhq/lumen-design-core": "catalog:",
     "@ledgerhq/lumen-ui-react": "catalog:",
     "@radix-ui/react-dialog": "catalog:",

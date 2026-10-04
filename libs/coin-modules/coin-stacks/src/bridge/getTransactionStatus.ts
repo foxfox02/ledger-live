@@ -11,7 +11,7 @@ import BigNumber from "bignumber.js";
 import { StacksMemoTooLong } from "../errors";
 import { validateMemo } from "../logic/validateMemo";
 import { Transaction, TransactionStatus } from "../types";
-import { validateAddress } from "./utils/addresses";
+import { validateAddress } from "../common-logic";
 import { getAddress } from "./utils/misc";
 import { getSubAccount } from "./utils/token";
 
@@ -127,7 +127,12 @@ export const getTransactionStatus: AccountBridge<Transaction>["getTransactionSta
   const { memo, recipient, useAllAmount, fee } = transaction;
   let { amount } = transaction;
 
-  // Validate recipient and fee
+  // The classic bridge's `prepareTransaction`/`signOperation` only ever build a plain STX/token
+  // transfer -- they have no pox-5 delegate/undelegate contract-call support and never resolve a
+  // fee/nonce without a valid `recipient`. Requiring `recipient` here isn't a transfer-only
+  // leftover: it's the guard that stops a staking-shaped transaction from being signed and
+  // broadcast as an ordinary transfer once Stacks is routed through the classic bridge. Remove
+  // this only once staking is handled here (or Stacks moves to the generic bridge).
   validateRecipient(recipient, address, account.currency.name, errors);
   validateFee(fee, errors);
 

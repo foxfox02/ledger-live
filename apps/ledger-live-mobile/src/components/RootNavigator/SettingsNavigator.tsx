@@ -13,9 +13,12 @@ import DebugCustomImageGraphics from "~/screens/Settings/Debug/Features/CustomIm
 import DebugDebugging from "~/screens/Settings/Debug/Debugging";
 import DebugDeviceIntentExecutor from "~/screens/Settings/Debug/Features/DeviceIntentExecutor";
 import DebugEnv from "~/screens/Settings/Debug/Configuration/DebugEnv";
+import DeviceSimulationDevToolScreen from "~/screens/Settings/Debug/Configuration/DeviceSimulationDevTool";
 import DebugLargeScreenUpsell from "LLM/features/LargeScreenUpsell/Debug";
+import DebugOsUpdateOrchestrator from "LLM/features/OsUpdate/Debug/screens/OsUpdatesOrchestratorDebugScreen";
 import DebugFeatureFlags from "~/screens/FeatureFlagsSettings";
 import DebugFeatures from "~/screens/Settings/Debug/Features";
+import DebugStartTour from "~/screens/Settings/Debug/Features/StartTour";
 import DebugFetchCustomImage, {
   debugFetchCustomImageHeaderOptions,
 } from "~/screens/Settings/Debug/Features/FetchCustomImage";
@@ -33,6 +36,8 @@ import DebugContacts from "~/screens/Settings/Debug/Debugging/Contacts";
 import DebugDevTools from "LLM/features/DevTools/screens/DevToolsScreen";
 import DebugNetwork from "~/screens/Settings/Debug/Debugging/Network";
 import DebugCommandSender from "~/screens/Settings/Debug/Connectivity/CommandSender";
+import DebugPayContactSuccess from "~/screens/Settings/Debug/Features/PayContactSuccess";
+import DebugSendSuccess from "~/screens/Settings/Debug/Features/SendSuccess";
 import DebugPlayground from "~/screens/Settings/Debug/Playground";
 import DebugBluetoothAndLocationServices from "~/screens/Settings/Debug/Debugging/BluetoothAndLocationServices";
 import DebugSettings from "~/screens/Settings/Debug";
@@ -47,6 +52,7 @@ import TooltipDemo from "~/screens/Settings/Debug/Features/TooltipDemo";
 import DebugDeviceActionContentScreen from "~/screens/Settings/Debug/Features/DeviceIntentExecutor/DeviceActionContentScreen";
 import DebugInfoStateScreen from "~/screens/Settings/Debug/Features/DeviceIntentExecutor/InfoStateScreen";
 import DebugConnectDeviceScreen from "~/screens/Settings/Debug/Features/DeviceIntentExecutor/ConnectDeviceScreen";
+import DebugDeviceIntentExecutorContactsValidation from "~/screens/Settings/Debug/Features/DeviceIntentExecutor/ContactsValidationScreen";
 import DebugDeviceIntentExecutorInitialization from "~/screens/Settings/Debug/Features/DeviceIntentExecutor/InitializationScreen";
 import DebugInitializerStatesScreen from "~/screens/Settings/Debug/Features/DeviceIntentExecutor/InitializerStatesScreen";
 import DebugDeviceIntentExecutorOrchestration from "~/screens/Settings/Debug/Features/DeviceIntentExecutor/OrchestrationScreen";
@@ -89,9 +95,9 @@ import SwiperScreenDebug from "~/screens/Settings/Debug/Features/SwiperScreenDeb
 import { DebugStorageMigration } from "~/screens/Settings/Debug/Debugging/StorageMigration";
 import CustomCALRefInput from "~/screens/Settings/Developer/CustomCALRefInput";
 import ModularDrawerScreenDebug from "LLM/features/ModularDrawer/Debug";
-import WalletV4TourScreenDebug from "LLM/features/WalletV4Tour/Debug";
 import ProductTourScreenDebug from "LLM/features/ProductTour/Debug";
 import Q2WalletV4TourScreenDebug from "LLM/features/Q2WalletV4Tour/Debug";
+import Q3WalletV4TourScreenDebug from "LLM/features/Q3WalletV4Tour/Debug";
 import { UnmountOnBlur } from "./utils/UnmountOnBlur";
 
 const Stack = createNativeStackNavigator<SettingsNavigatorStackParamList>();
@@ -245,7 +251,7 @@ export default function SettingsNavigator() {
         name={ScreenName.DebugAnalyticsConsentQA}
         component={DebugAnalyticsConsentQA}
         options={{
-          title: "Analytics opt-in consent — QA",
+          title: "Analytics consent QA",
         }}
       />
       <Stack.Screen
@@ -310,6 +316,13 @@ export default function SettingsNavigator() {
         }}
       />
       <Stack.Screen
+        name={ScreenName.DebugStartTour}
+        component={DebugStartTour}
+        options={{
+          title: "Start Tour",
+        }}
+      />
+      <Stack.Screen
         name={ScreenName.DebugDeviceIntentExecutor}
         component={DebugDeviceIntentExecutor}
         options={{
@@ -335,6 +348,13 @@ export default function SettingsNavigator() {
         component={DebugConnectDeviceScreen}
         options={{
           title: "DIE Connect Device",
+        }}
+      />
+      <Stack.Screen
+        name={ScreenName.DebugDeviceIntentExecutorContactsValidation}
+        component={DebugDeviceIntentExecutorContactsValidation}
+        options={{
+          title: "DIE Contacts validation",
         }}
       />
       <Stack.Screen
@@ -370,6 +390,13 @@ export default function SettingsNavigator() {
         component={DebugLargeScreenUpsell}
         options={{
           title: "Large-screen upsell",
+        }}
+      />
+      <Stack.Screen
+        name={ScreenName.DebugOsUpdateOrchestrator}
+        component={DebugOsUpdateOrchestrator}
+        options={{
+          title: "OS Update orchestrator",
         }}
       />
       <Stack.Screen
@@ -471,6 +498,13 @@ export default function SettingsNavigator() {
         }}
       />
       <Stack.Screen
+        name={ScreenName.DebugDeviceSimulation}
+        component={DeviceSimulationDevToolScreen}
+        options={{
+          title: "Device simulation (QA)",
+        }}
+      />
+      <Stack.Screen
         name={ScreenName.DebugEnv}
         component={DebugEnv}
         options={{
@@ -529,6 +563,20 @@ export default function SettingsNavigator() {
         component={DebugCustomImageGraphics}
         options={{
           title: "Custom image graphics",
+        }}
+      />
+      <Stack.Screen
+        name={ScreenName.DebugPayContactSuccess}
+        component={DebugPayContactSuccess}
+        options={{
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name={ScreenName.DebugSendSuccess}
+        component={DebugSendSuccess}
+        options={{
+          headerShown: false,
         }}
       />
       <Stack.Screen
@@ -632,13 +680,6 @@ export default function SettingsNavigator() {
         }}
       />
       <Stack.Screen
-        name={ScreenName.DebugWalletV4Tour}
-        component={WalletV4TourScreenDebug}
-        options={{
-          title: "Wallet V4 Tour",
-        }}
-      />
-      <Stack.Screen
         name={ScreenName.DebugProductTour}
         component={ProductTourScreenDebug}
         options={{
@@ -650,6 +691,13 @@ export default function SettingsNavigator() {
         component={Q2WalletV4TourScreenDebug}
         options={{
           title: "Q2 Wallet V4 Tour",
+        }}
+      />
+      <Stack.Screen
+        name={ScreenName.DebugQ3WalletV4Tour}
+        component={Q3WalletV4TourScreenDebug}
+        options={{
+          title: "Q3 Wallet V4 Tour",
         }}
       />
     </Stack.Navigator>

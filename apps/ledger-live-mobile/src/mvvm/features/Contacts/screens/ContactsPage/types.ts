@@ -1,21 +1,14 @@
-import type {
-  ContactsAddContactDrawerProps,
-  ContactsLedgerSyncIntroductionContentProps,
-  ContactsListViewNativeProps,
-} from "@features/flow-contacts";
+import type { AddContactAppAdapterResult, ContactsViewNativeProps } from "@features/flow-contacts";
+import type { ContactsLedgerSyncActivationDrawerProps } from "../../components/ContactsLedgerSyncActivationDrawer";
 
-type ContactsLedgerSyncIntroductionPresentationProps = Pick<
-  ContactsLedgerSyncIntroductionContentProps,
-  "title" | "activateLabel" | "onActivate"
->;
-
-export type ContactsPageViewModel = Omit<ContactsListViewNativeProps, "onAddContact"> &
+export type ContactsPageViewModel = Omit<ContactsViewNativeProps, "onAddContact"> &
   Readonly<{
-    ledgerSyncIntroductionContent: ContactsLedgerSyncIntroductionPresentationProps;
+    ledgerSyncActivationDrawer: ContactsLedgerSyncActivationDrawerProps;
+    onRequestAddContact: (onAllowed: () => void) => void;
   }>;
 
 export type ContactsPageContentProps = ContactsPageViewModel &
-  Pick<ContactsListViewNativeProps, "onAddContact"> &
+  Pick<ContactsViewNativeProps, "onAddContact"> &
   Readonly<{
-    addContactDrawer: ContactsAddContactDrawerProps;
+    addContactDrawer: AddContactAppAdapterResult;
   }>;

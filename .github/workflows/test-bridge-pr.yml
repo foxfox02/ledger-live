@@ -6,7 +6,6 @@ concurrency:
   group: ci-bridge-${{ github.ref }}
 
 permissions:
-  id-token: write
   contents: read
 
 jobs:
@@ -15,29 +14,17 @@ jobs:
       is-affected: ${{ steps.affected.outputs.is-affected }}
       paths: ${{ steps.affected.outputs.paths }}
     runs-on: ubuntu-22.04
+    permissions:
+      pull-requests: read
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: develop
-          fetch-depth: 0
-      - name: checkout branch (PR)
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          gh pr checkout "$PR_NUMBER"
-      - name: checkout branch (not PR)
-        if: ${{ github.event_name != 'pull_request' }}
-        run: |
-          git checkout $GITHUB_SHA
-      - uses: LedgerHQ/ledger-live/tools/actions/live-common-affected@develop
+      - uses: LedgerHQ/ledger-live/tools/actions/composites/live-common-affected@develop
         id: affected
-        with:
-          ref: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || 'HEAD^' }}
 
   bridge-tests:
     name: "Bridge Tests"
+    permissions:
+      id-token: write
+      contents: read
     needs: is-affected
     if: ${{ needs.is-affected.outputs.is-affected == 'true' }}
     env:
@@ -51,7 +38,7 @@ jobs:
         os:
           - ubuntu-22.04
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ github.event.pull_request.head.repo.fork && matrix.os || 'ledger-wallet-4cpu-aws-public' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Setup the caches
@@ -66,12 +53,17 @@ jobs:
           accountId: ${{ secrets.AWS_ACCOUNT_ID_PROD }}
           roleName: ${{ secrets.AWS_CACHE_ROLE_NAME }}
           region: ${{ secrets.AWS_CACHE_REGION }}
+      - name: JFrog npm auth
+        if: ${{ !github.event.pull_request.head.repo.fork }}
+        uses: LedgerHQ/ledger-live/tools/actions/composites/jfrog-npm-auth@develop
+        with:
+          registry: ${{ vars.ARTIFACTORY_URL }}
       - name: Install node-gyp globally
         if: runner.os == 'Windows'
         run: |
           pnpm add -g node-gyp@3.8.0
       - name: Install dependencies
-        run: pnpm i --filter="live-common..." --filter="ledger-live"
+        run: pnpm i --frozen-lockfile --filter="live-common..." --filter="ledger-live"
       - name: Build
         run: pnpm exec nx run @ledgerhq/live-common:build
       - name: Test

@@ -1,9 +1,5 @@
 import React from "react";
-import { View } from "react-native";
-import {
-  ContactsAddAddressEntry,
-  ContactsAddAddressPlaceholderView,
-} from "@features/flow-contacts";
+import { ContactsAddAddressFlowContent } from "@features/flow-contacts-add-address";
 import {
   QueuedDrawerFlow,
   type QueuedDrawerFlowOptions,
@@ -13,40 +9,28 @@ import type { ContactsAddAddressDrawerStep } from "./types";
 import type { ContactsAddAddressFlowContentViewModel } from "./useContactsAddAddressFlowContentViewModel";
 
 const FLOW_SNAP_POINT = "92%";
-const STEP_FRAME_HEIGHT = "100%";
-
 const FLOW_OPTIONS = {
   snapPoints: [FLOW_SNAP_POINT],
 } as const satisfies QueuedDrawerFlowOptions;
 
-const LOCKED_STEP_OPTIONS = {
+const FORM_STEP_OPTIONS = {
   hasBackButton: true,
-  noCloseButton: true,
   hideHandle: true,
   preventBackdropClick: true,
   enablePanDownToClose: false,
 } as const satisfies QueuedDrawerFlowOptions;
 
-function ContactsAddAddressStepFrame({ children }: React.PropsWithChildren): React.JSX.Element {
-  return (
-    <View testID="contacts-add-address-step-frame" style={{ height: STEP_FRAME_HEIGHT }}>
-      {children}
-    </View>
-  );
-}
-
 export function ContactsAddAddressFlowContentView({
   addressEntryProps,
+  addressNameProps,
   currencyShell,
   currentStep,
   isOpen,
-  labels,
   onBack,
   onClose,
-  onContinueFromName,
-  onContinueFromReview,
-  onFinish,
+  onHeaderClosePressed,
 }: ContactsAddAddressFlowContentViewModel): React.JSX.Element {
+  const flowContentProps = { addressEntryProps, addressNameProps };
   const screens: QueuedDrawerFlowScreenRegistry<ContactsAddAddressDrawerStep> = {
     currency: {
       content: currencyShell.content,
@@ -56,54 +40,12 @@ export function ContactsAddAddressFlowContentView({
       },
     },
     address: {
-      content: addressEntryProps ? (
-        <ContactsAddAddressStepFrame>
-          <ContactsAddAddressEntry {...addressEntryProps} />
-        </ContactsAddAddressStepFrame>
-      ) : null,
-      options: LOCKED_STEP_OPTIONS,
+      content: <ContactsAddAddressFlowContent {...flowContentProps} step="address" />,
+      options: { ...FORM_STEP_OPTIONS, onHeaderClosePressed },
     },
     name: {
-      content: (
-        <ContactsAddAddressStepFrame>
-          <ContactsAddAddressPlaceholderView
-            title={labels.name}
-            buttonLabel={labels.continue}
-            testID="contacts-add-address-name-screen"
-            onContinue={onContinueFromName}
-          />
-        </ContactsAddAddressStepFrame>
-      ),
-      options: LOCKED_STEP_OPTIONS,
-    },
-    review: {
-      content: (
-        <ContactsAddAddressStepFrame>
-          <ContactsAddAddressPlaceholderView
-            title={labels.review}
-            buttonLabel={labels.continue}
-            testID="contacts-add-address-review-screen"
-            onContinue={onContinueFromReview}
-          />
-        </ContactsAddAddressStepFrame>
-      ),
-      options: LOCKED_STEP_OPTIONS,
-    },
-    success: {
-      content: (
-        <ContactsAddAddressStepFrame>
-          <ContactsAddAddressPlaceholderView
-            title={labels.success}
-            buttonLabel={labels.done}
-            testID="contacts-add-address-success-screen"
-            onContinue={onFinish}
-          />
-        </ContactsAddAddressStepFrame>
-      ),
-      options: {
-        ...LOCKED_STEP_OPTIONS,
-        hasBackButton: false,
-      },
+      content: <ContactsAddAddressFlowContent {...flowContentProps} step="name" />,
+      options: { ...FORM_STEP_OPTIONS, onHeaderClosePressed },
     },
   };
 

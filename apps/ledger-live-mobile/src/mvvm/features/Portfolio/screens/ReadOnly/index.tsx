@@ -1,8 +1,8 @@
+import { TrackScreen } from "@shared/analytics-react";
 import React, { useMemo } from "react";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Flex } from "@ledgerhq/native-ui";
-import TrackScreen from "~/analytics/TrackScreen";
 import CheckLanguageAvailability from "~/components/CheckLanguageAvailability";
 import CheckTermOfUseUpdate from "~/components/CheckTermOfUseUpdate";
 import { TAB_BAR_SAFE_HEIGHT } from "~/components/TabBar/TabBarSafeAreaView";
@@ -19,6 +19,7 @@ import useReadOnlyPortfolioViewModel from "./useReadOnlyPortfolioViewModel";
 import { GenericAwarenessModalDrawer } from "LLM/features/GenericAwarenessModal/screens/GenericAwarenessModalDrawer";
 import { RecoverIntroPortfolioMount } from "LLM/features/BackupHub";
 import { LargeScreenUpsellModalPortfolioMount } from "LLM/features/LargeScreenUpsell";
+import { LazyOnboardingTourPortfolioMount } from "LLM/features/LazyOnboardingBanner";
 
 type NavigationProps = BaseComposite<
   StackNavigatorProps<PortfolioNavigatorStackParamList, ScreenName.Portfolio>
@@ -66,6 +67,7 @@ function ReadOnlyPortfolioScreen({ navigation }: NavigationProps) {
       <GenericAwarenessModalDrawer />
       <RecoverIntroPortfolioMount />
       <LargeScreenUpsellModalPortfolioMount />
+      <LazyOnboardingTourPortfolioMount />
     </>
   );
 }

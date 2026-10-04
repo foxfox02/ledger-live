@@ -48,6 +48,7 @@ const transformIncludePatterns = [
   "@ledgerhq/lumen-.*",
   "immer",
   "@features/.*",
+  "@ronradtke",
   "@sbaiahmed1/react-native-blur",
   "@mysten",
   "@scure",
@@ -70,6 +71,7 @@ module.exports = {
   setupFilesAfterEnv: [
     "./node_modules/react-native-gesture-handler/jestSetup.js",
     "./__tests__/jest-setup.js",
+    "@ledgerhq/test-quarantine/jest-retries",
   ],
   testMatch: ["**/src/**/*.test.(ts|tsx)"],
   transform: {
@@ -131,15 +133,26 @@ module.exports = {
     // process.stderr.write with a swallow-everything stub, so the built-in
     // string reporter's annotations would otherwise be dropped on the floor.
     ...(process.env.CI ? [["<rootDir>/scripts/jestGithubActionsReporter.js", {}]] : []),
-    ["jest-sonar", { outputName: "sonar-executionTests-report.xml", reportedFilePath: "absolute" }],
+    [
+      "jest-sonar",
+      {
+        outputName: "sonar-executionTests-report.xml",
+        reportedFilePath: "absolute",
+      },
+    ],
+    "@ledgerhq/test-quarantine/jest",
   ],
   resolver: "<rootDir>/scripts/resolver.js",
   moduleNameMapper: {
-    "^@ledgerhq/ledger-key-ring-protocol/__mocks__/(.*)$":
-      "<rootDir>/../../libs/ledger-key-ring-protocol/src/__mocks__/$1",
     ...pathsToModuleNameMapper(compilerOptions.paths),
     // Logic-only stub — integration tests overlay UI components via jest.mock.
     "^@features/flow-contacts$": "<rootDir>/../../features/flow/contacts/src/jest.native.ts",
+    "^@features/flow-contacts-introduction$":
+      "<rootDir>/../../features/flow/flow-contacts-introduction/src/index.native.ts",
+    "^@features/flow-contacts-add-address$":
+      "<rootDir>/../../features/flow/flow-contacts-add-address/src/index.native.ts",
+    "^@features/flow-contacts-delete-contact$":
+      "<rootDir>/../../features/flow/flow-contacts-delete-contact/src/index.native.ts",
     // Map Lumen RN source entry points to a single module graph. The root
     // mapping alone is not enough: subpath imports (/symbols, /styles) must
     // target the same source tree or Jest loads duplicate @ledgerhq/lumen-ui-rnative
@@ -147,7 +160,7 @@ module.exports = {
     "^@ledgerhq/lumen-ui-rnative$":
       "<rootDir>/node_modules/@ledgerhq/lumen-ui-rnative/src/index.ts",
     "^@ledgerhq/lumen-ui-rnative/symbols$":
-      "<rootDir>/node_modules/@ledgerhq/lumen-ui-rnative/src/lib/Symbols/index.ts",
+      "<rootDir>/node_modules/@ledgerhq/lumen-ui-rnative/src/lib/Components/symbols/index.ts",
     "^@ledgerhq/lumen-ui-rnative/styles$":
       "<rootDir>/node_modules/@ledgerhq/lumen-ui-rnative/src/styles/index.ts",
     "^@ledgerhq/lumen-design-core$": "<rootDir>/node_modules/@ledgerhq/lumen-design-core",
@@ -155,8 +168,21 @@ module.exports = {
     "^react/(.*)$": "<rootDir>/node_modules/react/$1",
     "^react-native/(.*)$": "<rootDir>/node_modules/react-native/$1",
     "^react-native$": "<rootDir>/node_modules/react-native",
+    "^react-native-fit-image$": "<rootDir>/__tests__/mocks/react-native-fit-image.js",
     "^react-native-gesture-handler$": "<rootDir>/node_modules/react-native-gesture-handler",
     "^react-native-gesture-handler/(.*)$": "<rootDir>/node_modules/react-native-gesture-handler/$1",
+    // Pin to a single instance so the jest-setup mock covers workspace packages too
+    // (e.g. @shared/ui-queued-bottom-sheet, which resolves its own pnpm copy otherwise and
+    // would then reach the real useBottomSheetInternal from inside a mocked sheet).
+    "^@gorhom/bottom-sheet$": "<rootDir>/node_modules/@gorhom/bottom-sheet",
+    "^@gorhom/bottom-sheet/(.*)$": "<rootDir>/node_modules/@gorhom/bottom-sheet/$1",
+    // Pin to a single instance so components rendered from workspace packages
+    // (e.g. @shared/ui-queued-bottom-sheet) share the app's SafeAreaProvider context
+    // instead of resolving a second pnpm copy (duplicate context = "No safe
+    // area value available").
+    "^react-native-safe-area-context$": "<rootDir>/node_modules/react-native-safe-area-context",
+    "^react-native-safe-area-context/(.*)$":
+      "<rootDir>/node_modules/react-native-safe-area-context/$1",
     "styled-components":
       "<rootDir>/node_modules/styled-components/native/dist/styled-components.native.cjs.js",
     "^react-redux": "<rootDir>/node_modules/react-redux",
@@ -165,6 +191,14 @@ module.exports = {
     // expo-keep-awake resolves to its ESM TS source under the react-native
     // export condition, which Jest can't parse; redirect to a stub.
     "^expo-keep-awake$": "<rootDir>/__mocks__/expo-keep-awake.ts",
+    // expo-crypto needs a native runtime, and pnpm gives the app and the workspace
+    // packages it renders separate copies; map both to one stub.
+    "^expo-crypto$": "<rootDir>/__mocks__/expo-crypto.ts",
+    // expo-file-system needs a native runtime; map every copy to one stub.
+    "^expo-file-system$": "<rootDir>/__mocks__/expo-file-system.ts",
+    "^expo-web-browser$": "<rootDir>/__mocks__/expo-web-browser.ts",
+    // react-native-fast-crypto ships ESM and needs a native runtime; one stub for every copy.
+    "^react-native-fast-crypto$": "<rootDir>/__mocks__/react-native-fast-crypto.ts",
     // Redirect to mock for pre-compiled dependencies (like @ledgerhq/native-ui)
     "^react-native-worklets$": "<rootDir>/__mocks__/react-native-worklets.js",
     // Global mock for .lottie (dotLottie) files

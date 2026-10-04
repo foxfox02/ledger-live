@@ -4,11 +4,11 @@ import { UserRefusedOnDevice } from "@ledgerhq/ledger-wallet-framework/errors";
 import { ExpertModeRequired } from "./errors";
 import { encodeOperationId } from "@ledgerhq/ledger-wallet-framework/operation";
 import { SignerContext } from "@ledgerhq/ledger-wallet-framework/signer";
-import type { AccountBridge, Operation, SignOperationEvent } from "@ledgerhq/types-live";
+import type { Account, AccountBridge, Operation, SignOperationEvent } from "@ledgerhq/types-live";
 import BigNumber from "bignumber.js";
 import { Observable, Observer } from "rxjs";
 import cryptoFactory from "./chain/chain";
-import { CosmosAccount, RETURN_CODES, Transaction } from "./types";
+import { RETURN_CODES, Transaction } from "./types";
 import { CosmosSignature, CosmosSigner } from "./types/signer";
 
 // Minimal structural guard so a malformed payload fails with a clear message
@@ -51,17 +51,17 @@ function signTransaction(
   deviceId: string,
   path: number[],
   tx: Buffer,
-  prefix: string,
+  hrp: string | undefined,
 ): Promise<CosmosSignature> {
-  return signerContext(deviceId, signer =>
-    // HRP is only needed when signing for ethermint chains.
-    path[1] === 60 ? signer.sign(path, tx, prefix) : signer.sign(path, tx),
-  );
+  // The device validates the (coin type, HRP) pair; the chain prefix goes on every request.
+  // `undefined` is reserved for chains whose device app is not app-cosmos (see CryptoOrg) and
+  // omits the field entirely, as before.
+  return signerContext(deviceId, signer => signer.sign(path, tx, hrp));
 }
 
 async function performSignRawOperation(
   signerContext: SignerContext<CosmosSigner>,
-  account: CosmosAccount,
+  account: Account,
   deviceId: string,
   transaction: string,
   observer: Observer<SignOperationEvent>,
@@ -86,7 +86,7 @@ async function performSignRawOperation(
     deviceId,
     path,
     tx,
-    chainInstance.prefix,
+    chainInstance.signWithPrefix ? chainInstance.prefix : undefined,
   );
 
   switch (return_code) {
@@ -147,9 +147,7 @@ async function performSignRawOperation(
 // — and return the detached 64-byte secp256k1 signature (hex). The caller pairs
 // it with the account public key and broadcasts; this method never broadcasts.
 export const buildSignRawOperation =
-  (
-    signerContext: SignerContext<CosmosSigner>,
-  ): AccountBridge<Transaction, CosmosAccount>["signRawOperation"] =>
+  (signerContext: SignerContext<CosmosSigner>): AccountBridge<Transaction>["signRawOperation"] =>
   ({ account, deviceId, transaction }) =>
     new Observable(o => {
       let cancelled = false;

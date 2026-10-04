@@ -25,6 +25,7 @@ const config: PlaywrightTestConfig = {
   workers: "100%",
   reporter: process.env.CI
     ? [
+        ["./tests/reporters/cardSessionReporter.ts"],
         ["github"],
         ["list"],
         [
@@ -43,9 +44,8 @@ const config: PlaywrightTestConfig = {
             },
           },
         ],
-        ["./tests/utils/customJsonReporter.ts"],
       ]
-    : [["allure-playwright", { detail: false }]],
+    : [["./tests/reporters/cardSessionReporter.ts"], ["allure-playwright", { detail: false }]],
 };
 
 export default config;

@@ -1,6 +1,6 @@
 {
   "name": "@domain/entity-client-identity",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Domain entity for client identities: DeviceId, UserId, DatadogId value objects and Redux state",
   "main": "src/index.ts",
@@ -24,6 +24,7 @@
   },
   "devDependencies": {
     "@jest/globals": "catalog:",
+    "@ledgerhq/test-quarantine": "workspace:*",
     "@types/node": "catalog:",
     "@swc/core": "catalog:",
     "@swc/jest": "catalog:",

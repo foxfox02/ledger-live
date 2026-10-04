@@ -17,19 +17,15 @@ lockfile_platforms = [
   "windows-x64",
 ]
 
-[plugins]
-bundler = "jonathanmorley/asdf-bundler"
-cocoapods = "mise-plugins/mise-cocoapods"
-
-
 [tools]
 node = '24.14.0'
 pnpm = '10.24.0'
-npm = '10.3.0'
-bun = '1.3.14'
+bun = '1.4.2'
 gitleaks = '8.30.1'
 hk = '1.40.0'
 pkl = '0.31.1'
+actionlint = 'v1.7.12'
+zizmor = 'v1.28.0'
 
 
 # Mobile dev ecosystem, this is only done on macos and linux. 

@@ -1,11 +1,10 @@
 import { setEnv } from "@shared/env";
 import { BuySell } from "@ledgerhq/live-e2e-shared/models/BuySell";
-import { ApplicationOptions } from "page";
+import { ApplicationOptions } from "@e2e/page/index";
 import { BuySellProvider } from "@ledgerhq/live-e2e-shared/enum/Provider";
 import { getParentAccountName } from "@ledgerhq/live-e2e-shared/enum/Account";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { setTeamOwner } from "../../helpers/allure/allure-helper";
-import { getMinimumSellAmount } from "@ledgerhq/live-e2e-shared/buySell";
+import { setTeamOwner } from "@e2e/helpers/allure/allure-helper";
 
 setEnv("DISABLE_TRANSACTION_BROADCAST", true);
 
@@ -26,7 +25,7 @@ export async function runNavigateToBuyFromPortfolioPageTest(
   tmsLinks: string[],
   tags: string[],
 ) {
-  describe("Navigate to Buy / Sell flow from portfolio page - LLM", () => {
+  describe("Buy and sell", () => {
     beforeAll(async () => {
       await beforeAllFunction({
         userdata: "skip-onboarding",
@@ -38,7 +37,7 @@ export async function runNavigateToBuyFromPortfolioPageTest(
     setTeamOwner(Team.BUY_AND_SELL);
     tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
     tags.forEach(tag => $Tag(tag));
-    test(`Buy / Sell [${buySell.crypto.currency.name}] asset from portfolio page`, async () => {
+    test(`[${buySell.crypto.currency.testLabel}] - Buy from portfolio page`, async () => {
       await app.portfolio.pressQuickActionBuyButton();
       await app.buySell.handleBuyFlow(buySell, paymentMethod);
     });
@@ -51,7 +50,7 @@ export async function runNavigateToBuyFromAccountPageTest(
   tmsLinks: string[],
   tags: string[],
 ) {
-  describe("Navigate to Buy / Sell flow from account page - LLM", () => {
+  describe("Buy and sell", () => {
     beforeAll(async () => {
       await beforeAllFunction({
         userdata: "skip-onboarding",
@@ -63,7 +62,7 @@ export async function runNavigateToBuyFromAccountPageTest(
     setTeamOwner(Team.BUY_AND_SELL);
     tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
     tags.forEach(tag => $Tag(tag));
-    test(`Navigate to Buy / Sell [${buySell.crypto.currency.name}] asset from account page`, async () => {
+    test(`[${buySell.crypto.currency.testLabel}] - Buy entry point from account page`, async () => {
       await app.accounts.openViaDeeplink();
       await app.common.goToAccountByName(getParentAccountName(buySell.crypto));
       if (buySell.crypto.tokenType) {
@@ -81,7 +80,7 @@ export async function runNavigateToBuyFromMarketPageTest(
   tmsLinks: string[],
   tags: string[],
 ) {
-  describe("Navigate to Buy / Sell flow from market page - LLM", () => {
+  describe("Buy and sell", () => {
     beforeAll(async () => {
       await beforeAllFunction({
         userdata: "skip-onboarding",
@@ -93,12 +92,16 @@ export async function runNavigateToBuyFromMarketPageTest(
     setTeamOwner(Team.BUY_AND_SELL);
     tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
     tags.forEach(tag => $Tag(tag));
-    test(`Navigate to Buy / Sell [${buySell.crypto.currency.name}] asset from market page`, async () => {
+    test(`[${buySell.crypto.currency.testLabel}] - Buy entry point from market page`, async () => {
       await app.portfolio.tapMarketBannerTitle();
       await app.market.searchAsset(buySell.crypto.currency.ticker);
       await app.market.expectMarketRowTitle(buySell.crypto.currency);
       await app.market.openAssetPage(buySell.crypto.currency);
       await app.market.tapOnMarketQuickActionButton("buy");
+      await app.modularDrawer.selectNetworkIfAsked(
+        app.modularDrawer.getNetworkNameForAccount(buySell.crypto),
+      );
+      await app.modularDrawer.selectFirstAccountIfAsked();
       await app.buySell.handleBuyFlow(buySell, paymentMethod);
     });
   });
@@ -110,7 +113,7 @@ export async function runNavigateToBuyFromAssetPageTest(
   tmsLinks: string[],
   tags: string[],
 ) {
-  describe("Navigate to Buy / Sell flow from asset page - LLM", () => {
+  describe("Buy and sell", () => {
     beforeAll(async () => {
       await beforeAllFunction({
         userdata: "skip-onboarding",
@@ -122,13 +125,17 @@ export async function runNavigateToBuyFromAssetPageTest(
     setTeamOwner(Team.BUY_AND_SELL);
     tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
     tags.forEach(tag => $Tag(tag));
-    test(`Navigate to Buy / Sell [${buySell.crypto.currency.name}] asset from asset page`, async () => {
+    test(`[${buySell.crypto.currency.testLabel}] - Buy entry point from asset page`, async () => {
       await app.portfolio.goToSpecificAsset(buySell.crypto.currency.name);
       await app.assetAccountsPage.waitForAccountPageToLoad(
         buySell.crypto.currency.name,
         buySell.crypto.currency.id,
       );
       await app.assetAccountsPage.tapOnAssetQuickActionButton("buy");
+      await app.modularDrawer.selectNetworkIfAsked(
+        app.modularDrawer.getNetworkNameForAccount(buySell.crypto),
+      );
+      await app.modularDrawer.selectFirstAccountIfAsked();
       await app.buySell.handleBuyFlow(buySell, paymentMethod);
     });
   });
@@ -141,7 +148,7 @@ export async function runSellFlowTest(
   tmsLinks: string[],
   tags: string[],
 ) {
-  describe(`Sell flow - ${buySell.crypto.currency.name} - LLM`, () => {
+  describe("Buy and sell", () => {
     beforeAll(async () => {
       await beforeAllFunction({
         userdata: "skip-onboarding",
@@ -153,10 +160,9 @@ export async function runSellFlowTest(
     setTeamOwner(Team.BUY_AND_SELL);
     tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
     tags.forEach(tag => $Tag(tag));
-    test(`Sell [${buySell.crypto.currency.name}] flow via deeplink`, async () => {
-      const amount = await getMinimumSellAmount(buySell.crypto.currency.id);
+    test(`[${buySell.crypto.currency.testLabel}] - Sell`, async () => {
       await app.buySell.openViaDeeplink(buySell.operation);
-      await app.buySell.handleSellFlow({ ...buySell, amount }, paymentMethod, provider);
+      await app.buySell.handleSellFlow(buySell, paymentMethod, provider);
     });
   });
 }
@@ -167,7 +173,7 @@ export async function runQueryParametersTest(
   tmsLinks: string[],
   tags: string[],
 ) {
-  describe("Buy / Sell flow - query parameters - LLM", () => {
+  describe("Buy and sell", () => {
     beforeAll(async () => {
       await beforeAllFunction({
         userdata: "skip-onboarding",
@@ -179,7 +185,7 @@ export async function runQueryParametersTest(
     setTeamOwner(Team.BUY_AND_SELL);
     tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
     tags.forEach(tag => $Tag(tag));
-    test(`Buy / Sell [${buySell.crypto.currency.name}] asset - query parameters`, async () => {
+    test(`[${buySell.crypto.currency.testLabel}] - Buy and sell query parameters`, async () => {
       await app.buySell.openViaDeeplink(buySell.operation);
       await app.buySell.handleBuyFlow(buySell, paymentMethod, true);
     });

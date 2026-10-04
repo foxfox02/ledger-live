@@ -521,6 +521,15 @@ export const expectedCurrencyList = [
   },
   {
     type: "CryptoCurrency",
+    id: "gonka",
+    ticker: "GNK",
+    name: "Gonka",
+    family: "cosmos",
+    color: "#242424",
+    decimals: 9,
+  },
+  {
+    type: "CryptoCurrency",
     id: "avalanche_c_chain",
     ticker: "AVAX",
     name: "Avalanche C-Chain",
@@ -998,15 +1007,6 @@ export const expectedCurrencyList = [
   },
   {
     type: "CryptoCurrency",
-    id: "scroll_sepolia",
-    ticker: "ETH",
-    name: "Scroll Sepolia",
-    family: "ethereum",
-    color: "#ff0000",
-    decimals: 18,
-  },
-  {
-    type: "CryptoCurrency",
     id: "shape",
     ticker: "ETH",
     name: "Shape",
@@ -1139,6 +1139,15 @@ export const expectedCurrencyList = [
     family: "hedera",
     color: "#000",
     decimals: 8,
+  },
+  {
+    type: "CryptoCurrency",
+    id: "hypercore",
+    ticker: "USDC",
+    name: "Hyperliquid",
+    family: "hypercore",
+    color: "#97FCE4",
+    decimals: 6,
   },
   {
     type: "CryptoCurrency",

@@ -1,6 +1,6 @@
 {
   "name": "@ledgerhq/hw-bolos",
-  "version": "6.36.6",
+  "version": "6.37.0",
   "description": "List of commands for Ledger Hardware Wallet OS",
   "keywords": [
     "Ledger",
@@ -16,15 +16,13 @@
     "url": "https://github.com/LedgerHQ/ledger-live/issues"
   },
   "homepage": "https://github.com/LedgerHQ/ledger-live/tree/develop/libs/ledgerjs/packages/hw-bolos",
-  "publishConfig": {
-    "access": "public"
-  },
+  "private": true,
   "main": "lib/index.js",
   "module": "lib-es/index.js",
   "types": "lib/index.d.ts",
   "license": "Apache-2.0",
   "dependencies": {
-    "@ledgerhq/hw-transport": "workspace:*"
+    "@ledgerhq/hw-transport": "catalog:"
   },
   "scripts": {
     "clean": "rimraf lib lib-es",
@@ -32,7 +30,6 @@
     "prewatch": "pnpm build",
     "watch": "tsc --watch --project tsconfig.build.json",
     "watch:es": "tsc --watch --project tsconfig.build.json -m esnext --moduleResolution bundler --outDir lib-es",
-    "doc": "documentation readme src/** --section=API --pe ts --re ts --re d.ts",
     "lint": "oxlint ./src",
     "lint:fix": "pnpm lint --fix",
     "test": "jest",
@@ -40,10 +37,9 @@
     "unimported": "unimported"
   },
   "devDependencies": {
-    "@ledgerhq/hw-transport-mocker": "workspace:*",
+    "@ledgerhq/hw-transport-mocker": "catalog:",
     "@types/jest": "catalog:",
     "@types/node": "catalog:",
-    "documentation": "14.0.2",
     "jest": "catalog:",
     "rimraf": "^4.4.1",
     "@swc/jest": "catalog:",

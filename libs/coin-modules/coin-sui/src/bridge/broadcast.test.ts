@@ -1,19 +1,21 @@
 import { createFixtureOperation } from "../types/bridge.fixture";
+import coinConfig from "../config";
 import { broadcast } from "./broadcast";
 
-const executeTransactionBlock = jest.fn().mockResolvedValue({ digest: "test-digest-hash" });
+const SUCCESS = { digest: "test-digest-hash", effects: { status: { status: "success" } } };
+const executeTransactionBlock = jest.fn().mockResolvedValue(SUCCESS);
 
 jest.mock("../network", () => {
   return {
-    executeTransactionBlock: (arg: any, currencyId?: string) =>
-      executeTransactionBlock(arg, currencyId),
+    executeTransactionBlock: (config: any, arg: any) => executeTransactionBlock(config, arg),
   };
 });
 
 describe("broadcast", () => {
   beforeEach(() => {
     executeTransactionBlock.mockClear();
-    executeTransactionBlock.mockResolvedValue({ digest: "test-digest-hash" });
+    coinConfig.setCoinConfig(() => ({}) as never);
+    executeTransactionBlock.mockResolvedValue(SUCCESS);
   });
 
   it("calls explorer for broadcast operation", async () => {
@@ -32,7 +34,7 @@ describe("broadcast", () => {
 
     // THEN
     expect(executeTransactionBlock).toHaveBeenCalledTimes(1);
-    expect(executeTransactionBlock.mock.lastCall[0]).toHaveProperty("signature");
+    expect(executeTransactionBlock.mock.lastCall[1]).toHaveProperty("signature");
   });
 
   it("updates the signed operation", async () => {

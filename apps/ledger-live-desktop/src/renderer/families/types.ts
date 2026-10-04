@@ -7,6 +7,7 @@ import { Currency } from "@domain/entity-currency";
 import { CryptoCurrency, ExplorerView } from "@domain/entity-currency-crypto";
 import { TokenCurrency } from "@domain/entity-currency-token";
 import { Unit } from "@domain/entity-currency-unit";
+import type { Device } from "@ledgerhq/types-devices";
 import {
   Account,
   AnyMessage,
@@ -24,6 +25,7 @@ import {
 import { StepProps as SendStepProps } from "../modals/Send/types";
 import { StepProps as ReceiveStepProps } from "../modals/Receive/Body";
 import { ModularDrawerAddAccountFlowManagerProps } from "LLD/features/AddAccountDrawer/ModularDrawerAddAccountFlowManager";
+import type { Features } from "@shared/feature-flags";
 import type { SplitAddressProps } from "../components/OperationsList/AddressCellShared";
 import type { Step } from "~/renderer/components/Stepper";
 import type { CoinModalKey } from "./modals-loaders";
@@ -336,12 +338,51 @@ export type LLDCoinFamily<
   SendStepAmount?: React.ComponentType<SendStepProps>;
 
   /**
+   * Notice rendered on the new Send flow recipient step (e.g. Zcash shielded
+   * sync banner). The component owns its own gating and renders nothing when
+   * it does not apply.
+   *
+   * When it needs to prevent the recipient step from completing/advancing (e.g.
+   * the shielded sync is not complete, so signing could use an incomplete note
+   * set), it reports `onBlockedChange(true)` and `onBlockedChange(false)` once
+   * the block clears. Generic recipient code honors this flag to gate both the
+   * completion signal and forward navigation.
+   */
+  SendRecipientNotice?: React.ComponentType<{
+    account: A;
+    transaction: T;
+    onBlockedChange?: (blocked: boolean) => void;
+  }>;
+
+  /**
+   * Every address by which this account can be recognized as a send
+   * recipient; defaults to the account's fresh address. Lets a family declare
+   * additional stable addresses of its own (e.g. Zcash's unified shielded
+   * address) so pasting one resolves to the same Ledger account as its
+   * transparent fresh address.
+   */
+  getAccountRecipientAddresses?: (account: A) => string[];
+
+  /**
    * Allow to add a family-specific component above the recipient field in the
    * Send modal (e.g. Zcash transparent/shielded "transfer from" selector).
    * The component is responsible for its own gating (feature flags, currency
    * checks) and should render nothing when it does not apply.
    */
   SendStepRecipientFromSelector?: React.ComponentType<{
+    account: A;
+    transaction: T;
+    onChange: (t: T) => void;
+  }>;
+
+  /**
+   * Allow to add a family-specific component directly above the recipient
+   * input in the Send modal (below the "transfer from" selector separator),
+   * e.g. Zcash's self-transfer toggle. The component is responsible for its
+   * own gating (feature flags, currency checks) and should render nothing when
+   * it does not apply.
+   */
+  SendStepAboveRecipientInput?: React.ComponentType<{
     account: A;
     transaction: T;
     onChange: (t: T) => void;
@@ -370,6 +411,24 @@ export type LLDCoinFamily<
    * Allow to disable "Continue" button on Recipient step in Send modal
    */
   sendRecipientCanNext?: (status: TS) => boolean;
+
+  /**
+   * Rendered for its side effects only, once a transaction has been broadcast.
+   * Lets a family react to a completed send (e.g. Zcash triggers a shielded
+   * resync after a private transfer so the account page converges without a
+   * manual refresh).
+   */
+  PostBroadcastEffect?: React.ComponentType<{ account: A; transaction: T; operation: O }>;
+
+  /**
+   * Rendered for its side effects only while the Amount step is active (e.g.
+   * Zcash starts a shielded resync as soon as the source pool is private, so
+   * the note set is fresh by the time the user reaches signing). Provided as a
+   * component, like `SendModalTitle`, so the family owns its own hooks inside
+   * its own render boundary -- a family-provided hook could not keep the Rules
+   * of Hooks satisfied across every family the generic mount point resolves to.
+   */
+  SendAmountEffect?: React.ComponentType<{ account: A; transaction: T }>;
 
   /**
    *  One time modal that is trigger only one time on a account that never send
@@ -431,17 +490,32 @@ export type LLDCoinFamily<
   StepReceiveFunds?: React.ComponentType<ReceiveStepProps>;
 
   /**
-   * When true, the family override owns the on-device address confirmation
-   * lifecycle and the shared StepReceiveFunds will not auto-trigger
-   * `confirmAddress`. The override is then responsible for invoking
-   * `bridge.receive(verify: true)` itself when needed.
+   * When `true` — or when the function form returns `true` — the family owns the
+   * on-device address confirmation lifecycle and the shared StepReceiveFunds will
+   * not auto-trigger `confirmAddress`. The family is then responsible for invoking
+   * the device verification itself when needed.
+   *
+   * The function form is evaluated during render and must not call React hooks:
+   * the resolved family changes from one render to the next when the user switches
+   * account, so the resolved feature flags are passed in rather than read with
+   * `useFeature`.
    */
-  useCustomConfirmAddress?: boolean;
+  useCustomConfirmAddress?: boolean | ((account: A, featureFlags: Features) => boolean);
 
   /**
    * Allow to add component below the confirmation address box on receive step
    */
   StepReceiveFundsPostAlert?: React.ComponentType<ReceiveStepProps>;
+
+  /**
+   * Replace the on-device confirmation animation at the bottom of the receive
+   * step (e.g. Zcash confirming its transparent and shielded addresses at once).
+   * The component owns its own gating (feature flags, currency checks) and
+   * renders `fallback` — the standard animation — when it does not apply.
+   */
+  StepReceiveFundsDeviceAnimation?: React.ComponentType<
+    ReceiveStepProps & { fallback: React.ReactNode }
+  >;
 
   /**
    * Replace Network fees row on Summary Step

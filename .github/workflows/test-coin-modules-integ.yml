@@ -17,7 +17,6 @@ on:
         default: develop
 
 permissions:
-  id-token: write
   contents: read
 
 jobs:
@@ -27,26 +26,11 @@ jobs:
       paths: ${{ steps.affected.outputs.paths }}
       coins: ${{ steps.affected.outputs.coins }}
     runs-on: ubuntu-22.04
+    permissions:
+      pull-requests: read
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: develop
-          fetch-depth: 0
-      - name: checkout branch (PR)
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          gh pr checkout "$PR_NUMBER"
-      - name: checkout branch (not PR)
-        if: ${{ github.event_name != 'pull_request' }}
-        run: |
-          git checkout $GITHUB_SHA
-      - uses: LedgerHQ/ledger-live/tools/actions/live-common-affected@develop
+      - uses: LedgerHQ/ledger-live/tools/actions/composites/live-common-affected@develop
         id: affected
-        with:
-          ref: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || 'HEAD^' }}
       - name: Force affected on schedule
         id: set-affected
         run: |
@@ -59,9 +43,12 @@ jobs:
 
   integ-tests:
     name: "Coin modules integration tests"
+    permissions:
+      id-token: write
+      contents: read
     needs: is-affected
     if: ${{ needs.is-affected.outputs.is-affected == 'true' }}
-    runs-on: ubuntu-22.04
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-22.04' || 'ledger-wallet-4cpu-aws-public' }}
 
     env:
       NODE_OPTIONS: "--max-old-space-size=7168"
@@ -84,8 +71,14 @@ jobs:
           roleName: ${{ secrets.AWS_CACHE_ROLE_NAME }}
           region: ${{ secrets.AWS_CACHE_REGION }}
 
+      - name: JFrog npm auth
+        if: ${{ !github.event.pull_request.head.repo.fork }}
+        uses: LedgerHQ/ledger-live/tools/actions/composites/jfrog-npm-auth@develop
+        with:
+          registry: ${{ vars.ARTIFACTORY_URL }}
+
       - name: Install dependencies
-        run: pnpm i --filter="!./apps/**"
+        run: pnpm i --frozen-lockfile --filter="!./apps/**"
 
       - name: Build
         run: pnpm exec nx run-many -t build --projects=tag:type:coin-module

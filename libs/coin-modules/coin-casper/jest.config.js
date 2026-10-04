@@ -19,11 +19,16 @@ module.exports = {
       },
     ],
   },
-  testPathIgnorePatterns: ["lib/", "lib-es/", ".integ.test.ts"],
+  testPathIgnorePatterns: ["lib/", "lib-es/", ".integ.test.ts", "__tests__/"],
   reporters: [
     "default",
     ...(process.env.CI ? ["github-actions"] : []),
     ["jest-sonar", { outputName: "sonar-executionTests-report.xml", reportedFilePath: "absolute" }],
+    "@ledgerhq/test-quarantine/jest",
   ],
-  setupFilesAfterEnv: ["@ledgerhq/wallet-framework-test-setup", "@ledgerhq/disable-network-setup"],
+  setupFilesAfterEnv: [
+    "@ledgerhq/wallet-framework-test-setup",
+    "@ledgerhq/disable-network-setup",
+    "@ledgerhq/test-quarantine/jest-retries",
+  ],
 };

@@ -8,14 +8,24 @@ import {
 import { runOnceWhen } from "@ledgerhq/live-common/utils/runOnceWhen";
 import { LiveConfig } from "@ledgerhq/live-config/LiveConfig";
 import { getEnv } from "@shared/env";
-import { getDefaultAccountName } from "@ledgerhq/live-wallet/accountName";
+import {
+  publishAnalyticsEvent,
+  setAnalytics,
+  setEnabledFn,
+  setExtraPropsFn,
+  setMandatoryExtraPropsFn,
+  setPropsFilter,
+} from "@shared/analytics";
+import type { EventType } from "@shared/analytics";
+import { getDefaultAccountName } from "@domain/entity-account-name";
+import { selectContacts } from "@domain/entity-contact";
+import { buildContactsGlobalProperties } from "@features/platform-contacts";
+import { getPayAttributes } from "./getPayAttributes";
 import type { AccountLike } from "@ledgerhq/types-live";
 import { idsToLanguage } from "@ledgerhq/types-live";
 import type { Feature, FeatureId, Features } from "@shared/feature-flags";
 import invariant from "invariant";
-import { useCallback, useContext } from "react";
 import type * as Redux from "redux";
-import { ReplaySubject } from "rxjs";
 import { v4 as uuid } from "uuid";
 import { userIdSelector } from "@domain/entity-client-identity";
 import { getParsedSystemLocale } from "~/helpers/systemLocale";
@@ -39,9 +49,8 @@ import {
   sidebarCollapsedSelector,
   trackingEnabledSelector,
 } from "~/renderer/reducers/settings";
-import { analyticsDrawerContext } from "../drawers/Provider";
 import { accountsSelector } from "../reducers/accounts";
-import { currentRouteNameRef, previousRouteNameRef } from "./screenRefs";
+import { shouldIncludeSegmentIdentity } from "./segmentIdentity";
 import {
   onboardingIsSyncFlowSelector,
   onboardingReceiveFlowSelector,
@@ -53,7 +62,9 @@ import { getTotalStakeableAssets } from "@ledgerhq/live-common/domain/getTotalSt
 import { getOnboardingCounterfeitWarningAttributes } from "@ledgerhq/live-common/analytics/featureFlagHelpers/onboardingCounterfeitWarning";
 import { getWallet40Attributes } from "@ledgerhq/live-common/analytics/featureFlagHelpers/wallet40";
 import { getNewSendFlowAttribute } from "@ledgerhq/live-common/analytics/featureFlagHelpers/newSendFlow";
+import { getRemoteABTestingAttributes } from "@ledgerhq/live-common/analytics/remoteABTesting/remoteABTestingAnalytics";
 import { scrubAccountId } from "../helpers/scrubAccountId";
+import { getContentAbTestTracking } from "@features/platform-content-ab-tests";
 
 type ReduxStore = Redux.MiddlewareAPI<Redux.Dispatch<Redux.UnknownAction>, State>;
 
@@ -180,6 +191,8 @@ const getPtxAttributes = () => {
   const ptxSwapLiveAppOnPortfolio = analyticsFeatureFlagMethod("ptxSwapLiveAppOnPortfolio");
   const ptxSwapLiveAppOnAsset = analyticsFeatureFlagMethod("ptxSwapLiveAppOnAsset");
   const ptxBorrowLiveApp = analyticsFeatureFlagMethod("ptxBorrowLiveApp");
+  const stableSavings = analyticsFeatureFlagMethod("stableSavings");
+  const ptxEarnCtaOnMobile = analyticsFeatureFlagMethod("ptxEarnCtaOnMobile");
 
   const isBatch1Enabled: boolean =
     !!fetchAdditionalCoins?.enabled && fetchAdditionalCoins?.params?.batch === 1;
@@ -221,6 +234,8 @@ const getPtxAttributes = () => {
     ptxSwapLiveAppOnPortfolio: ptxSwapLiveAppOnPortfolio?.enabled,
     ptxSwapLiveAppOnAsset: ptxSwapLiveAppOnAsset?.enabled,
     borrowFeature: !!ptxBorrowLiveApp?.enabled,
+    stableSavings: !!stableSavings?.enabled,
+    ptxEarnCtaOnMobile: !!ptxEarnCtaOnMobile?.enabled,
     stablecoinYield,
     bitcoinYield,
     ethDepositScreen,
@@ -237,7 +252,8 @@ const getMandatoryProperties = (store: ReduxStore) => {
   const devModeEnabled = developerModeSelector(state);
   const readOnlyMode = !hasOnboardedDeviceSelector(state);
   const analyticsInfo = analyticsConsentInfoSelector(state);
-
+  const language = languageSelector(state);
+  const abTests = getContentAbTestTracking(language);
   return {
     devModeEnabled,
     optInAnalytics: analyticsEnabled,
@@ -245,6 +261,7 @@ const getMandatoryProperties = (store: ReduxStore) => {
     hasSeenAnalyticsOptInPrompt,
     readOnlyMode,
     analyticsInfo,
+    ab_tests: abTests,
   };
 };
 
@@ -257,6 +274,10 @@ const extraProperties = (store: ReduxStore) => {
   const device = lastSeenDeviceSelector(state);
   const devices = devicesModelListSelector(state);
   const accounts = accountsSelector(state);
+  const contactsAttributes = buildContactsGlobalProperties({
+    contacts: selectContacts(state),
+  });
+  const contactsFeature = analyticsFeatureFlagMethod?.("lwdContacts") ?? { enabled: false };
   const { postOnboardingInProgress } = hubStateSelector(state);
 
   const isOnboardingReceiveFlow = onboardingReceiveFlowSelector(state);
@@ -278,6 +299,12 @@ const extraProperties = (store: ReduxStore) => {
     : { enabled: false };
   const ldmkCosmosSigner = analyticsFeatureFlagMethod
     ? analyticsFeatureFlagMethod("ldmkCosmosSigner")
+    : { enabled: false };
+  const ldmkPolkadotSigner = analyticsFeatureFlagMethod
+    ? analyticsFeatureFlagMethod("ldmkPolkadotSigner")
+    : { enabled: false };
+  const ldmkTronSigner = analyticsFeatureFlagMethod
+    ? analyticsFeatureFlagMethod("ldmkTronSigner")
     : { enabled: false };
 
   const ledgerSyncAttributes = getLedgerSyncAttributes(state);
@@ -333,6 +360,12 @@ const extraProperties = (store: ReduxStore) => {
     "lwd",
   );
   const newSendFlow = getNewSendFlowAttribute(analyticsFeatureFlagMethod);
+  const remoteABTestingAttributes = getRemoteABTestingAttributes(analyticsFeatureFlagMethod);
+  const payAttributes = getPayAttributes(
+    state,
+    analyticsFeatureFlagMethod?.("lwdPayTab")?.enabled ?? false,
+    accounts ?? [],
+  );
 
   return {
     ...mandatoryProperties,
@@ -350,6 +383,8 @@ const extraProperties = (store: ReduxStore) => {
     sessionId,
     sidebarCollapsed,
     accountsWithFunds,
+    ContactsAttributes: contactsFeature,
+    ...contactsAttributes,
     tokenWithFunds,
     modelIdList: devices,
     ...ptxAttributes,
@@ -373,14 +408,37 @@ const extraProperties = (store: ReduxStore) => {
     ),
     isLDMKSolanaSignerEnabled: ldmkSolanaSigner?.enabled,
     isLDMKCosmosSignerEnabled: ldmkCosmosSigner?.enabled,
+    isLDMKPolkadotSignerEnabled: ldmkPolkadotSigner?.enabled,
+    isLDMKTronSignerEnabled: ldmkTronSigner?.enabled,
     totalStakeableAssets: combinedIds.size,
     stakeableAssets: stakeableAssetsList,
     wallet40Attributes,
+    ...payAttributes,
     finishOnboardingWidget: onboardingWidgetFlag?.enabled,
     ...onboardingCounterfeitWarningAttributes,
     newSendFlow,
+    ...remoteABTestingAttributes,
   };
 };
+
+setAnalytics({
+  track: async (event, props) => {
+    if (!analyticsInstance) {
+      return "skipped_no_client";
+    }
+    await analyticsInstance.track(event, props, { context: getContext() });
+  },
+  log: (type: EventType, event, props) => {
+    switch (type) {
+      case "page":
+        logger.analyticsPage(event, props);
+        break;
+      case "track":
+        logger.analyticsTrack(event, props);
+        break;
+    }
+  },
+});
 
 function initializeSegment() {
   if (analyticsInstance) return;
@@ -408,6 +466,11 @@ export const startAnalytics = async (store: ReduxStore) => {
   if (!store || (!process.env.SEGMENT_TEST && (getEnv("MOCK") || getEnv("PLAYWRIGHT_RUN")))) return;
   storeInstance = store;
 
+  setEnabledFn(() => trackingEnabledSelector(store.getState()));
+  setExtraPropsFn(() => extraProperties(store));
+  setMandatoryExtraPropsFn(() => getMandatoryProperties(store));
+  setPropsFilter(confidentialityFilter);
+
   const canBeTracked = trackingEnabledSelector(store.getState());
   if (!canBeTracked) return;
 
@@ -425,25 +488,33 @@ export const startAnalytics = async (store: ReduxStore) => {
     braze_external_id: id, // Needed for braze with this exact name
   };
   logger.analyticsStart(id, allProperties);
-  analytics.identify(id, allProperties, {
-    context: getContext(),
+  identifyAndLogOverlay(analytics, id, allProperties);
+};
+const publishIdentifyOverlay = (userIdPresent: boolean, failed: boolean) => {
+  const overlayProperties = failed ? { userIdPresent, failed: true } : { userIdPresent };
+  publishAnalyticsEvent({
+    eventName: "[Identify]",
+    eventProperties: overlayProperties,
+    eventPropertiesWithoutExtra: overlayProperties,
   });
 };
-type Properties = Error | Record<string, unknown> | null;
-export type LoggableEvent = {
-  eventName: string;
-  eventProperties?: Properties;
-  eventPropertiesWithoutExtra?: Properties;
-  date: Date;
+
+const identifyAndLogOverlay = (
+  analytics: AnalyticsBrowser,
+  id: string | undefined,
+  allProperties: Record<string, unknown>,
+) => {
+  void Promise.resolve()
+    .then(() =>
+      analytics.identify(id, allProperties, {
+        context: getContext(),
+      }),
+    )
+    .then(
+      () => publishIdentifyOverlay(Boolean(id), false),
+      () => publishIdentifyOverlay(Boolean(id), true),
+    );
 };
-export const trackSubject = new ReplaySubject<LoggableEvent>(30);
-function sendTrack(event: string, properties: object | undefined | null) {
-  const analytics = getAnalytics();
-  if (!analytics) return;
-  analytics.track(event, properties ?? undefined, {
-    context: getContext(),
-  });
-}
 
 const confidentialityFilter = (properties?: Record<string, unknown> | null) => {
   const { account, parentAccount, page, source } = properties || {};
@@ -491,7 +562,8 @@ export interface UpdateIdentifyOptions {
 export const updateIdentify = async ({ force }: UpdateIdentifyOptions = { force: false }) => {
   if (!storeInstance) return;
 
-  const canTrack = force || trackingEnabledSelector(storeInstance.getState());
+  const state = storeInstance.getState();
+  const canTrack = force || trackingEnabledSelector(state);
   if (!canTrack) return;
 
   let analytics = getAnalytics();
@@ -503,144 +575,14 @@ export const updateIdentify = async ({ force }: UpdateIdentifyOptions = { force:
     if (!analytics) return;
   }
 
-  const id = userIdSelector(storeInstance.getState()).exportUserIdForAnalytics();
+  const includeIdentity = shouldIncludeSegmentIdentity(state);
+  const id = includeIdentity ? userIdSelector(state).exportUserIdForAnalytics() : undefined;
 
   const allProperties = {
     ...extraProperties(storeInstance),
-    userId: id,
-    braze_external_id: id, // Needed for braze with this exact name
+    ...(id ? { userId: id, braze_external_id: id } : {}),
   };
-  analytics.identify(id, allProperties, {
-    context: getContext(),
-  });
+  identifyAndLogOverlay(analytics, id, allProperties);
 };
 /** Ensure PTX flag attributes are set as soon as feature flags load */
 runOnceWhen(() => !!analyticsFeatureFlagMethod && !!getAnalytics(), updateIdentify);
-
-export const track = (
-  eventName: string,
-  properties?: Record<string, unknown> | null,
-  mandatory?: boolean | null,
-) => {
-  if (!storeInstance || (!mandatory && !trackingEnabledSelector(storeInstance.getState()))) {
-    return;
-  }
-
-  const eventPropertiesWithoutExtra = {
-    page: currentRouteNameRef.current,
-    ...properties,
-  };
-
-  const allProperties = {
-    ...eventPropertiesWithoutExtra,
-    ...(mandatory ? getMandatoryProperties(storeInstance) : extraProperties(storeInstance)),
-    ...confidentialityFilter(properties),
-  };
-
-  logger.analyticsTrack(eventName, allProperties);
-  sendTrack(eventName, allProperties);
-  trackSubject.next({
-    eventName,
-    eventProperties: allProperties,
-    eventPropertiesWithoutExtra,
-    date: new Date(),
-  });
-};
-
-/**
- * Returns an enriched track function that uses the context to add contextual
- * props to events.
- *
- * For now it's only adding the "drawer" property if it's defined.
- * */
-export function useTrack() {
-  const { analyticsDrawerName } = useContext(analyticsDrawerContext);
-  return useCallback(
-    (
-      eventName: string,
-      properties?: Record<string, unknown> | null,
-      mandatory?: boolean | null,
-    ) => {
-      track(
-        eventName,
-        {
-          ...(analyticsDrawerName ? { drawer: analyticsDrawerName } : {}),
-          ...(properties ?? {}),
-        },
-        mandatory,
-      );
-    },
-    [analyticsDrawerName],
-  );
-}
-
-/**
- * Track an event which will have the name `Page ${category}${name ? " " + name : ""}`.
- * Extra logic to update the route names used in "screen" and "source"
- * properties of further events can be optionally enabled with the parameters
- * `updateRoutes` and `refreshSource`.
- */
-export const trackPage = (
-  /**
-   * First part of the event name string
-   */
-  category: string,
-  /**
-   * Second part of the event name string, will be concatenated to `category`
-   * after a whitespace if defined.
-   */
-  name?: string | null,
-  /**
-   * Event properties
-   */
-  properties?: Record<string, unknown> | null,
-  /**
-   * Should this function call update the previous & current route names.
-   * Previous and current route names are used to track:
-   * - the `screen` property in non-screen events (for instance `button_clicked` events)
-   * - the `source` property in further screen events
-   */
-  updateRoutes?: boolean,
-  /**
-   * Should this function call update the current route name.
-   * If true, it means that the full screen name (`category` + " " + `name`) will
-   * be used as a "source" property for further screen events.
-   * NB: the previous parameter `updateRoutes` must be true for this to have
-   * any effect.
-   */
-  refreshSource?: boolean,
-  /**
-   * When true, event will be sent even if standard analytics tracking is disabled.
-   */
-  mandatory?: boolean,
-) => {
-  if (!storeInstance || (!mandatory && !trackingEnabledSelector(storeInstance.getState()))) {
-    return;
-  }
-
-  const fullScreenName = category + (name ? ` ${name}` : "");
-  if (updateRoutes) {
-    previousRouteNameRef.current = currentRouteNameRef.current;
-    if (refreshSource) {
-      currentRouteNameRef.current = fullScreenName;
-    }
-  }
-  const eventName = `Page ${fullScreenName}`;
-
-  const eventPropertiesWithoutExtra = {
-    source: previousRouteNameRef.current ?? undefined,
-    ...confidentialityFilter(properties),
-  };
-  const allProperties = {
-    ...eventPropertiesWithoutExtra,
-    ...(mandatory ? getMandatoryProperties(storeInstance) : extraProperties(storeInstance)),
-  };
-  logger.analyticsPage(category, name, allProperties);
-  sendTrack(eventName, allProperties);
-  trackSubject.next({
-    eventName,
-    eventProperties: allProperties,
-    eventPropertiesWithoutExtra,
-    date: new Date(),
-  });
-};

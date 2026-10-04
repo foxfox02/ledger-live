@@ -1,7 +1,12 @@
 import BigNumber from "bignumber.js";
 import { getCryptoCurrencyById } from "@ledgerhq/ledger-wallet-framework/currencies";
-import { reduceShieldedSyncResult, postSync } from "./sync";
-import type { ZcashAccount } from "../types/bridge";
+import { reduceShieldedSyncResult, postSync, reconcileLegOperations } from "./sync";
+import {
+  reserveNotes,
+  getSessionReservedNullifiers,
+  _resetReservationsForTest,
+} from "./note-reservation";
+import type { ZcashAccount, ZcashOperationExtra } from "../types/bridge";
 import type { ShieldedSyncResult, ShieldedTransaction } from "../network/types";
 import type { BtcOperation } from "../types/bridge";
 
@@ -30,6 +35,7 @@ const infoWith = (privateInfo: Partial<ZcashAccount["privateInfo"]>, transparent
       estimatedTimeRemaining: { hours: 0, minutes: 0 },
       ufvk: "uview1key",
       birthday: null,
+      shieldedAddress: null,
       lastSyncTimestamp: null,
       lastProcessedBlock: null,
       transactions: [],
@@ -86,12 +92,13 @@ describe("reduceShieldedSyncResult", () => {
     remainingBlocks: 0,
   };
 
-  // Notes are as spendable as UTXOs. Reporting only the transparent balance here
-  // shows an account holding nothing but notes as having nothing to spend.
-  it("counts the shielded pools as spendable, not just as balance", () => {
+  // Ironwood notes are as spendable as UTXOs. Reporting only the transparent
+  // balance here shows an account holding nothing but notes as having nothing to
+  // spend. (Orchard/Sapling are deprecated and excluded — see balance.ts.)
+  it("counts the spendable Ironwood pool as spendable, not just as balance", () => {
     const output = reduceShieldedSyncResult(
       { processedOperations: [], accountUpdate: {} },
-      { ...emptyChunk, transactions: [incomingTx(3_425_869, 50_000)] },
+      { ...emptyChunk, transactions: [ironwoodTx(3_425_869, 50_000)] },
       infoWith({}, 100_000),
       "acc-1",
     );
@@ -174,9 +181,11 @@ describe("reduceShieldedSyncResult", () => {
       expect(output.accountUpdate.balance).toEqual(new BigNumber(5_000_000));
     });
 
-    // Each pool is counted once and only once: the balance is their sum, not the
-    // newest pool shadowing the others.
-    it("counts ironwood alongside orchard and the transparent UTXOs", () => {
+    // Each pool's notes are discovered and tracked independently, ironwood never
+    // shadowing orchard. The reported balance, though, counts only the spendable
+    // Ironwood pool plus the transparent UTXOs — the deprecated Orchard notes are
+    // tracked but left out of the total (see balance.ts).
+    it("tracks ironwood alongside orchard while only ironwood and the UTXOs count", () => {
       const output = reduceShieldedSyncResult(
         { processedOperations: [], accountUpdate: {} },
         {
@@ -189,7 +198,7 @@ describe("reduceShieldedSyncResult", () => {
 
       expect(output.accountUpdate.privateInfo?.orchardBalance).toEqual(new BigNumber(2_000_000));
       expect(output.accountUpdate.privateInfo?.ironwoodBalance).toEqual(new BigNumber(3_000_000));
-      expect(output.accountUpdate.balance).toEqual(new BigNumber(6_000_000));
+      expect(output.accountUpdate.balance).toEqual(new BigNumber(4_000_000));
     });
 
     // The engine reports the nullifiers it saw spent in a single list covering
@@ -228,6 +237,108 @@ describe("reduceShieldedSyncResult", () => {
         output.accountUpdate.privateInfo?.transactions?.[0].decryptedData?.ironwood_outputs;
       expect(notes).toHaveLength(1);
       expect(notes?.[0].nullifier).toBe(nullifier);
+    });
+  });
+
+  // Dropping the nullifiers a scan reported spent is what keeps the session
+  // reservation store from growing forever, and the reducer is its only caller —
+  // one per branch, the chunk that discovered transactions and the chunk that did
+  // not. Both are covered here against the real store, since a mis-threaded
+  // argument is the regression that silently defeats the cleanup.
+  describe("reservation reconciliation", () => {
+    const RESERVED_A = "11".repeat(32);
+    const RESERVED_B = "22".repeat(32);
+
+    beforeEach(() => {
+      _resetReservationsForTest();
+    });
+
+    describe.each([
+      { branch: "without new transactions", transactions: [] as ShieldedTransaction[] },
+      { branch: "carrying new transactions", transactions: [incomingTx(3_425_869, 1000)] },
+    ])("on a chunk $branch", ({ transactions }) => {
+      it("drops the nullifiers the scan reported spent", () => {
+        reserveNotes("acc-1", "tx-in-flight", [RESERVED_A, RESERVED_B]);
+
+        reduceShieldedSyncResult(
+          { processedOperations: [], accountUpdate: {} },
+          {
+            ...emptyChunk,
+            transactions,
+            processedBlocks: 10,
+            remainingBlocks: 5,
+            spentKnownNullifiers: [RESERVED_A],
+          },
+          infoWith({}),
+          "acc-1",
+        );
+
+        const reserved = getSessionReservedNullifiers("acc-1");
+        expect(reserved.has(RESERVED_A)).toBe(false);
+        expect(reserved.has(RESERVED_B)).toBe(true);
+      });
+
+      // Reaching the tip a run started from is the outcome of nearly every poll
+      // of an account that is not backlogged. It confirms nothing about a spend
+      // in flight, so it must not hand its notes back to the next send.
+      it("keeps a reservation the scan said nothing about, tip or no tip", () => {
+        reserveNotes("acc-1", "tx-in-flight", [RESERVED_A, RESERVED_B]);
+
+        reduceShieldedSyncResult(
+          { processedOperations: [], accountUpdate: {} },
+          { ...emptyChunk, transactions, processedBlocks: 15, remainingBlocks: 0 },
+          infoWith({}),
+          "acc-1",
+        );
+
+        expect(getSessionReservedNullifiers("acc-1").size).toBe(2);
+      });
+
+      it("keeps the reservations of the accounts it is not syncing", () => {
+        reserveNotes("acc-1", "tx-in-flight", [RESERVED_A]);
+        reserveNotes("acc-2", "tx-elsewhere", [RESERVED_B]);
+
+        reduceShieldedSyncResult(
+          { processedOperations: [], accountUpdate: {} },
+          {
+            ...emptyChunk,
+            transactions,
+            processedBlocks: 15,
+            remainingBlocks: 0,
+            spentKnownNullifiers: [RESERVED_A],
+          },
+          infoWith({}),
+          "acc-1",
+        );
+
+        expect(getSessionReservedNullifiers("acc-1").size).toBe(0);
+        expect(getSessionReservedNullifiers("acc-2").has(RESERVED_B)).toBe(true);
+      });
+    });
+  });
+
+  describe("shieldedAddress carry-forward", () => {
+    it("preserves a non-null shieldedAddress across a sync cycle", () => {
+      const address = "u1testaddress";
+      const output = reduceShieldedSyncResult(
+        { processedOperations: [], accountUpdate: {} },
+        emptyChunk,
+        infoWith({ shieldedAddress: address }),
+        "acc-1",
+      );
+
+      expect(output.accountUpdate.privateInfo?.shieldedAddress).toBe(address);
+    });
+
+    it("carries null when no shieldedAddress was stored", () => {
+      const output = reduceShieldedSyncResult(
+        { processedOperations: [], accountUpdate: {} },
+        emptyChunk,
+        infoWith({ shieldedAddress: null }),
+        "acc-1",
+      );
+
+      expect(output.accountUpdate.privateInfo?.shieldedAddress).toBeNull();
     });
   });
 });
@@ -292,5 +403,374 @@ describe("postSync", () => {
     const synced = postSync(account([], []), account([], [optimistic]));
 
     expect(synced.pendingOperations).toEqual([optimistic]);
+  });
+
+  // ── memo propagation ─────────────────────────────────────────────────
+
+  it("copies the optimistic memo to a confirmed operation that has none", () => {
+    const confirmed = operation({ extra: {} as ZcashOperationExtra });
+    const optimistic = operation({
+      id: "op-pending",
+      extra: { zcashShielded: true, memo: "shielded memo" } as ZcashOperationExtra,
+    });
+
+    const synced = postSync(account([], []), account([confirmed], [optimistic]));
+
+    expect((synced.operations[0].extra as ZcashOperationExtra).memo).toBe("shielded memo");
+  });
+
+  it("preserves a memo already present on the confirmed operation", () => {
+    const confirmed = operation({
+      extra: { zcashShielded: true, memo: "decoded by LWD" } as ZcashOperationExtra,
+    });
+    const optimistic = operation({
+      id: "op-pending",
+      extra: { zcashShielded: true, memo: "signed memo" } as ZcashOperationExtra,
+    });
+
+    const synced = postSync(account([], []), account([confirmed], [optimistic]));
+
+    expect((synced.operations[0].extra as ZcashOperationExtra).memo).toBe("decoded by LWD");
+  });
+
+  it("copies the private marker to the confirmed outgoing operation", () => {
+    const confirmed = operation({ extra: {} as ZcashOperationExtra });
+    const optimistic = operation({
+      id: "op-pending",
+      extra: { zcashShielded: true, zcashPrivate: true } as ZcashOperationExtra,
+    });
+
+    const synced = postSync(account([], []), account([confirmed], [optimistic]));
+
+    expect((synced.operations[0].extra as ZcashOperationExtra).zcashPrivate).toBe(true);
+  });
+
+  it("does not copy the private marker to an incoming leg with the same hash", () => {
+    const incoming = operation({
+      type: "SHIELDED_TX_IRONWOOD_IN",
+      extra: {} as ZcashOperationExtra,
+    });
+    const optimistic = operation({
+      id: "op-pending",
+      extra: { zcashShielded: true, zcashPrivate: true } as ZcashOperationExtra,
+    });
+
+    const synced = postSync(account([], []), account([incoming], [optimistic]));
+
+    expect((synced.operations[0].extra as ZcashOperationExtra).zcashPrivate).toBeUndefined();
+  });
+
+  // The notes a shielded send spends are released on the same evidence that
+  // retires its optimistic operation, so that a second send can reuse them only
+  // once the first one is genuinely out of the way.
+  describe("note reservations", () => {
+    const RESERVED = "11".repeat(32);
+
+    beforeEach(() => {
+      _resetReservationsForTest();
+    });
+
+    it("releases the notes of a send that has confirmed", () => {
+      reserveNotes("acc-1", "76ec3b38", [RESERVED]);
+      const confirmed = operation({ hash: "76ec3b38", type: "SHIELDED_TX_ORCHARD_OUT" });
+
+      postSync(account([], []), account([confirmed], []));
+
+      expect(getSessionReservedNullifiers("acc-1").size).toBe(0);
+    });
+
+    // The double-spend race the reservation store exists for: a sync lands
+    // between two sends, and the first one has not confirmed yet.
+    it("holds the notes of a send no confirmed operation accounts for", () => {
+      reserveNotes("acc-1", "76ec3b38", [RESERVED]);
+      const unrelated = operation({ hash: "0e1d2c3b", type: "SHIELDED_TX_ORCHARD_IN" });
+      const optimistic = operation({ id: "op-pending", hash: "76ec3b38" });
+
+      postSync(account([], []), account([unrelated], [optimistic]));
+
+      expect(getSessionReservedNullifiers("acc-1").has(RESERVED)).toBe(true);
+    });
+
+    // A scan of an account carries no pending operation at all, and a send is
+    // only pending from broadcast onwards while its notes are reserved from
+    // signing — an empty pending list is no evidence of anything.
+    it("holds the notes of a send that is not pending yet", () => {
+      reserveNotes("acc-1", "76ec3b38", [RESERVED]);
+
+      postSync(account([], []), account([], []));
+
+      expect(getSessionReservedNullifiers("acc-1").has(RESERVED)).toBe(true);
+    });
+  });
+});
+
+// LIVE-37172. End of the pipeline for the flow the ticket reports: "private
+// balance" + "Self transfer" de-shields to the account's own transparent address.
+// Exercises the real shielded reducer rather than hand-built operations, so the
+// operation type under test is the one `getTxType` actually derives.
+describe("de-shielding self-transfer", () => {
+  const TXID = "a1b2c3selfdeshield";
+  const SENT = new BigNumber(10_000_000);
+  const FEE = new BigNumber(20_000);
+
+  // No transparent input (the value comes from Ironwood notes), the whole
+  // transparent output paid to an address of ours, change back as an internal note.
+  const selfDeshieldTx = {
+    id: TXID,
+    hex: "00",
+    blockHeight: 3_425_900,
+    blockHash: "hash",
+    timestamp: 1_757_000_000,
+    fee: FEE,
+    transparentOut: SENT,
+    hasTransparentInputs: false,
+    decryptedData: {
+      orchard_outputs: [],
+      sapling_outputs: [],
+      ironwood_outputs: [
+        { amount: new BigNumber(5_000_000), memo: "", transfer_type: "internal", isSpent: false },
+      ],
+    },
+  } as unknown as ShieldedTransaction;
+
+  // What the transparent leg records for that same transaction: `mapTxToOperations`
+  // only emits an "OUT" for a transaction funded by a transparent input, and a
+  // de-shielding send has none -- so from the transparent pool's own point of view
+  // this is an inflow like any other.
+  const transparentIn = {
+    id: `acc-1-${TXID}-IN`,
+    hash: TXID,
+    accountId: "acc-1",
+    type: "IN",
+    value: SENT,
+    fee: new BigNumber(0),
+    senders: [],
+    recipients: ["t1ourOwnFreshAddress"],
+    blockHeight: 3_425_900,
+    blockHash: "hash",
+    date: new Date(1_757_000_000 * 1000),
+    extra: {},
+  } as unknown as BtcOperation;
+
+  it("reports the send as well as the receipt", () => {
+    const shielded = reduceShieldedSyncResult(
+      { processedOperations: [], accountUpdate: { operations: [transparentIn] } },
+      { transactions: [selfDeshieldTx], processedBlocks: 1, remainingBlocks: 0 },
+      infoWith({ lastProcessedBlock: 3_425_899 }),
+      "acc-1",
+    );
+
+    const sent = (shielded.accountUpdate.operations as BtcOperation[]).find(
+      op => op.hash === TXID && op.type === "SHIELDED_TX_IRONWOOD_OUT",
+    );
+    // Same convention as every other outgoing operation: the value includes the fee.
+    expect(sent?.value.toFixed()).toBe(SENT.plus(FEE).toFixed());
+
+    const latest = { transparent: [transparentIn], shielded: [] as BtcOperation[] };
+    const reconciled = reconcileLegOperations(latest, "shielded", shielded.accountUpdate);
+
+    expect((reconciled.operations as BtcOperation[]).map(op => op.type).sort()).toEqual([
+      "IN",
+      "SHIELDED_TX_IRONWOOD_OUT",
+    ]);
+  });
+});
+
+describe("reconcileLegOperations", () => {
+  const op = (overrides: Partial<BtcOperation>): BtcOperation =>
+    ({
+      id: "op-1",
+      hash: "76ec3b38",
+      accountId: "acc-1",
+      type: "OUT",
+      value: new BigNumber(1000),
+      fee: new BigNumber(55),
+      senders: [],
+      recipients: [],
+      blockHeight: 90,
+      blockHash: "hash",
+      date: new Date(),
+      extra: {},
+      ...overrides,
+    }) as BtcOperation;
+
+  const freshLatest = () => ({ transparent: [] as BtcOperation[], shielded: [] as BtcOperation[] });
+
+  // Two records of the same transaction collapse only when they report the SAME
+  // direction -- one payment the two legs each saw from their own side. Here a
+  // shield paying someone else: the transparent leg debits the UTXOs, the shielded
+  // leg sees the note it created through the outgoing viewing key.
+  it("keeps only the transparent leg's operation when both legs record the same leg of a transaction", () => {
+    const latest = freshLatest();
+
+    const transparentResult = reconcileLegOperations(latest, "transparent", {
+      operations: [op({ id: "tx-1-OUT", hash: "tx-1", type: "OUT" })],
+    } as Partial<ZcashAccount>);
+    expect(transparentResult.operations).toHaveLength(1);
+
+    const shieldedResult = reconcileLegOperations(latest, "shielded", {
+      operations: [
+        op({ id: "tx-1-SHIELDED_TX_IRONWOOD_OUT", hash: "tx-1", type: "SHIELDED_TX_IRONWOOD_OUT" }),
+      ],
+    } as Partial<ZcashAccount>);
+
+    expect(shieldedResult.operations).toHaveLength(1);
+    expect((shieldedResult.operations as BtcOperation[])[0].type).toBe("OUT");
+  });
+
+  // LIVE-37172. De-shielding to one's own transparent address moves value between
+  // two pools of the same account: the transparent leg credits ("IN"), the shielded
+  // leg debits ("_OUT"). Two legs of one movement, not one event counted twice --
+  // collapsing them by hash left the send showing only as "Received".
+  it("keeps both legs of a de-shielding self-transfer", () => {
+    const latest = freshLatest();
+
+    reconcileLegOperations(latest, "shielded", {
+      operations: [
+        op({ id: "tx-1-SHIELDED_TX_IRONWOOD_OUT", hash: "tx-1", type: "SHIELDED_TX_IRONWOOD_OUT" }),
+      ],
+    } as Partial<ZcashAccount>);
+    const transparentResult = reconcileLegOperations(latest, "transparent", {
+      operations: [op({ id: "tx-1-IN", hash: "tx-1", type: "IN" })],
+    } as Partial<ZcashAccount>);
+
+    expect((transparentResult.operations as BtcOperation[]).map(o => o.type).sort()).toEqual([
+      "IN",
+      "SHIELDED_TX_IRONWOOD_OUT",
+    ]);
+  });
+
+  // The mirror: shielding to one's own shielded address debits transparently and
+  // credits the pool.
+  it("keeps both legs of a shielding self-transfer", () => {
+    const latest = freshLatest();
+
+    reconcileLegOperations(latest, "transparent", {
+      operations: [op({ id: "tx-1-OUT", hash: "tx-1", type: "OUT" })],
+    } as Partial<ZcashAccount>);
+    const shieldedResult = reconcileLegOperations(latest, "shielded", {
+      operations: [
+        op({ id: "tx-1-SHIELDED_TX_IRONWOOD_IN", hash: "tx-1", type: "SHIELDED_TX_IRONWOOD_IN" }),
+      ],
+    } as Partial<ZcashAccount>);
+
+    expect((shieldedResult.operations as BtcOperation[]).map(o => o.type).sort()).toEqual([
+      "OUT",
+      "SHIELDED_TX_IRONWOOD_IN",
+    ]);
+  });
+
+  it("keeps both legs' operations when they record different transaction hashes", () => {
+    const latest = freshLatest();
+
+    reconcileLegOperations(latest, "transparent", {
+      operations: [op({ id: "tx-1-OUT", hash: "tx-1", type: "OUT" })],
+    } as Partial<ZcashAccount>);
+    const shieldedResult = reconcileLegOperations(latest, "shielded", {
+      operations: [op({ id: "tx-2-IN", hash: "tx-2", type: "SHIELDED_TX_IRONWOOD_IN" })],
+    } as Partial<ZcashAccount>);
+
+    expect(shieldedResult.operations).toHaveLength(2);
+  });
+
+  // Order must not matter: whichever leg reconciles second is the one that sees
+  // both buckets, regardless of which leg happened to discover the transaction
+  // first.
+  it("keeps only the transparent leg's operation even when the shielded leg reconciles first", () => {
+    const latest = freshLatest();
+
+    reconcileLegOperations(latest, "shielded", {
+      operations: [
+        op({ id: "tx-1-SHIELDED_TX_IRONWOOD_OUT", hash: "tx-1", type: "SHIELDED_TX_IRONWOOD_OUT" }),
+      ],
+    } as Partial<ZcashAccount>);
+    const transparentResult = reconcileLegOperations(latest, "transparent", {
+      operations: [op({ id: "tx-1-OUT", hash: "tx-1", type: "OUT" })],
+    } as Partial<ZcashAccount>);
+
+    expect(transparentResult.operations).toHaveLength(1);
+    expect((transparentResult.operations as BtcOperation[])[0].type).toBe("OUT");
+  });
+
+  // The shielded record is the only one carrying a memo (see
+  // `convertShieldedTransactionsToOperations`) -- dropping it outright for a
+  // superseded record would silently lose the memo attached to a shielding send.
+  it("copies the shielded twin's memo onto the surviving transparent operation", () => {
+    const latest = freshLatest();
+
+    reconcileLegOperations(latest, "shielded", {
+      operations: [
+        op({
+          id: "tx-1-SHIELDED_TX_IRONWOOD_OUT",
+          hash: "tx-1",
+          type: "SHIELDED_TX_IRONWOOD_OUT",
+          extra: { memo: "thanks for shielding" } as ZcashOperationExtra,
+        }),
+      ],
+    } as Partial<ZcashAccount>);
+    const transparentResult = reconcileLegOperations(latest, "transparent", {
+      operations: [op({ id: "tx-1-OUT", hash: "tx-1", type: "OUT", extra: {} })],
+    } as Partial<ZcashAccount>);
+
+    expect(transparentResult.operations).toHaveLength(1);
+    expect((transparentResult.operations as BtcOperation[])[0].extra).toEqual({
+      memo: "thanks for shielding",
+    });
+  });
+
+  it("never overwrites a memo the transparent operation already has", () => {
+    const latest = freshLatest();
+
+    reconcileLegOperations(latest, "shielded", {
+      operations: [
+        op({
+          id: "tx-1-SHIELDED_TX_IRONWOOD_OUT",
+          hash: "tx-1",
+          type: "SHIELDED_TX_IRONWOOD_OUT",
+          extra: { memo: "shielded memo" } as ZcashOperationExtra,
+        }),
+      ],
+    } as Partial<ZcashAccount>);
+    const transparentResult = reconcileLegOperations(latest, "transparent", {
+      operations: [
+        op({
+          id: "tx-1-OUT",
+          hash: "tx-1",
+          type: "OUT",
+          extra: { memo: "transparent memo" } as ZcashOperationExtra,
+        }),
+      ],
+    } as Partial<ZcashAccount>);
+
+    expect((transparentResult.operations as BtcOperation[])[0].extra).toEqual({
+      memo: "transparent memo",
+    });
+  });
+
+  // A memo on a self-transfer belongs to the shielded leg, which survives: copying
+  // it onto the transparent leg too would print the same memo on both rows.
+  it("leaves the memo on the shielded leg when both legs survive", () => {
+    const latest = freshLatest();
+
+    reconcileLegOperations(latest, "shielded", {
+      operations: [
+        op({
+          id: "tx-1-SHIELDED_TX_IRONWOOD_OUT",
+          hash: "tx-1",
+          type: "SHIELDED_TX_IRONWOOD_OUT",
+          extra: { memo: "to myself" } as ZcashOperationExtra,
+        }),
+      ],
+    } as Partial<ZcashAccount>);
+    const transparentResult = reconcileLegOperations(latest, "transparent", {
+      operations: [op({ id: "tx-1-IN", hash: "tx-1", type: "IN", extra: {} })],
+    } as Partial<ZcashAccount>);
+
+    const operations = transparentResult.operations as BtcOperation[];
+    expect(operations).toHaveLength(2);
+    expect(operations.find(o => o.type === "IN")?.extra).toEqual({});
+    expect(operations.find(o => o.type === "SHIELDED_TX_IRONWOOD_OUT")?.extra).toEqual({
+      memo: "to myself",
+    });
   });
 });

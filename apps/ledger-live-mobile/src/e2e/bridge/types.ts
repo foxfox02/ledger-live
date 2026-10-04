@@ -1,8 +1,11 @@
 import { Event as AppEvent } from "@ledgerhq/live-common/hw/actions/app";
 import { DescriptorEventType } from "@ledgerhq/hw-transport";
-import { AccountRaw } from "@ledgerhq/types-live";
+import { AccountRaw, type PostOnboardingState } from "@ledgerhq/types-live";
 import { Device } from "@ledgerhq/live-common/hw/actions/types";
 import { BleState, SettingsState } from "~/reducers/types";
+import type { PayCardPersistedState } from "~/db";
+import type { TrustchainStore } from "@ledgerhq/ledger-key-ring-protocol/store";
+import type { Contact } from "@domain/entity-contact";
 import { Subject, Observable } from "rxjs";
 
 import { ConnectAppEvent } from "@ledgerhq/live-common/hw/connectApp";
@@ -31,6 +34,7 @@ export type ServerData =
     }
   | {
       type: "appLogs";
+      id: string;
       payload: string;
     }
   | {
@@ -39,14 +43,22 @@ export type ServerData =
     }
   | {
       type: "appFlags";
+      id: string;
       payload: string;
     }
   | {
       type: "appEnvs";
+      id: string;
       payload: string;
     }
+  | {
+      type: "ptxHandoff";
+      id: string;
+      payload: string;
+    }
+  | { type: "contactsImported"; id: string; payload: "" }
   | { type: "ACK"; id: string }
-  | { type: "swapSetupDone" }
+  | { type: "swapSetupDone"; id: string }
   | { type: "swapLiveAppReady" }
   | { type: "earnLiveAppReady" };
 
@@ -65,6 +77,7 @@ export type MessageData =
   | { type: "getLogs"; id: string }
   | { type: "getFlags"; id: string }
   | { type: "getEnvs"; id: string }
+  | { type: "getPtxHandoff"; id: string }
   | { type: "navigate"; id: string; payload: string }
   | { type: "importSettings"; id: string; payload: Partial<SettingsState> }
   | {
@@ -75,7 +88,11 @@ export type MessageData =
         version: number;
       }[];
     }
+  | { type: "importTrustchain"; id: string; payload: TrustchainStore }
+  | { type: "importContacts"; id: string; payload: Contact[] }
   | { type: "importBle"; id: string; payload: BleState }
+  | { type: "importPostOnboarding"; id: string; payload: Partial<PostOnboardingState> }
+  | { type: "importPayCard"; id: string; payload: Partial<PayCardPersistedState> }
   | { type: "overrideFeatureFlags"; id: string; payload: PartialFeatures }
   | { type: "overrideFeatureFlag"; id: string; payload: OverrideFeatureFlagPayload }
   | { type: "setGlobals"; id: string; payload: { [key: string]: unknown } }

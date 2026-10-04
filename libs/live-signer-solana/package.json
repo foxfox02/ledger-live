@@ -1,6 +1,6 @@
 {
   "name": "@ledgerhq/live-signer-solana",
-  "version": "0.18.1",
+  "version": "0.21.4",
   "private": true,
   "description": "Ledger Hardware Wallet Solana Application API",
   "keywords": [
@@ -29,13 +29,13 @@
   "dependencies": {
     "@ledgerhq/coin-solana": "workspace:^",
     "@ledgerhq/context-module": "catalog:",
-    "@ledgerhq/devices": "workspace:*",
+    "@ledgerhq/devices": "catalog:",
     "@ledgerhq/device-management-kit": "catalog:",
     "@ledgerhq/device-signer-kit-solana": "catalog:",
-    "@ledgerhq/live-env": "workspace:^",
+    "@ledgerhq/live-env": "catalog:",
     "@ledgerhq/hw-app-solana": "workspace:^",
     "@ledgerhq/hw-bolos": "workspace:^",
-    "@ledgerhq/hw-transport": "workspace:*",
+    "@ledgerhq/hw-transport": "catalog:",
     "@ledgerhq/ledger-cal-service": "workspace:^",
     "@ledgerhq/ledger-wallet-framework": "workspace:^",
     "@ledgerhq/ledger-trust-service": "workspace:^",
@@ -55,16 +55,18 @@
     "test": "jest"
   },
   "devDependencies": {
-    "@shared/env": "workspace:*",
+    "@types/react": "catalog:",
     "@ledgerhq/disable-network-setup": "workspace:^",
+    "@ledgerhq/test-quarantine": "workspace:*",
     "@ledgerhq/types-live": "workspace:^",
+    "@shared/env": "workspace:*",
+    "@swc/core": "catalog:",
+    "@swc/jest": "catalog:",
     "@types/jest": "catalog:",
     "@types/node": "catalog:",
     "@types/semver": "catalog:",
     "jest": "catalog:",
     "rimraf": "^4.4.1",
-    "@swc/jest": "catalog:",
-    "@swc/core": "catalog:",
     "ts-node": "^10.4.0"
   },
   "exports": {

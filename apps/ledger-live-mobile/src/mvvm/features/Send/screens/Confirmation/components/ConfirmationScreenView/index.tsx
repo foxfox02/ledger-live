@@ -1,9 +1,8 @@
-import React, { useCallback, useEffect, useMemo } from "react";
+import { track } from "@shared/analytics";
+import React, { useCallback, useEffect } from "react";
 import { Button } from "@ledgerhq/lumen-ui-rnative";
 import { ConfirmationStatusLayout } from "../ConfirmationStatusLayout";
-import { useAnalytics } from "~/analytics";
-import { getSendFlowTrackingProperties } from "@ledgerhq/ledger-wallet-framework/tracking/send";
-import { useSendFlowData } from "../../../../context/SendFlowContext";
+import { usePageNameFromRoute } from "~/analytics";
 
 export type ConfirmationScreenViewProps = Readonly<{
   title: string;
@@ -11,6 +10,7 @@ export type ConfirmationScreenViewProps = Readonly<{
   viewTransactionLabel: string;
   closeLabel: string;
   canViewTransaction: boolean;
+  trackingProperties: Record<string, unknown>;
   onViewTransaction: () => void;
   onClose: () => void;
 }>;
@@ -21,24 +21,20 @@ export function ConfirmationScreenView({
   viewTransactionLabel,
   closeLabel,
   canViewTransaction,
+  trackingProperties,
   onViewTransaction,
   onClose,
 }: ConfirmationScreenViewProps) {
-  const { state } = useSendFlowData();
-  const { account, parentAccount } = state.account;
-
-  const { track } = useAnalytics();
-  const trackingProperties = useMemo(() => {
-    return getSendFlowTrackingProperties(account ?? null, parentAccount);
-  }, [account, parentAccount]);
+  const page = usePageNameFromRoute();
 
   useEffect(() => {
     track("transaction_drawer", {
       ...trackingProperties,
       name: "transaction details",
+      page,
       flow: "send",
     });
-  }, [track, trackingProperties]);
+  }, [page, trackingProperties]);
 
   const handleViewTransaction = useCallback(() => {
     track("button_clicked", {
@@ -48,21 +44,17 @@ export function ConfirmationScreenView({
       flow: "send",
     });
     onViewTransaction();
-  }, [track, trackingProperties, onViewTransaction]);
+  }, [trackingProperties, onViewTransaction]);
 
   const handleClose = useCallback(() => {
     track("button_clicked", {
       ...trackingProperties,
       button: "close",
-      page: "transaction details",
+      page: "step confirmation",
       flow: "send",
     });
     onClose();
-  }, [track, trackingProperties, onClose]);
-
-  useEffect(() => {
-    track("send_modal", { ...trackingProperties, name: "step confirmation" });
-  }, [track, trackingProperties]);
+  }, [trackingProperties, onClose]);
 
   return (
     <ConfirmationStatusLayout

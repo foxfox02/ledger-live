@@ -9,6 +9,7 @@ import {
 } from "@ledgerhq/coin-module-framework/api/index";
 import {
   AmountRequired,
+  FeeNotLoaded,
   FeeTooHigh,
   InvalidAddress,
   InvalidAddressBecauseDestinationIsAlsoSource,
@@ -16,15 +17,32 @@ import {
   RecipientRequired,
 } from "@ledgerhq/ledger-wallet-framework/errors";
 import cryptoFactory from "../../chain/chain";
+import { type CosmosCoinConfig } from "../../config";
 import {
   ClaimRewardsFeesWarning,
+  CosmosDelegateAllFundsWarning,
+  CosmosMemoTooLong,
   RedelegateDstValAddressRequired,
   ValAddressRequired,
 } from "../../errors";
+import { COSMOS_MAX_MEMO_LENGTH } from "../../logic";
 import { validateAddress } from "../validateAddress";
 
 function clampPositive(value: bigint): bigint {
   return value > 0n ? value : 0n;
+}
+
+function validateMemoLength(intent: TransactionIntent<StringMemo | MemoNotSupported>) {
+  const memo = "memo" in intent ? intent.memo : undefined;
+  if (memo?.type !== "string") return undefined;
+
+  const memoLength = Buffer.byteLength(memo.value, "utf-8");
+  if (memoLength <= COSMOS_MAX_MEMO_LENGTH) return undefined;
+
+  return new CosmosMemoTooLong("", {
+    memoLength: memoLength.toString(),
+    maxLength: COSMOS_MAX_MEMO_LENGTH.toString(),
+  });
 }
 
 /**
@@ -40,19 +58,37 @@ export async function validateIntent(
   intent: TransactionIntent<StringMemo | MemoNotSupported>,
   balances: Balance[],
   customFees?: FeeEstimation,
+  config?: CosmosCoinConfig,
 ): Promise<TransactionValidation> {
+  // The framework hands over `transaction.fees ?? 0`, so an unprepared transaction is
+  // indistinguishable from a zero fee by value alone. A zero fee is only a real estimate on a chain
+  // that allows a zero gas price (e.g. gonka); anywhere else it means estimation has not run yet.
+  const feesLoaded =
+    customFees !== undefined &&
+    (customFees.value > 0n || cryptoFactory(currencyId, config).minGasPrice === 0);
+
+  const memoError = validateMemoLength(intent);
+
   if (intent.intentType === "staking") {
-    return validateStakingIntent(
+    const result = validateStakingIntent(
       currencyId,
       intent as StakingTransactionIntent,
       balances,
       customFees?.value ?? 0n,
+      feesLoaded,
+      config,
     );
+    if (memoError) result.errors.transaction = memoError;
+    return result;
   }
 
   const errors: Record<string, Error> = {};
   const warnings: Record<string, Error> = {};
   const estimatedFees = customFees?.value ?? 0n;
+
+  if (!feesLoaded) {
+    errors.fees = new FeeNotLoaded();
+  }
 
   if (!intent.recipient) {
     errors.recipient = new RecipientRequired("");
@@ -60,6 +96,10 @@ export async function validateIntent(
     errors.recipient = new InvalidAddressBecauseDestinationIsAlsoSource();
   } else if (!(await validateAddress(intent.recipient, { currencyId }))) {
     errors.recipient = new InvalidAddress();
+  }
+
+  if (memoError) {
+    errors.transaction = memoError;
   }
 
   const native = balances.find(b => b.asset.type === "native");
@@ -93,11 +133,13 @@ function validateStakingIntent(
   intent: StakingTransactionIntent,
   balances: Balance[],
   estimatedFees: bigint,
+  feesLoaded: boolean,
+  config?: CosmosCoinConfig,
 ): TransactionValidation {
   const errors: Record<string, Error> = {};
   const warnings: Record<string, Error> = {};
 
-  const validatorPrefix = cryptoFactory(currencyId).validatorPrefix;
+  const validatorPrefix = cryptoFactory(currencyId, config).validatorPrefix;
 
   if (!intent.valAddress) {
     errors.valAddress = new ValAddressRequired();
@@ -107,6 +149,8 @@ function validateStakingIntent(
   if (intent.mode === "redelegate") {
     if (!intent.dstValAddress) {
       errors.dstValAddress = new RedelegateDstValAddressRequired();
+    } else if (intent.dstValAddress === intent.valAddress) {
+      errors.dstValAddress = new InvalidAddressBecauseDestinationIsAlsoSource();
     } else if (!intent.dstValAddress.startsWith(validatorPrefix)) {
       errors.dstValAddress = new InvalidAddress();
     }
@@ -124,6 +168,14 @@ function validateStakingIntent(
     errors.amount = new AmountRequired();
   } else if (totalSpent > available) {
     errors.amount = new NotEnoughBalance();
+  }
+
+  if (!feesLoaded) {
+    errors.fees = new FeeNotLoaded();
+  }
+
+  if (intent.mode === "delegate" && intent.useAllAmount && !errors.amount) {
+    warnings.amount = new CosmosDelegateAllFundsWarning();
   }
 
   // The fee eats the reward: the bridge compares against pendingRewards, which the Alpaca inputs

@@ -1,13 +1,9 @@
-import { getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
 import coinConfig from "../config";
 import { getBalance } from "./getBalance";
 
 const SENDER = "0x33444cf803c690db96527cec67e3c9ab512596f4ba2d4eace43f0b4f716e0164";
 
-// SKIP — Sui JSON-RPC public-endpoint shutdown. This suite targets the public testnet
-// fullnode (fullnode.testnet.sui.io), which the Sui Foundation retired (testnet wk of
-// 2026-07-06, mainnet wk of 2026-07-20) as JSON-RPC is deprecated for gRPC/GraphQL.
-// Re-enable after porting the integ config to the GraphQL transport.
+// Skipped until re-validated live against the gRPC transport.
 describe.skip("getBalance", () => {
   beforeAll(() => {
     coinConfig.setCoinConfig(() => ({
@@ -15,15 +11,17 @@ describe.skip("getBalance", () => {
         type: "active",
       },
       node: {
-        url: getJsonRpcFullnodeUrl("testnet"),
         graphqlUrl: "https://graphql.testnet.sui.io/graphql",
+        grpcUrl: "https://fullnode.testnet.sui.io:443",
       },
-      features: { graphql: false },
+      features: { transport: "grpc" },
+      name: "Sui (Testnet)",
+      unit: { name: "Sui", code: "SUI", magnitude: 9 },
     }));
   });
 
   it("should fetch native SUI balance", async () => {
-    const balances = await getBalance(SENDER);
+    const balances = await getBalance(coinConfig.getCoinConfig(), SENDER);
 
     expect(balances.length).toBeGreaterThanOrEqual(1);
     expect(balances[0]).toMatchObject({
@@ -35,7 +33,7 @@ describe.skip("getBalance", () => {
   }, 10000);
 
   it("should fetch token balances", async () => {
-    const balances = await getBalance(SENDER);
+    const balances = await getBalance(coinConfig.getCoinConfig(), SENDER);
 
     expect(balances.length).toBeGreaterThanOrEqual(1);
 
@@ -53,7 +51,7 @@ describe.skip("getBalance", () => {
   }, 15000);
 
   it("should properly parse token asset reference", async () => {
-    const balances = await getBalance(SENDER);
+    const balances = await getBalance(coinConfig.getCoinConfig(), SENDER);
 
     const usdTokens = balances.filter(
       balance =>

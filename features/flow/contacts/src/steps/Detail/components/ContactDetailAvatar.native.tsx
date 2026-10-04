@@ -1,29 +1,19 @@
 import React from "react";
-import { Avatar } from "@ledgerhq/lumen-ui-rnative";
 import type { Contact } from "@domain/entity-contact";
-import { ContactAvatar } from "../../../components/ContactAvatar/ContactAvatar.native";
+import { ContactAvatar } from "@features/platform-contacts";
 
 type ContactDetailAvatarProps = Readonly<{
   contact: Contact;
-  meAvatarSrc: string;
 }>;
 
-export function ContactDetailAvatar({
-  contact,
-  meAvatarSrc,
-}: ContactDetailAvatarProps): React.JSX.Element {
-  if (contact.isMe) {
-    return (
-      <Avatar size="xl" src={meAvatarSrc} alt={contact.name} testID="contacts-detail-me-avatar" />
-    );
-  }
-
+export function ContactDetailAvatar({ contact }: ContactDetailAvatarProps): React.JSX.Element {
   return (
     <ContactAvatar
       contactId={contact.id}
       name={contact.name}
+      isMe={contact.isMe}
       size="xl"
-      testID="contacts-detail-avatar"
+      testId={contact.isMe ? "contacts-detail-me-avatar" : "contacts-detail-avatar"}
     />
   );
 }

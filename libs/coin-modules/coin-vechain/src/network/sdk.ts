@@ -12,27 +12,31 @@ import {
   mapVetTransfersToOperations,
   mapTokenTransfersToOperations,
   padAddress,
+  VIP180_TRANSFER_TOPIC,
 } from "../common-logic";
-import { VECHAIN_NODE_URL as BASE_URL } from "../constants";
+import { getNodeUrl, type VechainCurrencyConfig } from "../config";
 
 const NET_ERROR_LOG_TRANSFERS_LIMIT = {
   status: 403,
   msgPattern: /exceeds the maximum allowed/,
 };
 
-export const getAccount = async (address: string): Promise<AccountResponse> => {
+export const getAccount = async (
+  config: VechainCurrencyConfig,
+  address: string,
+): Promise<AccountResponse> => {
   const { data } = await network<AccountResponse>({
     method: "GET",
-    url: `${BASE_URL}/accounts/${address}`,
+    url: `${getNodeUrl(config)}/accounts/${address}`,
   });
 
   return data;
 };
 
-export const getLastBlockHeight = async (): Promise<number> => {
+export const getLastBlockHeight = async (config: VechainCurrencyConfig): Promise<number> => {
   const { data } = await network<{ number: number }>({
     method: "GET",
-    url: `${BASE_URL}/blocks/best`,
+    url: `${getNodeUrl(config)}/blocks/best`,
   });
 
   return data.number;
@@ -47,6 +51,7 @@ export const getLastBlockHeight = async (): Promise<number> => {
  * @returns an array of operations
  */
 const fetchRangeOfOperations = async (
+  config: VechainCurrencyConfig,
   accountId: string,
   addr: string,
   startAt: number,
@@ -64,11 +69,11 @@ const fetchRangeOfOperations = async (
 
   const { data } = await network<TransferLog[]>({
     method: "POST",
-    url: `${BASE_URL}/logs/transfer`,
+    url: `${getNodeUrl(config)}/logs/transfer`,
     data: JSON.stringify(query),
   });
 
-  return mapVetTransfersToOperations(data, accountId, addr);
+  return mapVetTransfersToOperations(config, data, accountId, addr);
 };
 
 /**
@@ -80,6 +85,7 @@ const fetchRangeOfOperations = async (
  * @returns an array of operations
  */
 const fetchRangeOfTokenOperations = async (
+  config: VechainCurrencyConfig,
   accountId: string,
   addr: string,
   tokenAddr: string,
@@ -87,9 +93,6 @@ const fetchRangeOfTokenOperations = async (
   stopAt: number,
 ): Promise<Operation[]> => {
   const paddedAddress = padAddress(addr);
-
-  const TransferEventSignature =
-    "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
   const query: TokenTxsQuery = {
     range: {
@@ -100,12 +103,12 @@ const fetchRangeOfTokenOperations = async (
     criteriaSet: [
       {
         address: tokenAddr,
-        topic0: TransferEventSignature,
+        topic0: VIP180_TRANSFER_TOPIC,
         topic1: paddedAddress,
       },
       {
         address: tokenAddr,
-        topic0: TransferEventSignature,
+        topic0: VIP180_TRANSFER_TOPIC,
         topic2: paddedAddress,
       },
     ],
@@ -114,11 +117,11 @@ const fetchRangeOfTokenOperations = async (
 
   const { data } = await network<EventLog[]>({
     method: "POST",
-    url: `${BASE_URL}/logs/event`,
+    url: `${getNodeUrl(config)}/logs/event`,
     data: JSON.stringify(query),
   });
 
-  return mapTokenTransfersToOperations(data, accountId, addr);
+  return mapTokenTransfersToOperations(config, data, accountId, addr);
 };
 
 /**
@@ -213,13 +216,14 @@ const getLogsWithPagination = async (
  * @returns an array of operations
  */
 export const getOperations = async (
+  config: VechainCurrencyConfig,
   accountId: string,
   addr: string,
   startAt: number,
   stopAt: number,
 ): Promise<Operation[]> => {
   const fetchRange = async (from: number, to: number) =>
-    fetchRangeOfOperations(accountId, addr, from, to);
+    fetchRangeOfOperations(config, accountId, addr, from, to);
   return getLogsWithPagination(startAt, stopAt, fetchRange);
 };
 
@@ -234,6 +238,7 @@ export const getOperations = async (
  * @returns an array of operations
  */
 export const getTokenOperations = async (
+  config: VechainCurrencyConfig,
   accountId: string,
   addr: string,
   tokenAddr: string,
@@ -241,7 +246,7 @@ export const getTokenOperations = async (
   stopAt: number,
 ): Promise<Operation[]> => {
   const fetchRange = async (from: number, to: number) =>
-    fetchRangeOfTokenOperations(accountId, addr, tokenAddr, from, to);
+    fetchRangeOfTokenOperations(config, accountId, addr, tokenAddr, from, to);
   return getLogsWithPagination(startAt, stopAt, fetchRange);
 };
 
@@ -250,14 +255,17 @@ export const getTokenOperations = async (
  * @param transaction - The transaction to submit
  * @returns transaction ID
  */
-export const submit = async (transaction: VechainSDKTransaction): Promise<string> => {
+export const submit = async (
+  config: VechainCurrencyConfig,
+  transaction: VechainSDKTransaction,
+): Promise<string> => {
   const encodedRawTx = {
     raw: `0x${Buffer.from(transaction.encoded).toString("hex")}`,
   };
 
   const { data } = await network<{ id: string }>({
     method: "POST",
-    url: `${BASE_URL}/transactions`,
+    url: `${getNodeUrl(config)}/transactions`,
     data: encodedRawTx,
   });
 
@@ -271,10 +279,10 @@ export const submit = async (transaction: VechainSDKTransaction): Promise<string
  * Get the block ref to use in a transaction
  * @returns the block ref of head
  */
-export const getBlockRef = async (): Promise<string> => {
+export const getBlockRef = async (config: VechainCurrencyConfig): Promise<string> => {
   const { data } = await network<{ id: string }>({
     method: "GET",
-    url: `${BASE_URL}/blocks/best`,
+    url: `${getNodeUrl(config)}/blocks/best`,
   });
 
   return data.id.slice(0, 18);

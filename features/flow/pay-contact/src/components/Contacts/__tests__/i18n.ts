@@ -1,0 +1,37 @@
+import type { I18nTestProviderProps } from "@shared/i18n/testing";
+import { CONTACT_DISPLAY_NAME_TRANSLATIONS } from "@features/platform-contacts/testing";
+
+export type I18nResources = I18nTestProviderProps["resources"];
+
+export const CONTACTS_RESOURCES: I18nResources = {
+  en: {
+    translation: {
+      ...CONTACT_DISPLAY_NAME_TRANSLATIONS,
+      payTab: {
+        contacts: {
+          title: "Pay contact",
+          me: "Me",
+          pay: "Pay",
+          empty: {
+            info: "You don’t have contact yet",
+            addContact: "Add contact",
+          },
+          table: {
+            name: "Name",
+            addresses: "Addresses",
+            transactions: "Transactions",
+            transactionCount_zero: "No transaction",
+            transactionCount_one: "{{count}} transaction",
+            transactionCount_other: "{{count}} transactions",
+          },
+          actions: {
+            pay: "Send to contact",
+            more: "More options",
+            viewContact: "View contact",
+            viewTransactions: "View transactions",
+          },
+        },
+      },
+    },
+  },
+};

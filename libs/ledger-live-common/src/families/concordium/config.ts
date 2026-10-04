@@ -6,18 +6,24 @@ export const concordiumConfig: Record<string, ConfigInfo> = {
     type: "object",
     default: {
       status: { type: "active" },
+      name: "Concordium",
+      unit: { name: "ccd", code: "CCD", magnitude: 6 },
       networkType: "mainnet",
       proxyUrl: "https://ccd-wallet-proxy-mainnet.coin.ledger.com",
       minReserve: 0,
+      enableTokens: false,
     } satisfies ConcordiumCoinConfig,
   },
   config_currency_concordium_testnet: {
     type: "object",
     default: {
       status: { type: "active" },
+      name: "Concordium (Testnet)",
+      unit: { name: "ccd", code: "CCD", magnitude: 6 },
       networkType: "testnet",
       proxyUrl: "https://ccd-wallet-proxy-testnet.coin.ledger-test.com",
       minReserve: 0,
+      enableTokens: false,
     } satisfies ConcordiumCoinConfig,
   },
 };

@@ -1,14 +1,15 @@
 import React from "react";
 import { Text } from "react-native";
 import { render, screen } from "@tests/test-renderer";
-import type { QueuedBottomSheetProps } from "LLM/components/QueuedDrawer/QueuedBottomSheet";
+import type { QueuedBottomSheetProps } from "@shared/ui-queued-bottom-sheet";
 import { QueuedDrawerFlow } from "..";
 
 let mockDrawerProps: QueuedBottomSheetProps | undefined;
 let mockDrawerMountCount = 0;
 let mockDrawerUnmountCount = 0;
 
-jest.mock("LLM/components/QueuedDrawer/QueuedBottomSheet", () => {
+jest.mock("@shared/ui-queued-bottom-sheet", () => {
+  const actual = jest.requireActual("@shared/ui-queued-bottom-sheet");
   function MockQueuedBottomSheet(props: QueuedBottomSheetProps) {
     const React = jest.requireActual<typeof import("react")>("react");
 
@@ -24,8 +25,8 @@ jest.mock("LLM/components/QueuedDrawer/QueuedBottomSheet", () => {
   }
 
   return {
-    __esModule: true,
-    default: MockQueuedBottomSheet,
+    ...actual,
+    QueuedBottomSheet: MockQueuedBottomSheet,
   };
 });
 
@@ -102,6 +103,41 @@ describe("QueuedDrawerFlow", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  it("should remount the previous screen when navigating back", () => {
+    const onClose = jest.fn();
+    const onAssetScreenMount = jest.fn();
+    function AssetScreen() {
+      React.useEffect(onAssetScreenMount, []);
+      return <Text>Asset screen</Text>;
+    }
+    const transitionScreens = {
+      ...screens,
+      asset: {
+        ...screens.asset,
+        content: <AssetScreen />,
+      },
+    } satisfies Parameters<typeof QueuedDrawerFlow<TestStep>>[0]["screens"];
+    const { rerender } = render(
+      <QueuedDrawerFlow currentStep="asset" isOpen onClose={onClose} screens={transitionScreens} />,
+    );
+
+    rerender(
+      <QueuedDrawerFlow
+        currentStep="address"
+        isOpen
+        onClose={onClose}
+        screens={transitionScreens}
+      />,
+    );
+    rerender(
+      <QueuedDrawerFlow currentStep="asset" isOpen onClose={onClose} screens={transitionScreens} />,
+    );
+
+    expect(screen.getByText("Asset screen")).toBeVisible();
+    expect(screen.queryByText("Address screen")).toBeNull();
+    expect(onAssetScreenMount).toHaveBeenCalledTimes(2);
+  });
+
   it("should hide the back button when no back handler is provided", () => {
     render(<QueuedDrawerFlow currentStep="address" isOpen onClose={jest.fn()} screens={screens} />);
 
@@ -111,5 +147,36 @@ describe("QueuedDrawerFlow", () => {
         onBack: undefined,
       }),
     );
+  });
+
+  it("should hand the drawer only the current screen's footer", () => {
+    const screensWithFooter = {
+      ...screens,
+      asset: {
+        ...screens.asset,
+        footer: <Text>Asset footer</Text>,
+      },
+    } satisfies Parameters<typeof QueuedDrawerFlow<TestStep>>[0]["screens"];
+    const { rerender } = render(
+      <QueuedDrawerFlow
+        currentStep="asset"
+        isOpen
+        onClose={jest.fn()}
+        screens={screensWithFooter}
+      />,
+    );
+
+    expect(mockDrawerProps?.footer).toEqual(<Text>Asset footer</Text>);
+
+    rerender(
+      <QueuedDrawerFlow
+        currentStep="address"
+        isOpen
+        onClose={jest.fn()}
+        screens={screensWithFooter}
+      />,
+    );
+
+    expect(mockDrawerProps?.footer).toBeUndefined();
   });
 });

@@ -1,9 +1,8 @@
-import React, { useCallback, useMemo } from "react";
+import { track } from "@shared/analytics";
+import React, { useCallback } from "react";
 import { Box, Button } from "@ledgerhq/lumen-ui-rnative";
 import type { AmountScreenQuickAction } from "../types";
-import { useAnalytics } from "~/analytics";
-import { getSendFlowTrackingProperties } from "@ledgerhq/ledger-wallet-framework/tracking/send";
-import { useSendFlowData } from "../../../context/SendFlowContext";
+import { useSendFlowTrackingProperties } from "../../../hooks/useSendFlowTrackingProperties";
 
 type QuickActionsRowProps = Readonly<{
   actions: readonly AmountScreenQuickAction[];
@@ -23,13 +22,7 @@ function toTrackButtonLabel(id: string): string {
 }
 
 export function QuickActionsRow({ actions }: QuickActionsRowProps) {
-  const { state } = useSendFlowData();
-  const { account, parentAccount } = state.account;
-
-  const { track } = useAnalytics();
-  const trackingProperties = useMemo(() => {
-    return getSendFlowTrackingProperties(account, parentAccount);
-  }, [account, parentAccount]);
+  const trackingProperties = useSendFlowTrackingProperties();
 
   const handleOnPress = useCallback(
     (actionId: string, onPress: () => void, untracked?: boolean) => {
@@ -46,7 +39,7 @@ export function QuickActionsRow({ actions }: QuickActionsRowProps) {
       });
       onPress();
     },
-    [track, trackingProperties],
+    [trackingProperties],
   );
 
   return (

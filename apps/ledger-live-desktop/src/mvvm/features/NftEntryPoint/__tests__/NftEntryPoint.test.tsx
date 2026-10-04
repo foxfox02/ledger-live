@@ -3,8 +3,9 @@ import React from "react";
 import { render, screen, withFlagOverrides } from "tests/testSetup";
 import NftEntryPoint from "..";
 import { Entry } from "../types";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import { Account } from "@ledgerhq/types-live";
+import { getAccountUrl } from "~/renderer/utils";
 
 const mockNavigate = jest.fn();
 
@@ -13,8 +14,8 @@ jest.mock("react-router", () => ({
   useNavigate: () => mockNavigate,
 }));
 
-jest.mock("~/renderer/analytics/segment", () => ({
-  ...jest.requireActual("~/renderer/analytics/segment"),
+jest.mock("@shared/analytics", () => ({
+  ...jest.requireActual("@shared/analytics"),
   track: jest.fn(),
 }));
 
@@ -116,7 +117,7 @@ describe("NftEntryPoint", () => {
       state: {
         accountId: mockAccount.id,
         chainId: mockAccount.currency.id,
-        returnTo: `/account/${mockAccount.id}`,
+        returnTo: getAccountUrl(mockAccount.id),
         website: "https://magiceden.io",
       },
     });

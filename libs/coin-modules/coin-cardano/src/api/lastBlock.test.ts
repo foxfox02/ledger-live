@@ -1,11 +1,21 @@
+import type { Context } from "@ledgerhq/coin-module-framework/config";
 import { createApi } from ".";
-import { type CardanoConfig } from "../config";
+import { type CardanoCoinConfig, type CardanoConfig } from "../config";
 import { lastBlock } from "../logic/lastBlock";
 
 jest.mock("../logic/lastBlock");
 const mockLastBlock = jest.mocked(lastBlock);
 
 const config: CardanoConfig = { maxFeesWarning: 0, maxFeesError: 0 };
+const mockCtx: Context<CardanoCoinConfig> = {
+  config: async () => ({
+    ...config,
+    status: { type: "active" },
+    name: "Cardano",
+    unit: { name: "ada", code: "ADA", magnitude: 6 },
+  }),
+  logger: () => {},
+};
 
 describe("lastBlock", () => {
   afterEach(() => {
@@ -16,8 +26,8 @@ describe("lastBlock", () => {
     const blockInfo = { height: 42, hash: "", time: new Date() };
     mockLastBlock.mockResolvedValue(blockInfo);
 
-    const api = createApi(config, "cardano");
-    const result = await api.lastBlock();
+    const api = createApi("cardano");
+    const result = await api.lastBlock(mockCtx);
 
     expect(result).toBe(blockInfo);
     expect(mockLastBlock).toHaveBeenCalledTimes(1);
@@ -27,8 +37,8 @@ describe("lastBlock", () => {
   it("propagates errors from logic lastBlock", async () => {
     mockLastBlock.mockRejectedValue(new Error("boom"));
 
-    const api = createApi(config, "cardano");
+    const api = createApi("cardano");
 
-    await expect(api.lastBlock()).rejects.toThrow("boom");
+    await expect(api.lastBlock(mockCtx)).rejects.toThrow("boom");
   });
 });

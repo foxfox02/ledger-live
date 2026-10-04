@@ -1,13 +1,17 @@
+import type { ThunkDispatch, UnknownAction } from "@reduxjs/toolkit";
+import { getEnv } from "@shared/env";
 import {
-  CountervaluesBridge,
-  CountervaluesProvider,
-  useCountervaluesPolling,
-} from "@ledgerhq/live-countervalues-react";
-import { CounterValuesStateRaw } from "@ledgerhq/live-countervalues/types";
+  createRateSource,
+  marketCountervaluesApi,
+  type RateSource,
+} from "@domain/api-market-countervalues";
+import { createMockRateSource } from "@domain/api-market-countervalues/mock";
+import { CountervaluesBridge, CountervaluesProvider } from "@ledgerhq/live-countervalues-react";
+import { CounterValuesStateRaw } from "@domain/entity-market-countervalues";
 import { useGetCounterValueIdsPolling } from "@ledgerhq/live-common/counterValues/state-manager/useGetCounterValueIdsPolling";
 import { flow } from "lodash/fp";
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { AppState, AppStateStatus } from "react-native";
+import React, { useMemo } from "react";
+import { useCountervaluesPollingLifecycle } from "LLM/hooks/useCountervaluesPollingLifecycle";
 import { useDispatch } from "~/context/hooks";
 import { useUserSettings } from "~/actions/general";
 import {
@@ -30,22 +34,51 @@ import {
  * Call side effects outside of the primary render tree, avoiding costly child re-renders
  */
 function Effect() {
-  usePollingManager();
+  useCountervaluesPollingLifecycle();
   return null;
+}
+
+/**
+ * Builds the rate source the countervalues provider fetches through.
+ *
+ * The choice between real and mocked rates is made here, at composition time, rather than inside
+ * the fetch path: `@domain/api-market-countervalues` reads no environment, so what used to be a
+ * hidden `MOCK_COUNTERVALUES` dispatcher two layers down is now one visible branch.
+ */
+function useRateSource(dispatch: ThunkDispatch<unknown, unknown, UnknownAction>): RateSource {
+  return useMemo(() => {
+    if (getEnv("MOCK_COUNTERVALUES")) return createMockRateSource(getEnv("MOCK"));
+
+    return createRateSource({
+      // Dispatch with `forceRefetch` and without `subscribe: false`; see the RateFetchers docs.
+      fetchHistoricalWindow: args =>
+        dispatch(
+          marketCountervaluesApi.endpoints.getHistoricalRates.initiate(args, {
+            forceRefetch: true,
+          }),
+        ),
+      fetchSpotBatch: args =>
+        dispatch(
+          marketCountervaluesApi.endpoints.getSpotRates.initiate(args, { forceRefetch: true }),
+        ),
+    });
+  }, [dispatch]);
 }
 
 export function useCountervaluesBridge() {
   const userSettings = useUserSettings();
   const dispatch = useDispatch();
+  const rates = useRateSource(dispatch);
 
   return useMemo(
     (): CountervaluesBridge => ({
+      rates,
       setPollingIsPolling: flow(setCountervaluesPollingIsPolling, dispatch),
       setPollingTriggerLoad: flow(setCountervaluesPollingTriggerLoad, dispatch),
       setState: flow(setCountervaluesState, dispatch),
       setStateError: flow(setCountervaluesStateError, dispatch),
       setStatePending: flow(setCountervaluesStatePending, dispatch),
-      useMarketcapIds: useGetCounterValueIdsPolling,
+      useSupportedCryptoIds: useGetCounterValueIdsPolling,
       usePollingIsPolling: useCountervaluesPollingIsPolling,
       usePollingTriggerLoad: useCountervaluesPollingTriggerLoad,
       useState: useCountervaluesState,
@@ -54,7 +87,7 @@ export function useCountervaluesBridge() {
       useUserSettings: () => userSettings,
       wipe: flow(wipeCountervalues, dispatch),
     }),
-    [dispatch, userSettings],
+    [dispatch, rates, userSettings],
   );
 }
 
@@ -73,31 +106,4 @@ export function CountervaluesBridgedProvider({
       {children}
     </CountervaluesProvider>
   );
-}
-
-function usePollingManager() {
-  const { start, stop } = useCountervaluesPolling();
-  const appState = useRef(AppState.currentState ?? "");
-  const [isActive, setIsActive] = useState<boolean>(!!appState.current);
-  useEffect(() => {
-    function handleChange(nextAppState: AppStateStatus) {
-      setIsActive(
-        (appState.current.match(/inactive|background/) && nextAppState === "active") || false,
-      );
-      appState.current = nextAppState;
-    }
-
-    const sub = AppState.addEventListener("change", handleChange);
-    return () => {
-      sub.remove();
-    };
-  }, []);
-  useEffect(() => {
-    if (!isActive) {
-      stop();
-      return;
-    }
-
-    start();
-  }, [isActive, start, stop]);
 }

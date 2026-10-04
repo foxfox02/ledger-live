@@ -61,6 +61,16 @@ describe("fromTrongridTxInfoToOperation", () => {
     });
   });
 
+  it("carries a decoded memo onto details.memo so it round-trips into extra.memo", () => {
+    const result = fromTrongridTxInfoToOperation(
+      { ...mockTrongridTxInfo, memo: "ledger-e2e" },
+      mockBlock,
+      mockUserAddress,
+    );
+
+    expect(result.details).toMatchObject({ memo: "ledger-e2e" });
+  });
+
   it("should return IN operation type when the user address is the recipient", () => {
     const txInfo = {
       ...mockTrongridTxInfo,
@@ -108,11 +118,23 @@ describe("fromTrongridTxInfoToOperation", () => {
     expect(result.asset).toEqual({ type: "native" });
   });
 
-  it("should return UNKNOWN operation in default case", () => {
+  it("should type a self-send as OUT", () => {
     const txInfo = {
       ...mockTrongridTxInfo,
       from: mockUserAddress,
       to: mockUserAddress,
+    };
+
+    const result = fromTrongridTxInfoToOperation(txInfo, mockBlock, mockUserAddress);
+
+    expect(result.type).toBe("OUT");
+  });
+
+  it("should return UNKNOWN operation in default case", () => {
+    const txInfo = {
+      ...mockTrongridTxInfo,
+      from: "TOtherSender",
+      to: undefined,
     };
 
     const result = fromTrongridTxInfoToOperation(txInfo, mockBlock, mockUserAddress);

@@ -1,13 +1,30 @@
 import BigNumber from "bignumber.js";
+import { fireEvent, within } from "tests/testSetup";
+import userEvent from "@testing-library/user-event";
 import { NotEnoughBalance } from "@ledgerhq/ledger-wallet-framework/errors";
 import { bitcoinPickingStrategy } from "@ledgerhq/live-common/families/bitcoin/types";
 import type { Transaction } from "@ledgerhq/live-common/generated/types";
+import { SEND_FLOW_SOURCE } from "@ledgerhq/live-common/flows/send/types";
 import {
+  SPONSORED_FAILURE_KIND,
+  SPONSORED_PHASE,
+} from "@ledgerhq/live-common/flows/send/sponsored/types";
+import { mockContact, mockContactAddress } from "@domain/entity-contact/schema.mock";
+import {
+  TRON_USDT_FEE_ASSET,
+  createMockTronUsdtAccount,
+} from "../screens/Recipient/__integrations__/__fixtures__/accounts";
+import {
+  act,
   createBitcoinAccount,
   createEthereumAccount,
+  createRippleAccount,
   createMinimalBtcTransaction,
   createMinimalEvmTransaction,
+  createMinimalTronTransaction,
   createResolvedStatus,
+  createTronAccount,
+  mockSponsoredOrchestrationActions,
   navigateToAmountScreen,
   openCoinControlScreen,
   openCustomFeesScreen,
@@ -17,23 +34,380 @@ import {
   screen,
   waitFor,
   setMockBridgeRecipientValidation,
+  setMockBalanceTypeConfig,
+  setMockDeviceActionResult,
+  setMockOrchestrationState,
   setMockScannedCode,
+  setMockContacts,
+  setMockSponsoredSeam,
   setMockStatus,
   setMockStatusResolver,
   setMockTransaction,
   VALID_BTC_RECIPIENT,
   VALID_EVM_RECIPIENT,
+  VALID_XRP_RECIPIENT,
+  VALID_TRON_RECIPIENT,
 } from "../__mocks__/sendFlowTestUtils";
+
+const setupFakeTimersUser = () =>
+  userEvent.setup({ advanceTimers: jest.advanceTimersByTime, pointerEventsCheck: 0 });
+
+function mockTronifySeam() {
+  setMockSponsoredSeam({
+    listFeeOptions: jest.fn().mockResolvedValue([
+      { id: "tronify", feeAsset: TRON_USDT_FEE_ASSET },
+      { id: "standard", feeAsset: { type: "native" } },
+    ]),
+    estimateSponsoredFeeQuote: jest.fn().mockResolvedValue({
+      feeAsset: TRON_USDT_FEE_ASSET,
+      value: 3_200_000n,
+      originalValue: 6_430_000n,
+    }),
+  });
+}
+
+async function navigateToRentSignature(user: ReturnType<typeof renderSendFlow>["user"]) {
+  await navigateToAmountScreen(user, VALID_TRON_RECIPIENT);
+
+  await user.click(await screen.findByTestId("send-fee-payment-entry"));
+  expect(await screen.findByTestId("send-fee-payment-options")).toBeVisible();
+
+  await user.click(screen.getByTestId("send-fee-payment-option-tronify"));
+  await user.click(screen.getByTestId("send-fee-payment-confirm"));
+  expect(await screen.findByTestId("send-amount-step")).toBeVisible();
+
+  const reviewButton = await screen.findByTestId("send-review-button");
+  const reviewButtonLeftLoading = () => expect(reviewButton).toHaveTextContent(/\S/);
+  await waitFor(reviewButtonLeftLoading);
+
+  await user.click(reviewButton);
+  expect(await screen.findByTestId("send-sponsored-rent-signature")).toBeVisible();
+}
 
 describe("Send Flow Integration", () => {
   const ethereumAccount = createEthereumAccount();
   const bitcoinAccount = createBitcoinAccount();
+  const rippleAccount = createRippleAccount();
 
   beforeEach(() => {
     resetSendFlowTestState("evm");
   });
 
   describe("Recipient step", () => {
+    it("should start on recipient for a regular send", async () => {
+      renderSendFlow(ethereumAccount);
+
+      expect(await screen.findByTestId("send-recipient-input")).toBeVisible();
+      expect(screen.queryByTestId("send-amount-step")).not.toBeInTheDocument();
+    });
+
+    it("should start on amount when opened from a contact", async () => {
+      renderSendFlow(ethereumAccount, {
+        recipient: VALID_EVM_RECIPIENT,
+        skipRecipientStep: true,
+      });
+
+      expect(await screen.findByTestId("send-amount-step")).toBeVisible();
+      expect(screen.getByTestId("send-amount-input")).toBeVisible();
+    });
+
+    it("should start on amount when opened from Pay", async () => {
+      const { user } = renderSendFlow(ethereumAccount, {
+        recipient: VALID_EVM_RECIPIENT,
+        skipRecipientStep: true,
+        source: SEND_FLOW_SOURCE.PAY,
+      });
+
+      expect(await screen.findByTestId("send-amount-step")).toBeVisible();
+      expect(screen.getByTestId("send-edit-recipient-button")).toBeVisible();
+      await waitFor(() => expect(screen.getByDisplayValue("0xabcdef...cdefabcd")).toBeVisible());
+      expect(screen.queryByTestId("send-recipient-card-send")).not.toBeInTheDocument();
+
+      await user.type(screen.getByTestId("send-amount-input"), "1");
+
+      expect(screen.queryByText(/recipientrequired/i)).not.toBeInTheDocument();
+    });
+
+    it("should keep the recipient step when a direct recipient is empty", async () => {
+      renderSendFlow(ethereumAccount, {
+        recipient: "   ",
+        skipRecipientStep: true,
+      });
+
+      expect(await screen.findByTestId("send-recipient-input")).toBeVisible();
+      expect(screen.queryByTestId("send-amount-step")).not.toBeInTheDocument();
+    });
+
+    it("should keep the recipient step when Pay has no recipient", async () => {
+      renderSendFlow(ethereumAccount, { source: SEND_FLOW_SOURCE.PAY });
+
+      expect(await screen.findByTestId("send-recipient-input")).toBeVisible();
+      expect(screen.queryByTestId("send-amount-step")).not.toBeInTheDocument();
+    });
+
+    it("should start on amount when Pay opens a memo currency", async () => {
+      const { user } = renderSendFlow(rippleAccount, {
+        recipient: VALID_XRP_RECIPIENT,
+        skipRecipientStep: true,
+        source: SEND_FLOW_SOURCE.PAY,
+      });
+
+      expect(await screen.findByTestId("send-amount-step")).toBeVisible();
+      expect(screen.getByTestId("send-amount-input")).toBeVisible();
+      expect(screen.getByTestId("send-edit-recipient-button")).toBeVisible();
+      expect(screen.queryByTestId("send-recipient-input")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("send-memo-input")).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.getByDisplayValue("rHb9CJAW...4bwdtyTh")).toBeVisible());
+
+      await user.type(screen.getByTestId("send-amount-input"), "1");
+
+      expect(screen.queryByText(/recipientrequired/i)).not.toBeInTheDocument();
+    });
+
+    it("should keep the recipient step when a contact skip opens a memo currency", async () => {
+      renderSendFlow(rippleAccount, {
+        recipient: VALID_XRP_RECIPIENT,
+        skipRecipientStep: true,
+      });
+
+      expect(await screen.findByTestId("send-recipient-input")).toBeVisible();
+      expect(screen.getByTestId("send-recipient-input")).toHaveValue(VALID_XRP_RECIPIENT);
+      expect(screen.queryByTestId("send-amount-step")).not.toBeInTheDocument();
+    });
+
+    it("shows only contacts with addresses on the recipient network and advances directly for one address", async () => {
+      setMockContacts([
+        mockContact({
+          id: "contact-vincent",
+          name: "Vincent",
+          addresses: [
+            mockContactAddress({
+              id: "address-vincent-eth",
+              currencyId: "ethereum",
+              label: "Ethereum Main",
+              address: VALID_EVM_RECIPIENT,
+            }),
+          ],
+        }),
+        mockContact({
+          id: "contact-solana",
+          name: "Solana contact",
+          addresses: [
+            mockContactAddress({
+              id: "address-solana",
+              currencyId: "solana",
+              label: "Solana",
+              address: "SolanaAddress123",
+            }),
+          ],
+        }),
+      ]);
+      const { user } = renderSendFlow(ethereumAccount);
+
+      expect(await screen.findByTestId("contacts-compact-row-contact-vincent")).toBeVisible();
+      expect(screen.queryByText("Solana contact")).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId("contacts-compact-row-contact-vincent"));
+      expect(await screen.findByTestId("send-amount-step")).toBeVisible();
+    });
+
+    it("replaces the Pay contact from the recipient bar without stacking back history", async () => {
+      const contacts = [
+        mockContact({
+          id: "contact-alice",
+          name: "Alice",
+          addresses: [
+            mockContactAddress({
+              id: "address-alice",
+              currencyId: "ethereum",
+              address: VALID_EVM_RECIPIENT,
+            }),
+          ],
+        }),
+        mockContact({
+          id: "contact-bob",
+          name: "Bob",
+          addresses: [
+            mockContactAddress({
+              id: "address-bob",
+              currencyId: "ethereum",
+              address: VALID_EVM_RECIPIENT,
+            }),
+          ],
+        }),
+      ];
+      setMockContacts(contacts);
+      const { user } = renderSendFlow(
+        ethereumAccount,
+        {
+          recipient: VALID_EVM_RECIPIENT,
+          skipRecipientStep: true,
+          source: SEND_FLOW_SOURCE.PAY,
+        },
+        contacts,
+      );
+
+      expect(await screen.findByDisplayValue("Alice")).toBeVisible();
+      await user.click(screen.getByTestId("send-edit-recipient-button"));
+      fireEvent.change(await screen.findByTestId("send-recipient-input"), {
+        target: { value: "" },
+      });
+      const introduction = await screen.findByTestId("contacts-feature-introduction-dialog");
+      await user.click(within(introduction).getByRole("button", { name: "Close" }));
+      expect(screen.queryByRole("button", { name: /back/i })).not.toBeInTheDocument();
+
+      await user.click(await screen.findByTestId("contacts-compact-row-contact-bob"));
+
+      expect(await screen.findByTestId("send-amount-step")).toBeVisible();
+      expect(await screen.findByDisplayValue("Bob")).toBeVisible();
+      expect(screen.queryByDisplayValue("Alice")).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId("send-edit-recipient-button"));
+      expect(await screen.findByTestId("send-recipient-input")).toBeVisible();
+      expect(screen.queryByRole("button", { name: /back/i })).not.toBeInTheDocument();
+    });
+
+    it("opens address selection when a contact has several addresses on the recipient network", async () => {
+      setMockContacts([
+        mockContact({
+          id: "contact-benoit",
+          name: "Benoit",
+          addresses: [
+            mockContactAddress({
+              id: "address-benoit-main",
+              currencyId: "ethereum",
+              label: "Ethereum",
+              address: VALID_EVM_RECIPIENT,
+            }),
+            mockContactAddress({
+              id: "address-benoit-coinbase",
+              currencyId: "ethereum",
+              label: "Ethereum Coinbase",
+              address: "0x1234567890123456789012345678901234567890",
+            }),
+          ],
+        }),
+      ]);
+      const { user } = renderSendFlow(ethereumAccount);
+
+      await user.click(await screen.findByTestId("contacts-compact-row-contact-benoit"));
+
+      expect(await screen.findByTestId("send-recipient-contact-address-selection")).toBeVisible();
+      expect(screen.getAllByText("Select address")).toHaveLength(2);
+      expect(screen.getAllByText("Benoit")).toHaveLength(2);
+      expect(screen.queryByTestId("send-recipient-input")).not.toBeInTheDocument();
+
+      await user.click(
+        screen.getByTestId("send-recipient-contact-address-address-benoit-coinbase"),
+      );
+      expect(await screen.findByTestId("send-amount-step")).toBeVisible();
+    });
+
+    it("requires choosing an address when searching for a contact with several network addresses", async () => {
+      setMockContacts([
+        mockContact({
+          id: "contact-benoit",
+          name: "Benoit",
+          addresses: [
+            mockContactAddress({
+              id: "address-benoit-main",
+              currencyId: "ethereum",
+              label: "Ethereum",
+              address: VALID_EVM_RECIPIENT,
+            }),
+            mockContactAddress({
+              id: "address-benoit-coinbase",
+              currencyId: "ethereum",
+              label: "Ethereum Coinbase",
+              address: "0x1234567890123456789012345678901234567890",
+            }),
+          ],
+        }),
+      ]);
+      const { user } = renderSendFlow(ethereumAccount);
+
+      await user.type(await screen.findByTestId("send-recipient-input"), "Benoit");
+
+      expect(await screen.findByTestId("contacts-compact-row-contact-benoit")).toBeVisible();
+      expect(screen.queryByTestId("send-recipient-card")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("send-matched-address-button")).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId("contacts-compact-row-contact-benoit"));
+      expect(await screen.findByTestId("send-recipient-contact-address-selection")).toBeVisible();
+
+      await user.click(
+        screen.getByTestId("send-recipient-contact-address-address-benoit-coinbase"),
+      );
+
+      expect(await screen.findByTestId("send-amount-step")).toBeVisible();
+      expect(screen.queryByTestId("send-recipient-card")).not.toBeInTheDocument();
+    });
+
+    it("should add a new contact from the recipient card and return to recipient after review", async () => {
+      setMockContacts([], true);
+      const { user } = renderSendFlow(ethereumAccount);
+
+      await user.type(await screen.findByTestId("send-recipient-input"), VALID_EVM_RECIPIENT);
+      await user.click(await screen.findByTestId("send-recipient-card-add-contact"));
+
+      expect(await screen.findByTestId("send-add-contact-step")).toBeVisible();
+      await user.click(screen.getByTestId("send-add-contact-new"));
+
+      expect(await screen.findByTestId("send-add-new-contact-step")).toBeVisible();
+      const nameInput = screen.getByTestId("contacts-add-contact-name-input");
+      await user.type(nameInput, "Benoit");
+      await user.click(screen.getByTestId("contacts-add-contact-save"));
+
+      expect(await screen.findByTestId("contacts-add-address-name-input")).toBeVisible();
+      expect(screen.queryByTestId("send-recipient-input")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("send-add-new-contact-step")).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId("contacts-add-address-name-continue"));
+
+      expect(await screen.findByTestId("contacts-add-address-review")).toBeVisible();
+      expect(screen.queryByTestId("send-recipient-input")).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId("contacts-add-address-review-continue"));
+
+      expect(await screen.findByTestId("send-recipient-input")).toBeVisible();
+      expect(screen.queryByTestId("contacts-add-address-review")).not.toBeInTheDocument();
+    });
+
+    it("should add the recipient to an existing contact and return to recipient after review", async () => {
+      setMockContacts(
+        [
+          mockContact({
+            id: "contact-ada",
+            name: "Ada",
+            addresses: [],
+          }),
+        ],
+        true,
+      );
+      const { user } = renderSendFlow(ethereumAccount);
+
+      await user.type(await screen.findByTestId("send-recipient-input"), VALID_EVM_RECIPIENT);
+      await user.click(await screen.findByTestId("send-recipient-card-add-contact"));
+
+      expect(await screen.findByTestId("send-add-contact-step")).toBeVisible();
+      await user.click(screen.getByTestId("send-add-contact-existing"));
+
+      expect(await screen.findByTestId("send-add-to-existing-contact-step")).toBeVisible();
+      await user.click(screen.getByTestId("contacts-saved-row-contact-ada"));
+
+      expect(await screen.findByTestId("contacts-add-address-name-input")).toBeVisible();
+      expect(screen.queryByTestId("send-add-to-existing-contact-step")).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId("contacts-add-address-name-continue"));
+
+      expect(await screen.findByTestId("contacts-add-address-review")).toBeVisible();
+
+      await user.click(screen.getByTestId("contacts-add-address-review-continue"));
+
+      expect(await screen.findByTestId("send-recipient-input")).toBeVisible();
+      expect(screen.queryByTestId("contacts-add-address-review")).not.toBeInTheDocument();
+    });
+
     it("should show the collapsable security card collapsed by default and expand on click", async () => {
       const { user } = renderSendFlow(ethereumAccount);
 
@@ -452,6 +826,347 @@ describe("Send Flow Integration", () => {
 
       expect(await screen.findByTestId("send-coin-control-footer")).toBeVisible();
       expect(await screen.findByTestId("send-get-funds-button")).toBeVisible();
+    });
+  });
+
+  describe("BalanceType step", () => {
+    const balanceTypeConfig = {
+      getOptions: jest.fn(() => [
+        {
+          id: "public",
+          translationKey: "balanceType.transparent",
+          balance: new BigNumber(1000),
+          hasPendingBalance: false,
+          icon: "check" as const,
+        },
+        {
+          id: "private",
+          translationKey: "balanceType.shielded",
+          balance: new BigNumber(2000),
+          hasPendingBalance: false,
+          icon: "lock" as const,
+        },
+      ]),
+      getSelectedOptionId: jest.fn((transaction: unknown) => {
+        if (typeof transaction !== "object" || transaction === null || !("sender" in transaction)) {
+          return null;
+        }
+        const sender = transaction.sender;
+        return typeof sender === "string" ? sender : null;
+      }),
+      buildSelectionPatch: jest.fn((id: string) => ({ sender: id })),
+      getSelfTransferTarget: jest.fn(() => null),
+      buildSelfTransferPatch: jest.fn(() => ({})),
+      getSelectableBalance: jest.fn(({ optionId }: { optionId: string }) =>
+        optionId === "private" ? new BigNumber(2000) : new BigNumber(1000),
+      ),
+    };
+
+    beforeEach(() => {
+      resetSendFlowTestState("evm");
+      setMockBalanceTypeConfig(balanceTypeConfig);
+    });
+
+    it("should show the balance-type screen as the first step when the currency has a balance type config", async () => {
+      renderSendFlow(ethereumAccount);
+
+      expect(await screen.findByTestId("balance-type-screen")).toBeVisible();
+      expect(screen.queryByTestId("send-recipient-input")).not.toBeInTheDocument();
+    });
+
+    it("should navigate to the recipient screen after the user selects a pool", async () => {
+      const { user } = renderSendFlow(ethereumAccount);
+      await screen.findByTestId("balance-type-screen");
+
+      await user.click(screen.getByTestId("balance-type-public"));
+
+      expect(await screen.findByTestId("send-recipient-input")).toBeVisible();
+      expect(screen.queryByTestId("balance-type-screen")).not.toBeInTheDocument();
+    });
+
+    it("should skip the balance-type step and start at recipient when there is no balance type config", async () => {
+      setMockBalanceTypeConfig(null);
+      renderSendFlow(ethereumAccount);
+
+      expect(await screen.findByTestId("send-recipient-input")).toBeVisible();
+      expect(screen.queryByTestId("balance-type-screen")).not.toBeInTheDocument();
+    });
+
+    it("should clear the recipient when the user goes back and selects a different pool", async () => {
+      const { user } = renderSendFlow(ethereumAccount);
+      await screen.findByTestId("balance-type-screen");
+      await user.click(screen.getByTestId("balance-type-public"));
+
+      await navigateToAmountScreen(user, VALID_EVM_RECIPIENT);
+
+      await user.click(screen.getByRole("button", { name: /back/i }));
+      expect(await screen.findByTestId("send-recipient-input")).toBeVisible();
+      expect(screen.getByTestId("send-recipient-input")).toHaveValue(VALID_EVM_RECIPIENT);
+
+      await user.click(screen.getByRole("button", { name: /back/i }));
+      expect(await screen.findByTestId("balance-type-screen")).toBeVisible();
+
+      await user.click(screen.getByTestId("balance-type-private"));
+
+      expect(await screen.findByTestId("send-recipient-input")).toBeVisible();
+      expect(screen.getByTestId("send-recipient-input")).toHaveValue("");
+    });
+  });
+
+  describe("Sponsored send (TRON Tronify)", () => {
+    // The rent is paid from this USDT sub-account; without it the sponsored option is unaffordable.
+    const tronAccount = createTronAccount({
+      subAccounts: [
+        createMockTronUsdtAccount({
+          parentId: "mock-tron-account-id",
+          balance: new BigNumber(10_000_000),
+          spendableBalance: new BigNumber(10_000_000),
+        }),
+      ],
+    });
+    const rawDataHex = "0a02abcd";
+    const combinedTxASignature = "0008" + rawDataHex + "SIGA";
+    const rentOrder = {
+      orderId: "order-1",
+      transaction: {
+        visible: true,
+        txID: "tx-a-id",
+        raw_data: {},
+        raw_data_hex: rawDataHex,
+      },
+      payCoinCode: "USDT",
+      payCoinAmt: "3.2",
+    };
+    const RENT_PAYMENT = { asset: TRON_USDT_FEE_ASSET, amount: 3_200_000n };
+
+    beforeEach(() => {
+      resetSendFlowTestState("tron");
+      setMockTransaction(
+        createMinimalTronTransaction({
+          amount: new BigNumber("1000000"),
+          recipient: VALID_TRON_RECIPIENT,
+        }),
+      );
+    });
+
+    // Fake timers for the whole test: SponsoredPolling's setInterval stops act() settling under real
+    // timers, and switching mid-test breaks other microtask chains.
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it("discloses the provider and prices each fee option in its own currency", async () => {
+      mockTronifySeam();
+
+      renderSendFlow(tronAccount, {}, [], { flags: { gasSponsorship: { enabled: true } } });
+      const user = setupFakeTimersUser();
+
+      await navigateToAmountScreen(user, VALID_TRON_RECIPIENT);
+      // Without countervalues there is no fiat saving, so the nudge names the fee asset instead.
+      expect(await screen.findByTestId("send-sponsored-fee-nudge")).toHaveTextContent(
+        "Pay network fee in USDT",
+      );
+      await user.click(screen.getByTestId("send-fee-payment-entry"));
+
+      expect(await screen.findByText(/fees are paid in USDT/)).toBeVisible();
+      // Both fees come from one quote, so they render together once it resolves.
+      expect(await screen.findByTestId("send-fee-payment-option-standard-fee")).toHaveTextContent(
+        "6.43 TRX",
+      );
+      expect(screen.getByTestId("send-fee-payment-option-tronify-fee")).toHaveTextContent(
+        "3.2 USDT",
+      );
+      expect(screen.getByTestId("send-fee-payment-option-tronify")).toHaveTextContent(
+        "Paid in USDT",
+      );
+      expect(screen.getByTestId("send-fee-payment-option-standard")).toHaveTextContent(
+        "Paid in TRX",
+      );
+
+      await user.click(screen.getByTestId("send-fee-payment-option-tronify"));
+      await user.click(screen.getByTestId("send-fee-payment-confirm"));
+
+      // Selecting updates the transaction, so the intent and quote reload before the fee settles.
+      await waitFor(() =>
+        expect(screen.getByTestId("send-sponsored-fee-value")).toHaveTextContent("3.2 USDT"),
+      );
+      expect(screen.queryByTestId("send-sponsored-fee-original-value")).toBeNull();
+      expect(screen.getByTestId("send-fee-payment-entry")).toHaveTextContent("3.2 USDT");
+      expect(screen.queryByTestId("send-sponsored-fee-nudge")).toBeNull();
+      expect(screen.queryByTestId("send-sponsored-fee-saved-badge")).toBeNull();
+    });
+
+    it("runs the sponsored happy path: rent signature -> polling -> transfer signature -> confirmation", async () => {
+      mockTronifySeam();
+
+      renderSendFlow(tronAccount, {}, [], { flags: { gasSponsorship: { enabled: true } } });
+      const user = setupFakeTimersUser();
+
+      await navigateToRentSignature(user);
+      expect(mockSponsoredOrchestrationActions.craftRent).toHaveBeenCalledTimes(1);
+      expect(screen.getAllByText("Step 1 of 2")).toHaveLength(2);
+
+      // TX-A: DeviceAction reads the mocked result on mount, so set it before pushing the order.
+      setMockDeviceActionResult({
+        signedOperation: { signature: combinedTxASignature },
+        device: {},
+      });
+      await act(async () => {
+        setMockOrchestrationState({
+          order: rentOrder,
+          toSign: rawDataHex,
+          paymentTxId: "tx-a-id",
+          rentPayment: RENT_PAYMENT,
+        });
+      });
+
+      expect(mockSponsoredOrchestrationActions.startRentPayment).toHaveBeenCalledWith(
+        combinedTxASignature,
+        "tx-a-id",
+      );
+      expect(screen.getByTestId("send-sponsored-rent-signature")).toHaveTextContent("3.2 USDT");
+
+      await act(async () => {
+        setMockOrchestrationState({ phase: SPONSORED_PHASE.POLLING, paymentTxId: "tx-a-id" });
+      });
+      expect(await screen.findByTestId("send-sponsored-polling")).toBeVisible();
+
+      // TX-C: replace TX-A's result before SIGNATURE mounts its own DeviceAction.
+      setMockDeviceActionResult({ signedOperation: { signature: "tx-c-signature" }, device: {} });
+      await act(async () => {
+        setMockOrchestrationState({ phase: SPONSORED_PHASE.TRANSFER });
+      });
+
+      expect(await screen.findByTestId("send-confirmation-step")).toBeVisible();
+      expect(screen.getByTestId("send-confirmation-success-content")).toBeVisible();
+    });
+
+    it("offers a retry when the rent payment is refused on the device, and re-signs it on retry", async () => {
+      mockTronifySeam();
+
+      renderSendFlow(tronAccount, {}, [], { flags: { gasSponsorship: { enabled: true } } });
+      const user = setupFakeTimersUser();
+
+      await navigateToRentSignature(user);
+
+      setMockDeviceActionResult({
+        transactionSignError: Object.assign(new Error("refused"), {
+          name: "TransactionRefusedOnDevice",
+        }),
+      });
+      await act(async () => {
+        setMockOrchestrationState({ order: rentOrder, toSign: rawDataHex, paymentTxId: "tx-a-id" });
+      });
+
+      const retryButton = await screen.findByRole("button", { name: /retry/i });
+      expect(screen.getByTestId("send-sponsored-rent-signature-cancel")).toBeVisible();
+      expect(mockSponsoredOrchestrationActions.startRentPayment).not.toHaveBeenCalled();
+
+      setMockDeviceActionResult({
+        signedOperation: { signature: combinedTxASignature },
+        device: {},
+      });
+      await user.click(retryButton);
+
+      expect(mockSponsoredOrchestrationActions.startRentPayment).toHaveBeenCalledWith(
+        combinedTxASignature,
+        "tx-a-id",
+      );
+    });
+
+    it("lands on SPONSORED_FAILURE with the delivery-failed copy and retry/cancel when energy delivery times out", async () => {
+      mockTronifySeam();
+
+      renderSendFlow(tronAccount, {}, [], { flags: { gasSponsorship: { enabled: true } } });
+      const user = setupFakeTimersUser();
+
+      await navigateToRentSignature(user);
+      expect(mockSponsoredOrchestrationActions.craftRent).toHaveBeenCalledTimes(1);
+
+      setMockDeviceActionResult({
+        signedOperation: { signature: combinedTxASignature },
+        device: {},
+      });
+      await act(async () => {
+        setMockOrchestrationState({ order: rentOrder, toSign: rawDataHex, paymentTxId: "tx-a-id" });
+      });
+      expect(mockSponsoredOrchestrationActions.startRentPayment).toHaveBeenCalledWith(
+        combinedTxASignature,
+        "tx-a-id",
+      );
+
+      await act(async () => {
+        setMockOrchestrationState({ phase: SPONSORED_PHASE.POLLING, paymentTxId: "tx-a-id" });
+      });
+      expect(await screen.findByTestId("send-sponsored-polling")).toBeVisible();
+
+      await act(async () => {
+        setMockOrchestrationState({
+          phase: SPONSORED_PHASE.FAILED,
+          failureKind: SPONSORED_FAILURE_KIND.DELIVERY_FAILED,
+          failureError: Object.assign(new Error("energy delivery timed out"), {
+            name: "EnergyDelegationTimeoutError",
+          }),
+        });
+      });
+
+      expect(await screen.findByTestId("send-sponsored-failure")).toBeVisible();
+      expect(screen.getByTestId("send-sponsored-failure-retry")).toBeVisible();
+      expect(screen.getByTestId("send-sponsored-failure-cancel")).toBeVisible();
+      expect(screen.getByText(/Energy was not delivered/i)).toBeVisible();
+    });
+
+    it("shows the short-balance copy when the on-chain balance check refuses the rent", async () => {
+      mockTronifySeam();
+
+      renderSendFlow(tronAccount, {}, [], { flags: { gasSponsorship: { enabled: true } } });
+      const user = setupFakeTimersUser();
+
+      await navigateToRentSignature(user);
+
+      await act(async () => {
+        setMockOrchestrationState({
+          phase: SPONSORED_PHASE.FAILED,
+          failureKind: SPONSORED_FAILURE_KIND.RENT_PAYMENT,
+          failureError: Object.assign(new Error("not enough USDT"), {
+            name: "EnergyRentInsufficientBalance",
+          }),
+        });
+      });
+
+      expect(await screen.findByTestId("send-sponsored-failure")).toBeVisible();
+      expect(
+        screen.getByText(
+          /You don't have enough USDT to cover the amount and the Tronify energy rental fee/,
+        ),
+      ).toBeVisible();
+    });
+
+    it("disables the sponsored option and says why when the USDT balance can't cover the rent", async () => {
+      mockTronifySeam();
+      const accountWithoutUsdt = createTronAccount({
+        subAccounts: [createMockTronUsdtAccount({ parentId: "mock-tron-account-id" })],
+      });
+
+      renderSendFlow(accountWithoutUsdt, {}, [], { flags: { gasSponsorship: { enabled: true } } });
+      const user = setupFakeTimersUser();
+
+      await navigateToAmountScreen(user, VALID_TRON_RECIPIENT);
+      await user.click(await screen.findByTestId("send-fee-payment-entry"));
+
+      // The row turns disabled once the quote prices the rent.
+      const sponsoredOption = await screen.findByTestId("send-fee-payment-option-tronify");
+      await waitFor(() => expect(sponsoredOption).toHaveAttribute("aria-disabled", "true"));
+      expect(screen.getByTestId("send-fee-payment-option-tronify-note")).toHaveTextContent(
+        "You don't have enough USDT to cover the amount and the Tronify energy rental fee.",
+      );
+
+      await user.click(sponsoredOption);
+      expect(screen.getByTestId("send-fee-payment-options")).toBeVisible();
     });
   });
 });

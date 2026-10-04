@@ -5,19 +5,27 @@ import { log } from "@ledgerhq/logs";
 import { SyncConfig, DerivationMode } from "@ledgerhq/types-live";
 import { firstValueFrom, toArray, type Observable } from "rxjs";
 import { SYNC_TYPE_TRANSPARENT, SYNC_TYPE_SHIELDED } from "@ledgerhq/types-live";
-import { getBalance, lastBlock, listOperations } from "../logic";
+import { getPublicBalance } from "../logic/getPublicBalance";
+import { lastBlock } from "../logic";
+import { listOperations } from "./listOperations";
 import {
   getMockedCurrency,
   getMockedTokenCurrency,
   MOCK_TOKEN_PROGRAM_ID,
 } from "../__tests__/fixtures/currency.fixture";
 import { setCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
-import { EXPLORER_TRANSFER_TYPES, TOKEN_RECORD_NAME } from "../constants";
+import {
+  EXPLORER_TRANSFER_TYPES,
+  PROGRAM_ID,
+  TOKEN_RECORD_NAME,
+  TRANSACTION_TYPE,
+} from "../constants";
 import { sdkClient } from "../network/sdk";
 import {
   getMockedAccount,
   getMockedTokenAccount,
   mockAleoResources,
+  mockUnspentRecord1,
 } from "../__tests__/fixtures/account.fixture";
 import { getMockedConfig } from "../__tests__/fixtures/config.fixture";
 import type { AleoAccount, AleoTokenAccount } from "../types";
@@ -25,8 +33,13 @@ import { AleoApiConfigurationResetError } from "../errors";
 import { getMockedOperation } from "../__tests__/fixtures/operation.fixture";
 import { getMockedRecord, MOCK_ALEO_ADDRESS } from "../__tests__/fixtures/api.fixture";
 import coinConfig from "../config";
-import { accessProvableApi, fetchAllOwnedRecords, patchPublicOperations } from "../network/utils";
-import { listPrivateOperations } from "../logic/listPrivateOperations";
+import {
+  accessProvableApi,
+  fetchAllOwnedRecords,
+  getStakingPosition,
+  patchPublicOperations,
+} from "../network/utils";
+import { listPrivateOperations } from "./listPrivateOperations";
 import { getPrivateBalance } from "../logic/getPrivateBalance";
 import {
   performPublicSync,
@@ -34,6 +47,7 @@ import {
   createPrivateSyncObservable,
   createPublicSyncObservable,
   postSync,
+  sync,
 } from "./sync";
 import { apiClient } from "../network/api";
 import { buildSyncObservables, makeGetAccountShape } from "./sync";
@@ -43,10 +57,18 @@ jest.mock("@ledgerhq/ledger-wallet-framework/account", () => ({
   getSyncHash: jest.fn(),
 }));
 jest.mock("../logic");
-jest.mock("../network/utils");
+jest.mock("../network/utils", () => ({
+  ...jest.requireActual("../network/utils"),
+  accessProvableApi: jest.fn(),
+  fetchAllOwnedRecords: jest.fn(),
+  getStakingPosition: jest.fn(),
+  patchPublicOperations: jest.fn(),
+}));
+jest.mock("./listOperations");
 jest.mock("../network/api");
-jest.mock("../logic/listPrivateOperations");
+jest.mock("./listPrivateOperations");
 jest.mock("../logic/getPrivateBalance");
+jest.mock("../logic/getPublicBalance");
 jest.mock("../network/sdk");
 
 jest.mock("@ledgerhq/logs", () => ({
@@ -54,8 +76,9 @@ jest.mock("@ledgerhq/logs", () => ({
 }));
 
 const mockGetSyncHash = jest.mocked(getSyncHash);
-const mockGetBalance = jest.mocked(getBalance);
+const mockGetPublicBalance = jest.mocked(getPublicBalance);
 const mockLastBlock = jest.mocked(lastBlock);
+const mockGetStakingPosition = jest.mocked(getStakingPosition);
 const mockListOperations = jest.mocked(listOperations);
 const mockAccessProvableApi = jest.mocked(accessProvableApi);
 const mockFetchAllOwnedRecords = jest.mocked(fetchAllOwnedRecords);
@@ -69,6 +92,7 @@ describe("sync.ts", () => {
   const mockCurrency = getMockedCurrency();
   const mockConfig = getMockedConfig("mainnet");
   const mockConfigWithTokens = { ...mockConfig, enableTokens: true };
+  const mockConfigWithStaking = { ...mockConfig, enableStaking: true };
   const mockTokenCurrency = getMockedTokenCurrency();
   const mockDerivationMode: DerivationMode = "";
   const mockLedgerAccountId = encodeAccountId({
@@ -104,7 +128,7 @@ describe("sync.ts", () => {
     mockGetSyncHash.mockResolvedValue(mockSyncHash);
     coinConfig.setCoinConfig(() => mockConfig);
 
-    mockGetBalance.mockResolvedValue([
+    mockGetPublicBalance.mockResolvedValue([
       {
         asset: { type: "native" as const },
         value: BigInt(mockAccount.balance.toString()),
@@ -115,6 +139,15 @@ describe("sync.ts", () => {
       height: 100,
       hash: "mock-block-hash",
       time: new Date("2024-01-01"),
+    });
+
+    // Nothing bonded by default: staking-specific expectations override this per test.
+    mockGetStakingPosition.mockResolvedValue({
+      bondedBalance: new BigNumber(0),
+      bondedValidator: null,
+      unbondingBalance: new BigNumber(0),
+      unbondingHeight: null,
+      withdrawalAddress: null,
     });
 
     mockListOperations.mockResolvedValue({
@@ -186,7 +219,7 @@ describe("sync.ts", () => {
     });
 
     it("should handle empty balance array", async () => {
-      mockGetBalance.mockResolvedValue([]);
+      mockGetPublicBalance.mockResolvedValue([]);
 
       const result = await performPublicSync(
         {
@@ -206,7 +239,7 @@ describe("sync.ts", () => {
 
     it("should update balance when it changes", async () => {
       const mockUpdatedBalance = 10;
-      mockGetBalance.mockResolvedValue([
+      mockGetPublicBalance.mockResolvedValue([
         {
           asset: { type: "native" as const },
           value: BigInt(mockUpdatedBalance),
@@ -252,7 +285,6 @@ describe("sync.ts", () => {
         currencyId: mockCurrency.id,
         address: mockAccount.freshAddress,
         ledgerAccountId: expect.any(String),
-        mode: "bridge",
         options: {
           minHeight: 0,
           order: "asc",
@@ -293,7 +325,6 @@ describe("sync.ts", () => {
         currencyId: mockCurrency.id,
         address: mockAccount.freshAddress,
         ledgerAccountId: mockInitialAccount.id,
-        mode: "bridge",
         options: {
           minHeight: 0,
           order: "asc",
@@ -330,7 +361,7 @@ describe("sync.ts", () => {
         operations: [oldOperation],
       };
 
-      mockGetBalance.mockResolvedValue([
+      mockGetPublicBalance.mockResolvedValue([
         {
           asset: { type: "native" as const },
           value: BigInt(1000),
@@ -364,7 +395,7 @@ describe("sync.ts", () => {
     });
 
     it("should propagate errors", async () => {
-      mockGetBalance.mockRejectedValue(new Error("Network timeout"));
+      mockGetPublicBalance.mockRejectedValue(new Error("Network timeout"));
 
       await expect(
         performPublicSync(
@@ -518,6 +549,109 @@ describe("sync.ts", () => {
         }),
       );
       coinConfig.setCoinConfig(() => mockConfig);
+    });
+
+    describe("staking migration and gating", () => {
+      const staleStakingOp = getMockedOperation({
+        id: "stale-bond-op",
+        hash: "tx-bond",
+        type: "OUT",
+        blockHeight: 900,
+        senders: [""],
+        recipients: [""],
+        extra: {
+          transactionType: "public",
+          functionId: TRANSACTION_TYPE.BOND_PUBLIC,
+          programId: PROGRAM_ID.CREDITS,
+        },
+      });
+      const transferOp = getMockedOperation({
+        id: "transfer-op",
+        hash: "tx-transfer",
+        blockHeight: 950,
+        extra: { transactionType: "public", functionId: "transfer_public" },
+      });
+
+      const accountWith = (
+        aleoResourceOverrides: Partial<NonNullable<typeof mockInitialAccount.aleoResources>>,
+      ) => ({
+        ...mockInitialAccount,
+        operations: [transferOp, staleStakingOp],
+        aleoResources: { ...mockInitialAccount.aleoResources!, ...aleoResourceOverrides },
+      });
+
+      const syncWith = (initialAccount: typeof mockInitialAccount) =>
+        performPublicSync(
+          {
+            index: mockAccount.index,
+            derivationPath: mockAccount.freshAddressPath,
+            address: mockAccount.freshAddress,
+            currency: mockCurrency,
+            derivationMode: mockDerivationMode,
+            initialAccount,
+          },
+          mockSyncConfig,
+        );
+
+      afterEach(() => {
+        coinConfig.setCoinConfig(() => mockConfig);
+      });
+
+      it("should reset the cursor, drop the stale staking op and mark the account migrated", async () => {
+        coinConfig.setCoinConfig(() => mockConfigWithStaking);
+
+        const result = await syncWith(accountWith({ hasMigratedStaking: false }));
+
+        expect(mockListOperations).toHaveBeenCalledWith(
+          expect.objectContaining({
+            options: expect.not.objectContaining({ cursor: expect.anything() }),
+          }),
+        );
+        expect(result.operations?.map(op => op.id)).not.toContain("stale-bond-op");
+        expect(result.aleoResources?.hasMigratedStaking).toBe(true);
+      });
+
+      it("should keep the cursor and the cached staking ops once the migration has run", async () => {
+        coinConfig.setCoinConfig(() => mockConfigWithStaking);
+
+        const result = await syncWith(accountWith({ hasMigratedStaking: true }));
+
+        expect(mockListOperations).toHaveBeenCalledWith(
+          expect.objectContaining({
+            options: expect.objectContaining({ cursor: "950" }),
+          }),
+        );
+        expect(result.operations?.map(op => op.id)).toContain("stale-bond-op");
+      });
+
+      it("should hide cached staking ops and clear the marker while staking is disabled", async () => {
+        const result = await syncWith(accountWith({ hasMigratedStaking: true }));
+
+        expect(result.operations?.map(op => op.id)).not.toContain("stale-bond-op");
+        expect(result.operations?.map(op => op.id)).toContain("transfer-op");
+        expect(result.aleoResources?.hasMigratedStaking).toBeUndefined();
+      });
+
+      it("should keep a bond_public from another program while staking is disabled", async () => {
+        const foreignBondOp = getMockedOperation({
+          id: "foreign-bond-op",
+          hash: "tx-foreign-bond",
+          blockHeight: 920,
+          extra: {
+            transactionType: "public",
+            functionId: TRANSACTION_TYPE.BOND_PUBLIC,
+            programId: MOCK_TOKEN_PROGRAM_ID,
+          },
+        });
+
+        const result = await syncWith({
+          ...mockInitialAccount,
+          operations: [transferOp, foreignBondOp],
+          aleoResources: { ...mockInitialAccount.aleoResources!, hasMigratedStaking: true },
+        });
+
+        expect(result.operations?.map(op => op.id)).toContain("foreign-bond-op");
+      });
     });
 
     it("should exclude incoming public ops whose ids are already patched locally", async () => {
@@ -761,6 +895,107 @@ describe("sync.ts", () => {
           options: expect.objectContaining({ cursor: "12345" }),
         }),
       );
+    });
+
+    describe("staking position", () => {
+      const bondedBalance = new BigNumber(70000);
+      const unbondingBalance = new BigNumber(5000);
+      const publicSyncInfo = {
+        index: mockAccount.index,
+        derivationPath: mockAccount.freshAddressPath,
+        address: mockAccount.freshAddress,
+        currency: mockCurrency,
+        derivationMode: mockDerivationMode,
+        initialAccount: undefined,
+      };
+
+      beforeEach(() => {
+        coinConfig.setCoinConfig(() => mockConfigWithStaking);
+        mockGetStakingPosition.mockResolvedValue({
+          bondedBalance,
+          bondedValidator: "aleo1validator",
+          unbondingBalance,
+          unbondingHeight: 250,
+          withdrawalAddress: mockAccount.freshAddress,
+        });
+      });
+
+      it("persists the position onto aleoResources", async () => {
+        const result = await performPublicSync(publicSyncInfo, mockSyncConfig);
+
+        expect(result.aleoResources).toMatchObject({
+          bondedBalance,
+          bondedValidator: "aleo1validator",
+          unbondingBalance,
+          unbondingHeight: 250,
+        });
+      });
+
+      it("counts bonded and unbonding funds in balance but not spendableBalance", async () => {
+        const result = await performPublicSync(publicSyncInfo, mockSyncConfig);
+
+        // no initialAccount, so the private balance is 0 and liquid == transparent
+        expect(result.spendableBalance).toEqual(mockAccount.balance);
+        expect(result.balance).toEqual(
+          mockAccount.balance.plus(bondedBalance).plus(unbondingBalance),
+        );
+      });
+
+      it("does not persist the withdrawal address", async () => {
+        const result = await performPublicSync(publicSyncInfo, mockSyncConfig);
+
+        expect(result.aleoResources).not.toHaveProperty("withdrawalAddress");
+      });
+
+      describe("when enableStaking is off", () => {
+        beforeEach(() => {
+          coinConfig.setCoinConfig(() => mockConfig);
+        });
+
+        it("does not read the staking mappings at all", async () => {
+          await performPublicSync(publicSyncInfo, mockSyncConfig);
+
+          expect(mockGetStakingPosition).not.toHaveBeenCalled();
+        });
+
+        it("leaves the staking fields absent rather than zeroed", async () => {
+          const result = await performPublicSync(publicSyncInfo, mockSyncConfig);
+
+          // absent, not 0/null: the mappings were never read, so there is nothing to claim
+          expect(result.aleoResources).not.toHaveProperty("bondedBalance");
+          expect(result.aleoResources).not.toHaveProperty("bondedValidator");
+          expect(result.aleoResources).not.toHaveProperty("unbondingBalance");
+          expect(result.aleoResources).not.toHaveProperty("unbondingHeight");
+        });
+
+        it("keeps balance and spendableBalance equal, as before the rollout", async () => {
+          const result = await performPublicSync(publicSyncInfo, mockSyncConfig);
+
+          expect(result.balance).toEqual(mockAccount.balance);
+          expect(result.spendableBalance).toEqual(mockAccount.balance);
+        });
+
+        it("drops a previously persisted position, so the flag acts as a kill switch", async () => {
+          const bondedAccount: AleoAccount = {
+            ...mockInitialAccount,
+            aleoResources: {
+              ...mockInitialAccount.aleoResources!,
+              bondedBalance: new BigNumber(70000),
+              bondedValidator: "aleo1validator",
+              unbondingBalance: new BigNumber(5000),
+              unbondingHeight: 250,
+            },
+          };
+
+          const result = await performPublicSync(
+            { ...publicSyncInfo, initialAccount: bondedAccount },
+            mockSyncConfig,
+          );
+
+          expect(result.aleoResources).not.toHaveProperty("bondedBalance");
+          expect(result.balance).toEqual(result.spendableBalance);
+        });
+      });
     });
   });
 
@@ -1257,7 +1492,6 @@ describe("sync.ts", () => {
       const accountWithOps = { ...mockInitialAccount, operations: [oldPublicOp] };
 
       mockListOperations.mockResolvedValueOnce({
-        // @ts-expect-error - bridge operation type is expected in this test
         operations: [newPublicOp],
         tokenOperations: [],
         calTokens: new Map(),
@@ -1681,7 +1915,7 @@ describe("sync.ts", () => {
     });
 
     it("createPublicSyncObservable errors when performPublicSync throws", async () => {
-      mockGetBalance.mockRejectedValue(new Error("rpc down"));
+      mockGetPublicBalance.mockRejectedValue(new Error("rpc down"));
       const shape$ = createPublicSyncObservable(baseInfo, mockSyncConfig);
       await expect(firstValueFrom(shape$)).rejects.toThrow("rpc down");
     });
@@ -1906,6 +2140,354 @@ describe("sync.ts", () => {
       expect(second.aleoResources?.privateBalance).toEqual(new BigNumber(5000));
     });
 
+    it("public+private sync keeps the freshly-fetched staking position in the private emission", async () => {
+      // Regression guard: the private shape is spread last, so if it read the staking
+      // position from initialAccount instead of the public cycle's result, a bond made
+      // since the last sync would be reverted on every combined sync.
+      const configuredProvableApi = {
+        ...mockAleoResources.provableApi!,
+        scannerStatus: { percentage: 100, synced: true },
+      };
+      mockAccessProvableApi.mockResolvedValue(configuredProvableApi);
+      mockGetPrivateBalance.mockResolvedValue({
+        balance: new BigNumber(5000),
+        unspentRecords: [],
+      });
+      coinConfig.setCoinConfig(() => mockConfigWithStaking);
+
+      const freshlyBonded = new BigNumber(70000);
+      mockGetStakingPosition.mockResolvedValue({
+        bondedBalance: freshlyBonded,
+        bondedValidator: "aleo1freshvalidator",
+        unbondingBalance: new BigNumber(0),
+        unbondingHeight: null,
+        withdrawalAddress: null,
+      });
+
+      const syncedBaseInfo = {
+        ...baseInfo,
+        initialAccount: {
+          ...mockInitialAccount,
+          aleoResources: {
+            ...mockInitialAccount.aleoResources!,
+            lastPrivateSyncDate: new Date("2024-01-01"),
+            // stale: what the account knew before this cycle
+            bondedBalance: new BigNumber(0),
+            bondedValidator: null,
+          },
+        },
+      };
+
+      const { syncs } = buildSyncObservables(syncedBaseInfo, {
+        paginationConfig: {},
+        syncType: SYNC_TYPE_TRANSPARENT | SYNC_TYPE_SHIELDED,
+      });
+
+      const [, second] = await collectAll(syncs[0]);
+
+      expect(second.aleoResources?.bondedBalance).toEqual(freshlyBonded);
+      expect(second.aleoResources?.bondedValidator).toBe("aleo1freshvalidator");
+      // and the bonded amount still counts towards balance but not spendableBalance
+      expect(second.balance).toEqual(second.spendableBalance!.plus(freshlyBonded));
+    });
+
+    it("public+private sync keeps the staking migration flag the public cycle just set", async () => {
+      // Tokens are off on purpose: that leaves syncHash stale, so it cannot signal that a
+      // public sync ran this cycle.
+      const configuredProvableApi = {
+        ...mockAleoResources.provableApi!,
+        scannerStatus: { percentage: 100, synced: true },
+      };
+      mockAccessProvableApi.mockResolvedValue(configuredProvableApi);
+      coinConfig.setCoinConfig(() => mockConfigWithStaking);
+
+      const unmigratedInfo = {
+        ...baseInfo,
+        initialAccount: {
+          ...mockInitialAccount,
+          syncHash: undefined,
+          aleoResources: {
+            ...mockInitialAccount.aleoResources!,
+            lastPrivateSyncDate: new Date("2024-01-01"),
+            hasMigratedStaking: false,
+          },
+        },
+      };
+
+      const { syncs } = buildSyncObservables(unmigratedInfo, {
+        paginationConfig: {},
+        syncType: SYNC_TYPE_TRANSPARENT | SYNC_TYPE_SHIELDED,
+      });
+
+      const [first, second] = await collectAll(syncs[0]);
+
+      expect(first.aleoResources?.hasMigratedStaking).toBe(true);
+      expect(second.aleoResources?.hasMigratedStaking).toBe(true);
+    });
+
+    it("private-only sync does not re-persist a stale staking position while enableStaking is off", async () => {
+      // A private-only sync receives no freshStakingPosition, so the private path has to
+      // check the flag itself rather than relying on the public path having skipped the fetch.
+      const configuredProvableApi = {
+        ...mockAleoResources.provableApi!,
+        scannerStatus: { percentage: 100, synced: true },
+      };
+      mockAccessProvableApi.mockResolvedValue(configuredProvableApi);
+      coinConfig.setCoinConfig(() => mockConfig);
+
+      const bondedAccount: AleoAccount = {
+        ...mockInitialAccount,
+        aleoResources: {
+          ...mockInitialAccount.aleoResources!,
+          lastPrivateSyncDate: new Date("2024-01-01"),
+          bondedBalance: new BigNumber(70000),
+          bondedValidator: "aleo1validator",
+          unbondingBalance: new BigNumber(5000),
+          unbondingHeight: 250,
+        },
+      };
+
+      const { syncs } = buildSyncObservables(
+        { ...baseInfo, initialAccount: bondedAccount },
+        { paginationConfig: {}, syncType: SYNC_TYPE_SHIELDED },
+      );
+
+      const [emission] = await collectAll(syncs[0]);
+
+      expect(emission.aleoResources).not.toHaveProperty("bondedBalance");
+      expect(emission.aleoResources).not.toHaveProperty("unbondingHeight");
+      expect(emission.balance).toEqual(emission.spendableBalance);
+    });
+
+    it("private-only sync leaves the fields absent when no position has ever been synced", async () => {
+      // enableStaking is on but no public cycle ran, so there is no position to carry. Absent
+      // has to stay absent: zeroing it would claim the mappings were read and came back empty.
+      const configuredProvableApi = {
+        ...mockAleoResources.provableApi!,
+        scannerStatus: { percentage: 100, synced: true },
+      };
+      mockAccessProvableApi.mockResolvedValue(configuredProvableApi);
+      coinConfig.setCoinConfig(() => mockConfigWithStaking);
+
+      const neverStakedAccount: AleoAccount = {
+        ...mockInitialAccount,
+        aleoResources: {
+          ...mockInitialAccount.aleoResources!,
+          lastPrivateSyncDate: new Date("2024-01-01"),
+        },
+      };
+
+      const { syncs } = buildSyncObservables(
+        { ...baseInfo, initialAccount: neverStakedAccount },
+        { paginationConfig: {}, syncType: SYNC_TYPE_SHIELDED },
+      );
+
+      const [emission] = await collectAll(syncs[0]);
+
+      expect(emission.aleoResources).not.toHaveProperty("bondedBalance");
+      expect(emission.aleoResources).not.toHaveProperty("bondedValidator");
+      expect(emission.aleoResources).not.toHaveProperty("unbondingBalance");
+      expect(emission.aleoResources).not.toHaveProperty("unbondingHeight");
+      expect(emission.balance).toEqual(emission.spendableBalance);
+    });
+
+    it("private-only sync carries an already-synced position through untouched", async () => {
+      // The flip side of the above: a position the account already holds is the best value
+      // available when no public cycle ran, so it must survive rather than be dropped.
+      const configuredProvableApi = {
+        ...mockAleoResources.provableApi!,
+        scannerStatus: { percentage: 100, synced: true },
+      };
+      mockAccessProvableApi.mockResolvedValue(configuredProvableApi);
+      coinConfig.setCoinConfig(() => mockConfigWithStaking);
+
+      const bondedAccount: AleoAccount = {
+        ...mockInitialAccount,
+        aleoResources: {
+          ...mockInitialAccount.aleoResources!,
+          lastPrivateSyncDate: new Date("2024-01-01"),
+          bondedBalance: new BigNumber(70000),
+          bondedValidator: "aleo1validator",
+          unbondingBalance: new BigNumber(5000),
+          unbondingHeight: 250,
+        },
+      };
+
+      const { syncs } = buildSyncObservables(
+        { ...baseInfo, initialAccount: bondedAccount },
+        { paginationConfig: {}, syncType: SYNC_TYPE_SHIELDED },
+      );
+
+      const [emission] = await collectAll(syncs[0]);
+
+      expect(emission.aleoResources).toMatchObject({
+        bondedBalance: new BigNumber(70000),
+        bondedValidator: "aleo1validator",
+        unbondingBalance: new BigNumber(5000),
+        unbondingHeight: 250,
+      });
+      expect(emission.balance).toEqual(emission.spendableBalance!.plus(75000));
+    });
+
+    // The private shape spreads last, so what it says about the migration flag is what sticks.
+    it.each([
+      ["preserves a migrated account while staking is on", true, true, true],
+      ["leaves an unmigrated account unmigrated while staking is on", true, false, false],
+      ["clears the marker while staking is off", false, true, false],
+      ["leaves the marker absent while staking is off", false, false, false],
+    ])("private-only sync %s", async (_, enableStaking, storedFlag, expected) => {
+      const configuredProvableApi = {
+        ...mockAleoResources.provableApi!,
+        scannerStatus: { percentage: 100, synced: true },
+      };
+      mockAccessProvableApi.mockResolvedValue(configuredProvableApi);
+      coinConfig.setCoinConfig(() => (enableStaking ? mockConfigWithStaking : mockConfig));
+
+      const account: AleoAccount = {
+        ...mockInitialAccount,
+        aleoResources: {
+          ...mockInitialAccount.aleoResources!,
+          lastPrivateSyncDate: new Date("2024-01-01"),
+          hasMigratedStaking: storedFlag,
+        },
+      };
+
+      const { syncs } = buildSyncObservables(
+        { ...baseInfo, initialAccount: account },
+        { paginationConfig: {}, syncType: SYNC_TYPE_SHIELDED },
+      );
+
+      const [emission] = await collectAll(syncs[0]);
+
+      if (expected) {
+        expect(emission.aleoResources?.hasMigratedStaking).toBe(true);
+      } else {
+        expect(emission.aleoResources).not.toHaveProperty("hasMigratedStaking");
+      }
+    });
+
+    it("re-enabling staking after a disabled private sync still triggers the migration", async () => {
+      const configuredProvableApi = {
+        ...mockAleoResources.provableApi!,
+        scannerStatus: { percentage: 100, synced: true },
+      };
+      mockAccessProvableApi.mockResolvedValue(configuredProvableApi);
+
+      const stakingOp = getMockedOperation({
+        id: "cached-bond",
+        hash: "tx-bond",
+        type: "OUT",
+        blockHeight: 400,
+        extra: {
+          transactionType: "public",
+          functionId: TRANSACTION_TYPE.BOND_PUBLIC,
+          programId: PROGRAM_ID.CREDITS,
+        },
+      });
+      const transferOp = getMockedOperation({
+        id: "cached-transfer",
+        hash: "tx-transfer",
+        blockHeight: 950,
+        extra: { transactionType: "public", functionId: "transfer_public" },
+      });
+      const migratedAccount: AleoAccount = {
+        ...mockInitialAccount,
+        operations: [transferOp, stakingOp],
+        aleoResources: {
+          ...mockInitialAccount.aleoResources!,
+          lastPrivateSyncDate: new Date("2024-01-01"),
+          hasMigratedStaking: true,
+        },
+      };
+
+      // Staking off: the private-only sync drops the bond row.
+      coinConfig.setCoinConfig(() => mockConfig);
+      mockPatchPublicOperations.mockResolvedValue([transferOp, stakingOp] as never);
+
+      const { syncs } = buildSyncObservables(
+        { ...baseInfo, initialAccount: migratedAccount },
+        { paginationConfig: {}, syncType: SYNC_TYPE_SHIELDED },
+      );
+      const [disabledEmission] = await collectAll(syncs[0]);
+
+      expect(disabledEmission.operations?.map(op => op.id)).not.toContain("cached-bond");
+      expect(disabledEmission.aleoResources).not.toHaveProperty("hasMigratedStaking");
+
+      // Staking back on, against the account that private sync produced.
+      coinConfig.setCoinConfig(() => mockConfigWithStaking);
+      const strippedAccount: AleoAccount = {
+        ...migratedAccount,
+        operations: disabledEmission.operations!,
+        aleoResources: disabledEmission.aleoResources!,
+      };
+
+      await performPublicSync(
+        {
+          index: mockAccount.index,
+          derivationPath: mockAccount.freshAddressPath,
+          address: mockAccount.freshAddress,
+          currency: mockCurrency,
+          derivationMode: mockDerivationMode,
+          initialAccount: strippedAccount,
+        },
+        mockSyncConfig,
+      );
+
+      expect(mockListOperations).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          options: expect.not.objectContaining({ cursor: expect.anything() }),
+        }),
+      );
+    });
+
+    it("private-only sync keeps staking ops out of the list while staking is disabled", async () => {
+      const configuredProvableApi = {
+        ...mockAleoResources.provableApi!,
+        scannerStatus: { percentage: 100, synced: true },
+      };
+      mockAccessProvableApi.mockResolvedValue(configuredProvableApi);
+      coinConfig.setCoinConfig(() => mockConfig);
+
+      const stakingOp = getMockedOperation({
+        id: "cached-bond",
+        hash: "tx-bond",
+        type: "OUT",
+        extra: {
+          transactionType: "public",
+          functionId: TRANSACTION_TYPE.BOND_PUBLIC,
+          programId: PROGRAM_ID.CREDITS,
+        },
+      });
+      const transferOp = getMockedOperation({
+        id: "cached-transfer",
+        hash: "tx-transfer",
+        extra: { transactionType: "public", functionId: "transfer_public" },
+      });
+
+      const account: AleoAccount = {
+        ...mockInitialAccount,
+        operations: [transferOp, stakingOp],
+        aleoResources: {
+          ...mockInitialAccount.aleoResources!,
+          lastPrivateSyncDate: new Date("2024-01-01"),
+        },
+      };
+
+      // The patching pass is mocked; the staking filter runs on whatever it returns.
+      mockPatchPublicOperations.mockResolvedValue([transferOp, stakingOp] as never);
+
+      const { syncs } = buildSyncObservables(
+        { ...baseInfo, initialAccount: account },
+        { paginationConfig: {}, syncType: SYNC_TYPE_SHIELDED },
+      );
+
+      const [emission] = await collectAll(syncs[0]);
+      const ids = emission.operations?.map(op => op.id);
+
+      expect(ids).not.toContain("cached-bond");
+      expect(ids).toContain("cached-transfer");
+    });
+
     it("makeGetAccountShape completes immediately with no emissions when syncType is 0", async () => {
       const shape$ = makeGetAccountShape()(baseInfo, { paginationConfig: {}, syncType: 0 });
       const emissions = await collectAll(shape$);
@@ -1923,7 +2505,7 @@ describe("sync.ts", () => {
     });
 
     it("makeGetAccountShape errors the outer observable when public sync throws", async () => {
-      mockGetBalance.mockRejectedValue(new Error("Network failure"));
+      mockGetPublicBalance.mockRejectedValue(new Error("Network failure"));
 
       const shape$ = makeGetAccountShape()(baseInfo, { paginationConfig: {} });
 
@@ -2162,6 +2744,259 @@ describe("sync.ts", () => {
       };
 
       expect(postSync(synced, synced)).toBe(synced);
+    });
+  });
+
+  describe("concurrent syncs", () => {
+    const configuredProvableApi = {
+      ...mockAleoResources.provableApi,
+      scannerStatus: { percentage: 100, synced: true },
+    };
+    const syncStartedAt = new Date("2026-01-01T10:00:00Z");
+    const newerSyncLandedAt = new Date("2026-01-01T10:05:00Z");
+
+    // A sync computes its shape from the account it started with; the updater it emits is
+    // applied to whatever the store holds by the time it lands.
+    const applySync = (startedFrom: AleoAccount, landsOn: AleoAccount, syncType: number) =>
+      new Promise<AleoAccount>(resolve => {
+        let account = landsOn;
+        sync(startedFrom, { paginationConfig: {}, syncType }).subscribe({
+          next: updater => {
+            account = updater(account);
+          },
+          complete: () => resolve(account),
+          error: () => resolve(account),
+        });
+      });
+
+    const startedFrom: AleoAccount = {
+      ...mockInitialAccount,
+      lastSyncDate: syncStartedAt,
+      aleoResources: {
+        transparentBalance: new BigNumber(500000),
+        provableApi: configuredProvableApi,
+        privateBalance: new BigNumber(100),
+        unspentPrivateRecords: [],
+        lastPrivateSyncDate: syncStartedAt,
+        hasMigratedStaking: true,
+        bondedBalance: new BigNumber(20000),
+        bondedValidator: "aleo1validator",
+        unbondingBalance: new BigNumber(0),
+        unbondingHeight: null,
+      },
+    };
+
+    describe("when a public sync landed while a private sync was running", () => {
+      const afterPublicSync: AleoAccount = {
+        ...startedFrom,
+        lastSyncDate: newerSyncLandedAt,
+        aleoResources: {
+          ...startedFrom.aleoResources!,
+          transparentBalance: new BigNumber(400000),
+          bondedBalance: new BigNumber(0),
+          bondedValidator: null,
+          unbondingBalance: new BigNumber(20000),
+          unbondingHeight: 300,
+        },
+      };
+
+      beforeEach(() => {
+        coinConfig.setCoinConfig(() => mockConfigWithStaking);
+        mockAccessProvableApi.mockResolvedValue(configuredProvableApi);
+        mockGetPrivateBalance.mockResolvedValue({
+          balance: new BigNumber(300),
+          unspentRecords: [],
+        });
+      });
+
+      it("keeps the public fields of the newer public sync", async () => {
+        const result = await applySync(startedFrom, afterPublicSync, SYNC_TYPE_SHIELDED);
+
+        expect(result.lastSyncDate).toEqual(newerSyncLandedAt);
+        expect(result.aleoResources).toMatchObject({
+          transparentBalance: new BigNumber(400000),
+          bondedBalance: new BigNumber(0),
+          bondedValidator: null,
+          unbondingBalance: new BigNumber(20000),
+          unbondingHeight: 300,
+          privateBalance: new BigNumber(300),
+        });
+        expect(result.spendableBalance).toEqual(new BigNumber(400300));
+        expect(result.balance).toEqual(new BigNumber(420300));
+      });
+
+      it("keeps the public fields of the newer public sync when the private sync resets provableApi", async () => {
+        mockAccessProvableApi.mockRejectedValue(new AleoApiConfigurationResetError());
+
+        const result = await applySync(startedFrom, afterPublicSync, SYNC_TYPE_SHIELDED);
+
+        expect(result.aleoResources).toMatchObject({
+          provableApi: null,
+          transparentBalance: new BigNumber(400000),
+          bondedBalance: new BigNumber(0),
+          unbondingBalance: new BigNumber(20000),
+          unbondingHeight: 300,
+        });
+      });
+    });
+
+    describe("when a private sync landed while a public sync was running", () => {
+      const afterPrivateSync: AleoAccount = {
+        ...startedFrom,
+        aleoResources: {
+          ...startedFrom.aleoResources!,
+          privateBalance: new BigNumber(300),
+          unspentPrivateRecords: [mockUnspentRecord1],
+          lastPrivateSyncDate: newerSyncLandedAt,
+        },
+      };
+
+      it("keeps the private fields of the newer private sync", async () => {
+        const result = await applySync(startedFrom, afterPrivateSync, SYNC_TYPE_TRANSPARENT);
+
+        expect(result.aleoResources).toMatchObject({
+          privateBalance: new BigNumber(300),
+          unspentPrivateRecords: [mockUnspentRecord1],
+          lastPrivateSyncDate: newerSyncLandedAt,
+          transparentBalance: new BigNumber(mockAccount.balance.toString()),
+        });
+        expect(result.spendableBalance).toEqual(mockAccount.balance.plus(300));
+      });
+    });
+
+    describe("when nothing else lands during the sync", () => {
+      beforeEach(() => {
+        mockAccessProvableApi.mockResolvedValue(configuredProvableApi);
+        mockGetPrivateBalance.mockResolvedValue({
+          balance: new BigNumber(300),
+          unspentRecords: [],
+        });
+      });
+
+      it("advances both sync dates in a combined sync", async () => {
+        const result = await applySync(
+          startedFrom,
+          startedFrom,
+          SYNC_TYPE_TRANSPARENT | SYNC_TYPE_SHIELDED,
+        );
+
+        expect(result.lastSyncDate.getTime()).toBeGreaterThan(syncStartedAt.getTime());
+        expect(result.aleoResources?.lastPrivateSyncDate?.getTime()).toBeGreaterThan(
+          syncStartedAt.getTime(),
+        );
+        expect(result.aleoResources).toMatchObject({
+          transparentBalance: new BigNumber(mockAccount.balance.toString()),
+          privateBalance: new BigNumber(300),
+        });
+      });
+
+      it("keeps the last private sync date when the private sync of a combined sync fails", async () => {
+        mockGetPrivateBalance.mockRejectedValue(new Error("network error"));
+
+        const result = await applySync(
+          startedFrom,
+          startedFrom,
+          SYNC_TYPE_TRANSPARENT | SYNC_TYPE_SHIELDED,
+        );
+
+        expect(result.lastSyncDate.getTime()).toBeGreaterThan(syncStartedAt.getTime());
+        expect(result.aleoResources).toMatchObject({
+          transparentBalance: new BigNumber(mockAccount.balance.toString()),
+          privateBalance: new BigNumber(100),
+          lastPrivateSyncDate: syncStartedAt,
+        });
+      });
+
+      it("keeps the last private sync date when the private sync of a combined sync resets provableApi", async () => {
+        mockAccessProvableApi.mockRejectedValue(new AleoApiConfigurationResetError());
+
+        const result = await applySync(
+          startedFrom,
+          startedFrom,
+          SYNC_TYPE_TRANSPARENT | SYNC_TYPE_SHIELDED,
+        );
+
+        expect(result.lastSyncDate.getTime()).toBeGreaterThan(syncStartedAt.getTime());
+        expect(result.aleoResources).toMatchObject({
+          provableApi: null,
+          transparentBalance: new BigNumber(mockAccount.balance.toString()),
+          privateBalance: new BigNumber(100),
+          lastPrivateSyncDate: syncStartedAt,
+        });
+      });
+    });
+
+    describe("when a sync date was saved while the clock ran ahead", () => {
+      const aheadOfClock = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+      beforeEach(() => {
+        mockAccessProvableApi.mockResolvedValue(configuredProvableApi);
+        mockGetPrivateBalance.mockResolvedValue({
+          balance: new BigNumber(300),
+          unspentRecords: [],
+        });
+      });
+
+      it("applies the public sync", async () => {
+        const account: AleoAccount = { ...startedFrom, lastSyncDate: aheadOfClock };
+
+        const result = await applySync(account, account, SYNC_TYPE_TRANSPARENT);
+
+        expect(result.lastSyncDate.getTime()).toBeLessThan(aheadOfClock.getTime());
+        expect(result.aleoResources?.transparentBalance).toEqual(
+          new BigNumber(mockAccount.balance.toString()),
+        );
+      });
+
+      it("applies the private sync", async () => {
+        const account: AleoAccount = {
+          ...startedFrom,
+          aleoResources: { ...startedFrom.aleoResources!, lastPrivateSyncDate: aheadOfClock },
+        };
+
+        const result = await applySync(account, account, SYNC_TYPE_SHIELDED);
+
+        expect(result.aleoResources?.lastPrivateSyncDate?.getTime()).toBeLessThan(
+          aheadOfClock.getTime(),
+        );
+        expect(result.aleoResources?.privateBalance).toEqual(new BigNumber(300));
+      });
+
+      it("keeps the public fields of a public sync that landed while the private sync was running", async () => {
+        const account: AleoAccount = { ...startedFrom, lastSyncDate: aheadOfClock };
+        const afterPublicSync: AleoAccount = {
+          ...account,
+          lastSyncDate: newerSyncLandedAt,
+          aleoResources: { ...account.aleoResources!, transparentBalance: new BigNumber(400000) },
+        };
+
+        const result = await applySync(account, afterPublicSync, SYNC_TYPE_SHIELDED);
+
+        expect(result.lastSyncDate).toEqual(newerSyncLandedAt);
+        expect(result.aleoResources?.transparentBalance).toEqual(new BigNumber(400000));
+      });
+
+      it("keeps the private fields of a private sync that landed while the public sync was running", async () => {
+        const account: AleoAccount = {
+          ...startedFrom,
+          aleoResources: { ...startedFrom.aleoResources!, lastPrivateSyncDate: aheadOfClock },
+        };
+        const afterPrivateSync: AleoAccount = {
+          ...account,
+          aleoResources: {
+            ...account.aleoResources!,
+            privateBalance: new BigNumber(300),
+            lastPrivateSyncDate: newerSyncLandedAt,
+          },
+        };
+
+        const result = await applySync(account, afterPrivateSync, SYNC_TYPE_TRANSPARENT);
+
+        expect(result.aleoResources).toMatchObject({
+          privateBalance: new BigNumber(300),
+          lastPrivateSyncDate: newerSyncLandedAt,
+        });
+      });
     });
   });
 });

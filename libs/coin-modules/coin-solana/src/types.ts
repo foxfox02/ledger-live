@@ -1,7 +1,9 @@
 import {
-  Account,
-  AccountRaw,
   Operation,
+  StakingAccount,
+  StakingAccountRaw,
+  StakingDelegation,
+  StakingUnbonding,
   TokenAccount,
   TokenAccountRaw,
   TransactionCommon,
@@ -9,10 +11,14 @@ import {
   TransactionStatusCommon,
   TransactionStatusCommonRaw,
 } from "@ledgerhq/types-live";
+import type {
+  BufferTxData,
+  TxData,
+  TxDataNotSupported,
+} from "@ledgerhq/coin-module-framework/api/index";
 import BigNumber from "bignumber.js";
 import { TokenAccountState } from "./network/chain/account/token";
 import { PARSED_PROGRAMS } from "./network/chain/program/constants";
-import { ValidatorsAppValidator } from "./network/validator-app";
 import { UserInputType } from "./signer";
 
 export type TransferCommand = {
@@ -28,6 +34,7 @@ export type TokenCreateATACommand = {
   owner: string;
   mint: string;
   associatedTokenAccountAddress: string;
+  tokenProgram: SolanaTokenProgram;
 };
 
 export type TokenCreateApproveCommand = {
@@ -269,6 +276,7 @@ export type SolanaStake = {
     state: "active" | "inactive" | "activating" | "deactivating";
     active: number;
     inactive: number;
+    activating: number;
   };
   reward?:
     | {
@@ -277,8 +285,10 @@ export type SolanaStake = {
     | undefined;
 };
 
+export type SolanaStakingPosition = StakingDelegation | StakingUnbonding;
+
 export type SolanaStakeWithMeta = {
-  stake: SolanaStake;
+  stake: SolanaStakingPosition;
   meta: {
     validator?: {
       name?: string;
@@ -288,50 +298,11 @@ export type SolanaStakeWithMeta = {
   };
 };
 
-export type SolanaResources = {
-  stakes: SolanaStake[];
-  unstakeReserve: BigNumber;
-};
-
-export type SolanaResourcesRaw = {
-  stakes: string;
-  unstakeReserve: string;
-};
-
-export type SolanaValidator = {
-  voteAccAddr: string;
-  commission: number;
-  activatedStake: number;
-};
-
-export type SolanaPreloadDataV1 = {
-  version: "1";
-  validatorsWithMeta: SolanaValidatorWithMeta[];
-  validators: ValidatorsAppValidator[];
-};
-
-// exists for discriminated union to work
-export type SolanaPreloadDataV2 = {
-  version: "2";
-};
-
-export type SolanaPreloadData = SolanaPreloadDataV1 | SolanaPreloadDataV2;
-
-export type SolanaValidatorWithMeta = {
-  validator: SolanaValidator;
-  meta: {
-    name?: string;
-    img?: string;
-  };
-};
-
 export type StakeAction = "deactivate" | "activate" | "withdraw" | "reactivate";
 
-export type SolanaAccount = Account & { solanaResources: SolanaResources };
+export type SolanaAccount = StakingAccount;
 
-export type SolanaAccountRaw = AccountRaw & {
-  solanaResources: SolanaResourcesRaw;
-};
+export type SolanaAccountRaw = StakingAccountRaw;
 
 type Base58PubKey = string;
 export type SolanaTokenAccountExtensions = {
@@ -396,3 +367,15 @@ export type SolanaExtraDeviceTransactionField = {
   type: "solana.token.transferFee";
   label: string;
 };
+
+/** Not a chain payload, but the intent carries no other slot for a crafting input. */
+export interface SolanaStakeAccountSeedData extends TxData {
+  type: "stakeAccountSeed";
+  value: string;
+}
+
+/** A partner-built transaction and a stake seed never occur together. */
+export type SolanaTransactionIntentData =
+  | TxDataNotSupported
+  | BufferTxData
+  | SolanaStakeAccountSeedData;

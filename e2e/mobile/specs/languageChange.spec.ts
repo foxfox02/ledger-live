@@ -1,6 +1,6 @@
 import { Account } from "@ledgerhq/live-e2e-shared/enum/Account";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { setTeamOwner } from "../helpers/allure/allure-helper";
+import { setTeamOwner } from "@e2e/helpers/allure/allure-helper";
 
 setTeamOwner(Team.WALLET_XP);
 $TmsLink("B2CQA-2344");
@@ -45,7 +45,7 @@ const langButtonText = [
 
 const nanoApp = AppInfos.ETHEREUM;
 
-describe("Change Language", () => {
+describe("Settings", () => {
   beforeAll(async () => {
     await app.init({
       speculosApp: nanoApp,
@@ -53,9 +53,6 @@ describe("Change Language", () => {
       speculosForSetupOnly: true,
     });
     await app.mainNavigation.waitForWallet40Ready();
-  });
-
-  it("should go to General Settings", async () => {
     await app.mainNavigation.navigateToSettings();
     await app.settings.navigateToGeneralSettings();
   });
@@ -65,7 +62,7 @@ describe("Change Language", () => {
     const shouldSkip = isSmokeTestRun && !isSmoke;
 
     l10n.tags.forEach(tag => $Tag(tag));
-    (shouldSkip ? it.skip : it)(`should change selected language to ${l10n.lang}`, async () => {
+    (shouldSkip ? it.skip : it)(`Change app language to ${l10n.lang}`, async () => {
       await app.settingsGeneral.navigateToLanguageSelect();
       await app.settingsGeneral.selectLanguage(l10n.lang);
       await app.settingsGeneral.expectLocalizedText(l10n.localization);

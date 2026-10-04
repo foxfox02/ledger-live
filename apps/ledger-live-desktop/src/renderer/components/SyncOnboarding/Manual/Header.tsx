@@ -2,7 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { Link, Flex, Text } from "@ledgerhq/react-ui";
 import ExitIcon from "~/renderer/icons/ExitIcon";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import styled, { useTheme } from "styled-components";
 
 export type Props = {
@@ -18,26 +18,22 @@ const AnimatedText = styled.div<{ visible?: boolean | null }>`
 
 const Header = ({ onClose, displayTitle, companionStep }: Props) => {
   const { t } = useTranslation();
-  const { theme } = useTheme();
+  const { colors } = useTheme();
 
-  const palette = theme;
   const title = companionStep === "first-step" ? "titleTwoStep" : "secureCryptoTitle";
+  const backgroundColor = colors.background.default;
 
   return (
     <Flex
       width="100vw"
       justifyContent="space-between"
       position="sticky"
-      bg={palette === "dark" ? "#131415" : "#F9F9F9"} //using the hex colors that can be found in light.js and dark.js local palettes, unaccessible here as we're in v3 context, until they're replaced by the design system colors in the whole app
+      bg="background.default"
       top={0}
       left={0}
       zIndex={8}
       style={{
-        boxShadow: displayTitle
-          ? `0px 5px 15px 5px ${
-              palette === "dark" ? "#131415" : "#F9F9F9" //same as above
-            }`
-          : "none",
+        boxShadow: displayTitle ? `0px 5px 15px 5px ${backgroundColor}` : "none",
         transition: "box-shadow .6s linear",
       }}
     >

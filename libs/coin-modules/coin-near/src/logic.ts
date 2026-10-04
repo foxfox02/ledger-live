@@ -2,8 +2,14 @@ import { formatCurrencyUnit } from "@ledgerhq/coin-module-framework/currencies/i
 import { updateTransaction } from "@ledgerhq/ledger-wallet-framework/bridge/jsHelpers";
 import type { Unit } from "@ledgerhq/ledger-wallet-framework/types";
 import { BigNumber } from "bignumber.js";
-import { utils } from "near-api-js";
-import { FRACTIONAL_DIGITS, STAKING_GAS_BASE, YOCTO_THRESHOLD_VARIATION } from "./constants";
+import { NEAR_NOMINATION_EXP } from "near-api-js";
+import {
+  FRACTIONAL_DIGITS,
+  MIN_ACCOUNT_BALANCE_BUFFER,
+  STAKING_FEE_OVERHEAD_GAS,
+  STAKING_GAS,
+  YOCTO_THRESHOLD_VARIATION,
+} from "./constants";
 import { createTransaction } from "./createTransaction";
 import { getCurrentNearPreloadData } from "./preload-data";
 import {
@@ -29,14 +35,55 @@ export const isImplicitAccount = (address: string): boolean => {
   return !address.includes(".");
 };
 
-export const getStakingGas = (t?: Transaction, multiplier = 5): BigNumber => {
-  const stakingGasBase = new BigNumber(STAKING_GAS_BASE);
+/** One budget for every staking-pool call, see {@link STAKING_GAS} for how it was sized. */
+export const getStakingGas = (): BigNumber => {
+  return new BigNumber(STAKING_GAS);
+};
 
-  if (t?.mode === "withdraw" && t?.useAllAmount) {
-    multiplier = 7;
+// Framework accounts (usesStakingPositions: true) carry per-state positions under
+// `stakingPositions`, not under `nearResources`. The type is generic-coin-framework internal
+// and not exported, so access it structurally.
+type FrameworkStakingPositionOnAccount = { state: string; delegate?: string; amount: BigNumber };
+type FrameworkAccount = { stakingPositions?: FrameworkStakingPositionOnAccount[] };
+
+/**
+ * The single place that answers "what is this account staking?", for both account shapes.
+ *
+ * NEAR is mid-migration: the generic bridge writes per-(validator, state) entries to
+ * `account.stakingPositions`, while the legacy bridge writes per-validator aggregates to
+ * `account.nearResources`. Which one is populated depends on the routing flag, and a migrated
+ * account can briefly carry both — so the framework field wins when present and the legacy blob
+ * is the fallback. Callers get the legacy-shaped `NearStakingPosition[]` either way.
+ *
+ * Once the flag flip lands and no account carries `nearResources` any more, the fallback branch
+ * becomes dead and can be dropped.
+ *
+ * The presence test is `!== undefined`, not `.length`: `getAccountShape` always writes the field
+ * under the generic route, so an empty array is a real answer ("nothing staked") and must not fall
+ * back to a stale `nearResources` blob left over from before the migration.
+ */
+export const getNearStakingPositions = (account: NearAccount): NearStakingPosition[] => {
+  const rawPositions = (account as unknown as FrameworkAccount).stakingPositions;
+
+  if (rawPositions !== undefined) {
+    const byDelegate = new Map<string, NearStakingPosition>();
+    for (const pos of rawPositions) {
+      if (!pos.delegate) continue;
+      const cur = byDelegate.get(pos.delegate) ?? {
+        validatorId: pos.delegate,
+        staked: new BigNumber(0),
+        available: new BigNumber(0),
+        pending: new BigNumber(0),
+      };
+      if (pos.state === "active") cur.staked = cur.staked.plus(pos.amount);
+      else if (pos.state === "deactivating") cur.pending = cur.pending.plus(pos.amount);
+      else if (pos.state === "withdrawable") cur.available = cur.available.plus(pos.amount);
+      byDelegate.set(pos.delegate, cur);
+    }
+    return [...byDelegate.values()];
   }
 
-  return stakingGasBase.multipliedBy(multiplier);
+  return account.nearResources?.stakingPositions ?? [];
 };
 
 /*
@@ -48,7 +95,7 @@ export const getMaxAmount = (
   fees?: BigNumber,
 ): BigNumber => {
   let maxAmount;
-  const selectedValidator = account.nearResources?.stakingPositions.find(
+  const selectedValidator = getNearStakingPositions(account).find(
     ({ validatorId }) => validatorId === transaction.recipient,
   );
 
@@ -58,7 +105,7 @@ export const getMaxAmount = (
   account.pendingOperations.forEach(({ type, value, recipients }) => {
     const recipient = recipients[0];
 
-    if (recipient === selectedValidator?.validatorId) {
+    if (selectedValidator && recipient === transaction.recipient) {
       if (type === "UNSTAKE") {
         pendingUnstakingAmount = pendingUnstakingAmount.plus(value);
       } else if (type === "WITHDRAW_UNSTAKED") {
@@ -87,6 +134,39 @@ export const getMaxAmount = (
   }
 
   return maxAmount;
+};
+
+/*
+ * The liquid balance a transaction can actually pay gas from.
+ *
+ * `spendableBalance` subtracts two different things: the storage-staking deposit, which the
+ * protocol refuses to let an account spend under, and MIN_ACCOUNT_BALANCE_BUFFER, a reserve kept
+ * on our side so an account always has something left to operate with. Only the first is a real
+ * floor. Gas for an unstake or a withdraw is exactly the operation the reserve is held for, and a
+ * withdraw puts funds back on top, so those two may be priced against the reserve as well.
+ *
+ * Derived rather than stored: `balance` is the total including the delegated buckets, and
+ * `storageUsageBalance` is the deposit plus the reserve, so removing the buckets and the deposit
+ * leaves the liquid funds above the protocol floor. Accounts that carry no `nearResources` fall
+ * back to `spendableBalance`, which under-reports rather than over-reports.
+ */
+export const getFeeAvailableBalance = (account: NearAccount): BigNumber => {
+  const resources = account.nearResources;
+
+  if (!resources?.storageUsageBalance || !account.balance) {
+    return account.spendableBalance;
+  }
+
+  const storageDeposit = BigNumber.max(
+    resources.storageUsageBalance.minus(MIN_ACCOUNT_BALANCE_BUFFER),
+    0,
+  );
+  const liquidBalance = account.balance
+    .minus(resources.stakedBalance ?? 0)
+    .minus(resources.availableBalance ?? 0)
+    .minus(resources.pendingBalance ?? 0);
+
+  return BigNumber.max(liquidBalance.minus(storageDeposit), 0);
 };
 
 export const getTotalSpent = (a: NearAccount, t: Transaction, fees: BigNumber): BigNumber => {
@@ -135,9 +215,9 @@ export const canStake = (account: NearAccount): boolean => {
     mode: "stake",
   });
 
-  const { gasPrice } = getCurrentNearPreloadData();
+  const { gasPrice, minGasPurchasePrice } = getCurrentNearPreloadData();
 
-  const fees = getStakingFees(transaction, gasPrice).multipliedBy(3);
+  const fees = getStakingFees(gasPrice, minGasPurchasePrice).multipliedBy(3);
 
   return getMaxAmount(account, transaction, fees).gt(0);
 };
@@ -160,19 +240,28 @@ export const canWithdraw = (
  */
 export const getYoctoThreshold = (): BigNumber => {
   return new BigNumber(10)
-    .pow(new BigNumber(utils.format.NEAR_NOMINATION_EXP - FRACTIONAL_DIGITS))
+    .pow(new BigNumber(NEAR_NOMINATION_EXP - FRACTIONAL_DIGITS))
     .minus(YOCTO_THRESHOLD_VARIATION);
 };
 
 /*
- * An estimation for the fee by using the staking gas and scaling accordingly.
- * Buffer added so that the transaction never fails - we'll always overestimate.
+ * What the chain makes the account hold for a staking call, in yoctoNEAR.
+ *
+ * The runtime locks the whole attached gas at conversion time and refunds the unburnt part
+ * afterwards, so the fee is the full attached amount, not the fraction that ends up burnt. That
+ * gas is bought at `min_gas_purchase_price`, not at the current gas price: nearcore's
+ * `calculate_tx_cost` prices the gas attached to the receipt at
+ * `max(current_gas_price, min_gas_purchase_price)` and only the gas burnt converting the
+ * transaction at the current price. The floor sits an order of magnitude above the current price
+ * on mainnet, so pricing at the current price alone under-reported what the account had to hold
+ * and the chain rejected the transaction with `NotEnoughBalance` (observed: 0.02 quoted against
+ * 0.1759 required, with 175 TGas attached).
+ *
+ * The overhead term covers the action's own send/exec/receipt fees, which are also bought at the
+ * floor; the conversion gas burnt at the current price is a rounding error next to it.
  */
-export const getStakingFees = (t: Transaction, gasPrice: BigNumber): BigNumber => {
-  const stakingGas = getStakingGas(t);
+export const getStakingFees = (gasPrice: BigNumber, minGasPurchasePrice: BigNumber): BigNumber => {
+  const receiptGasPrice = BigNumber.max(gasPrice, minGasPurchasePrice);
 
-  return stakingGas
-    .plus(STAKING_GAS_BASE) // Buffer
-    .multipliedBy(gasPrice)
-    .dividedBy(10);
+  return getStakingGas().plus(STAKING_FEE_OVERHEAD_GAS).multipliedBy(receiptGasPrice);
 };

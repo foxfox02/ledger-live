@@ -5,6 +5,7 @@ import { fetchQuotes } from "./service/fetchQuotes";
 import { fetchAndMergeProviderData } from "../../../exchange/providers/swap";
 import { fetchNetworkFeeContext } from "./fetchNetworkFeeContext";
 import { computeFeeEstimate } from "./normalizer/networkFeeEstimate";
+import { makeRawQuote } from "./fixtures/rawQuotes";
 import type { RawQuote, RawQuoteError } from "./service/types";
 import {
   ProviderErrorCodes,
@@ -35,9 +36,8 @@ jest.mock("./normalizer/networkFeeEstimate", () => ({
 }));
 
 // `live-network` reads `getEnv("LEDGER_CLIENT_VERSION")?.startsWith(...)` and
-// `changes.subscribe(...)` at module load (transitive import via
-// buildFormatContext -> currencies -> live-countervalues -> live-network). We
-// need to satisfy both at module-eval time, so the mock surfaces a no-op
+// `changes.subscribe(...)` at module load, and the modules under test import it
+// transitively. We need to satisfy both at module-eval time, so the mock surfaces a no-op
 // `changes` subject alongside `getEnv`. Per-test `getEnv` overrides happen via
 // the `jest.mocked` hook in the suite body.
 jest.mock("@shared/env", () => ({
@@ -49,23 +49,6 @@ const fetchQuotesMock = jest.mocked(fetchQuotes);
 const fetchAndMergeProviderDataMock = jest.mocked(fetchAndMergeProviderData);
 const fetchNetworkFeeContextMock = jest.mocked(fetchNetworkFeeContext);
 const computeFeeEstimateMock = jest.mocked(computeFeeEstimate);
-
-function makeRawQuote(overrides: Partial<RawQuote> = {}): RawQuote {
-  return {
-    provider: "lifi",
-    providerType: "DEX",
-    amountFrom: 1,
-    amountTo: 0.999,
-    exchangeRate: 0.999,
-    slippage: 1,
-    type: "float",
-    networkFees: { currency: "ethereum" },
-    tags: { isRegistrationRequired: false, isTokenApprovalRequired: false },
-    key: "lifi-key",
-    liquiditySource: "AMM",
-    ...overrides,
-  };
-}
 
 function makeArgs(
   sendCurrencyId: string,

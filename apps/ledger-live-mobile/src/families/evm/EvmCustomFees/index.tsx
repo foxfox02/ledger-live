@@ -1,8 +1,8 @@
 import React, { useCallback, useMemo } from "react";
 import invariant from "invariant";
-import i18next from "i18next";
+import i18next from "~/i18n/instance";
 import { useNavigation } from "@react-navigation/native";
-import { Transaction } from "@ledgerhq/coin-evm/types/index";
+import { Transaction } from "@ledgerhq/live-common/families/evm/types";
 import { SendFundsNavigatorStackParamList } from "~/components/RootNavigator/types/SendFundsNavigator";
 import { useAccountScreen } from "LLM/hooks/useAccountScreen";
 import EvmLegacyCustomFees from "./EvmLegacyCustomFees";

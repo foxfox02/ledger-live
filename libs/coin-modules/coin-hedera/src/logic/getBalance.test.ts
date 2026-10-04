@@ -5,7 +5,6 @@ import { HederaAddAccountError } from "../errors";
 import { apiClient } from "../network/api";
 import * as networkUtils from "../network/utils";
 import { getMockedConfig } from "../test/fixtures/config.fixture";
-import { getMockedCurrency } from "../test/fixtures/currency.fixture";
 import type { HederaERC20TokenBalance } from "../types";
 import { getBalance } from "./getBalance";
 
@@ -17,7 +16,6 @@ const mockHederaConfig = jest.mocked(hederaCoinConfig);
 
 describe("getBalance", () => {
   const address = "0.0.12345";
-  const mockCurrency = getMockedCurrency();
   const mockConfig = { ...getMockedConfig() };
   const mockMirrorAccount = {
     balance: {
@@ -35,7 +33,7 @@ describe("getBalance", () => {
     (apiClient.getAccountTokens as jest.Mock).mockResolvedValue([]);
     (networkUtils.getERC20BalancesForAccountV2 as jest.Mock).mockResolvedValue([]);
 
-    const result = await getBalance({ currencyId: mockCurrency.id, address });
+    const result = await getBalance(mockConfig, { address });
 
     expect(apiClient.getAccount).toHaveBeenCalledTimes(1);
     expect(apiClient.getAccount).toHaveBeenCalledWith({ configOrCurrencyId: mockConfig, address });
@@ -73,7 +71,7 @@ describe("getBalance", () => {
     (apiClient.getAccountTokens as jest.Mock).mockResolvedValue(mockMirrorTokens);
     (networkUtils.getERC20BalancesForAccountV2 as jest.Mock).mockResolvedValue(mockERC20Balances);
 
-    const result = await getBalance({ currencyId: mockCurrency.id, address });
+    const result = await getBalance(mockConfig, { address });
 
     expect(apiClient.getAccount).toHaveBeenCalledTimes(1);
     expect(apiClient.getAccount).toHaveBeenCalledWith({ configOrCurrencyId: mockConfig, address });
@@ -135,7 +133,7 @@ describe("getBalance", () => {
     (apiClient.getNode as jest.Mock).mockResolvedValue(mockMirrorNode);
     (networkUtils.getERC20BalancesForAccountV2 as jest.Mock).mockResolvedValue([]);
 
-    const result = await getBalance({ currencyId: mockCurrency.id, address });
+    const result = await getBalance(mockConfig, { address });
 
     expect(apiClient.getAccount).toHaveBeenCalledTimes(1);
     expect(apiClient.getAccount).toHaveBeenCalledWith({ configOrCurrencyId: mockConfig, address });
@@ -161,6 +159,31 @@ describe("getBalance", () => {
         },
       },
     ]);
+  });
+
+  it("should return stake without overstaked status when validator stake is null", async () => {
+    const mockMirrorAccount = {
+      account: address,
+      staked_node_id: 5,
+      balance: { balance: 100 },
+      pending_reward: 100,
+    };
+    const mockMirrorNode = {
+      node_id: 5,
+      node_account_id: "0.0.5",
+      description: "Hosted for Wipro | Amsterdam, Netherlands",
+      max_stake: 45000000000000000,
+      stake: null,
+    };
+
+    (apiClient.getAccount as jest.Mock).mockResolvedValue(mockMirrorAccount);
+    (apiClient.getAccountTokens as jest.Mock).mockResolvedValue([]);
+    (apiClient.getNode as jest.Mock).mockResolvedValue(mockMirrorNode);
+    (networkUtils.getERC20BalancesForAccountV2 as jest.Mock).mockResolvedValue([]);
+
+    const result = await getBalance(mockConfig, { address });
+
+    expect(result[0]?.stake?.details?.overstaked).toBeNull();
   });
 
   it("should return all token balances without CAL filtering", async () => {
@@ -189,7 +212,7 @@ describe("getBalance", () => {
     (apiClient.getAccountTokens as jest.Mock).mockResolvedValue(mockMirrorTokens);
     (networkUtils.getERC20BalancesForAccountV2 as jest.Mock).mockResolvedValue(mockERC20Balances);
 
-    const result = await getBalance({ currencyId: mockCurrency.id, address });
+    const result = await getBalance(mockConfig, { address });
 
     expect(result).toEqual(
       expect.arrayContaining([
@@ -217,7 +240,7 @@ describe("getBalance", () => {
     (apiClient.getAccountTokens as jest.Mock).mockResolvedValue([]);
     (networkUtils.getERC20BalancesForAccountV2 as jest.Mock).mockResolvedValue([]);
 
-    await expect(getBalance({ currencyId: mockCurrency.id, address })).rejects.toThrow(error);
+    await expect(getBalance(mockConfig, { address })).rejects.toThrow(error);
   });
 
   it("should throw when failing to getAccountTokens data", async () => {
@@ -227,7 +250,7 @@ describe("getBalance", () => {
     (apiClient.getAccountTokens as jest.Mock).mockRejectedValue(error);
     (networkUtils.getERC20BalancesForAccountV2 as jest.Mock).mockResolvedValue([]);
 
-    await expect(getBalance({ currencyId: mockCurrency.id, address })).rejects.toThrow(error);
+    await expect(getBalance(mockConfig, { address })).rejects.toThrow(error);
   });
 
   it("should throw when failing to fetch ERC20 balances", async () => {
@@ -237,7 +260,7 @@ describe("getBalance", () => {
     (apiClient.getAccountTokens as jest.Mock).mockResolvedValue([]);
     (networkUtils.getERC20BalancesForAccountV2 as jest.Mock).mockRejectedValue(error);
 
-    await expect(getBalance({ currencyId: mockCurrency.id, address })).rejects.toThrow(error);
+    await expect(getBalance(mockConfig, { address })).rejects.toThrow(error);
   });
 
   it.each([
@@ -256,7 +279,7 @@ describe("getBalance", () => {
     (apiClient.getAccountTokens as jest.Mock).mockResolvedValue([]);
     (networkUtils.getERC20BalancesForAccountV2 as jest.Mock).mockResolvedValue([]);
 
-    const result = await getBalance({ currencyId: mockCurrency.id, address });
+    const result = await getBalance(mockConfig, { address });
 
     expect(apiClient.getAccount).toHaveBeenCalledTimes(1);
     expect(apiClient.getAccount).toHaveBeenCalledWith({ configOrCurrencyId: mockConfig, address });

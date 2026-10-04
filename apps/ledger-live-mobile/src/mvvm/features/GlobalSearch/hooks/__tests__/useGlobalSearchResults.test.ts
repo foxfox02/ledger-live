@@ -1,8 +1,7 @@
+import { track } from "@shared/analytics";
 import { renderHook, act, withFlagOverrides } from "@tests/test-renderer";
 import { setEnv } from "@shared/env";
-import { useAssetsData } from "@ledgerhq/live-common/dada-client/hooks/useAssetsData";
-import { selectCurrencyForMetaId } from "@ledgerhq/live-common/dada-client/utils/currencySelection";
-import { track } from "~/analytics";
+import { useAssetsData, selectCurrencyForMetaId } from "@features/platform-aggregated-assets";
 import { ScreenName } from "~/const";
 import { useGlobalSearchResults } from "../useGlobalSearchResults";
 
@@ -12,8 +11,11 @@ jest.mock("@ledgerhq/live-common/hooks/useDebounce", () => ({
 jest.mock("@ledgerhq/live-common/counterValues/hooks/useUsdToFiatRate", () => ({
   useUsdToFiatRate: () => ({ rate: 1, status: "ready" }),
 }));
-jest.mock("@ledgerhq/live-common/dada-client/hooks/useAssetsData");
-jest.mock("@ledgerhq/live-common/dada-client/utils/currencySelection");
+jest.mock("@features/platform-aggregated-assets", () => ({
+  ...jest.requireActual("@features/platform-aggregated-assets"),
+  useAssetsData: jest.fn(),
+  selectCurrencyForMetaId: jest.fn(),
+}));
 
 const mockedAssets = jest.mocked(useAssetsData);
 const mockedSelectCurrency = jest.mocked(selectCurrencyForMetaId);

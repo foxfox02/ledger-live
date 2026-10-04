@@ -76,20 +76,20 @@ import type {
   SettingsIsOnboardingFlowPayload,
   SettingsIsOnboardingFlowReceiveSuccessPayload,
   SettingsIsPostOnboardingFlowPayload,
-  SettingsSetHasSeenWalletV4TourPayload,
   SettingsSetHasDismissedContactsFeatureIntroductionPayload,
   SettingsSetDoNotAskAgainSkipMemoPayload,
   SettingsSetProductTourCompletedPayload,
   SettingsSetHasSeenQ2WalletV4TourPayload,
+  SettingsSetHasSeenQ3WalletV4TourPayload,
   SettingsSetAnalyticsConsentInfoPayload,
   SettingsSetHasClickedRecoverPayload,
   SettingsHideSmallValueTokenOperationsPayload,
 } from "../actions/types";
 import { SettingsActionTypes } from "../actions/types";
 import {
-  needsConsentRenewal,
+  getAnalyticsConsentDecision,
   resolveAnalyticsOptInParams,
-} from "@ledgerhq/live-common/analyticsConsent/index";
+} from "@features/flow-analytics-consent";
 
 const DEFAULT_COUNTERVALUE_TICKER = "USD";
 
@@ -178,10 +178,10 @@ export const INITIAL_STATE: SettingsState = {
   isOnboardingFlowReceiveSuccess: false,
   isPostOnboardingFlow: false,
   generalTermsVersionAccepted: undefined,
-  hasSeenWalletV4Tour: false,
   hasDismissedContactsFeatureIntroduction: false,
   productTourCompleted: false,
   hasSeenQ2WalletV4Tour: false,
+  hasSeenQ3WalletV4Tour: false,
   doNotAskAgainSkipMemo: false,
   hasClickedRecover: false,
   deprecationDoNotRemind: [],
@@ -662,11 +662,6 @@ const handlers: ReducerMap<SettingsState, SettingsPayload> = {
       .payload,
   }),
 
-  [SettingsActionTypes.SET_HAS_SEEN_WALLET_V4_TOUR]: (state, action) => ({
-    ...state,
-    hasSeenWalletV4Tour: (action as Action<SettingsSetHasSeenWalletV4TourPayload>).payload,
-  }),
-
   [SettingsActionTypes.SET_HAS_DISMISSED_CONTACTS_FEATURE_INTRODUCTION]: (state, action) => ({
     ...state,
     hasDismissedContactsFeatureIntroduction: (
@@ -687,6 +682,11 @@ const handlers: ReducerMap<SettingsState, SettingsPayload> = {
   [SettingsActionTypes.SET_HAS_SEEN_Q2_WALLET_V4_TOUR]: (state, action) => ({
     ...state,
     hasSeenQ2WalletV4Tour: (action as Action<SettingsSetHasSeenQ2WalletV4TourPayload>).payload,
+  }),
+
+  [SettingsActionTypes.SET_HAS_SEEN_Q3_WALLET_V4_TOUR]: (state, action) => ({
+    ...state,
+    hasSeenQ3WalletV4Tour: (action as Action<SettingsSetHasSeenQ3WalletV4TourPayload>).payload,
   }),
 
   [SettingsActionTypes.SET_HAS_CLICKED_RECOVER]: (state, action) => ({
@@ -799,14 +799,11 @@ export const trackingEnabledSelector = (state: State) => {
   const analyticsOptIn = state.featureFlags?.resolved?.analyticsOptIn;
   const analyticsOptInEnabled = analyticsOptIn?.enabled ?? false;
   if (analyticsOptInEnabled) {
-    const { consentDate } = settings.analyticsConsentInfo;
-
-    if (consentDate == null) {
-      return false;
-    }
-
-    const { consentValidityDays } = resolveAnalyticsOptInParams(analyticsOptIn);
-    if (needsConsentRenewal(consentDate, consentValidityDays)) {
+    const decision = getAnalyticsConsentDecision(
+      settings.analyticsConsentInfo,
+      resolveAnalyticsOptInParams(analyticsOptIn),
+    );
+    if (decision.kind === "renewal") {
       return false;
     }
   }
@@ -968,13 +965,12 @@ export const starredMarketCoinsSelector = (state: State) => state.settings.starr
 export const mevProtectionSelector = (state: State) => state.settings.mevProtection;
 export const selectedTabPortfolioAssetsSelector = (state: State) =>
   state.settings.selectedTabPortfolioAssets;
-export const hasSeenWalletV4TourSelector = (state: State) => state.settings.hasSeenWalletV4Tour;
-
 export const hasDismissedContactsFeatureIntroductionSelector = (state: State) =>
   state.settings.hasDismissedContactsFeatureIntroduction;
 
 export const doNotAskAgainSkipMemoSelector = (state: State) => state.settings.doNotAskAgainSkipMemo;
 export const productTourCompletedSelector = (state: State) => state.settings.productTourCompleted;
 export const hasSeenQ2WalletV4TourSelector = (state: State) => state.settings.hasSeenQ2WalletV4Tour;
+export const hasSeenQ3WalletV4TourSelector = (state: State) => state.settings.hasSeenQ3WalletV4Tour;
 export const analyticsConsentInfoSelector = (state: State) => state.settings.analyticsConsentInfo;
 export const hasClickedRecoverSelector = (state: State) => state.settings.hasClickedRecover;

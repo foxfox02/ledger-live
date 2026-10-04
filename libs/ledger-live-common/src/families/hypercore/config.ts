@@ -9,7 +9,10 @@ export const hypercoreConfig: CurrencyLiveConfigDefinition = {
         type: "active",
         features: [{ id: "blockchain_txs", status: "active" }],
       },
+      name: "Hyperliquid",
+      unit: { name: "USD Coin", code: "USDC", magnitude: 6 },
       node: "https://perps.live.ledger.com/proxy/perps",
-    } as HypercoreCoinConfig,
+      checkRegionRestriction: true,
+    } satisfies HypercoreCoinConfig,
   },
 };

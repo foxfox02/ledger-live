@@ -20,7 +20,10 @@ const nodeModulesPaths = [
   path.resolve(__dirname, "node_modules"),
   path.resolve(projectRootDir, "node_modules"),
   path.resolve(projectRootDir, "node_modules", ".pnpm"),
-  path.resolve(projectRootDir, "node_modules", ".pnpm", "node_modules"),
+  // Skip node_modules/.pnpm/node_modules. Private hoist puts one copy of each
+  // package there, and that copy shadows the nested dependency a package
+  // actually declared (uint8arrays requires multiformats/basics from v9, while
+  // the hoisted copy is v13 and does not export that subpath).
   "node_modules",
 ];
 
@@ -188,6 +191,9 @@ function isHermesNonCompatibleDependency(resourcePath) {
   return hermesNonCompatibleDependencies.some(pkgName => normalizedPath.includes(pkgName));
 }
 
+// Rozenite's network plugin reassigns this module's `fetch` export, which rspack exposes as a read-only getter when it stays ESM
+const expoFetchModule = /[\\/]expo[\\/]src[\\/]winter[\\/]fetch[\\/]fetch\.ts$/;
+
 export default withRozeniteUrlFix(
   withRozenite(
     Repack.defineRspackConfig(env => {
@@ -239,7 +245,7 @@ export default withRozeniteUrlFix(
           },
           fallback: {
             ...require("node-libs-react-native"),
-            fs: require.resolve("react-native-level-fs"),
+            fs: false,
             net: require.resolve("react-native-tcp-socket"),
             tls: false,
             child_process: false,
@@ -269,10 +275,23 @@ export default withRozeniteUrlFix(
               },
               resolve: { fullySpecified: false },
             },
+            {
+              test: expoFetchModule,
+              type: "javascript/auto",
+              use: {
+                loader: "babel-loader",
+                options: {
+                  configFile: path.resolve(__dirname, "./babel.config.js"),
+                  babelrc: false,
+                  caller: { supportsStaticESM: false },
+                },
+              },
+              resolve: { fullySpecified: false },
+            },
             // Default rule for all other files (exclude Polkadot packages)
             {
               test: /\.[cm]?[jt]sx?$/,
-              exclude: isHermesNonCompatibleDependency,
+              exclude: [isHermesNonCompatibleDependency, expoFetchModule],
               type: "javascript/auto",
               use: {
                 loader: "@callstack/repack/babel-swc-loader",

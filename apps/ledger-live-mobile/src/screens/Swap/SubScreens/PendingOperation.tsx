@@ -1,10 +1,11 @@
+import { TrackScreen } from "@shared/analytics-react";
+import { track } from "@shared/analytics";
 import { CommonActions, useTheme } from "@react-navigation/native";
 import React, { useCallback, useEffect, useRef } from "react";
-import { Trans } from "~/context/Locale";
+import { Trans, useTranslation } from "~/context/Locale";
 import { StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { track, TrackScreen } from "~/analytics";
 import Button from "~/components/Button";
 import LText from "~/components/LText";
 import { ScreenName } from "~/const";
@@ -22,7 +23,7 @@ import {
   hasSwapTabRoute,
   navigateBackToSwapTab,
 } from "../navigation/navigateBackToSwapTab";
-import { useNotificationsContext } from "LLM/features/NotificationsPrompt";
+import { useNotificationsPrompt } from "LLM/features/NotificationsPrompt";
 
 export function PendingOperation({ route, navigation }: PendingOperationParamList) {
   const { colors } = useTheme();
@@ -31,11 +32,13 @@ export function PendingOperation({ route, navigation }: PendingOperationParamLis
   const { isEmbeddedSwap, sponsored } = route.params;
   const syncAccounts = useSyncAllAccounts();
   const supportsSwapTabRoute = hasSwapTabRoute(navigation.getState());
-  const { notifyFlowCompleted } = useNotificationsContext();
+  const { notifyFlowCompleted } = useNotificationsPrompt();
   const allowRemovalRef = useRef(false);
   const completeSwapFlow = useCallback(() => {
     notifyFlowCompleted("swap");
   }, [notifyFlowCompleted]);
+
+  const { t } = useTranslation();
 
   const navigateToSwapForm = useCallback(() => {
     if (allowRemovalRef.current) return;
@@ -143,7 +146,7 @@ export function PendingOperation({ route, navigation }: PendingOperationParamLis
         <Button
           event="SwapDone"
           type="primary"
-          title={<Trans i18nKey={"transfer.swap.history.button"} />}
+          title={t("transfer.swap.pendingOperation.cta")}
           onPress={onComplete}
         />
       </View>

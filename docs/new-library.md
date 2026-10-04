@@ -4,21 +4,28 @@ This document covers the requirements and conventions for any new internal packa
 
 ## Where to add new code
 
-New shared code goes in a new **`libs/*` package** (e.g. a self-contained utility, a coin module under `libs/coin-modules/`).
+New code goes in `shared/`, `domain/entity/`, `domain/api/`, `features/platform/` or
+`features/flow/` — whichever is the lowest layer that can own the concern. `support/` for
+development-only tooling.
 
-> **`libs/ledger-live-common` is in maintenance mode.** Bugfixes and edits to existing code are fine; new features, folders, or top-level modules are not.
-
-The repo is moving toward a DDD layout (`domain/`, `features/`, `shared/`); it is not yet the default for new code — use `libs/` today. See [docs/ddd-monorepo-architecture.md](./ddd-monorepo-architecture.md) for the target architecture.
+`libs/` is [legacy](./monorepo-architecture.md#legacy-libs). Three exceptions still land there:
+a new coin module or its coin-tester; a package published to npm (`shared/`, `domain/` and
+`features/` packages are all `"private": true`); a proportionate fix in an existing legacy package.
+`libs/ui/` and `libs/ledgerjs/` are frozen. `libs/ledger-live-common` takes no new features, and
+code extracted from it goes to the layers above, not to a new `libs/*` package.
 
 ## Package checklist
 
 **`package.json` fields**
 - [ ] `"private": true`
 - [ ] `"sideEffects": false` — enables bundler tree-shaking
-- [ ] `"main"`, `"types"`, `"exports"` — source-only packages (DDD layers: domain/, features/, shared/) point directly to `src/index.ts` and expose `"./package.json"`; built/published libs/ packages use the `@ledgerhq/source` condition + `lib/`/`lib-es/` entries — copy from a neighbouring package of the same type
-- [ ] `devDependencies` via `catalog:` entries — `typescript`, `jest`, `@swc/core`, `@swc/jest`, `@types/jest` (never pin versions directly)
+- [ ] `"main"`, `"types"`, `"exports"` — source-only packages (domain/, features/, shared/) point directly to `src/index.ts` and expose `"./package.json"`; built/published libs/ packages use the `@ledgerhq/source` condition + `lib/`/`lib-es/` entries — copy from a neighbouring package of the same type
+- [ ] `devDependencies` via `catalog:` entries — `typescript`, `jest`, `@swc/core`, `@swc/jest`, `@types/jest`, `oxfmt`, `oxlint` (never pin versions directly)
 - [ ] `scripts.typecheck: "tsc --noEmit"` — required for the Nx `typecheck` target
 - [ ] `scripts.test` and `scripts.coverage` — `jest` / `jest --coverage`
+- [ ] `scripts.format: "oxfmt src"` — required for the Nx `format` target; add `tests` if the package keeps tests outside `src/` (e.g. `"oxfmt src tests"`)
+- [ ] `scripts.format:check: "oxfmt --check src"` — CI dry-run counterpart; mirror the same paths as `scripts.format`
+- [ ] `scripts.lint: "oxlint -c <path-to>/.oxlintrc.json ./src"` — required for the Nx `lint` target; path to `.oxlintrc.json` depends on depth (e.g. `../../libs/oxc-live-libs/.oxlintrc.json` from `shared/`)
 
 **Additional files**
 - [ ] `README.md` — scope, problem solved, main exports (a few paragraphs); **must include a status marker** (see [README status marker](#readme-status-marker) below)
@@ -55,7 +62,8 @@ The repo is moving toward a DDD layout (`domain/`, `features/`, `shared/`); it i
 | `domain/api/` | `@domain/api-<name>` | `@domain/api-crypto-asset` |
 | `features/platform/` | `@features/platform-<name>` | `@features/platform-feature-flags` |
 | `features/flow/` | `@features/flow-<name>` | `@features/flow-wallet` |
-| `libs/` | `@ledgerhq/<name>` | `@ledgerhq/coin-evm` |
+| `support/` | `@support/<name>` | `@support/jest-devtools` |
+| `libs/` (legacy) | `@ledgerhq/<name>` | `@ledgerhq/coin-evm` |
 
 Keep names short and self-describing. No cross-package relative imports — always use the npm package name.
 
@@ -83,7 +91,7 @@ The package is in active development; its API may change without notice.
 
 Common reasons:
 - New package with an API still being designed.
-- Package is part of the emerging `domain/` / `features/` / `shared/` DDD layer and is under active development.
+- Package is part of the emerging `domain/` / `features/` / `shared/` layer and is under active development.
 - Package is being migrated from another location (e.g. out of `live-common`).
 
 ### DEPRECATED

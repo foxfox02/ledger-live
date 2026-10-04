@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Routes, Route } from "react-router";
 import { useSelector } from "LLD/hooks/redux";
 import { userIdSelector } from "@domain/entity-client-identity";
-import TrackPage from "~/renderer/analytics/TrackPage";
+import { TrackPage } from "@shared/analytics-react";
 import { SettingsSectionBody as Body, SettingsSectionRow as Row } from "../../SettingsSection";
 import AllowExperimentalAppsToggle from "./AllowExperimentalAppsToggle";
 import AllowDebugAppsToggle from "./AllowDebugAppsToggle";
@@ -16,6 +16,7 @@ import FeatureFlagsSettings from "./FeatureFlagsSettings";
 import CoinConfigSettings from "./CoinConfigSettings";
 import EnableLearnPageStagingUrlToggle from "./EnableLearnPageStagingUrlToggle";
 import EnableCountervaluesStagingToggle from "./EnableCountervaluesStagingToggle";
+import EnableMockServerTransportToggle from "./EnableMockServerTransportToggle";
 import OnboardingAppInstallDebugButton from "./OnboardingAppInstallDebug";
 import ExchangeDeveloperMode from "./ExchangeDeveloperMode";
 import ExchangeTestPartnerMode from "./ExchangeTestPartnerMode";
@@ -50,6 +51,7 @@ import DeviceActionContentDevTool from "./DeviceActionContentDevTool";
 import DeviceActionContentDevScreen from "./DeviceActionContentDevTool/screens/DeviceActionContentDevScreen";
 import DeviceIntentExecutorDevTool from "./DeviceIntentExecutorDevTool";
 import DeviceIntentExecutorDevScreen from "./DeviceIntentExecutorDevTool/screens/DeviceIntentExecutorDevScreen";
+import DeviceSimulationDevTool from "./DeviceSimulationDevTool";
 import LargeScreenUpsellDevTool from "./LargeScreenUpsellDevTool";
 import { LargeScreenUpsellQa } from "LLD/features/LargeScreenUpsell";
 
@@ -127,6 +129,12 @@ const Default = () => {
       >
         <EnableCountervaluesStagingToggle />
       </Row>
+      <Row
+        title={t("settings.developer.enableMockServerTransport")}
+        desc={t("settings.developer.enableMockServerTransportDesc")}
+      >
+        <EnableMockServerTransportToggle />
+      </Row>
       <RecoverUpsellRow />
 
       <Row
@@ -159,6 +167,7 @@ const Default = () => {
       <FeaturesAndFlowsDevTool />
       <AnalyticsConsentOptInDevTool />
       <GenericAwarenessModalDevTool />
+      <DeviceSimulationDevTool />
       <LargeScreenUpsellDevTool />
       <InfoStateDevTool />
       <DeviceActionContentDevTool />

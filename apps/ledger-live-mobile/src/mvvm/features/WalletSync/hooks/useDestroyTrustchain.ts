@@ -1,3 +1,4 @@
+import { track } from "@shared/analytics";
 import { useTrustchainSdk } from "./useTrustchainSdk";
 import { useSelector, useDispatch } from "~/context/hooks";
 import {
@@ -7,10 +8,9 @@ import {
 } from "@ledgerhq/ledger-key-ring-protocol/store";
 import { useMutation } from "@tanstack/react-query";
 import { AnalyticsEvents } from "LLM/features/WalletSync/Analytics/enums";
-import { track } from "~/analytics";
 import { QueryKey } from "./type.hooks";
 import { useCloudSyncSDK } from "./useWatchWalletSync";
-import { walletSyncUpdate } from "@ledgerhq/live-wallet/store";
+import { walletSyncUpdate } from "@domain/entity-wallet-sync";
 import { useCurrentStep } from "./useCurrentStep";
 import { Steps } from "../types/Activation";
 
@@ -34,7 +34,7 @@ export function useDestroyTrustchain() {
     onSuccess: () => {
       dispatch(resetTrustchainStore());
       track(AnalyticsEvents.LedgerSyncDeactivated);
-      dispatch(walletSyncUpdate(null, 0));
+      dispatch(walletSyncUpdate({ data: null, version: 0 }));
       setCurrentStep(Steps.Activation);
     },
   });

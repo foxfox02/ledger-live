@@ -1,3 +1,4 @@
+import { getCurrentTrackingPage } from "@shared/analytics";
 import { useMemo } from "react";
 import { Platform } from "react-native";
 import useEnv from "@features/platform-env";
@@ -18,9 +19,9 @@ import {
   lastSeenDeviceSelector,
 } from "~/reducers/settings";
 import { flattenAccountsSelector } from "~/reducers/accounts";
+import { useDeviceIntentSignAssignment } from "LLM/features/WalletApiSignature/hooks/useDeviceIntentSignEnabled";
 import { useSwapCustomHandlers } from "../customHandlers";
 import { useDeeplinkCustomHandlers } from "~/components/WebPlatformPlayer/CustomHandlers";
-import { currentRouteNameRef } from "~/analytics/screenRefs";
 import { useTranslateToSwapAccount } from "./useTranslateToSwapAccount";
 import { DefaultAccountSwapParamList } from "../../types";
 
@@ -60,11 +61,13 @@ export function useSwapWebviewProps({ manifest, params, resetWebview }: UseSwapW
 
   const isLlmModularDrawer = llmModularDrawerFF?.enabled && llmModularDrawerFF?.params?.live_app;
 
+  const deviceIntentSign = useDeviceIntentSignAssignment(manifest.id);
+
   const insets = useAdjustedSafeAreaInsets();
 
   // Capture the initial source to prevent webview refreshes.
-  // currentRouteNameRef.current updates when going back and forth inside the navigation stack and returning to the webview
-  const initialSource = useMemo(() => currentRouteNameRef.current || "", []);
+  // The tracking page updates when going back and forth inside the navigation stack and returning to the webview.
+  const initialSource = useMemo(() => getCurrentTrackingPage(), []);
 
   const inputs = useMemo(
     () => ({
@@ -83,6 +86,8 @@ export function useSwapWebviewProps({ manifest, params, resetWebview }: UseSwapW
       shareAnalytics,
       hasSeenAnalyticsOptInPrompt,
       isModularDrawer: isLlmModularDrawer ? "true" : "false",
+      llmWalletApiDeviceIntentSignVariant: deviceIntentSign.variantId,
+      llmWalletApiDeviceIntentSignEnabled: deviceIntentSign.enabled ? "true" : "false",
       discreetMode: discreetMode ? "true" : "false",
       lwm40enabled: "true",
       safeAreaTop: insets.top.toString(),
@@ -104,6 +109,7 @@ export function useSwapWebviewProps({ manifest, params, resetWebview }: UseSwapW
       shareAnalytics,
       hasSeenAnalyticsOptInPrompt,
       isLlmModularDrawer,
+      deviceIntentSign,
       discreetMode,
       insets.top,
       insets.bottom,

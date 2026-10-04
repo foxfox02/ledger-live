@@ -27,15 +27,21 @@ if (parsed) {
 }
 
 /**
- * Determines which .env file to use based on environment
+ * Determines which .env file to use based on environment.
+ * NIGHTLY is checked first so a stray TESTING or STAGING cannot change how nightlies are built.
  */
-export const DOTENV_FILE = process.env.TESTING
-  ? ".env.testing"
-  : process.env.STAGING
-    ? ".env.staging"
-    : process.env.NODE_ENV === "production"
-      ? ".env.production"
-      : ".env";
+function getDotEnvFile(): string {
+  if (process.env.NIGHTLY) return ".env.staging";
+  if (process.env.TESTING) return ".env.testing";
+  if (process.env.STAGING) return ".env.staging";
+  if (process.env.NODE_ENV === "production") return ".env.production";
+  return ".env";
+}
+
+export const DOTENV_FILE = getDotEnvFile();
+
+// Nightlies use staging services with the production Firebase project, like mobile nightlies.
+const FIREBASE_OVERRIDE_FILE = process.env.NIGHTLY ? ".env.production" : null;
 
 // Load .env so DATADOG_* are available for local builds
 dotenv.config({ path: path.resolve(lldRoot, DOTENV_FILE) });
@@ -45,24 +51,57 @@ const DATADOG_CLIENT_TOKEN = process.env.DATADOG_CLIENT_TOKEN;
 const DATADOG_SITE = process.env.DATADOG_SITE ?? "datadoghq.eu";
 const DATADOG_ENV = process.env.DATADOG_ENV;
 
-/**
- * Reads and parses a dotenv file, returning define entries
- */
-export function buildDotEnvDefine(envPath: string): Record<string, string> {
-  const define: Record<string, string> = {};
+function readDotEnv(envPath: string): Record<string, string> {
   try {
     const envFile = path.resolve(lldRoot, envPath);
     if (fs.existsSync(envFile)) {
-      const buf = fs.readFileSync(envFile);
-      const config = dotenv.parse(buf);
-      Object.entries(config).forEach(([key, value]) => {
-        define[`process.env.${key}`] = JSON.stringify(value);
-      });
+      return dotenv.parse(fs.readFileSync(envFile));
     }
   } catch {
     // Ignore errors
   }
+  return {};
+}
+
+/**
+ * Reads and parses a dotenv file, returning define entries
+ */
+export function buildDotEnvDefine(envPath: string): Record<string, string> {
+  const config = readDotEnv(envPath);
+  if (FIREBASE_OVERRIDE_FILE) {
+    for (const [key, value] of Object.entries(readDotEnv(FIREBASE_OVERRIDE_FILE))) {
+      if (key.startsWith("FIREBASE_")) config[key] = value;
+    }
+  }
+  const define: Record<string, string> = {};
+  Object.entries(config).forEach(([key, value]) => {
+    define[`process.env.${key}`] = JSON.stringify(value);
+  });
   return define;
+}
+
+/**
+ * Env vars the app reads through `@shared/env` (getEnv/useEnv) instead of as a literal
+ * `process.env.X` expression. DefinePlugin cannot reach those, so they travel as one object
+ * that src/renderer/env.ts merges into `process.env` at boot.
+ */
+const BUILD_ENV_NAMES = [
+  "CARD_BAANX_API_URL",
+  "CARD_BAANX_CLIENT_KEY",
+  "CARD_BAANX_HOSTED_UI",
+  "CARD_BAANX_US_APP_ID",
+  "CARD_BAANX_LOGIN_MANIFEST_ID",
+  "CARD_BAANX_HOSTED_MANIFEST_ID",
+  "CARD_OAUTH_REDIRECT_URI",
+];
+
+function buildEnvsDefine(): string {
+  const envs: Record<string, string> = {};
+  for (const name of BUILD_ENV_NAMES) {
+    const value = process.env[name];
+    if (value) envs[name] = value;
+  }
+  return JSON.stringify(envs);
 }
 
 /**
@@ -108,6 +147,7 @@ export function buildRendererEnv(mode: "development" | "production"): Record<str
     __DATADOG_ENV__: JSON.stringify(DATADOG_ENV || null),
     __PRERELEASE__: JSON.stringify(PRERELEASE),
     __CHANNEL__: JSON.stringify(CHANNEL),
+    __BUILD_ENVS__: buildEnvsDefine(),
     "process.env.NODE_ENV": JSON.stringify(mode),
   };
 }

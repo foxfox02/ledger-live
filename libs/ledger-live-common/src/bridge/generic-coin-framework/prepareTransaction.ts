@@ -1,15 +1,20 @@
-import { AccountBridge } from "@ledgerhq/types-live";
+import type { Account, AccountBridge } from "@ledgerhq/types-live";
 import { getCoinModuleApi } from "./api";
+import { buildContext } from "./api/context";
 import { getBridgeApi } from "./bridge";
 import {
   bigNumberToBigIntDeep,
   computeUseAllAmount,
+  feeParametersToJsonSafe,
   getNativeSpendableAfterPending,
   getPendingTokenSpent,
   toGasOptionsFromUnknown,
+  toTransferFeeFromUnknown,
   transactionToIntent,
 } from "./utils";
 import BigNumber from "bignumber.js";
+import { log } from "@ledgerhq/logs";
+import isEqual from "lodash/isEqual";
 import type { AssetInfo, FeeEstimation } from "@ledgerhq/coin-module-framework/api/types";
 import { decodeTokenAccountId } from "@ledgerhq/ledger-wallet-framework/account/index";
 import type { TokenCurrency } from "@domain/entity-currency-token";
@@ -29,13 +34,16 @@ function assetInfosFallback(transaction: GenericTransaction): {
   };
 }
 
+function isNumericLike(value: unknown): value is bigint | number | string {
+  return typeof value === "bigint" || typeof value === "number" || typeof value === "string";
+}
+
 function propagateField(estimation: FeeEstimation, field: string, dest: GenericTransaction): void {
   const value = estimation?.parameters?.[field];
 
   switch (field) {
     case "type":
-      if (typeof value !== "bigint" && typeof value !== "number" && typeof value !== "string")
-        return;
+      if (!isNumericLike(value)) return;
       dest[field] = Number(value.toString());
       return;
     case "gasPrice":
@@ -48,15 +56,13 @@ function propagateField(estimation: FeeEstimation, field: string, dest: GenericT
         dest[field] = null;
         return;
       }
-      if (typeof value !== "bigint" && typeof value !== "number" && typeof value !== "string")
-        return;
+      if (!isNumericLike(value)) return;
       dest[field] = new BigNumber(value.toString());
       return;
     case "storageLimit":
     case "gasLimit":
     case "additionalFees":
-      if (typeof value !== "bigint" && typeof value !== "number" && typeof value !== "string")
-        return;
+      if (!isNumericLike(value)) return;
       dest[field] = new BigNumber(value.toString());
       return;
     case "gasOptions": {
@@ -64,6 +70,19 @@ function propagateField(estimation: FeeEstimation, field: string, dest: GenericT
       if (gasOptions) dest.gasOptions = gasOptions;
       return;
     }
+    case "transferFee":
+      // Assigned even when absent: a stale fee would reach the device screen.
+      dest.transferFee = toTransferFeeFromUnknown(value);
+      return;
+    case "ownerTokenAccount":
+    case "recipientTokenAccount":
+    case "recipientWalletAddress":
+    case "userInputType":
+      dest[field] = typeof value === "string" ? value : undefined;
+      return;
+    case "stakeAccountRent":
+      dest.stakeAccountRent = isNumericLike(value) ? new BigNumber(value.toString()) : undefined;
+      return;
     default:
       return;
   }
@@ -75,11 +94,17 @@ export function genericPrepareTransaction(
 ): AccountBridge<GenericTransaction>["prepareTransaction"] {
   return async (account, transaction) => {
     const coinModuleApi = await getCoinModuleApi(account.currency.id, kind);
+    const context = buildContext(account.currency.id);
     const bridgeApi = await getBridgeApi(account.currency, network);
 
     const getAssetFromTokenForCurrency = bridgeApi.getAssetFromToken;
     const { assetReference, assetOwner } = getAssetFromTokenForCurrency
-      ? await getAssetInfos(transaction, account.freshAddress, getAssetFromTokenForCurrency)
+      ? await getAssetInfos(
+          transaction,
+          account.freshAddress,
+          getAssetFromTokenForCurrency,
+          account,
+        )
       : assetInfosFallback(transaction);
     const customParametersFees = transaction.customFees?.parameters?.fees;
 
@@ -112,7 +137,8 @@ export function genericPrepareTransaction(
         amount,
       },
       bridgeApi.computeIntentType,
-      coinModuleApi.craftTransactionData,
+      intent => coinModuleApi.craftTransactionData(context, intent),
+      bridgeApi.buildIntentData,
     );
     const customFeesParameters = bigNumberToBigIntDeep({
       feesStrategy: transaction.feesStrategy ?? undefined,
@@ -127,7 +153,7 @@ export function genericPrepareTransaction(
     const estimated =
       customParametersFees && !transaction.useAllAmount
         ? undefined
-        : await coinModuleApi.estimateFees(intent, customFeesParameters);
+        : await coinModuleApi.estimateFees(context, intent, { customFeesParameters });
     const estimation: FeeEstimation = customParametersFees
       ? { value: BigInt(customParametersFees.toFixed()), parameters: estimated?.parameters }
       : (estimated as FeeEstimation);
@@ -141,11 +167,19 @@ export function genericPrepareTransaction(
         : computeUseAllAmount(estimation, getNativeSpendableAfterPending(account));
     }
 
+    // Part of the identity check: the fee *value* can hold while the breakdown behind it moves (a
+    // different recipient can change what a chain charges without changing the total), and a restored
+    // transaction has persisted fees but no `feeParameters` — returning early leaves it stale or unset.
+    // Normalised to a JSON-safe record (bigint → string) because this bag rides on the live
+    // transaction the swap flow serialises with `JSON.stringify`, which throws on a raw bigint.
+    const nextFeeParameters = feeParametersToJsonSafe(estimation.parameters);
+
     if (
       bnEq(transaction.fees, fees) &&
       bnEq(transaction.amount, nextAmount) &&
       (transaction.assetReference ?? "") === assetReference &&
-      (transaction.assetOwner ?? "") === assetOwner
+      (transaction.assetOwner ?? "") === assetOwner &&
+      isEqual(transaction.feeParameters, nextFeeParameters)
     ) {
       return transaction;
     }
@@ -161,6 +195,12 @@ export function genericPrepareTransaction(
           fees: customParametersFees ? new BigNumber(customParametersFees.toString()) : undefined,
         },
       },
+      // Assigned wholesale, never merged: an estimation returning no parameters clears the previous
+      // figures rather than leaving them to be read as current for a new amount. A custom fee that
+      // skips estimation clears them for the same reason — the breakdown belongs to a fee this
+      // transaction no longer uses. A custom fee *with* send-max still estimates (the max amount
+      // needs it), and keeps the breakdown that estimation produced.
+      feeParameters: nextFeeParameters,
     };
 
     // Propagate needed fields
@@ -177,6 +217,12 @@ export function genericPrepareTransaction(
       // so the UI can render fee presets without ever fetching them itself.
       // Families that don't produce them leave this untouched.
       "gasOptions",
+      "transferFee",
+      "stakeAccountRent",
+      "ownerTokenAccount",
+      "recipientTokenAccount",
+      "recipientWalletAddress",
+      "userInputType",
     ];
 
     for (const field of fieldsToPropagate) {
@@ -187,20 +233,39 @@ export function genericPrepareTransaction(
   };
 }
 
+function findTokenOfSubAccount(
+  account: Account | undefined,
+  subAccountId: string,
+): TokenCurrency | undefined {
+  const subAccount = account?.subAccounts?.find(sub => sub.id === subAccountId);
+  return subAccount && "token" in subAccount ? subAccount.token : undefined;
+}
+
 export async function getAssetInfos(
   tr: GenericTransaction,
   owner: string,
-  getAssetFromToken: (token: TokenCurrency, owner: string) => AssetInfo,
+  getAssetFromToken: (token: TokenCurrency, owner: string) => AssetInfo | undefined,
+  account?: Account,
 ): Promise<{
   assetReference: string;
   assetOwner: string;
 }> {
   if (tr.subAccountId) {
-    const { token } = await decodeTokenAccountId(tr.subAccountId);
+    // Matched in memory first: an id minted by a legacy bridge ends with the token account address,
+    // which `decodeTokenAccountId` resolves neither by token id nor by contract address. Falling
+    // back to a native asset there would craft an SPL transfer as a SOL one.
+    const token =
+      findTokenOfSubAccount(account, tr.subAccountId) ??
+      (await decodeTokenAccountId(tr.subAccountId)).token;
 
-    if (!token) return assetInfosFallback(tr);
+    const asset = token && getAssetFromToken(token, owner);
 
-    const asset = getAssetFromToken(token, owner);
+    if (!asset) {
+      log("generic-coin-framework", "cannot resolve the token of sub-account", {
+        subAccountId: tr.subAccountId,
+      });
+      return assetInfosFallback(tr);
+    }
 
     return {
       assetOwner: ("assetOwner" in asset && asset.assetOwner) || "",

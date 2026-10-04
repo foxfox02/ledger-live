@@ -1,10 +1,17 @@
 import React, { useCallback, useEffect, useRef } from "react";
-import { Dialog, DialogBody, DialogContent, DialogHeader } from "@ledgerhq/lumen-ui-react";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+} from "@ledgerhq/lumen-ui-react";
 import type { DialogFlowOptions, DialogFlowProps } from "./types";
 
 export function DialogFlow<Step extends string>({
   currentStep,
   defaultOptions,
+  height,
   isOpen,
   onBack,
   onClose,
@@ -40,7 +47,7 @@ export function DialogFlow<Step extends string>({
   );
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
+    <Dialog height={height} open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent {...options.dialogContentProps}>
         <DialogHeader
           {...options.dialogHeaderProps}
@@ -48,6 +55,17 @@ export function DialogFlow<Step extends string>({
           onClose={handleClose}
         />
         <DialogBody {...options.dialogBodyProps}>{currentScreen.content}</DialogBody>
+        {options.dialogFooter ? (
+          <DialogFooter className={options.dialogFooterClassName ? "relative" : undefined}>
+            {options.dialogFooterClassName ? (
+              <div
+                aria-hidden="true"
+                className={`pointer-events-none absolute inset-x-0 -top-40 h-40 ${options.dialogFooterClassName}`}
+              />
+            ) : null}
+            {options.dialogFooter}
+          </DialogFooter>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

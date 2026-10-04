@@ -14,8 +14,8 @@ jest.mock("~/renderer/components/Select", () => ({
   },
 }));
 
-jest.mock("@ledgerhq/live-wallet/store", () => ({
-  ...jest.requireActual("@ledgerhq/live-wallet/store"),
+jest.mock("~/renderer/reducers/wallet", () => ({
+  ...jest.requireActual("~/renderer/reducers/wallet"),
   accountNameWithDefaultSelector: (_walletState: unknown, account: { id: string }) => account.id,
 }));
 
@@ -133,6 +133,26 @@ describe("RawSelectAccount", () => {
       "parent-celo",
       "usdt",
     ]);
+  });
+
+  it("only hands main accounts to filter, never token sub-accounts", () => {
+    const filter = jest.fn((_account: Account) => true);
+
+    render(
+      <RawSelectAccount
+        accounts={[parentAccount]}
+        withSubAccounts
+        filter={filter}
+        onChange={jest.fn()}
+        value={null}
+      />,
+    );
+
+    expect(parentAccount.subAccounts?.length).toBeGreaterThan(0);
+    expect(filter).toHaveBeenCalled();
+    for (const [account] of filter.mock.calls) {
+      expect(account.type).toBe("Account");
+    }
   });
 
   it("does not apply subAccountFilter when withSubAccounts is false", () => {

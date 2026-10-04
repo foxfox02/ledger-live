@@ -1,0 +1,23 @@
+import type { ReactNode } from "react";
+import type { CardTransactionFormatters, CardTransactionItem } from "../types";
+import type { CardTransactionHistoryUiState } from "./cardTransactionHistoryUiState";
+
+export type CardTransactionHistoryProps = Readonly<{
+  asset?: string;
+  formatters?: CardTransactionFormatters;
+  formatDay?: (date: Date) => string;
+  onGoToPay?: () => void;
+  cardVisual?: ReactNode;
+}>;
+
+export type CardTransactionHistoryViewProps = Readonly<{
+  displayState: CardTransactionHistoryUiState;
+  formatters?: CardTransactionFormatters;
+  formatDay?: (date: Date) => string;
+  onRowClick: (item: CardTransactionItem) => void;
+  onGoToPay?: () => void;
+  cardVisual?: ReactNode;
+  /** Absent once the provider has no page left to read, and once a read has failed. */
+  onLoadMore?: () => void;
+  isLoadingMore: boolean;
+}>;

@@ -17,9 +17,8 @@ import { getCryptoCurrencyById } from "@domain/entity-currency-crypto";
 import { DeviceLabels } from "./enum/DeviceLabels";
 import { Account } from "./enum/Account";
 import { Currency } from "./enum/Currency";
-import expect from "expect";
 import { sendBTC, sendBTCBasedCoin } from "./families/bitcoin";
-import { sendEVM, approveToken, signTypedMessage } from "./families/evm";
+import { sendEVM } from "./families/evm";
 import { sendPolkadot } from "./families/polkadot";
 import { sendAlgorand } from "./families/algorand";
 import { sendTron } from "./families/tron";
@@ -38,7 +37,7 @@ import { delegateMultiversX } from "./families/multiversX";
 import { Transaction } from "./models/Transaction";
 import { Delegate } from "./models/Delegate";
 import { Swap } from "./models/Swap";
-import { delegateOsmosis } from "./families/osmosis";
+import { delegateOsmosis, sendOsmosis } from "./families/osmosis";
 import { AppInfos } from "./enum/AppInfos";
 import { DEVICE_LABELS_CONFIG } from "./data/deviceLabelsData";
 import { sendSui, delegateSui } from "./families/sui";
@@ -49,6 +48,7 @@ import {
   getSpeculosModel,
   isTouchDevice,
 } from "./speculosAppVersion";
+import { CONTACTS_ETHEREUM_APP_VERSION, CONTACTS_OS_VERSION_BY_MODEL } from "./contacts";
 import {
   pressAndRelease,
   longPressAndRelease,
@@ -61,13 +61,14 @@ import { sendVechain } from "./families/vechain";
 import { getDeviceCoordinates } from "./deviceCoordinates";
 import { sendInternetComputer } from "./families/internet_computer";
 import { sleep } from "./index";
-import { delegateMina } from "./families/mina";
+import { delegateMina, sendMina } from "./families/mina";
+import { sendAleo } from "./families/aleo";
 
 const isSpeculosRemote = process.env.REMOTE_SPECULOS === "true";
 const SCREEN_POLL_INTERVAL_MS = 500;
 const SWAP_REVIEW_TRANSACTION_TIMEOUT_MS = 120_000;
 // Derived from timeout + interval so the budget can't silently drift if either changes.
-const SWAP_REVIEW_TRANSACTION_MAX_ATTEMPTS = Math.ceil(
+export const SWAP_REVIEW_TRANSACTION_MAX_ATTEMPTS = Math.ceil(
   SWAP_REVIEW_TRANSACTION_TIMEOUT_MS / SCREEN_POLL_INTERVAL_MS,
 );
 
@@ -81,6 +82,8 @@ export type Spec = {
     model: DeviceModelId;
     appName: string;
     appVersion?: string;
+    /** Pins the OS the app binary is looked up under, instead of the catalog's latest. */
+    firmware?: string;
   };
   dependencies?: Dependency[];
   onSpeculosDeviceCreated?: (device: Device) => Promise<void>;
@@ -159,6 +162,16 @@ export const specs: Specs = {
     appQuery: {
       model: getSpeculosModel(),
       appName: "Ethereum",
+    },
+    dependencies: [],
+  },
+  // No currency, so resolution uses the pinned binary instead of the catalog Ethereum app.
+  Ethereum_Contacts: {
+    appQuery: {
+      model: getSpeculosModel(),
+      appName: "Ethereum",
+      appVersion: CONTACTS_ETHEREUM_APP_VERSION,
+      firmware: CONTACTS_OS_VERSION_BY_MODEL[getSpeculosModel()],
     },
     dependencies: [],
   },
@@ -322,6 +335,14 @@ export const specs: Specs = {
     },
     dependencies: [],
   },
+  Babylon: {
+    currency: getCryptoCurrencyById("babylon"),
+    appQuery: {
+      model: getSpeculosModel(),
+      appName: "Cosmos",
+    },
+    dependencies: [],
+  },
   Celo: {
     currency: getCryptoCurrencyById("celo"),
     appQuery: {
@@ -474,7 +495,7 @@ export async function startSpeculos(
 
   const { appQuery, onSpeculosDeviceCreated } = spec;
   const { model } = appQuery;
-  const firmware = await getDeviceFirmwareVersion(model);
+  const firmware = appQuery.firmware ?? (await getDeviceFirmwareVersion(model));
 
   const catalogVersions = await getNanoAppCatalogVersionMap(getEnv("E2E_NANO_APP_VERSION_PATH"));
 
@@ -508,6 +529,8 @@ export async function startSpeculos(
     seed: SEED,
     coinapps: COINAPPS ?? "",
     dependencies,
+    // e2e suites need the Speculos production PKI flag (`-p`).
+    pki: true,
     onSpeculosDeviceCreated,
   };
 
@@ -565,9 +588,34 @@ export function drainSpeculosScreenshots(port: number): Buffer[] {
   return screenshots;
 }
 
-export async function waitFor(text: string, maxAttempts = 60): Promise<string> {
+function isTransactionCheckPrompt(screenTexts: string): boolean {
+  const texts = screenTexts.toLowerCase();
+  return (
+    texts.includes(DeviceLabels.ENABLE_TRANSACTION_CHECK.toLowerCase()) &&
+    texts.includes(DeviceLabels.YES_ENABLE.toLowerCase())
+  );
+}
+
+async function acceptTransactionCheckPrompt(screenTexts: string): Promise<boolean> {
+  if (!isTouchDevice() || !isTransactionCheckPrompt(screenTexts)) return false;
+
+  try {
+    await pressAndRelease(DeviceLabels.YES_ENABLE);
+    return true;
+  } catch (err) {
+    console.warn(`[waitFor] failed to accept the Transaction Check prompt: ${sanitizeError(err)}`);
+    return false;
+  }
+}
+
+export async function waitFor(
+  text: string,
+  maxAttempts = 60,
+  { matchFullEvents = false }: { matchFullEvents?: boolean } = {},
+): Promise<string> {
   const port = getEnv("SPECULOS_API_PORT");
   let texts = "";
+  let transactionCheckAccepted = false;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     texts = await fetchCurrentScreenTexts(port);
 
@@ -575,7 +623,26 @@ export async function waitFor(text: string, maxAttempts = 60): Promise<string> {
       return texts;
     }
 
+    if (!transactionCheckAccepted) {
+      transactionCheckAccepted = await acceptTransactionCheckPrompt(texts);
+    }
+
     await sleep(SCREEN_POLL_INTERVAL_MS);
+  }
+
+  if (matchFullEvents) {
+    try {
+      const allEvents = (await fetchAllEvents(port)).join(" ");
+      const shot = await takeScreenshot(port);
+      const shotSummary = shot ? `${shot.length} bytes` : "unreachable";
+      console.warn(
+        `[waitFor] "${text}" not matched after ${maxAttempts} polls on port ${port}. ` +
+          `currentscreenonly=true => "${texts}" | currentscreenonly=false => "${allEvents}" | ` +
+          `screenshot(${port}) => ${shotSummary}`,
+      );
+    } catch (err) {
+      console.warn(`[waitFor] failed to dump diagnostics on port ${port}: ${sanitizeError(err)}`);
+    }
   }
 
   throw new Error(
@@ -583,30 +650,49 @@ export async function waitFor(text: string, maxAttempts = 60): Promise<string> {
   );
 }
 
-export async function waitForReviewTransaction(maxAttempts = 60): Promise<void> {
-  if (!isTouchDevice()) {
-    await waitFor(DeviceLabels.REVIEW_TRANSACTION, maxAttempts);
-    return;
-  }
+/**
+ * Text of an app's idle screen. Button devices read "<app> app is ready"; touch devices show the
+ * app name over "This app enables signing transactions on the <app> network".
+ */
+function appReadyLabel(appName: string): string {
+  return isTouchDevice()
+    ? `This app enables signing transactions on the ${appName} network`
+    : `${appName} app is ready`;
+}
 
-  const port = getEnv("SPECULOS_API_PORT");
-  let texts = "";
-  let enabled = false;
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    texts = await fetchCurrentScreenTexts(port);
-    if (texts.includes(DeviceLabels.REVIEW_TRANSACTION)) {
-      return;
-    }
-    if (!enabled && texts.includes(DeviceLabels.YES_ENABLE)) {
-      await pressAndRelease(DeviceLabels.YES_ENABLE);
-      enabled = true; // press once, then keep polling for review within the same budget
-    }
-    await sleep(SCREEN_POLL_INTERVAL_MS);
-  }
+/**
+ * Waits for the device to return to its app-ready screen after a status page
+ * that answers a command and then draws its own screen -- during that
+ * window, the app's own APDU loop can drop an incoming command instead of
+ * queuing it (LIVE-37178). The default maxAttempts (9 x the 500ms poll
+ * interval = 4.5s) is an upper bound on that screen's own duration, not a
+ * guess about CI load.
+ */
+export async function waitForAppReady(speculosApp: AppInfos, maxAttempts = 9): Promise<string> {
+  return waitFor(appReadyLabel(speculosApp.name), maxAttempts);
+}
 
-  throw new Error(
-    `Text "${DeviceLabels.REVIEW_TRANSACTION}" not found on device screen after ${maxAttempts} attempts. Last screen text: "${texts}"`,
-  );
+const SWAP_INIT_STALL_HINT =
+  `\nHint: The device Exchange app is ready but Ledger Live never ` +
+  `delivered the swap payload, so "Review transaction" was never reached.\nSee the ` +
+  `"⚠️ Swap-init error" attachment.`;
+
+function isExchangeAppReadyStall(screenText: string): boolean {
+  return screenText.toLowerCase().includes(DeviceLabels.EXCHANGE_APP_IS_READY.toLowerCase());
+}
+
+export async function waitForReviewTransaction(
+  maxAttempts = 60,
+  { matchFullEvents = false }: { matchFullEvents?: boolean } = {},
+): Promise<void> {
+  try {
+    await waitFor(DeviceLabels.REVIEW_TRANSACTION, maxAttempts, { matchFullEvents });
+  } catch (error) {
+    if (error instanceof Error && isExchangeAppReadyStall(error.message)) {
+      error.message += SWAP_INIT_STALL_HINT;
+    }
+    throw error;
+  }
 }
 
 export async function fetchCurrentScreenTexts(speculosApiPort: number): Promise<string> {
@@ -638,6 +724,29 @@ export async function getDeviceLabelCoordinates(
   return { x: event.x, y: event.y };
 }
 
+async function pressFirstLabelFoundOnScreen(labels: string[]): Promise<string> {
+  const speculosApiPort = getEnv("SPECULOS_API_PORT");
+  const speculosAddress = getSpeculosAddress();
+  const response = await retryAxiosRequest(() =>
+    axios.get<ResponseData>(
+      `${speculosAddress}:${speculosApiPort}/events?stream=false&currentscreenonly=true`,
+    ),
+  );
+
+  for (const label of labels) {
+    const action = response.data.events.find(e =>
+      e.text.toLowerCase().startsWith(label.toLowerCase()),
+    );
+    if (action) {
+      await pressAndRelease(action.text, action.x, action.y);
+      return action.text;
+    }
+  }
+
+  const shown = response.data.events.map(e => e.text).join(" | ");
+  throw new Error(`No action among [${labels.join(", ")}] on screen. It showed: ${shown}`);
+}
+
 export async function fetchAllEvents(speculosApiPort: number): Promise<string[]> {
   const speculosAddress = getSpeculosAddress();
   const response = await retryAxiosRequest(() =>
@@ -651,7 +760,7 @@ export async function fetchAllEvents(speculosApiPort: number): Promise<string[]>
 export const pressUntilTextFound = withDeviceController(
   ({ getButtonsController }) =>
     async (targetText: string, strictMatch: boolean = false): Promise<string[]> => {
-      const maxAttempts = 18;
+      const maxAttempts = 30;
       const speculosApiPort = getEnv("SPECULOS_API_PORT");
       const buttons = getButtonsController();
       const seenScreens = new Set<string>();
@@ -703,12 +812,46 @@ export function containsSubstringInEvent(targetString: string, events: string[])
   return result;
 }
 
+function formatSpeculosEventsFailure(message: string, substring: string, events: string[]): string {
+  let formattedEvents = events.join("\n  ");
+  const maxLength = 1000;
+  if (formattedEvents.length > maxLength) {
+    formattedEvents = `${formattedEvents.slice(0, maxLength)}...\n  (truncated, ${events.length} total events)`;
+  }
+  return `${message}. Expected events to contain "${substring}". Events:\n\n  ${formattedEvents}`;
+}
+
+export function expectSpeculosEventsContain(
+  substring: string,
+  events: string[],
+  message = "Speculos events validation failed",
+) {
+  if (containsSubstringInEvent(substring, events) !== true) {
+    throw new Error(formatSpeculosEventsFailure(message, substring, events));
+  }
+}
+
+/**
+ * Strict counterpart to {@link expectSpeculosEventsContain}: matches literally across the
+ * concatenated screens, without the character-interleaving fallback. Use for short needles
+ * such as a token ticker, where that fallback ("W.*?G.*?N.*?K") matches almost any screen.
+ */
+export function expectSpeculosEventsContainExactly(
+  substring: string,
+  events: string[],
+  message = "Speculos events validation failed",
+) {
+  if (!events.join("").includes(substring)) {
+    throw new Error(formatSpeculosEventsFailure(message, substring, events));
+  }
+}
+
 /** Asserts memo/tag appears on Speculos screens when the tx includes one. */
 export function expectMemoTagInEvents(tx: Transaction, events: string[]) {
   if (!tx.memoTag || tx.memoTag === "noTag") {
     return;
   }
-  expect(containsSubstringInEvent(tx.memoTag, events)).toBeTruthy();
+  expectSpeculosEventsContain(tx.memoTag, events);
 }
 
 export async function takeScreenshot(port?: number): Promise<Buffer | undefined> {
@@ -787,6 +930,36 @@ export const activateLedgerSync = withDeviceController(({ getButtonsController }
   }
 });
 
+async function waitUntilScreenLeavesIdle(maxAttempts = 60): Promise<void> {
+  const port = getEnv("SPECULOS_API_PORT");
+
+  const poll = async (attempt: number): Promise<void> => {
+    const texts = await fetchCurrentScreenTexts(port);
+    if (!texts.toLowerCase().includes("is ready")) return;
+    if (attempt + 1 >= maxAttempts) {
+      throw new Error(
+        `Device stayed on "${texts}" after ${maxAttempts} attempts. The contact review never started.`,
+      );
+    }
+    await sleep(SCREEN_POLL_INTERVAL_MS);
+    await poll(attempt + 1);
+  };
+
+  await poll(0);
+}
+
+export const confirmContactAction = withDeviceController(({ getButtonsController }) => async () => {
+  const buttons = getButtonsController();
+  await waitUntilScreenLeavesIdle();
+  await pressUntilTextFound(DeviceLabels.CONFIRM);
+
+  if (isTouchDevice()) {
+    await pressAndRelease(DeviceLabels.CONFIRM);
+  } else {
+    await buttons.both();
+  }
+});
+
 export const activateExpertMode = withDeviceController(({ getButtonsController }) => async () => {
   const buttons = getButtonsController();
 
@@ -811,6 +984,54 @@ export const activateContractData = withDeviceController(({ getButtonsController
   await buttons.both();
   await waitFor(DeviceLabels.CONTRACT_DATA);
   await buttons.both();
+});
+
+/** Every app's idle screen reads "<app> is ready", so this matches without naming the app. */
+const IDLE_SCREEN_LABEL = "is ready";
+
+/**
+ * Turns on the Ethereum app's "Blind signing" setting, without which the app answers `6a80` to
+ * calldata it cannot describe. Reads the toggle before pressing it, and ends back on the idle
+ * screen where a review can arrive.
+ *
+ * Menu verified against Ethereum 1.22.3 on nanos+ 1.6.1.
+ */
+export const enableBlindSigning = withDeviceController(({ getButtonsController }) => async () => {
+  const speculosApiPort = getEnv("SPECULOS_API_PORT");
+  const isEnabled = async () => /Enabled/.test(await fetchCurrentScreenTexts(speculosApiPort));
+
+  if (isTouchDevice()) {
+    await goToSettings();
+    await waitFor(DeviceLabels.BLIND_SIGNING);
+
+    if (!(await isEnabled())) {
+      const toggle = getDeviceCoordinates("settingsToggle1");
+      await pressAndRelease(DeviceLabels.SETTINGS_TOGGLE_1, toggle.x, toggle.y);
+    }
+
+    const back = getDeviceCoordinates("arrowBack");
+    await pressAndRelease(DeviceLabels.BACK, back.x, back.y);
+    await waitFor(IDLE_SCREEN_LABEL);
+    return;
+  }
+
+  const buttons = getButtonsController();
+
+  await pressUntilTextFound(DeviceLabels.APP_SETTINGS);
+  await buttons.both();
+  await waitFor(DeviceLabels.BLIND_SIGNING);
+
+  if (!(await isEnabled())) {
+    await buttons.both();
+  }
+
+  await pressUntilTextFound(DeviceLabels.BACK);
+  await buttons.both();
+  // "Back" lands on the App settings entry of the top-level menu, one step short of idle.
+  await buttons.left();
+  // Parked in the menu the app stops answering sign APDUs, which surfaces much later as an
+  // opaque transport error, so a navigation that drifted is reported here instead.
+  await waitFor(IDLE_SCREEN_LABEL);
 });
 
 export const goToSettings = withDeviceController(({ getButtonsController }) => async () => {
@@ -887,13 +1108,11 @@ export const expectValidAddressDevice = withDeviceController(
 
       if (isTouchDevice()) {
         const events = await pressUntilTextFound(receiveConfirmLabel);
-        const isAddressCorrect = containsSubstringInEvent(addressDisplayed, events);
-        expect(isAddressCorrect).toBeTruthy();
+        expectSpeculosEventsContain(addressDisplayed, events);
         await pressAndRelease(DeviceLabels.CONFIRM);
       } else {
         const events = await pressUntilTextFound(receiveConfirmLabel);
-        const isAddressCorrect = containsSubstringInEvent(addressDisplayed, events);
-        expect(isAddressCorrect).toBeTruthy();
+        expectSpeculosEventsContain(addressDisplayed, events);
         await buttons.both();
       }
     },
@@ -907,6 +1126,7 @@ export async function signSendTransaction(tx: Transaction) {
     case Currency.POL.id:
     case Currency.ETH.id:
     case Currency.ETH_USDT.id:
+    case Currency.ETH_WGNK.id:
     case Currency.SEI_EVM.id:
     case Currency.BASE_AERODROME.id:
       await sendEVM(tx);
@@ -936,8 +1156,10 @@ export async function signSendTransaction(tx: Transaction) {
       await sendStellar(tx);
       break;
     case Currency.ATOM.id:
-    case Currency.OSMO.id:
       await sendCosmos(tx);
+      break;
+    case Currency.OSMO.id:
+      await sendOsmosis(tx);
       break;
     case Currency.ADA.id:
       await sendCardano(tx);
@@ -967,19 +1189,31 @@ export async function signSendTransaction(tx: Transaction) {
     case Currency.CCD_TESTNET.id:
       await sendConcordium(tx);
       break;
+    case Currency.ALEO.id:
+      await sendAleo(tx);
+      break;
+    case Currency.MINA.id:
+      await sendMina(tx);
+      break;
     default:
       throw new Error(`Unsupported currency: ${tx.accountToDebit.currency.ticker}`);
   }
+}
+
+export async function waitForSendReviewTransaction(
+  tx: Transaction,
+  maxAttempts: number = SEND_REVIEW_TRANSACTION_MAX_ATTEMPTS,
+): Promise<string> {
+  const { sendVerifyLabel } = getDeviceLabels(tx.accountToDebit.currency.speculosApp);
+  return await waitFor(sendVerifyLabel, maxAttempts);
 }
 
 export async function getSendEvents(
   tx: Transaction,
   verifyMaxAttempts: number = SEND_REVIEW_TRANSACTION_MAX_ATTEMPTS,
 ): Promise<string[]> {
-  const { sendVerifyLabel, sendConfirmLabel } = getDeviceLabels(
-    tx.accountToDebit.currency.speculosApp,
-  );
-  await waitFor(sendVerifyLabel, verifyMaxAttempts);
+  const { sendConfirmLabel } = getDeviceLabels(tx.accountToDebit.currency.speculosApp);
+  await waitForSendReviewTransaction(tx, verifyMaxAttempts);
   return await pressUntilTextFound(sendConfirmLabel);
 }
 
@@ -997,6 +1231,7 @@ export async function signDelegationTransaction(delegatingAccount: Delegate) {
       await delegateCosmos(delegatingAccount);
       break;
     case Account.OSMO_1.currency.name:
+    case Account.BABY_1.currency.name:
       await delegateOsmosis(delegatingAccount);
       break;
     case Account.MULTIVERS_X_1.currency.name:
@@ -1106,25 +1341,16 @@ function verifySwapData(swap: Swap, events: string[], amount: string) {
 
   if (getSpeculosModel() !== DeviceModelId.nanoS) {
     if (swap.provider && swap.provider.app && swap.provider.app !== AppInfos.EXCHANGE) {
-      expectDeviceScreenContains(
+      expectSpeculosEventsContain(
         swap.provider.uiName,
         events,
         "Provider not found on the device screen",
       );
     } else {
-      expectDeviceScreenContains(swapPair, events, "Swap pair not found on the device screen");
+      expectSpeculosEventsContain(swapPair, events, "Swap pair not found on the device screen");
     }
   }
-  expectDeviceScreenContains(amount, events, `Amount ${amount} not found on the device screen`);
-}
-
-function expectDeviceScreenContains(substring: string, events: string[], message: string) {
-  const found = containsSubstringInEvent(substring, events);
-  if (!found) {
-    throw new Error(
-      `${message}. Expected events to contain "${substring}". Got: ${JSON.stringify(events)}`,
-    );
-  }
+  expectSpeculosEventsContain(amount, events, `Amount ${amount} not found on the device screen`);
 }
 
 export const exportUfvk = withDeviceController(
@@ -1153,41 +1379,73 @@ export const shareViewKey = withDeviceController(({ getButtonsController }) => a
   }
 });
 
+const OPT_IN_SCREEN_MAX_ATTEMPTS = Math.ceil(30_000 / SCREEN_POLL_INTERVAL_MS);
+
+/**
+ * Whether `label` is the screen the device settled on, giving up as soon as one of
+ * `labelsShownLater` proves it was never coming.
+ */
+async function waitForOptInScreen(
+  label: DeviceLabels,
+  labelsShownLater: DeviceLabels[],
+): Promise<boolean> {
+  const port = getEnv("SPECULOS_API_PORT");
+  const wanted = label.toLowerCase();
+  const tooLate = labelsShownLater.map(shown => shown.toLowerCase());
+
+  for (let attempt = 0; attempt < OPT_IN_SCREEN_MAX_ATTEMPTS; attempt++) {
+    const texts = (await fetchCurrentScreenTexts(port)).toLowerCase();
+    if (texts.includes(wanted)) return true;
+    if (tooLate.some(shown => texts.includes(shown))) return false;
+    await sleep(SCREEN_POLL_INTERVAL_MS);
+  }
+  return false;
+}
+
 export const acceptEnableTransactionCheck = withDeviceController(
   ({ getButtonsController }) =>
     async () => {
-      const buttons = getButtonsController();
-
-      // Wait for loading to finish: poll until either the Transaction Check prompt
-      // or the next (review transaction) screen is displayed. If the prompt never
-      // shows up, skip this step instead of waiting for it to appear.
-      const port = getEnv("SPECULOS_API_PORT");
-      const enableLabel = DeviceLabels.ENABLE_TRANSACTION_CHECK.toLowerCase();
-      const reviewLabel = DeviceLabels.REVIEW_TRANSACTION.toLowerCase();
-      let isTransactionCheckDisplayed = false;
-      for (let attempt = 0; attempt < 60; attempt++) {
-        const texts = (await fetchCurrentScreenTexts(port)).toLowerCase();
-        if (texts.includes(enableLabel)) {
-          isTransactionCheckDisplayed = true;
-          break;
-        }
-        if (texts.includes(reviewLabel)) {
-          break;
-        }
-        await sleep(500);
-      }
-
-      if (!isTransactionCheckDisplayed) {
-        return;
-      }
+      const displayed = await waitForOptInScreen(DeviceLabels.ENABLE_TRANSACTION_CHECK, [
+        DeviceLabels.REVIEW_TRANSACTION,
+        DeviceLabels.BLIND_SIGNING_AHEAD,
+      ]);
+      if (!displayed) return;
 
       if (isTouchDevice()) {
         await pressAndRelease(DeviceLabels.YES_ENABLE);
-      } else {
-        await pressUntilTextFound(DeviceLabels.CONFIRM);
-        await buttons.both();
+        return;
       }
+      await pressUntilTextFound(DeviceLabels.CONFIRM);
+      await getButtonsController().both();
     },
 );
 
-export { approveToken, signTypedMessage };
+const BLIND_SIGNING_WARNING_ACTIONS = [
+  DeviceLabels.ACCEPT_RISK,
+  DeviceLabels.CONTINUE_ANYWAY,
+  DeviceLabels.CONFIRM,
+];
+
+/**
+ * Clears the "Blind signing ahead" warning, which the app raises only once blind signing is
+ * enabled — the second half of [[enableBlindSigning]].
+ *
+ * No-ops when the warning is not the current screen.
+ */
+export const acceptBlindSigningWarning = withDeviceController(
+  ({ getButtonsController }) =>
+    async () => {
+      const displayed = await waitForOptInScreen(DeviceLabels.BLIND_SIGNING_AHEAD, [
+        DeviceLabels.REVIEW_TRANSACTION,
+      ]);
+      if (!displayed) return;
+
+      if (isTouchDevice()) {
+        await pressFirstLabelFoundOnScreen(BLIND_SIGNING_WARNING_ACTIONS);
+        return;
+      }
+      await getButtonsController().both();
+    },
+);
+
+export { approveToken, approveContractTransaction, signTypedMessage } from "./families/evm";

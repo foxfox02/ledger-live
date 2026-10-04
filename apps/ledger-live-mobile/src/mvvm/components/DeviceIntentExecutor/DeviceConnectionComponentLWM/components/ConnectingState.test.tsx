@@ -1,20 +1,12 @@
+import { TrackScreen } from "@shared/analytics-react";
 import React from "react";
 import { render, screen } from "@tests/test-renderer";
 import { ConnectDeviceUIStateTypes } from "@ledgerhq/live-dmk-mobile";
 import { DeviceModelId } from "@ledgerhq/types-devices";
 import type { KnownDevice } from "@ledgerhq/live-dmk-shared";
-import { TrackScreen } from "~/analytics";
 import { DeviceIntentTrackingProvider } from "../../utils/DeviceIntentTrackingContext";
 import { PAGE_CONNECT_DEVICE } from "../../utils/trackDeviceIntent";
 import { ConnectingState } from "./ConnectingState";
-
-jest.mock("~/analytics", () => {
-  const actual = jest.requireActual("~/analytics");
-  return {
-    ...actual,
-    TrackScreen: jest.fn(() => null),
-  };
-});
 
 const mockedTrackScreen = jest.mocked(TrackScreen);
 
@@ -42,7 +34,7 @@ describe("ConnectingState", () => {
       </DeviceIntentTrackingProvider>,
     );
 
-    expect(screen.getByText("Loading")).toBeVisible();
+    expect(screen.getByText("Connecting to your Ledger device")).toBeVisible();
   });
 
   it("GIVEN a device is connecting WHEN rendering THEN it tracks the Device UX V2 page event", () => {

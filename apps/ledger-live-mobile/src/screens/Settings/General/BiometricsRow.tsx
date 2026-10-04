@@ -1,3 +1,4 @@
+import { track } from "@shared/analytics";
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert } from "react-native";
 import { useSelector, useDispatch } from "~/context/hooks";
@@ -8,7 +9,6 @@ import { privacySelector } from "~/reducers/settings";
 import SettingsRow from "~/components/SettingsRow";
 import { useBiometricAuth } from "~/components/RequestBiometricAuth";
 import { ScreenName } from "~/const";
-import { track } from "~/analytics";
 import { isLockedSelector } from "~/reducers/auth";
 
 type Props = {
@@ -35,14 +35,14 @@ export default function BiometricsRow({ iconLeft }: Props) {
       track("toggle_clicked", {
         toggle: "biometrics",
         page: ScreenName.GeneralSettings,
-        enabled: biometricsEnabled,
+        enabled: !!privacy?.biometricsEnabled,
       });
 
       if (validationPending) return;
       setValidationPending(true);
       setBiometricsEnabled(biometricsEnabled);
     },
-    [validationPending],
+    [privacy?.biometricsEnabled, validationPending],
   );
 
   const onSuccess = useCallback(() => {

@@ -1,12 +1,17 @@
+import { TrackScreen } from "@shared/analytics-react";
+import {
+  createStakeAccountTransaction,
+  delegateTransaction,
+  undelegateTransaction,
+  withdrawTransaction,
+} from "@ledgerhq/live-common/families/solana/transactions";
 import { getAccountCurrency } from "@ledgerhq/live-common/account/index";
+import { requireStakePositionId } from "@ledgerhq/live-common/families/solana/logic";
 import { useAccountBridge } from "@ledgerhq/live-common/bridge/useAccountBridge";
 import useBridgeTransaction from "@ledgerhq/live-common/bridge/useBridgeTransaction";
 import { formatCurrencyUnit, getCurrencyColor } from "@ledgerhq/live-common/currencies/index";
 import { useValidators } from "@ledgerhq/live-common/families/solana/react";
-import {
-  Transaction as SolanaTransaction,
-  TransactionModel,
-} from "@ledgerhq/live-common/families/solana/types";
+import { Transaction as SolanaTransaction } from "@ledgerhq/live-common/families/solana/types";
 import {
   assertUnreachable,
   ValidatorsAppValidator,
@@ -21,7 +26,6 @@ import React, { ReactNode, useCallback, useEffect, useMemo } from "react";
 import { Trans } from "~/context/Locale";
 import { Animated, StyleSheet, View, TextStyle, StyleProp } from "react-native";
 import SafeAreaView from "~/components/SafeAreaView";
-import { TrackScreen } from "~/analytics";
 import { rgba } from "../../../colors";
 import Button from "~/components/Button";
 import Circle from "~/components/Circle";
@@ -65,11 +69,11 @@ export default function DelegationSummary({ navigation, route }: Props) {
 
     const { stake } = delegationAction.stakeWithMeta;
 
-    if (stake.delegation === undefined) {
+    if (!stake.validatorAddress) {
       return undefined;
     }
 
-    return validators.find(v => v.voteAccount === stake.delegation?.voteAccAddr);
+    return validators.find(v => v.voteAccount === stake.validatorAddress);
   }, [validators, validator, delegationAction]);
 
   const { transaction, setTransaction, status, bridgePending, bridgeError } = useBridgeTransaction(
@@ -77,16 +81,23 @@ export default function DelegationSummary({ navigation, route }: Props) {
     () => ({
       account,
       parentAccount,
-      transaction: tx({
-        delegationAction,
-        defaultValidator: validators[0],
-        amount: route.params.amount,
-        chosenValidator,
-      }),
+      transaction:
+        validators.length > 0
+          ? tx({
+              delegationAction,
+              defaultValidator: validators[0],
+              amount: route.params.amount,
+              chosenValidator,
+            })
+          : route.params.transaction,
     }),
   );
 
   useEffect(() => {
+    if (validators.length === 0) {
+      return;
+    }
+
     setTransaction(
       tx({
         delegationAction,
@@ -136,8 +147,8 @@ export default function DelegationSummary({ navigation, route }: Props) {
   const hasErrors = Object.keys(status.errors).length > 0;
   const error = Object.values(status.errors)[0];
   const feeError = status.errors.fee;
-  const isUndelagating = transaction.model.kind === "stake.undelegate";
-  const hasErrorWhileDesactivating = isUndelagating && feeError?.name === "NotEnoughBalance";
+  const isUndelegating = transaction.mode === "undelegate";
+  const hasErrorWhileDesactivating = isUndelegating && feeError?.name === "NotEnoughBalance";
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.background }]}>
@@ -249,21 +260,20 @@ function tx({
     amount: new BigNumber(
       delegationAction.kind === "new" ? (amount ?? 0) : txAmount(delegationAction),
     ),
-    recipient: "",
-    model: txModelByDelegationAction(delegationAction, defaultValidator, chosenValidator),
+    ...txByDelegationAction(delegationAction, defaultValidator, chosenValidator),
   };
 }
 
-function txAmount(delegationAction: DelegationAction & { kind: "change" }) {
+function txAmount(delegationAction: DelegationAction & { kind: "change" }): BigNumber {
   const { stake } = delegationAction.stakeWithMeta;
   switch (delegationAction.stakeAction) {
     case "activate":
-      return stake.withdrawable - stake.rentExemptReserve;
+      return (stake.withdrawableAmount ?? new BigNumber(0)).minus(stake.lockedReserve ?? 0);
     case "deactivate":
     case "reactivate":
-      return stake.delegation?.stake ?? 0;
+      return stake.amount;
     case "withdraw":
-      return stake.withdrawable;
+      return stake.withdrawableAmount ?? new BigNumber(0);
     default:
       return assertUnreachable(delegationAction.stakeAction);
   }
@@ -350,20 +360,13 @@ const styles = StyleSheet.create({
 });
 
 // eslint-disable-next-line consistent-return
-function txModelByDelegationAction(
+function txByDelegationAction(
   delegationAction: DelegationAction,
   defaultValidator: ValidatorsAppValidator,
   chosenValidator?: ValidatorsAppValidator,
-): TransactionModel {
+) {
   if (delegationAction.kind === "new") {
-    return {
-      kind: "stake.createAccount",
-      uiState: {
-        delegate: {
-          voteAccAddress: (chosenValidator ?? defaultValidator).voteAccount,
-        },
-      },
-    };
+    return createStakeAccountTransaction((chosenValidator ?? defaultValidator).voteAccount);
   }
 
   const {
@@ -371,34 +374,21 @@ function txModelByDelegationAction(
     stakeWithMeta: { stake },
   } = delegationAction;
 
-  invariant(stake.delegation, "stake delegation must be defined");
-
-  const { stakeAccAddr, delegation } = stake;
+  const stakeAccAddr = requireStakePositionId(stake);
 
   switch (stakeAction) {
     case "activate":
-    case "reactivate":
-      return {
-        kind: "stake.delegate",
-        uiState: {
-          stakeAccAddr,
-          voteAccAddr: chosenValidator?.voteAccount ?? delegation?.voteAccAddr ?? "-",
-        },
-      };
+    case "reactivate": {
+      // Only delegating needs a validator. A stake account that was created but never delegated
+      // has no `validatorAddress`, and withdrawing or undelegating it must still work.
+      const voteAccAddr = chosenValidator?.voteAccount || stake.validatorAddress;
+      invariant(voteAccAddr, "solana: a validator is required to delegate a stake position");
+      return delegateTransaction(stakeAccAddr, voteAccAddr);
+    }
     case "deactivate":
-      return {
-        kind: "stake.undelegate",
-        uiState: {
-          stakeAccAddr,
-        },
-      };
+      return undelegateTransaction(stakeAccAddr);
     case "withdraw":
-      return {
-        kind: "stake.withdraw",
-        uiState: {
-          stakeAccAddr,
-        },
-      };
+      return withdrawTransaction(stakeAccAddr, txAmount(delegationAction));
     default:
       return assertUnreachable(stakeAction);
   }

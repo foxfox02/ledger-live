@@ -1,3 +1,4 @@
+import { track } from "@shared/analytics";
 import React, { useState, useCallback, useEffect, useMemo, forwardRef } from "react";
 import { useSelector } from "~/context/hooks";
 import VersionNumber from "react-native-version-number";
@@ -42,14 +43,14 @@ import useEnv from "@features/platform-env";
 import { NavigatorName, ScreenName } from "~/const";
 import { broadcastSignedTx } from "~/logic/screenTransactionHooks";
 import { flattenAccountsSelector } from "~/reducers/accounts";
-import { track } from "~/analytics/segment";
 import prepareSignTransaction from "./liveSDKLogic";
 import { RootNavigationComposite, StackNavigatorNavigation } from "../RootNavigator/types/helpers";
 import { BaseNavigatorStackParamList } from "../RootNavigator/types/BaseNavigator";
 import { WebviewAPI, WebviewProps } from "./types";
 import { useWebviewState } from "./helpers";
+import { closePlatformExchange } from "./closePlatformExchange";
+import { getTrackingRouteLiveAppSource } from "./analytics";
 import { NetworkError } from "./NetworkError";
-import { currentRouteNameRef } from "~/analytics/screenRefs";
 import { walletSelector } from "~/reducers/wallet";
 import { WebViewOpenWindowEvent } from "react-native-webview/lib/WebViewTypes";
 import { useModularDrawerController } from "LLM/features/ModularDrawer";
@@ -79,10 +80,7 @@ export const PlatformAPIWebview = forwardRef<WebviewAPI, WebviewProps>(
         trackingWrapper((eventName: string, properties?: Record<string, unknown> | null) =>
           track(eventName, {
             ...properties,
-            flowInitiatedFrom:
-              currentRouteNameRef.current === "Platform Catalog"
-                ? "Discover"
-                : currentRouteNameRef.current,
+            flowInitiatedFrom: getTrackingRouteLiveAppSource(),
           }),
         ),
       [],
@@ -109,7 +107,7 @@ export const PlatformAPIWebview = forwardRef<WebviewAPI, WebviewProps>(
         RootNavigationComposite<StackNavigatorNavigation<BaseNavigatorStackParamList>>
       >();
     const [device, setDevice] = useState<Device>();
-    const listAccounts = useListPlatformAccounts(walletState, accounts);
+    const listAccounts = useListPlatformAccounts(walletState.accountNames, accounts);
     const { deactivatedCurrencyIds } = useFeatureFlaggedCurrencies(!!useEnv("MOCK"));
     const deactivatedCurrencyIdsSet = useMemo(
       () => new Set(deactivatedCurrencyIds),
@@ -156,7 +154,7 @@ export const PlatformAPIWebview = forwardRef<WebviewAPI, WebviewProps>(
             tracking.platformRequestAccountSuccess(manifest);
             resolve(
               serializePlatformAccount(
-                accountToPlatformAccount(walletState, account, parentAccount),
+                accountToPlatformAccount(walletState.accountNames, account, parentAccount),
               ),
             );
           };
@@ -167,19 +165,16 @@ export const PlatformAPIWebview = forwardRef<WebviewAPI, WebviewProps>(
             enableAccountSelection: true,
             onAccountSelected: onSuccess,
             flow: manifest.name,
-            source:
-              currentRouteNameRef.current === "Platform Catalog"
-                ? "Discover"
-                : (currentRouteNameRef.current ?? "Unknown"),
+            source: getTrackingRouteLiveAppSource(),
           });
         }),
-      [tracking, manifest, deactivatedCurrencyIds, walletState, openModularDrawer],
+      [tracking, manifest, deactivatedCurrencyIds, walletState.accountNames, openModularDrawer],
     );
 
     const receiveOnAccount = useCallback(
       ({ accountId }: { accountId: string }) =>
         receiveOnAccountLogic(
-          walletState,
+          walletState.accountNames,
           { manifest, accounts, tracking },
           accountId,
           (account, parentAccount, accountAddress) =>
@@ -203,7 +198,7 @@ export const PlatformAPIWebview = forwardRef<WebviewAPI, WebviewProps>(
               });
             }),
         ),
-      [walletState, manifest, accounts, navigation, tracking],
+      [walletState.accountNames, manifest, accounts, navigation, tracking],
     );
 
     const signTransaction = useCallback(
@@ -330,10 +325,7 @@ export const PlatformAPIWebview = forwardRef<WebviewAPI, WebviewProps>(
                   resolve(result.startExchangeResult.nonce);
                 }
 
-                const n =
-                  navigation.getParent<StackNavigatorNavigation<BaseNavigatorStackParamList>>() ||
-                  navigation;
-                n.pop();
+                closePlatformExchange(navigation);
               },
             },
           });
@@ -390,11 +382,7 @@ export const PlatformAPIWebview = forwardRef<WebviewAPI, WebviewProps>(
                       resolve(result.operation);
                     }
                     setDevice(undefined);
-                    const n =
-                      navigation.getParent<
-                        StackNavigatorNavigation<BaseNavigatorStackParamList>
-                      >() || navigation;
-                    n.pop();
+                    closePlatformExchange(navigation);
                   },
                 },
               });

@@ -29,13 +29,18 @@ export default function Features() {
   const osUpdateBannerMode = useSelector(debugOsUpdateBannerModeSelector);
   const navigateToLargeMover = () => {
     navigation.navigate(ScreenName.LargeMoverLandingPage, {
-      currencyIds: "BTC,ETH,SOL",
       initialRange: InitialRange.Day,
       ledgerIds: "bitcoin,ethereum,solana,ethereum/erc20/usd__coin,ethereum/erc20/wrapped_bitcoin",
     });
   };
   return (
     <SettingsNavigationScrollView>
+      <SettingsRow
+        title="Start Tour"
+        desc="Open Product Tour, Q2, and Q3 debug drawers"
+        iconLeft={<IconsLegacy.NewsMedium size={24} color="black" />}
+        onPress={() => navigation.navigate(ScreenName.DebugStartTour)}
+      />
       <SettingsRow
         title="Swap"
         desc="Enable/disable swap providers"
@@ -48,6 +53,12 @@ export default function Features() {
         desc="Test DeviceIntentExecutor orchestration and initialization"
         iconLeft={<IconsLegacy.NanoXFoldedMedium size={24} color="black" />}
         onPress={() => navigation.navigate(ScreenName.DebugDeviceIntentExecutor)}
+      />
+      <SettingsRow
+        title="OS Update"
+        desc="Test the OS update orchestrator on a connected device"
+        iconLeft={<IconsLegacy.NanoFirmwareUpdateMedium size={24} color="black" />}
+        onPress={() => navigation.navigate(ScreenName.DebugOsUpdateOrchestrator)}
       />
 
       <BLEPairingFlow />

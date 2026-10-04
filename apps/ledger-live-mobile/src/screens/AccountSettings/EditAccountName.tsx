@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import i18next from "i18next";
+import i18next from "~/i18n/instance";
 import { Platform, StyleSheet, Keyboard } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useSelector, useDispatch } from "~/context/hooks";
@@ -14,8 +14,8 @@ import { AccountSettingsNavigatorParamList } from "~/components/RootNavigator/ty
 import {
   accountNameWithDefaultSelector,
   setAccountName as setAccountNameStore,
-} from "@ledgerhq/live-wallet/store";
-import { walletSelector } from "~/reducers/wallet";
+  walletSelector,
+} from "~/reducers/wallet";
 import { useAccountScreen } from "LLM/hooks/useAccountScreen";
 import invariant from "invariant";
 import { updateAccount } from "~/actions/accounts";

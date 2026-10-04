@@ -1,0 +1,92 @@
+import { trackPage, track } from "@shared/analytics";
+import {
+  HARDWARE_CAROUSEL_PAGE,
+  trackHardwareCarouselShown,
+  trackHardwareCarouselDeviceClick,
+  trackHardwareCarouselCardDismiss,
+  trackHardwareCarouselCloseAll,
+  type HardwareCarouselSharedAnalyticsProps,
+} from "./analytics";
+
+const mockSharedProps: HardwareCarouselSharedAnalyticsProps = {
+  deviceModel: "lnx",
+  personalRecoOptIn: true,
+  offerType: "discount",
+  platform: "lwm",
+};
+
+describe("hardware carousel analytics", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe("trackHardwareCarouselShown", () => {
+    it("should call screen with correct page name and props", () => {
+      trackHardwareCarouselShown(mockSharedProps);
+
+      expect(trackPage).toHaveBeenCalledWith({
+        category: HARDWARE_CAROUSEL_PAGE,
+        props: {
+          name: HARDWARE_CAROUSEL_PAGE,
+          ...mockSharedProps,
+        },
+      });
+    });
+  });
+
+  describe("trackHardwareCarouselDeviceClick", () => {
+    it("should track Gen5 device click", () => {
+      trackHardwareCarouselDeviceClick("ledger gen5", mockSharedProps);
+
+      expect(track).toHaveBeenCalledWith("button_clicked", {
+        button: "ledger gen5",
+        page: HARDWARE_CAROUSEL_PAGE,
+        ...mockSharedProps,
+      });
+    });
+
+    it("should track Flex device click", () => {
+      trackHardwareCarouselDeviceClick("ledger flex", mockSharedProps);
+
+      expect(track).toHaveBeenCalledWith("button_clicked", {
+        button: "ledger flex",
+        page: HARDWARE_CAROUSEL_PAGE,
+        ...mockSharedProps,
+      });
+    });
+
+    it("should track Stax device click", () => {
+      trackHardwareCarouselDeviceClick("ledger stax", mockSharedProps);
+
+      expect(track).toHaveBeenCalledWith("button_clicked", {
+        button: "ledger stax",
+        page: HARDWARE_CAROUSEL_PAGE,
+        ...mockSharedProps,
+      });
+    });
+  });
+
+  describe("trackHardwareCarouselCardDismiss", () => {
+    it("should track close button click", () => {
+      trackHardwareCarouselCardDismiss(mockSharedProps);
+
+      expect(track).toHaveBeenCalledWith("button_clicked", {
+        button: "close",
+        page: HARDWARE_CAROUSEL_PAGE,
+        ...mockSharedProps,
+      });
+    });
+  });
+
+  describe("trackHardwareCarouselCloseAll", () => {
+    it("should track close all button click", () => {
+      trackHardwareCarouselCloseAll(mockSharedProps);
+
+      expect(track).toHaveBeenCalledWith("button_clicked", {
+        button: "close all",
+        page: HARDWARE_CAROUSEL_PAGE,
+        ...mockSharedProps,
+      });
+    });
+  });
+});

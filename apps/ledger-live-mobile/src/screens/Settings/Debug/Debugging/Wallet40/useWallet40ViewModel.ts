@@ -6,7 +6,6 @@ import { setOverride } from "@shared/feature-flags";
 const WALLET_40_FLAG = "lwmWallet40";
 
 export const WALLET_40_PARAMS = [
-  { key: "tour", label: "Tour" },
   { key: "lazyOnboarding", label: "Lazy Onboarding" },
   { key: "assetSection", label: "Asset Section" },
   { key: "brazePlacement", label: "Braze Placement (ContentBanner)" },
@@ -17,7 +16,6 @@ export const WALLET_40_PARAMS = [
   { key: "pnl", label: "PnL" },
   { key: "earnUpselling", label: "Earn Upselling" },
   { key: "earnSimulator", label: "Earn Simulator" },
-  { key: "q2Tour", label: "Q2 Tour" },
 ] as const;
 
 type WalletFeatureParamKey = (typeof WALLET_40_PARAMS)[number]["key"];

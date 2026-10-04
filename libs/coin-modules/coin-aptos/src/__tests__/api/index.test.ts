@@ -1,60 +1,61 @@
 import { Aptos } from "@aptos-labs/ts-sdk";
-import type { CoinModuleApi } from "@ledgerhq/coin-module-framework/api/types";
+import { withDefaults } from "@ledgerhq/coin-module-framework/api/index";
 import { createApi } from "../../api";
-import type { AptosConfig } from "../../config";
-import coinConfig from "../../config";
+import { createMockAptosContext } from "../../test/context";
 
 jest.mock("@aptos-labs/ts-sdk");
 let mockedAptos: jest.Mocked<any>;
 
-jest.mock("../../config", () => ({
-  setCoinConfig: jest.fn(),
-}));
-
-const mockAptosConfig: AptosConfig = {} as AptosConfig;
-
 describe("createApi", () => {
-  it("should set the coin config value", () => {
-    const setCoinConfigSpy = jest.spyOn(coinConfig, "setCoinConfig");
-
-    createApi(mockAptosConfig);
-
-    const config = setCoinConfigSpy.mock.calls[0][0]();
-
-    expect(setCoinConfigSpy).toHaveBeenCalled();
-
-    expect(config).toEqual(
-      expect.objectContaining({
-        ...mockAptosConfig,
-        status: { type: "active" },
-      }),
-    );
-  });
-
-  it("should return an API object with coin module api methods", () => {
-    const api: CoinModuleApi = createApi(mockAptosConfig);
+  it("declares every method the chain supports", () => {
+    const api = createApi();
 
     // Check that methods are set with what we expect
     expect(api).toEqual({
       broadcast: expect.any(Function),
-      call: expect.any(Function),
       combine: expect.any(Function),
       craftTransaction: expect.any(Function),
       estimateFees: expect.any(Function),
       getBalance: expect.any(Function),
       lastBlock: expect.any(Function),
       listOperations: expect.any(Function),
-      craftRawTransaction: expect.any(Function),
-      getBlock: expect.any(Function),
-      getBlockInfo: expect.any(Function),
-      getNextSequence: expect.any(Function),
-      getRewards: expect.any(Function),
-      getStakes: expect.any(Function),
-      getValidators: expect.any(Function),
       validateAddress: expect.any(Function),
-      validateIntent: expect.any(Function),
       craftTransactionData: expect.any(Function),
     });
+  });
+
+  it("omits the capabilities the chain has none of", () => {
+    const api = createApi();
+
+    for (const method of [
+      "call",
+      "register",
+      "craftRawTransaction",
+      "getBlock",
+      "getBlockInfo",
+      "getStakes",
+      "getRewards",
+      "getValidators",
+      "validateIntent",
+      "getNextSequence",
+    ] as const) {
+      expect(api).not.toHaveProperty(method);
+    }
+  });
+
+  it("raises 'not supported' for those capabilities once withDefaults is applied", () => {
+    // The consumer path: the resolver wraps the module, and the wrapper is what answers for a
+    // capability the module does not carry.
+    const api = withDefaults(createApi());
+    const context = createMockAptosContext();
+
+    expect(() => api.getBlock(context, 1)).toThrow("getBlock is not supported");
+    expect(() => api.getStakes(context, "address")).toThrow("getStakes is not supported");
+    expect(() => api.getNextSequence(context, "address")).toThrow(
+      "getNextSequence is not supported",
+    );
+    expect(api.supports("validateAddress")).toBe(true);
+    expect(api.supports("validateIntent")).toBe(false);
   });
 });
 
@@ -81,9 +82,10 @@ describe("lastBlock", () => {
       }),
     }));
 
-    const api: CoinModuleApi = createApi(mockAptosConfig);
+    const api = createApi();
+    const context = createMockAptosContext();
 
-    expect(await api.lastBlock()).toStrictEqual({
+    expect(await api.lastBlock(context)).toStrictEqual({
       height: 123,
       hash: "123hash",
       time: new Date(1746021098623892 / 1_000),

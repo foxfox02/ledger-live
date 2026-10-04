@@ -1,6 +1,6 @@
 {
   "name": "@ledgerhq/live-signer-celo",
-  "version": "1.1.8",
+  "version": "1.2.8",
   "private": true,
   "description": "Ledger Hardware Wallet Celo Application API",
   "keywords": [
@@ -29,7 +29,7 @@
     "@ledgerhq/coin-celo": "workspace:^",
     "@ledgerhq/hw-app-celo": "workspace:^",
     "@ledgerhq/hw-app-eth": "workspace:^",
-    "@ledgerhq/hw-transport": "workspace:*"
+    "@ledgerhq/hw-transport": "catalog:"
   },
   "scripts": {
     "clean": "rimraf lib lib-es",
@@ -43,13 +43,15 @@
     "coverage": "jest --coverage"
   },
   "devDependencies": {
+    "@types/react": "catalog:",
+    "@ledgerhq/test-quarantine": "workspace:*",
     "@ledgerhq/types-live": "workspace:^",
+    "@swc/core": "catalog:",
+    "@swc/jest": "catalog:",
     "@types/jest": "catalog:",
     "@types/node": "catalog:",
     "jest": "catalog:",
     "rimraf": "^4.4.1",
-    "@swc/jest": "catalog:",
-    "@swc/core": "catalog:",
     "ts-node": "^10.4.0"
   },
   "exports": {

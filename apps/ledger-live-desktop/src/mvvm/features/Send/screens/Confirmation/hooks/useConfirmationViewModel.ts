@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { setDrawer } from "~/renderer/drawers/Provider";
 import { OperationDetails } from "~/renderer/drawers/OperationDetails";
 import { CryptoCurrency } from "@domain/entity-currency-crypto";
@@ -8,8 +8,11 @@ import { FLOW_STATUS, type FlowStatus } from "@ledgerhq/live-common/flows/wizard
 import { useFlowWizard } from "../../../../FlowWizard/FlowWizardContext";
 import type { SendFlowOperationResult, SendFlowStep } from "@ledgerhq/live-common/flows/send/types";
 import { useSendFlowActions, useSendFlowData } from "../../../context/SendFlowContext";
-import { track, trackPage } from "~/renderer/analytics/segment";
-import { getSendFlowTrackingProperties } from "../../../utils/tracking";
+import { track, trackPage } from "@shared/analytics";
+import { useSendFlowTrackingProperties } from "../../../hooks/useSendFlowTrackingProperties";
+import { getActiveWarningsTrackingProperties } from "../../../utils/tracking";
+import { useSendFlowTracking } from "../../../context/SendFlowTrackingContext";
+import { getActiveWarningIds, getStableMessageId } from "../../../utils/messageTracking";
 
 function getConfirmationStatus(
   operation: SendFlowOperationResult,
@@ -36,15 +39,28 @@ export function useConfirmationViewModel() {
   const { navigation } = useFlowWizard<SendFlowStep>();
   const { close, status: statusActions, operation } = useSendFlowActions();
   const { state } = useSendFlowData();
+  const { endSession, flowSessionId, recipientType, savedContactDuringFlow, trackMessage } =
+    useSendFlowTracking();
   const { account, parentAccount } = state.account;
+  const sendFlowTrackingPropertiesBase = useSendFlowTrackingProperties();
   const sendFlowTrackingProperties = useMemo(
-    () => getSendFlowTrackingProperties(account, parentAccount),
-    [account, parentAccount],
+    () => ({
+      ...sendFlowTrackingPropertiesBase,
+      recipientType,
+    }),
+    [sendFlowTrackingPropertiesBase, recipientType],
   );
 
   const status = useMemo(
     () => getConfirmationStatus(state.operation, state.account.currency),
     [state.operation, state.account.currency],
+  );
+  const activeWarningsTrackingProperties = useMemo(
+    () =>
+      getActiveWarningsTrackingProperties(
+        state.transaction?.status ? getActiveWarningIds(state.transaction.status) : [],
+      ),
+    [state.transaction?.status],
   );
 
   const optimisticOperation = state.operation.optimisticOperation;
@@ -55,16 +71,52 @@ export function useConfirmationViewModel() {
 
   const transactionError = state.operation.transactionError;
 
-  useMemo(() => {
+  useEffect(() => {
     switch (status) {
       case FLOW_STATUS.SUCCESS:
-        trackPage("Modal send - transaction sent", null, sendFlowTrackingProperties);
+        trackPage({
+          category: "Modal send - transaction sent",
+          props: {
+            ...sendFlowTrackingProperties,
+            flow_session_id: flowSessionId,
+            savedContactDuringFlow,
+            ...activeWarningsTrackingProperties,
+          },
+        });
+        endSession();
         break;
       case FLOW_STATUS.IDLE:
-        trackPage("Modal send - action rejected", null, sendFlowTrackingProperties);
+        trackPage({
+          category: "Modal send - action rejected",
+          props: sendFlowTrackingProperties,
+        });
         break;
     }
-  }, [status, sendFlowTrackingProperties]);
+  }, [
+    activeWarningsTrackingProperties,
+    endSession,
+    flowSessionId,
+    savedContactDuringFlow,
+    status,
+    sendFlowTrackingProperties,
+  ]);
+
+  useEffect(() => {
+    if (!transactionError || status !== FLOW_STATUS.ERROR) return;
+
+    trackMessage({
+      account,
+      parentAccount,
+      step: state.operation.signed ? "CONFIRMATION" : "SIGNATURE",
+      message: {
+        messageId: getStableMessageId(
+          transactionError,
+          state.operation.signed ? "error:broadcast" : "error:signature",
+        ),
+        messageType: "error",
+      },
+    });
+  }, [account, parentAccount, state.operation.signed, status, trackMessage, transactionError]);
 
   const onViewDetails = useCallback(() => {
     close();
@@ -74,7 +126,10 @@ export function useConfirmationViewModel() {
         page: "step confirmation",
         ...sendFlowTrackingProperties,
       });
-      trackPage("Modal send - transaction details", null, sendFlowTrackingProperties);
+      trackPage({
+        category: "Modal send - transaction details",
+        props: sendFlowTrackingProperties,
+      });
       setDrawer(
         OperationDetails,
         {
@@ -103,8 +158,14 @@ export function useConfirmationViewModel() {
   }, [navigation, operation, statusActions]);
 
   const onClose = useCallback(() => {
+    track("button_clicked", {
+      button: "close",
+      page: "step confirmation",
+      ...sendFlowTrackingProperties,
+    });
+    endSession();
     close();
-  }, [close]);
+  }, [close, endSession, sendFlowTrackingProperties]);
 
   return {
     status,

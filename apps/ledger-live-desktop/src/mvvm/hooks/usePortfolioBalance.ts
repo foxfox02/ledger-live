@@ -11,14 +11,14 @@ import {
   counterValueCurrencySelector,
   selectedTimeRangeSelector,
 } from "~/renderer/reducers/settings";
-import { usePortfolioThrottled } from "@ledgerhq/live-countervalues-react/portfolio";
+import { usePortfolioThrottled } from "@ledgerhq/live-common/portfolio/portfolioReact";
 import {
   selectLastUserSyncClickTimestamp,
   selectHasCompletedInitialSync,
   setHasCompletedInitialSync,
   setLastUserSyncClickTimestamp,
 } from "~/renderer/reducers/syncRefresh";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import { useSyncSources } from "./useSyncSources";
 import {
   useSyncLifecycle,

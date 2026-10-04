@@ -1,8 +1,11 @@
 import BigNumber from "bignumber.js";
 import { encodeOperationId } from "@ledgerhq/ledger-wallet-framework/operation";
-import { TRANSACTION_TYPE } from "../constants";
+import { PROGRAM_ID, TRANSACTION_TYPE } from "../constants";
 import { getMockedAccount, getMockedTokenAccount } from "../__tests__/fixtures/account.fixture";
-import { getMockedTransaction } from "../__tests__/fixtures/transaction.fixture";
+import {
+  getMockedStakingTransaction,
+  getMockedTransaction,
+} from "../__tests__/fixtures/transaction.fixture";
 import { buildOptimisticOperation } from "./buildOptimisticOperation";
 
 describe("buildOptimisticOperation", () => {
@@ -171,4 +174,50 @@ describe("buildOptimisticOperation", () => {
       },
     });
   });
+
+  const validator = "aleo1validator123";
+  const stakedAmount = new BigNumber(5_000_000);
+
+  it.each([
+    [TRANSACTION_TYPE.BOND_PUBLIC, "BOND", "bond_public", validator, { validator, stakedAmount }],
+    [
+      TRANSACTION_TYPE.UNBOND_PUBLIC,
+      "UNBOND",
+      "unbond_public",
+      "aleo1zcwqycj02lccfuu57dzjhva7w5dpzc7pngl0sxjhp58t6vlnnqxs6lnp6f",
+      { stakedAmount },
+    ],
+    [
+      TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC,
+      "WITHDRAW_UNBONDED",
+      "claim_unbond_public",
+      "aleo1zcwqycj02lccfuu57dzjhva7w5dpzc7pngl0sxjhp58t6vlnnqxs6lnp6f",
+      {},
+    ],
+  ] as const)(
+    "should build a fee-valued %s staking operation typed %s",
+    (mode, operationType, functionId, recipient, stakingExtra) => {
+      const transaction = getMockedStakingTransaction(mode, {
+        amount: stakedAmount,
+        fees: new BigNumber(34_060),
+        recipient,
+      });
+
+      const operation = buildOptimisticOperation({ account, transaction });
+
+      expect(operation.type).toBe(operationType);
+      expect(operation.value).toEqual(transaction.fees);
+      expect(operation.fee).toEqual(transaction.fees);
+      expect(operation.id).toBe(encodeOperationId(account.id, "", operationType));
+      expect(operation.extra).toEqual({
+        functionId,
+        transactionType: "public",
+        programId: PROGRAM_ID.CREDITS,
+        ...stakingExtra,
+      });
+      expect(operation.senders).toEqual([]);
+      expect(operation.recipients).toEqual([]);
+      expect(operation.subOperations).toBeUndefined();
+    },
+  );
 });

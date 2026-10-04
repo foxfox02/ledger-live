@@ -1,4 +1,5 @@
-import { useCallback, useMemo } from "react";
+import { trackPage, track } from "@shared/analytics";
+import { useCallback, useEffect, useMemo } from "react";
 import { useNavigation } from "@react-navigation/native";
 import { useSendFlowActions, useSendFlowData } from "../../../context/SendFlowContext";
 import type { Account, AccountLike } from "@ledgerhq/types-live";
@@ -8,10 +9,11 @@ import type {
   SendFlowUiConfig,
 } from "@ledgerhq/live-common/flows/send/types";
 import { ScreenName } from "~/const";
+import { getSendSuccessScreenName } from "../../../utils/getSendSuccessScreenName";
 import type { SendFlowNavigationProp } from "../../../types";
 import { useSendSignature } from "../../../context/SendSignatureContext";
-import { getSendFlowTrackingProperties } from "@ledgerhq/ledger-wallet-framework/tracking/send";
-import { useAnalytics } from "~/analytics";
+import { useSendFlowTrackingProperties } from "../../../hooks/useSendFlowTrackingProperties";
+import { useSendFlowTracking } from "../../../context/SendFlowTrackingContext";
 import { useSendAmountDisplayMode } from "@ledgerhq/live-common/flows/send/amount/SendAmountDisplayModeContext";
 
 type AmountScreenViewModelBase = Readonly<{
@@ -37,10 +39,12 @@ export type AmountScreenViewModel =
       }>);
 
 export function useAmountScreen(): AmountScreenViewModel {
-  const { state, uiConfig } = useSendFlowData();
+  const { state, uiConfig, source } = useSendFlowData();
   const { transaction: transactionActions, close } = useSendFlowActions();
   const navigation = useNavigation<SendFlowNavigationProp>();
   const { startSigning } = useSendSignature();
+  const { recipientType } = useSendFlowTracking();
+  const sendFlowTrackingProperties = useSendFlowTrackingProperties();
 
   const { account, parentAccount } = state.account;
   const { bridgePending, bridgeError, status, transaction } = state.transaction;
@@ -49,10 +53,17 @@ export function useAmountScreen(): AmountScreenViewModel {
     close();
   }, [close]);
 
-  const { track } = useAnalytics();
-  const trackingProperties = useMemo(() => {
-    return getSendFlowTrackingProperties(account, parentAccount);
-  }, [account, parentAccount]);
+  const trackingProperties = useMemo(
+    () => ({
+      ...sendFlowTrackingProperties,
+      recipientType,
+    }),
+    [sendFlowTrackingProperties, recipientType],
+  );
+
+  useEffect(() => {
+    void trackPage({ category: "Modal send - step amount", props: trackingProperties });
+  }, [trackingProperties]);
   const { displayMode: inputMode } = useSendAmountDisplayMode();
 
   const onReview = useCallback(() => {
@@ -62,8 +73,8 @@ export function useAmountScreen(): AmountScreenViewModel {
       page: "step amount",
       input_mode: inputMode,
     });
-    startSigning(() => navigation.navigate(ScreenName.SendFlowConfirmation));
-  }, [startSigning, navigation, track, trackingProperties, inputMode]);
+    startSigning(() => navigation.navigate(getSendSuccessScreenName(source)));
+  }, [startSigning, navigation, trackingProperties, inputMode, source]);
 
   const onSelectCoinControl = useCallback(() => {
     navigation.navigate(ScreenName.SendFlowCoinControl);

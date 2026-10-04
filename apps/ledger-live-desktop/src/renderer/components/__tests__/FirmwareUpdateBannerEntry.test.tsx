@@ -2,7 +2,7 @@ import React from "react";
 import { render, screen, withFlagOverrides } from "tests/testSetup";
 import FirmwareUpdateBannerEntry from "../FirmwareUpdateBanner";
 import type { FirmwareUpdateContext } from "@ledgerhq/types-live";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 
 const firmwareWithVersion = (name = "2.2.0") => ({
   osu: {},
@@ -20,7 +20,6 @@ describe("FirmwareUpdateBannerEntry", () => {
       ...withFlagOverrides({ lwdWallet40: { enabled: true } }),
       settings: {
         discreetMode: false,
-        vaultSigner: { enabled: false, host: "", token: "", workspace: "" },
         devicesModelList: [],
         anonymousUserNotifications: {},
         latestFirmware: null as FirmwareUpdateContext | null,
@@ -159,7 +158,6 @@ describe("FirmwareUpdateBannerEntry", () => {
       ...withFlagOverrides({ lwdWallet40: { enabled: false } }),
       settings: {
         discreetMode: false,
-        vaultSigner: { enabled: false, host: "", token: "", workspace: "" },
         devicesModelList: [],
         anonymousUserNotifications: {},
         latestFirmware: null as FirmwareUpdateContext | null,

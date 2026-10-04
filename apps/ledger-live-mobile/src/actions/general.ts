@@ -4,14 +4,12 @@ import { useSelector, useDispatch } from "~/context/hooks";
 import {
   flattenSortAccounts,
   sortAccountsComparatorFromOrder,
-} from "@ledgerhq/live-wallet/ordering";
+} from "@ledgerhq/live-common/account/ordering";
 import type { FlattenAccountsOptions } from "@ledgerhq/live-common/account/index";
-import type { TrackingPair } from "@ledgerhq/live-countervalues/types";
-import {
-  useCalculateCountervalueCallback as useCalculateCountervalueCallbackCommon,
-  useTrackingPairForAccounts,
-} from "@ledgerhq/live-countervalues-react";
-import { useDistribution as useLegacyDistribution } from "@ledgerhq/live-countervalues-react/portfolio";
+import { type TrackingPair, pairId } from "@domain/entity-market-countervalues";
+import { useCalculateCountervalueCallback as useCalculateCountervalueCallbackCommon } from "@ledgerhq/live-countervalues-react";
+import { useTrackingPairForAccounts } from "@ledgerhq/live-common/portfolio/useTrackingPairForAccounts";
+import { useDistribution as useLegacyDistribution } from "@ledgerhq/live-common/portfolio/portfolioReact";
 import {
   useAssetDistribution,
   type DistributionOpts,
@@ -64,7 +62,7 @@ export function useSortAccountsComparator() {
   const accounts = useSelector(orderAccountsSelector);
   const calc = useCalculateCountervalueCallback();
   const walletState = useSelector(walletSelector);
-  return sortAccountsComparatorFromOrder(accounts, walletState, calc);
+  return sortAccountsComparatorFromOrder(accounts, walletState.accountNames, calc);
 }
 export function useFlattenSortAccounts(options?: FlattenAccountsOptions) {
   const accounts = useSelector(accountsSelector);
@@ -169,9 +167,24 @@ export function useUserSettings() {
 }
 
 export function addExtraSessionTrackingPair(trackingPair: TrackingPair) {
+  addExtraSessionTrackingPairs([trackingPair]);
+}
+
+/**
+ * Adds every pair that is not tracked yet, in one publish: a caller with a whole catalog to track
+ * would otherwise notify each subscriber once per pair.
+ *
+ * Pairs are compared by `pairId`, not by currency identity, because a token refetched from CAL
+ * comes back as a new object.
+ */
+export function addExtraSessionTrackingPairs(trackingPairs: readonly TrackingPair[]) {
   const value = extraSessionTrackingPairsChanges.value;
-  if (!value.some(tp => tp.from === trackingPair.from && tp.to === trackingPair.to))
-    extraSessionTrackingPairsChanges.next(value.concat(trackingPair));
+  const tracked = new Set(value.map(pairId));
+  const missing = trackingPairs.filter(trackingPair => !tracked.has(pairId(trackingPair)));
+
+  if (missing.length === 0) return;
+
+  extraSessionTrackingPairsChanges.next(value.concat(missing));
 }
 
 export function useExtraSessionTrackingPair() {

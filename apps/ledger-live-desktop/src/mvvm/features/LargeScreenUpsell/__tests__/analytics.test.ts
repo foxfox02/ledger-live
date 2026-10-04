@@ -1,12 +1,19 @@
-import { track, trackPage } from "~/renderer/analytics/segment";
+import { track, trackPage } from "@shared/analytics";
 import {
   LARGE_SCREEN_UPSELL_MODAL_PAGE_NAME,
   toLargeScreenUpsellDeviceModelAnalyticsValue,
+  trackLargeScreenUpsellModalBlockedByCompeting,
   trackLargeScreenUpsellModalCtaClicked,
   trackLargeScreenUpsellModalDismissed,
   trackLargeScreenUpsellModalViewed,
   type LargeScreenUpsellSharedAnalyticsProps,
 } from "../analytics";
+
+jest.mock("@shared/analytics", () => ({
+  ...jest.requireActual("@shared/analytics"),
+  track: jest.fn(),
+  trackPage: jest.fn(),
+}));
 
 const SHARED_PROPS: LargeScreenUpsellSharedAnalyticsProps = {
   deviceModel: "lns",
@@ -32,16 +39,16 @@ describe("LargeScreenUpsell analytics", () => {
     trackLargeScreenUpsellModalDismissed("escape key down", SHARED_PROPS);
 
     expect(trackPage).toHaveBeenCalledWith(
-      LARGE_SCREEN_UPSELL_MODAL_PAGE_NAME,
-      undefined,
       {
-        name: LARGE_SCREEN_UPSELL_MODAL_PAGE_NAME,
-        sourceFlow: "app start",
-        modalFrequencyState: "every start",
-        ...SHARED_PROPS,
+        category: LARGE_SCREEN_UPSELL_MODAL_PAGE_NAME,
+        props: {
+          name: LARGE_SCREEN_UPSELL_MODAL_PAGE_NAME,
+          sourceFlow: "app start",
+          modalFrequencyState: "every start",
+          ...SHARED_PROPS,
+        },
       },
-      true,
-      false,
+      { updateRoutes: true },
     );
     expect(track).toHaveBeenCalledWith("button_clicked", {
       button: "explore large screen devices",
@@ -53,6 +60,19 @@ describe("LargeScreenUpsell analytics", () => {
       page: LARGE_SCREEN_UPSELL_MODAL_PAGE_NAME,
       dismissMethod: "escape key down",
       ...SHARED_PROPS,
+    });
+  });
+
+  it("should emit modal_blocked when a competing app-start modal has preference", () => {
+    trackLargeScreenUpsellModalBlockedByCompeting("q2_tour");
+
+    expect(track).toHaveBeenCalledWith("modal_blocked", {
+      modal: "upgrade modal",
+      page: LARGE_SCREEN_UPSELL_MODAL_PAGE_NAME,
+      reason: "competing_app_start_modal",
+      competitor: "q2_tour",
+      platform: "lwd",
+      sourceFlow: "app start",
     });
   });
 });

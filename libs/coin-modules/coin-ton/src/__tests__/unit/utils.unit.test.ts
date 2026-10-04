@@ -122,6 +122,8 @@ describe("Build TON transaction", () => {
       status: {
         type: "active",
       },
+      name: "Gram",
+      unit: { name: "GRAM", code: "GRAM", magnitude: 9 },
       infra: {
         API_TON_ENDPOINT: API_TON_ENDPOINT,
         KNOWN_JETTONS: [],
@@ -152,6 +154,24 @@ describe("Build TON transaction", () => {
       to: Address.parse(baseTransaction.recipient).toString(),
       seqno,
       amount: BigInt(baseTransaction.amount.toString()),
+      bounce: false,
+      timeout: getTransferExpirationTime(),
+      sendMode: 3,
+    });
+  });
+
+  test("Build TON transaction when the comment text is missing", () => {
+    const transaction = {
+      ...baseTransaction,
+      comment: { isEncrypted: false, text: undefined as unknown as string },
+    };
+
+    const tonTransaction = buildTonTransaction(transaction, seqno, account);
+
+    expect({ ...tonTransaction, to: tonTransaction.to.toString() }).toEqual({
+      to: Address.parse(transaction.recipient).toString(),
+      seqno,
+      amount: BigInt(transaction.amount.toString()),
       bounce: false,
       timeout: getTransferExpirationTime(),
       sendMode: 3,

@@ -17,22 +17,28 @@ import { blockPasswordLock } from "~/actions/appstate";
 import { readOnlyModeEnabledSelector } from "~/reducers/settings";
 import { openRebornBuyDeviceDrawer } from "~/reducers/rebornBuyDeviceDrawer";
 import { closePostOnboardingHubDrawer } from "~/reducers/postOnboardingHubDrawer";
-import { useQueuedDrawerContext } from "LLM/components/QueuedDrawer/QueuedDrawersContext";
+import { useQueuedBottomSheetContext } from "@shared/ui-queued-bottom-sheet";
 
 type Props = {
   isOpen: boolean;
   startingStep: Steps;
   handleClose: () => void;
+  handleNavigate?: () => void;
 };
 
 type NavigationProps = BaseComposite<
   StackNavigatorProps<WalletSyncNavigatorStackParamList, ScreenName.WalletSyncActivationProcess>
 >;
 
-const useActivationDrawerModel = ({ isOpen, startingStep, handleClose }: Props) => {
+const useActivationDrawerModel = ({
+  isOpen,
+  startingStep,
+  handleClose,
+  handleNavigate = handleClose,
+}: Props) => {
   const { onClickTrack } = useLedgerSyncAnalytics();
   const { currentStep, setCurrentStep } = useCurrentStep();
-  const { closeAllDrawers } = useQueuedDrawerContext();
+  const { closeAllBottomSheets } = useQueuedBottomSheetContext();
 
   const dispatch = useDispatch();
   const readOnlyModeEnabled = useSelector(readOnlyModeEnabledSelector);
@@ -79,26 +85,31 @@ const useActivationDrawerModel = ({ isOpen, startingStep, handleClose }: Props) 
 
   const goBackToPreviousStep = () => setCurrentStep(getPreviousStep(currentStep));
 
-  const onCloseDrawer = () => {
+  const resetDrawer = () => {
     dispatch(blockPasswordLock(false));
     setCurrentStep(startingStep);
     setCurrentOption(Options.SCAN);
-    handleClose();
   };
 
   const navigateToWalletSyncActivationProcess = () => {
-    onCloseDrawer();
-    closeAllDrawers();
+    resetDrawer();
+    handleNavigate();
+    closeAllBottomSheets();
     dispatch(closePostOnboardingHubDrawer());
     navigation.navigate(NavigatorName.WalletSync, {
       screen: ScreenName.WalletSyncActivationProcess,
     });
   };
 
+  const onCloseDrawer = () => {
+    resetDrawer();
+    handleClose();
+  };
+
   const onCreateKey = () => {
     if (readOnlyModeEnabled) {
       onCloseDrawer();
-      closeAllDrawers();
+      closeAllBottomSheets();
       dispatch(openRebornBuyDeviceDrawer());
     } else {
       navigateToWalletSyncActivationProcess();

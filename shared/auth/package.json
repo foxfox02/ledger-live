@@ -1,6 +1,6 @@
 {
   "name": "@shared/auth",
-  "version": "0.2.0",
+  "version": "0.6.0",
   "private": true,
   "description": "RTK Query authentication helpers",
   "main": "src/index.ts",
@@ -23,10 +23,10 @@
   },
   "dependencies": {
     "@reduxjs/toolkit": "catalog:",
-    "@shared/feature-flags": "workspace:*",
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@ledgerhq/test-quarantine": "workspace:*",
     "@swc/core": "catalog:",
     "@swc/jest": "catalog:",
     "@types/jest": "catalog:",
@@ -35,6 +35,7 @@
     "msw": "catalog:",
     "oxfmt": "catalog:",
     "oxlint": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "@support/jest-shared": "workspace:*"
   }
 }

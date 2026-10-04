@@ -1,5 +1,6 @@
+import { track } from "@shared/analytics";
 import { useState, useCallback, useEffect, useMemo, type ComponentType } from "react";
-import { useDustFilteringFeature } from "@features/platform-feature-flags";
+import { useDustFilteringFeature, useFeature } from "@features/platform-feature-flags";
 import { flattenAccounts, getAccountCurrency } from "@ledgerhq/live-common/account/index";
 import {
   formatSmallValueOperationsThreshold,
@@ -9,7 +10,6 @@ import type { IconProps } from "@ledgerhq/lumen-ui-rnative";
 import { Eye, EyeCross } from "@ledgerhq/lumen-ui-rnative/symbols";
 import { addExtraSessionTrackingPair } from "~/actions/general";
 import { setHideSmallValueTokenOperations } from "~/actions/settings";
-import { track } from "~/analytics";
 import { useSelector, useDispatch } from "~/context/hooks";
 import { useLocale, useTranslation } from "~/context/Locale";
 import { flattenAccountsSelector, shallowAccountsSelector } from "~/reducers/accounts";
@@ -23,7 +23,12 @@ import { parseLastSeenMs } from "LLM/features/OperationsHistory/utils/unreadOper
 import { useOperationsV1 } from "~/screens/Analytics/Operations/useOperationsV1";
 import { AccountLike, Operation } from "@ledgerhq/types-live";
 import { useOperationsSections } from "./hooks/useOperationsSections";
-import { HISTORY_DUST_FILTER_THRESHOLD_USD } from "LLM/features/OperationsHistory/constants";
+import {
+  HISTORY_DUST_FILTER_THRESHOLD_USD,
+  HISTORY_TAB_CARD,
+  HISTORY_TAB_CRYPTO,
+  type HistoryTab,
+} from "LLM/features/OperationsHistory/constants";
 
 export type { OperationsListSection } from "./hooks/useOperationsSections";
 
@@ -36,12 +41,36 @@ export type OperationsHistoryDustFilterOption = Readonly<{
 const INITIAL_OP_COUNT = 50;
 const OP_COUNT_INCREMENT = 50;
 
-export function useOperationsListViewModel(accountIds?: string[]) {
+export function useOperationsListViewModel(
+  accountIds?: string[],
+  initialHistoryTab: HistoryTab = HISTORY_TAB_CRYPTO,
+  cardAsset?: string,
+) {
   const dispatch = useDispatch();
   const allAccounts = useSelector(shallowAccountsSelector);
   const allFlattenedAccounts = useSelector(flattenAccountsSelector);
   const [opCount, setOpCount] = useState(INITIAL_OP_COUNT);
   const [isOptionsSheetOpen, setOptionsSheetOpen] = useState(false);
+  const [historyTabSelection, setHistoryTabSelection] = useState<{
+    initial: HistoryTab;
+    selected: HistoryTab;
+  }>();
+  const selectedHistoryTab =
+    historyTabSelection?.initial === initialHistoryTab
+      ? historyTabSelection.selected
+      : initialHistoryTab;
+  // Only card history is ever asset scoped, and the switcher is hidden then: the route has to win
+  // over an earlier switcher pick, or the same screen instance would keep showing crypto.
+  const requestedHistoryTab = cardAsset ? HISTORY_TAB_CARD : selectedHistoryTab;
+  const payTab = useFeature("lwmPayTab");
+  const isPayTabEnabled = !!payTab?.enabled;
+  const showCardHistory = isPayTabEnabled && payTab?.params?.card_native === true;
+  // An asset scope does not bypass a disabled Pay tab or a hidden card, and account-scoped routes
+  // never reach the Card API.
+  const canShowCardHistory = showCardHistory && (Boolean(cardAsset) || !accountIds?.length);
+  const isCardTab = requestedHistoryTab === HISTORY_TAB_CARD && canShowCardHistory;
+  const historyTab: HistoryTab = isCardTab ? HISTORY_TAB_CARD : HISTORY_TAB_CRYPTO;
+  const showHistoryTypeSwitcher = showCardHistory && !accountIds?.length && !cardAsset;
   const { isEnabled: isDustFilterFeatureEnabled } = useDustFilteringFeature("mobile");
   const userHideSmallValueTokenOperations = useSelector(
     hideSmallValueTokenOperationsEnabledSelector,
@@ -165,6 +194,18 @@ export function useOperationsListViewModel(accountIds?: string[]) {
     }
   }, [isDustFilterFeatureEnabled]);
   const closeOptionsSheet = useCallback(() => setOptionsSheetOpen(false), []);
+  const onHistoryTabChange = useCallback(
+    (tab: HistoryTab) => {
+      track("button_clicked", {
+        button: tab,
+        buttonLocation: "history tabs",
+        page: "History",
+      });
+      setHistoryTabSelection({ initial: initialHistoryTab, selected: tab });
+    },
+    [initialHistoryTab],
+  );
+
   const onToggleHideSmallValueTokenOperations = useCallback(() => {
     if (!isDustFilterFeatureEnabled) return;
 
@@ -195,5 +236,11 @@ export function useOperationsListViewModel(accountIds?: string[]) {
     isDustFilterFeatureEnabled,
     dustFilterOption,
     onToggleHideSmallValueTokenOperations,
+    showHistoryTypeSwitcher,
+    historyTab,
+    isCardTab,
+    onHistoryTabChange,
   };
 }
+
+export type OperationsListViewModel = ReturnType<typeof useOperationsListViewModel>;

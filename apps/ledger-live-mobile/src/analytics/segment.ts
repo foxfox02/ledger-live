@@ -6,7 +6,6 @@ import { AppState, Linking, Platform, type NativeEventSubscription } from "react
 import { createClient, SegmentClient, UserTraits } from "@segment/analytics-react-native";
 import VersionNumber from "react-native-version-number";
 import RNLocalize from "react-native-localize";
-import { ReplaySubject } from "rxjs";
 import {
   getFocusedRouteNameFromRoute,
   ParamListBase,
@@ -14,9 +13,17 @@ import {
   useRoute,
 } from "@react-navigation/native";
 import snakeCase from "lodash/snakeCase";
-import React, { type RefObject, useCallback } from "react";
 import { idsToLanguage } from "@ledgerhq/types-live";
 import type { FeatureId, Features } from "@shared/feature-flags";
+import {
+  flush,
+  publishAnalyticsEvent,
+  setAnalytics,
+  setEnabledFn,
+  setExtraPropsFn,
+  setMandatoryExtraPropsFn,
+  track as sharedTrack,
+} from "@shared/analytics";
 
 import { runOnceWhen } from "@ledgerhq/live-common/utils/runOnceWhen";
 import {
@@ -28,6 +35,11 @@ import { getTokensWithFunds } from "@ledgerhq/live-common/domain/getTokensWithFu
 import { getEnv } from "@shared/env";
 import { getAndroidArchitecture, getAndroidVersionCode } from "../logic/cleanBuildVersion";
 import { userIdSelector, isDummyUserId } from "@domain/entity-client-identity";
+import { selectContacts } from "@domain/entity-contact";
+import { buildContactsGlobalProperties } from "@features/platform-contacts";
+import { getContentAbTestTracking } from "@features/platform-content-ab-tests";
+import { getAppLockAttributes } from "./getAppLockAttributes";
+import { getPayAttributes } from "./getPayAttributes";
 import {
   analyticsEnabledSelector,
   trackingEnabledSelector,
@@ -54,7 +66,6 @@ import { satisfactionSelector } from "../reducers/ratings";
 import { accountsSelector } from "../reducers/accounts";
 import type { AppStore } from "../reducers";
 import { NavigatorName } from "~/const";
-import { previousRouteNameRef, currentRouteNameRef } from "./screenRefs";
 import { AnonymousIpPlugin } from "./AnonymousIpPlugin";
 import { UserIdPlugin } from "./UserIdPlugin";
 import { BrazePlugin } from "./BrazePlugin";
@@ -70,6 +81,9 @@ import { getWallet40Attributes } from "@ledgerhq/live-common/analytics/featureFl
 import { getRemoteABTestingAttributes } from "@ledgerhq/live-common/analytics/remoteABTesting/remoteABTestingAnalytics";
 import { AuthorizationStatus, type FirebaseMessagingTypes } from "@react-native-firebase/messaging";
 import { getNotificationPermissionStatus } from "~/logic/getNotificationPermissionStatus";
+import { isDatadogEnabled } from "~/datadog";
+import { DdLogs } from "@datadog/mobile-react-native";
+import { shouldIncludeSegmentIdentity } from "./segmentIdentity";
 
 const sessionId = uuid();
 const appVersion = `${VersionNumber.appVersion || ""} (${VersionNumber.buildVersion || ""})`;
@@ -86,6 +100,14 @@ let osPermissionRefreshPromise: Promise<
   FirebaseMessagingTypes.AuthorizationStatus | undefined
 > | null = null;
 let appStateSubscription: NativeEventSubscription | undefined;
+let hasWarnedNoSegmentClient = false;
+
+const warnOnceNoSegmentClient = (eventName: string, kind: "track" | "screen") => {
+  if (!isDatadogEnabled) return;
+  if (hasWarnedNoSegmentClient) return;
+  hasWarnedNoSegmentClient = true;
+  DdLogs.warn("analytics_event_skipped_no_client", { kind, eventName });
+};
 
 const refreshOsPermissionStatus = (): Promise<
   FirebaseMessagingTypes.AuthorizationStatus | undefined
@@ -125,6 +147,8 @@ const getFeatureFlagProperties = () => {
     const ptxSwapLiveAppMobileFlag = analyticsFeatureFlagMethod("ptxSwapLiveAppMobile");
     const ptxSwapLiveAppKycWarning = analyticsFeatureFlagMethod("ptxSwapLiveAppKycWarning");
     const ptxBorrowLiveAppFlag = analyticsFeatureFlagMethod("ptxBorrowLiveApp");
+    const stableSavingsFlag = analyticsFeatureFlagMethod("stableSavings");
+    const ptxEarnCtaOnMobileFlag = analyticsFeatureFlagMethod("ptxEarnCtaOnMobile");
     const lwmAnalyticsConsentOnboardingFlag = analyticsFeatureFlagMethod(
       "lwmAnalyticsConsentOnboarding",
     );
@@ -142,6 +166,8 @@ const getFeatureFlagProperties = () => {
     const ptxSwapLiveAppMobileEnabled = Boolean(ptxSwapLiveAppMobileFlag?.enabled);
     const ptxSwapLiveAppKycWarningEnabled = Boolean(ptxSwapLiveAppKycWarning?.enabled);
     const borrowFeature = Boolean(ptxBorrowLiveAppFlag?.enabled);
+    const stableSavings = Boolean(stableSavingsFlag?.enabled);
+    const ptxEarnCtaOnMobile = Boolean(ptxEarnCtaOnMobileFlag?.enabled);
     const lwmAnalyticsConsentOnboarding = Boolean(lwmAnalyticsConsentOnboardingFlag?.enabled);
     const lwmNotificationsOptIn = Boolean(lwmNotificationsOptInFlag?.enabled);
 
@@ -178,6 +204,8 @@ const getFeatureFlagProperties = () => {
       ptxSwapLiveAppMobileEnabled,
       ptxSwapLiveAppKycWarningEnabled,
       borrowFeature,
+      stableSavings,
+      ptxEarnCtaOnMobile,
       lwmAnalyticsConsentOnboarding,
       lwmNotificationsOptIn,
     });
@@ -218,7 +246,9 @@ const getMEVAttributes = (state: State) => {
 const getMandatoryProperties = (store: AppStore) => {
   const state: State = store.getState();
   const userId = userIdSelector(state);
-  const userIdStr = isDummyUserId(userId) ? undefined : userId.exportUserIdForAnalytics();
+  const includeIdentity = shouldIncludeSegmentIdentity(state);
+  const userIdStr =
+    includeIdentity && !isDummyUserId(userId) ? userId.exportUserIdForAnalytics() : undefined;
   const analyticsEnabled = analyticsEnabledSelector(state);
   const personalizedRecommendationsEnabled = personalizedRecommendationsEnabledSelector(state);
   const hasSeenAnalyticsOptInPrompt = hasSeenAnalyticsOptInPromptSelector(state);
@@ -227,16 +257,17 @@ const getMandatoryProperties = (store: AppStore) => {
   const analyticsInfo = analyticsConsentInfoSelector(state);
   const analyticsConsentOnboardingAttributes = getAnalyticsConsentOnboardingAttributes();
   const notificationsOptInAttributes = getNotificationsOptInAttributes();
-
+  const language = languageSelector(state);
+  const abTests = getContentAbTestTracking(language);
   return {
-    userId: userIdStr,
-    braze_external_id: userIdStr, // Needed for braze with this exact name
+    ...(userIdStr ? { userId: userIdStr, braze_external_id: userIdStr } : {}),
     devModeEnabled,
     optInAnalytics: analyticsEnabled,
     optInPersonalRecommendations: personalizedRecommendationsEnabled,
     hasSeenAnalyticsOptInPrompt,
     readOnlyMode,
     analyticsInfo,
+    ab_tests: abTests,
     ...analyticsConsentOnboardingAttributes,
     ...notificationsOptInAttributes,
   };
@@ -292,11 +323,38 @@ const getProductTourAttributes = () => {
   };
 };
 
+const getLazyOnboardingBannerAttributes = () => {
+  if (!analyticsFeatureFlagMethod) {
+    return { lazyOnboardingBanner: false, lazyOnboardingBannerMode: null };
+  }
+  const flag = analyticsFeatureFlagMethod("lazyOnboardingBanner");
+  const enabled = !!flag?.enabled;
+  return {
+    lazyOnboardingBanner: enabled,
+    // Only expose mode for the enabled cohort — defaults still exist when the flag is off.
+    lazyOnboardingBannerMode: enabled ? (flag?.params?.mode ?? null) : null,
+  };
+};
+
 const getLdmkAndSyncFlags = () => ({
-  ldmkTransport: analyticsFeatureFlagMethod?.("ldmkTransport") ?? { enabled: false },
-  ldmkConnectApp: analyticsFeatureFlagMethod?.("ldmkConnectApp") ?? { enabled: false },
-  ldmkSolanaSigner: analyticsFeatureFlagMethod?.("ldmkSolanaSigner") ?? { enabled: false },
-  ldmkCosmosSigner: analyticsFeatureFlagMethod?.("ldmkCosmosSigner") ?? { enabled: false },
+  ldmkTransport: analyticsFeatureFlagMethod?.("ldmkTransport") ?? {
+    enabled: false,
+  },
+  ldmkConnectApp: analyticsFeatureFlagMethod?.("ldmkConnectApp") ?? {
+    enabled: false,
+  },
+  ldmkSolanaSigner: analyticsFeatureFlagMethod?.("ldmkSolanaSigner") ?? {
+    enabled: false,
+  },
+  ldmkCosmosSigner: analyticsFeatureFlagMethod?.("ldmkCosmosSigner") ?? {
+    enabled: false,
+  },
+  ldmkPolkadotSigner: analyticsFeatureFlagMethod?.("ldmkPolkadotSigner") ?? {
+    enabled: false,
+  },
+  ldmkTronSigner: analyticsFeatureFlagMethod?.("ldmkTronSigner") ?? {
+    enabled: false,
+  },
 });
 
 const getAccountsWithFunds = (accounts: ReturnType<typeof accountsSelector>) =>
@@ -318,7 +376,11 @@ const getStakingCurrenciesFromFlags = () => {
     stakePrograms?.enabled && stakePrograms?.params?.redirects
       ? Object.keys(stakePrograms.params.redirects)
       : [];
-  return { stakePrograms, stakingCurrenciesEnabled, partnerStakingCurrenciesEnabled };
+  return {
+    stakePrograms,
+    stakingCurrenciesEnabled,
+    partnerStakingCurrenciesEnabled,
+  };
 };
 
 const getFlowAndSatisfactionProps = (
@@ -344,9 +406,19 @@ const extraProperties = async (store: AppStore) => {
   const bleDevices = bleDevicesSelector(state);
   const satisfaction = satisfactionSelector(state);
   const accounts = accountsSelector(state);
+  const contactsAttributes = buildContactsGlobalProperties({
+    contacts: selectContacts(state),
+  });
+  const contactsFeature = analyticsFeatureFlagMethod?.("lwmContacts") ?? { enabled: false };
   const lastDevice = devices.at(-1) || bleDevices.at(-1);
-  const { ldmkTransport, ldmkConnectApp, ldmkSolanaSigner, ldmkCosmosSigner } =
-    getLdmkAndSyncFlags();
+  const {
+    ldmkTransport,
+    ldmkConnectApp,
+    ldmkSolanaSigner,
+    ldmkCosmosSigner,
+    ldmkPolkadotSigner,
+    ldmkTronSigner,
+  } = getLdmkAndSyncFlags();
   const deviceInfo = lastDevice
     ? {
         deviceVersion: lastDevice.deviceInfo?.version,
@@ -421,7 +493,10 @@ const extraProperties = async (store: AppStore) => {
   const seenBleModels = new Set(bleDevices.map(d => d.modelId));
   const usbDeviceModelSeen = devices.filter(d => !seenBleModels.has(d.modelId));
   const devicesCount = bleDevices.length + usbDeviceModelSeen.length;
-  const modelIdQtyList = { ...aggregateData(bleDevices), ...aggregateData(usbDeviceModelSeen) };
+  const modelIdQtyList = {
+    ...aggregateData(bleDevices),
+    ...aggregateData(usbDeviceModelSeen),
+  };
 
   const startupEvents = await resolveStartupEvents();
   const legacyStartupTime = startupEvents.find(
@@ -430,6 +505,16 @@ const extraProperties = async (store: AppStore) => {
 
   const backupHubAttributes = getBackupHubAttributes();
   const productTourAttributes = getProductTourAttributes();
+  const lazyOnboardingBannerAttributes = getLazyOnboardingBannerAttributes();
+  const payAttributes = getPayAttributes(
+    state,
+    analyticsFeatureFlagMethod?.("lwmPayTab")?.enabled ?? false,
+    accounts ?? [],
+  );
+  const appLockAttributes = getAppLockAttributes(
+    state,
+    analyticsFeatureFlagMethod?.("lwmPasswordRevamp")?.enabled ?? false,
+  );
 
   return {
     ...mandatoryProperties,
@@ -455,6 +540,8 @@ const extraProperties = async (store: AppStore) => {
     notificationsBlacklisted,
     ...notificationsOptedIn,
     accountsWithFunds,
+    ContactsAttributes: contactsFeature,
+    ...contactsAttributes,
     appTimeToInteractiveMilliseconds: legacyStartupTime, // WARNING: this is not accurate in practice the splash is still blocking the user at this point
     staxDeviceUser: knownDeviceModelIds.stax,
     staxLockscreen: customImageType || "none",
@@ -467,18 +554,23 @@ const extraProperties = async (store: AppStore) => {
     ...mevProtectionAttributes,
     ...backupHubAttributes,
     ...productTourAttributes,
+    ...lazyOnboardingBannerAttributes,
     migrationToMMKV,
     tokenWithFunds,
     isLDMKTransportEnabled: ldmkTransport?.enabled,
     isLDMKConnectAppEnabled: ldmkConnectApp?.enabled,
     isLDMKSolanaSignerEnabled: ldmkSolanaSigner?.enabled,
     isLDMKCosmosSignerEnabled: ldmkCosmosSigner?.enabled,
+    isLDMKPolkadotSignerEnabled: ldmkPolkadotSigner?.enabled,
+    isLDMKTronSignerEnabled: ldmkTronSigner?.enabled,
     stakingCurrenciesEnabled,
     partnerStakingCurrenciesEnabled,
     madAttributes,
     totalStakeableAssets: combinedIds.size,
     stakeableAssets: stakeableAssetsList,
     wallet40Attributes,
+    ...payAttributes,
+    ...appLockAttributes,
     quickActionsCtasVariant: quickActionsCtasVariantFlag?.enabled,
     finishOnboardingWidget: onboardingWidgetFlag?.enabled,
     ...onboardingCounterfeitWarningAttributes,
@@ -487,29 +579,52 @@ const extraProperties = async (store: AppStore) => {
 };
 
 const token = ANALYTICS_TOKEN;
+
+setAnalytics({
+  track: async (event, props) => {
+    if (!token) return "skipped_no_token";
+    if (!segmentClient) {
+      warnOnceNoSegmentClient(event, event.startsWith("Page ") ? "screen" : "track");
+      return "skipped_no_client";
+    }
+    await segmentClient.track(event, props as Parameters<SegmentClient["track"]>[1]);
+  },
+  log: (type, event, props) => {
+    if (!ANALYTICS_LOGS) return;
+    if (type === "page") {
+      console.log("analytics:screen", event, props);
+    } else {
+      console.log("analytics:track", event, props);
+    }
+  },
+  flush: async () => {
+    await segmentClient?.flush();
+  },
+});
+
 export const start = async (store: AppStore): Promise<SegmentClient | undefined> => {
   storeInstance = store;
+
+  setEnabledFn(() => trackingEnabledSelector(store.getState()));
+  setExtraPropsFn(() => extraProperties(store));
+  setMandatoryExtraPropsFn(() => getMandatoryProperties(store));
 
   // Prime the OS notification permission cache and keep it fresh on every foreground, so that
   // `hasEnabledOsNotifications` reflects changes the user made in the phone settings.
   refreshOsPermissionStatus();
   appStateSubscription?.remove();
   appStateSubscription = AppState.addEventListener("change", nextAppState => {
-    if (nextAppState === "active") refreshOsPermissionStatus();
+    if (nextAppState === "active") {
+      refreshOsPermissionStatus();
+    } else if (nextAppState === "background" || nextAppState === "inactive") {
+      void flush().catch(error => {
+        if (ANALYTICS_LOGS) console.warn("Failed to flush analytics in background:", error);
+      });
+    }
   });
 
-  const initialUrl = await Linking.getInitialURL();
-  const isDeeplinkSession = !!initialUrl;
-
-  if (ANALYTICS_LOGS) {
-    const state = store.getState();
-    const userId = userIdSelector(state);
-    if (!isDummyUserId(userId)) {
-      console.log("analytics:identify", userId.exportUserIdForAnalytics());
-    }
-  }
-
-  console.log("START ANALYTICS", ANALYTICS_LOGS);
+  // Created before any await so events tracked during startup are queued by the SDK
+  // instead of dropped for lack of a client.
   if (token) {
     segmentClient = createClient({
       writeKey: token,
@@ -522,17 +637,36 @@ export const start = async (store: AppStore): Promise<SegmentClient | undefined>
     // This allows us to debounce identify events for Braze and save data points
     segmentClient.add({ plugin: new BrazePlugin() });
 
+    wrapSegmentClientFlush(segmentClient);
+
     await updateIdentify();
   }
-  await track("Start", { isDeeplinkSession });
+
+  console.log("START ANALYTICS", ANALYTICS_LOGS);
+  const initialUrl = await Linking.getInitialURL();
+  const isDeeplinkSession = !!initialUrl;
+
+  if (ANALYTICS_LOGS) {
+    const state = store.getState();
+    const userId = userIdSelector(state);
+    if (!isDummyUserId(userId)) {
+      console.log("analytics:identify", userId.exportUserIdForAnalytics());
+    }
+  }
+
+  await sharedTrack("Start", { isDeeplinkSession });
 
   return segmentClient;
 };
 
 export const updateIdentify = async (additionalProperties?: UserTraits, mandatory?: boolean) => {
-  const state = storeInstance?.getState();
+  if (!storeInstance) {
+    return;
+  }
+
+  const state = storeInstance.getState();
   const isTracking = getIsTracking(state, mandatory);
-  if (!storeInstance || !isTracking.enabled) {
+  if (!isTracking.enabled) {
     return;
   }
 
@@ -544,17 +678,41 @@ export const updateIdentify = async (additionalProperties?: UserTraits, mandator
     : baseProperties;
   if (ANALYTICS_LOGS) console.log("analytics:identify", allProperties);
   if (!token) return;
-  await segmentClient?.identify(userExtraProperties.userId, allProperties);
+  if (!segmentClient) return;
+  const segmentUserId = shouldIncludeSegmentIdentity(state)
+    ? userExtraProperties.userId
+    : undefined;
+  const overlayProperties = { userIdPresent: Boolean(segmentUserId) };
+  try {
+    await segmentClient.identify(segmentUserId, allProperties);
+    publishAnalyticsEvent({
+      eventName: "[Identify]",
+      eventProperties: overlayProperties,
+      deliveryStatus: "enqueued",
+    });
+  } catch {
+    publishAnalyticsEvent({
+      eventName: "[Identify]",
+      eventProperties: overlayProperties,
+      deliveryStatus: "failed_tracking",
+    });
+  }
 };
 
-type Properties = Error | Record<string, unknown> | null;
-export type LoggableEvent = {
-  eventName: string;
-  eventProperties?: Properties;
-  eventPropertiesWithoutExtra?: Properties;
-  date: Date;
+const wrapSegmentClientFlush = (client: SegmentClient) => {
+  const originalFlush = client.flush.bind(client);
+  client.flush = async () => {
+    const pendingEvents = await client.pendingEvents().catch(() => 0);
+    await originalFlush();
+    if (pendingEvents === 0) return;
+
+    publishAnalyticsEvent({
+      eventName: "[Flush]",
+      eventProperties: { pendingEvents },
+      deliveryStatus: "flushed",
+    });
+  };
 };
-export const trackSubject = new ReplaySubject<LoggableEvent>(30);
 
 type EventType = (string & {}) | "button_clicked" | "error_message";
 
@@ -574,44 +732,6 @@ export function getIsTracking(
   return { enabled: true };
 }
 
-export const track = async (
-  event: EventType,
-  eventProperties?: Error | Record<string, unknown> | null,
-  mandatory?: boolean | null,
-) => {
-  const state = storeInstance?.getState();
-
-  const isTracking = getIsTracking(state, mandatory);
-  if (!isTracking.enabled) {
-    if (ANALYTICS_LOGS) console.log("analytics:track: not tracking because: ", isTracking.reason);
-    return;
-  }
-
-  const page = currentRouteNameRef.current;
-
-  const userExtraProperties = await extraProperties(storeInstance as AppStore);
-  const mandatoryProperties = getMandatoryProperties(storeInstance as AppStore);
-  const propertiesWithoutExtra = {
-    page,
-    ...eventProperties,
-  };
-  const allProperties = {
-    ...propertiesWithoutExtra,
-    ...(mandatory ? mandatoryProperties : userExtraProperties),
-  };
-  if (ANALYTICS_LOGS) console.log("analytics:track", event, allProperties);
-  trackSubject.next({
-    eventName: event,
-    eventProperties: allProperties,
-    eventPropertiesWithoutExtra: propertiesWithoutExtra,
-    date: new Date(),
-  });
-  if (!token) return;
-  segmentClient?.track(
-    event,
-    allProperties as Parameters<NonNullable<typeof segmentClient>["track"]>[1],
-  );
-};
 export const getPageNameFromRoute = (route: RouteProp<ParamListBase>) => {
   const routeName = getFocusedRouteNameFromRoute(route) || NavigatorName.Portfolio;
   return snakeCase(routeName);
@@ -622,122 +742,12 @@ export const trackWithRoute = (
   properties?: Record<string, unknown> | null,
   mandatory?: boolean | null,
 ) => {
-  const newProperties = properties
-    ? { page: getPageNameFromRoute(route), ...properties }
-    : { page: getPageNameFromRoute(route) };
-  track(event, newProperties, mandatory);
+  const page = getPageNameFromRoute(route);
+  const newProperties = properties ? { page, ...properties } : { page };
+  sharedTrack(event, newProperties, { mandatory: !!mandatory });
 };
 
-export const flush = async () => segmentClient?.flush();
-
-export const useTrack = () => {
-  const route = useRoute();
-  const track = useCallback(
-    (event: EventType, properties?: Record<string, unknown> | null, mandatory?: boolean | null) =>
-      trackWithRoute(event, route, properties, mandatory),
-    [route],
-  );
-  return track;
-};
 export const usePageNameFromRoute = () => {
   const route = useRoute();
   return getPageNameFromRoute(route);
-};
-export const useAnalytics = () => {
-  const track = useTrack();
-  const page = usePageNameFromRoute();
-  return {
-    track,
-    page,
-  };
-};
-
-const lastScreenEventName: RefObject<string | null | undefined> = React.createRef();
-
-/**
- * Track an event which will have the name `Page ${category}${name ? " " + name : ""}`.
- * Extra logic to update the route names used in "screen" and "source"
- * properties of further events can be optionally enabled with the parameters
- * `updateRoutes` and `refreshSource`.
- */
-export const screen = async (
-  /**
-   * First part of the event name string
-   */
-  category?: string,
-  /**
-   * Second part of the event name string, will be concatenated to `category`
-   * after a whitespace if defined.
-   */
-  name?: string | null,
-  /**
-   * Event properties
-   */
-  properties?: Record<string, unknown> | null | undefined,
-  /**
-   * Should this function call update the previous & current route names.
-   * Previous and current route names are used to track:
-   * - the `screen` property in non-screen events (for instance `button_clicked` events)
-   * - the `source` property in further screen events
-   */
-  updateRoutes?: boolean,
-  /**
-   * Should this function call update the current route name.
-   * If true, it means that the full screen name (`category` + " " + `name`) will
-   * be used as a "source" property for further screen events.
-   * NB: the previous parameter `updateRoutes` must be true for this to have
-   * any effect.
-   */
-  refreshSource?: boolean,
-  /**
-   * When true, event will not be emitted if it's a duplicate (if the last
-   * screen event emitted was the same screen event).
-   * This is practical in case a TrackScreen component gets remounted.
-   */
-  avoidDuplicates?: boolean,
-  /**
-   * When true, we force the tracking for this event.
-   */
-  mandatory?: boolean,
-) => {
-  const fullScreenName = (category || "") + (category && name ? " " : "") + (name || "");
-  const eventName = `Page ${fullScreenName}`;
-  if (avoidDuplicates && eventName === lastScreenEventName.current) return;
-  lastScreenEventName.current = eventName;
-  if (updateRoutes) {
-    previousRouteNameRef.current = currentRouteNameRef.current;
-    if (refreshSource) {
-      currentRouteNameRef.current = fullScreenName;
-    }
-  }
-
-  const state = storeInstance?.getState();
-
-  const isTracking = getIsTracking(state, mandatory);
-  if (!isTracking.enabled) {
-    if (ANALYTICS_LOGS) console.log("analytics:screen: not tracking because: ", isTracking.reason);
-    return;
-  }
-
-  const source = previousRouteNameRef.current;
-
-  const userExtraProperties = await extraProperties(storeInstance as AppStore);
-  const mandatoryProperties = getMandatoryProperties(storeInstance as AppStore);
-  const eventPropertiesWithoutExtra = properties ? { source, ...properties } : { source };
-  const allProperties = {
-    ...eventPropertiesWithoutExtra,
-    ...(mandatory ? mandatoryProperties : userExtraProperties),
-  };
-  if (ANALYTICS_LOGS) console.log("analytics:screen", category, name, allProperties);
-  trackSubject.next({
-    eventName,
-    eventProperties: allProperties,
-    eventPropertiesWithoutExtra,
-    date: new Date(),
-  });
-  if (!token) return;
-  segmentClient?.track(
-    eventName,
-    allProperties as Parameters<NonNullable<typeof segmentClient>["track"]>[1],
-  );
 };

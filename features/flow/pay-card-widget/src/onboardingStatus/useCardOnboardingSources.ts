@@ -1,0 +1,125 @@
+import { useCallback, useMemo } from "react";
+import {
+  useGetCardStatusQuery,
+  useGetCardTransactionsInfiniteQuery,
+  useGetUserQuery,
+} from "@domain/api-card-management";
+import { useCardLinkedWallets } from "@features/flow-pay-card-wallets";
+import { hasPositiveBalance, type CardOnboardingSignals } from "./deriveCardOnboardingStatus";
+import type { CardOnboardingProviderStepId } from "./steps";
+import type { CryptoOrTokenCurrency } from "@domain/entity-currency";
+
+export type CardOnboardingSourcesParams = {
+  /**
+   * Holds every read. The Card endpoints need a session, so a host that is signed out sets this
+   * rather than collecting 401s; while it is set, every step reads as not done.
+   */
+  readonly skip?: boolean;
+};
+
+export type CardOnboardingSources = {
+  readonly signals: CardOnboardingSignals<CardOnboardingProviderStepId>;
+  /**
+   * Whether the card sits in the phone's wallet, or `undefined` from a tenant that does not answer
+   * for it. Not a signal: a step nothing answered is for the platform to decide, and only mobile
+   * lists this one.
+   */
+  readonly cardAddedToDigitalWallet: boolean | undefined;
+  /** The first read only: after it, every signal has an answer to show. */
+  readonly isLoading: boolean;
+  /** Any read in flight, refetches included, so the signals may be stale. */
+  readonly isFetching: boolean;
+  readonly isError: boolean;
+  readonly hasSourceError: boolean;
+  readonly refresh: () => void;
+};
+
+const NO_CURRENCIES: ReadonlyMap<string, CryptoOrTokenCurrency> = new Map();
+
+type ReadFlags = {
+  readonly isLoading: boolean;
+  readonly isFetching: boolean;
+  readonly isError: boolean;
+};
+
+const QUIET_READ: ReadFlags = { isLoading: false, isFetching: false, isError: false };
+
+function isCardNotFoundError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "status" in error && error.status === 404;
+}
+
+function cardReads(cardMissing: boolean, reads: readonly ReadFlags[]): ReadFlags {
+  if (cardMissing) return QUIET_READ;
+
+  return {
+    isLoading: reads.some(read => read.isLoading),
+    isFetching: reads.some(read => read.isFetching),
+    isError: reads.some(read => read.isError),
+  };
+}
+
+/**
+ * Asks the Card endpoints what they can answer about onboarding.
+ *
+ * The provider serves no onboarding endpoint: each step is a different question, so they are asked
+ * separately here and joined by the platform hook, which knows which steps its dialog lists. A step
+ * nothing can answer yet reads as not done.
+ */
+export function useCardOnboardingSources({
+  skip = false,
+}: CardOnboardingSourcesParams = {}): CardOnboardingSources {
+  const user = useGetUserQuery(undefined, { skip });
+  const cardStatus = useGetCardStatusQuery(undefined, { skip });
+  const transactions = useGetCardTransactionsInfiniteQuery(undefined, { skip });
+  const linkedWallets = useCardLinkedWallets({ currencies: NO_CURRENCIES, skip });
+
+  const signals = useMemo(
+    () => ({
+      "create-account": user.data?.verificationState === "VERIFIED",
+      // Any card the provider answers with is a card: a frozen or blocked one was still ordered,
+      // and reading it as "no card" would send the holder back to choosing a type.
+      "choose-card-type": cardStatus.data !== undefined,
+      "top-up-card": linkedWallets.wallets.some(({ balance }) => hasPositiveBalance(balance)),
+      // Every page read, not just the first: the newest page can hold nothing but pending or
+      // declined attempts while an older charge did settle.
+      "first-purchase": (transactions.data?.pages ?? []).some(page =>
+        page.some(({ status }) => status === "CONFIRMED"),
+      ),
+    }),
+    [user.data, cardStatus.data, linkedWallets.wallets, transactions.data],
+  );
+
+  const { refetch: refetchUser } = user;
+  const { refetch: refetchCardStatus } = cardStatus;
+  const { refetch: refetchTransactions } = transactions;
+  const { refetch: refetchWallets } = linkedWallets;
+
+  const refresh = useCallback(() => {
+    // Nothing was started while skipped, and RTK throws when asked to refetch that.
+    if (skip) {
+      return;
+    }
+
+    refetchUser();
+    refetchCardStatus();
+    refetchTransactions();
+    refetchWallets();
+  }, [skip, refetchUser, refetchCardStatus, refetchTransactions, refetchWallets]);
+
+  const cardMissing = cardStatus.data === undefined && isCardNotFoundError(cardStatus.error);
+  const card = cardReads(cardMissing, [cardStatus, transactions, linkedWallets]);
+
+  return {
+    signals,
+    cardAddedToDigitalWallet: cardStatus.data?.cardAddedToDigitalWallet,
+    refresh,
+    isLoading: user.isLoading || card.isLoading,
+    // Every read in flight, refetches included: a consumer acting on the signals has to wait for
+    // them to settle, while `isLoading` only covers the first read.
+    isFetching: user.isFetching || card.isFetching,
+    // A step that cannot be answered is reported as not done, so only a failure the holder can do
+    // nothing about is surfaced: the account read itself.
+    isError: user.isError,
+    hasSourceError: user.isError || card.isError,
+  };
+}

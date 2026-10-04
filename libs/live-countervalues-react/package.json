@@ -1,6 +1,6 @@
 {
   "name": "@ledgerhq/live-countervalues-react",
-  "version": "0.16.3",
+  "version": "0.18.1",
   "description": "Ledger Live countervalues React module",
   "keywords": [
     "Ledger"
@@ -13,24 +13,25 @@
     "url": "https://github.com/LedgerHQ/ledger-live/issues"
   },
   "homepage": "https://github.com/LedgerHQ/ledger-live/tree/develop/libs/env",
-  "publishConfig": {
-    "access": "public"
-  },
-  "main": "lib/index.js",
-  "module": "lib-es/index.js",
-  "types": "lib/index.d.ts",
+  "private": true,
+  "main": "src/index.tsx",
+  "types": "src/index.tsx",
   "license": "Apache-2.0",
   "peerDependencies": {
     "react": ">=16"
   },
   "dependencies": {
-    "@ledgerhq/types-live": "workspace:*",
-    "@ledgerhq/live-countervalues": "workspace:*",
+    "@domain/api-market-countervalues": "workspace:*",
+    "@domain/entity-market-countervalues": "workspace:*",
+    "@features/platform-market-countervalues": "workspace:*",
     "@ledgerhq/ledger-wallet-framework": "workspace:^",
     "@ledgerhq/live-hooks": "workspace:*",
+    "@ledgerhq/logs": "catalog:",
     "bignumber.js": "9"
   },
   "devDependencies": {
+    "@types/react": "catalog:",
+    "@ledgerhq/test-quarantine": "workspace:*",
     "@ledgerhq/wallet-framework-test-setup": "workspace:^",
     "@types/node": "catalog:",
     "@types/jest": "catalog:",
@@ -44,60 +45,15 @@
     "@swc/core": "catalog:"
   },
   "scripts": {
-    "clean": "rimraf lib lib-es",
-    "build": "tsc --project tsconfig.build.json && tsc --project tsconfig.build.json -m esnext --moduleResolution bundler --outDir lib-es",
-    "prewatch": "pnpm build",
-    "watch": "tsc --watch --project tsconfig.build.json",
-    "watch:es": "tsc --watch --project tsconfig.build.json -m esnext --moduleResolution bundler --outDir lib-es",
     "lint": "oxlint -c ../oxc-live-libs/.oxlintrc.json ./src",
     "lint:fix": "pnpm lint --fix",
     "typecheck": "tsc --noEmit --customConditions node",
-    "unimported": "pnpm knip --directory ../.. -W libs/live-countervalues-react",
     "test": "jest",
     "coverage": "jest --coverage"
   },
-  "typesVersions": {
-    "*": {
-      "*.json": [
-        "*.json"
-      ],
-      "*": [
-        "lib/*"
-      ],
-      "lib/*": [
-        "lib/*"
-      ],
-      "lib-es/*": [
-        "lib-es/*"
-      ]
-    }
-  },
   "exports": {
-    ".": {
-      "@ledgerhq/source": "./src/index.tsx",
-      "require": "./lib/index.js",
-      "default": "./lib-es/index.js"
-    },
-    "./lib/*": "./lib/*.js",
-    "./lib/*.js": "./lib/*.js",
-    "./lib-es/*": "./lib-es/*.js",
-    "./lib-es/*.js": "./lib-es/*.js",
-    "./*": {
-      "@ledgerhq/source": [
-        "./src/*.ts",
-        "./src/*.tsx"
-      ],
-      "require": "./lib/*.js",
-      "default": "./lib-es/*.js"
-    },
-    "./*.js": {
-      "@ledgerhq/source": [
-        "./src/*.ts",
-        "./src/*.tsx"
-      ],
-      "require": "./lib/*.js",
-      "default": "./lib-es/*.js"
-    },
+    ".": "./src/index.tsx",
+    "./index": "./src/index.tsx",
     "./package.json": "./package.json"
   }
 }

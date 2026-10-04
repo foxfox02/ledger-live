@@ -1,14 +1,9 @@
+import { track } from "@shared/analytics";
 import { act, renderHook } from "@tests/test-renderer";
 import { getCryptoCurrencyById } from "@domain/entity-currency-crypto";
-import { track } from "~/analytics";
 import type { State } from "~/reducers/types";
+import { NotificationsPromptProvider } from "LLM/features/NotificationsPrompt";
 import { useAssetCoinOptionsViewModel } from "../useAssetCoinOptionsViewModel";
-
-jest.mock("LLM/features/NotificationsPrompt", () => ({
-  useNotifications: () => ({ tryTriggerPushNotificationDrawerAfterAction: jest.fn() }),
-}));
-
-jest.mock("~/analytics", () => ({ track: jest.fn() }));
 
 const bitcoin = getCryptoCurrencyById("bitcoin");
 
@@ -26,6 +21,7 @@ function renderViewModel({
   return renderHook(
     () => useAssetCoinOptionsViewModel({ currency: bitcoin, currencyId, marketId }),
     {
+      innerWrapper: NotificationsPromptProvider,
       overrideInitialState: (state: State): State => ({
         ...state,
         settings: { ...state.settings, blacklistedTokenIds, starredMarketCoins },
@@ -44,7 +40,7 @@ describe("useAssetCoinOptionsViewModel", () => {
 
     act(() => result.current.onToggleFavourite());
     expect(store.getState().settings.starredMarketCoins).toContain(bitcoin.id);
-    expect(track).toHaveBeenLastCalledWith(
+    expect(track).toHaveBeenCalledWith(
       "button_clicked",
       expect.objectContaining({
         button: "favourite",
@@ -54,7 +50,7 @@ describe("useAssetCoinOptionsViewModel", () => {
 
     act(() => result.current.onToggleFavourite());
     expect(store.getState().settings.starredMarketCoins).not.toContain(bitcoin.id);
-    expect(track).toHaveBeenLastCalledWith(
+    expect(track).toHaveBeenCalledWith(
       "button_clicked",
       expect.objectContaining({
         button: "favourite",
@@ -72,6 +68,7 @@ describe("useAssetCoinOptionsViewModel", () => {
           marketId: "shiba-inu",
         }),
       {
+        innerWrapper: NotificationsPromptProvider,
         overrideInitialState: (state: State): State => ({
           ...state,
           settings: { ...state.settings, starredMarketCoins: [] },

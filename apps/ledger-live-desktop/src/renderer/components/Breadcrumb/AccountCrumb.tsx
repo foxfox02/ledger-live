@@ -24,11 +24,11 @@ import Button from "~/renderer/components/Button";
 import Ellipsis from "~/renderer/components/Ellipsis";
 import CryptoCurrencyIcon from "~/renderer/components/CryptoCurrencyIcon";
 import { Separator, Item, TextLink, AngleDown, Check } from "./common";
-import { setTrackingSource } from "~/renderer/analytics/TrackPage";
-import { walletSelector } from "~/renderer/reducers/wallet";
-import { accountNameWithDefaultSelector } from "@ledgerhq/live-wallet/store";
+import { setTrackingSource } from "@shared/analytics";
+import { walletSelector, accountNameWithDefaultSelector } from "~/renderer/reducers/wallet";
 import { useWalletFeaturesConfig } from "@features/platform-feature-flags";
 import { getAccountsSidebarPath } from "LLD/components/SideBar/utils";
+import { useAccountIdFromRoute } from "~/renderer/hooks/useAccountIdFromRoute";
 
 type ItemShape = {
   key: string;
@@ -41,22 +41,25 @@ const AccountCrumb = () => {
   const { t } = useTranslation();
   const { "*": splat } = useParams<{ "*": string }>();
 
-  const { parentId, id } = useMemo(() => {
+  const { parentSegment, idSegment } = useMemo(() => {
     if (!splat) {
-      return { parentId: undefined, id: undefined };
+      return { parentSegment: undefined, idSegment: undefined };
     }
     const segments = splat.split("/").filter(Boolean);
     if (segments.length === 0) {
-      return { parentId: undefined, id: undefined };
+      return { parentSegment: undefined, idSegment: undefined };
     }
     if (segments.length === 1) {
-      return { parentId: undefined, id: segments[0] };
+      return { parentSegment: undefined, idSegment: segments[0] };
     }
     return {
-      parentId: segments[0],
-      id: segments.slice(1).join("/"),
+      parentSegment: segments[0],
+      idSegment: segments.slice(1).join("/"),
     };
   }, [splat]);
+
+  const parentId = useAccountIdFromRoute(parentSegment);
+  const id = useAccountIdFromRoute(idSegment);
 
   const { shouldDisplayAssetSection } = useWalletFeaturesConfig("desktop");
 

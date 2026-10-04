@@ -1,6 +1,6 @@
 {
   "name": "@devtools/registry",
-  "version": "0.1.7",
+  "version": "0.5.0",
   "private": true,
   "description": "Static registry of lazy-loaded DevTools modules",
   "main": "src/index.ts",
@@ -9,12 +9,21 @@
   "scripts": {
     "format": "oxfmt src",
     "format:check": "oxfmt src --check",
+    "add-tool": "nx g @ledgerhq/generators:devtool && oxfmt src",
+    "reformat": "nx g @ledgerhq/generators:reformat-devtool-registry && oxfmt src",
     "typecheck": "tsc --noEmit",
-    "coverage": "echo \"no tests in @devtools/registry\""
+    "coverage": "echo \"no tests in @devtools/registry\"",
+    "lint": "oxlint src",
+    "unimported": "pnpm knip --directory ../.. -W devtools/registry"
   },
   "dependencies": {
+    "zod": "catalog:",
     "@devtools/feature-flags": "workspace:*",
-    "zod": "catalog:"
+    "@devtools/env": "workspace:*",
+    "@devtools/pay-card": "workspace:*",
+    "@devtools/trustchain": "workspace:*",
+    "@devtools/cloud-sync": "workspace:*",
+    "@devtools/device-onboarding": "workspace:*"
   },
   "peerDependencies": {
     "react": ">=19"
@@ -22,6 +31,7 @@
   "devDependencies": {
     "@types/react": "catalog:",
     "react": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "@ledgerhq/generators": "workspace:*"
   }
 }

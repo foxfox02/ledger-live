@@ -1,3 +1,4 @@
+import { track } from "@shared/analytics";
 import React, { useMemo, useEffect, useRef } from "react";
 import { useSelector, useDispatch } from "~/context/hooks";
 import { Linking, View, StyleSheet } from "react-native";
@@ -17,10 +18,10 @@ import { LiveAppManifest } from "@ledgerhq/live-common/platform/types";
 import { hasCompletedOnboardingSelector } from "~/reducers/settings";
 import { navigationRef, isReadyRef } from "../rootnavigation";
 import { ScreenName, NavigatorName } from "~/const";
+import { PAY_TAB_DEEP_LINK_PATH } from "./deeplinks/payTabDeepLink";
 import { setWallectConnectUri } from "~/actions/walletconnect";
 import { useGeneralTermsAccepted } from "~/logic/terms";
 import { lightTheme, darkTheme, Theme } from "../colors";
-import { track } from "~/analytics";
 import {
   makeSetEarnInfoModalAction,
   makeSetEarnMenuModalAction,
@@ -42,7 +43,6 @@ import {
   logSecurityEvent,
   EarnDeeplinkAction,
   validateEarnDepositScreen,
-  validateLargeMoverCurrencyIds,
   validateLargeMoverLedgerIds,
 } from "./deeplinks/validation";
 import { handleWallet40Deeplink } from "./deeplinks/handleWallet40Deeplink";
@@ -429,6 +429,14 @@ export const DeeplinksProvider = ({
                           [ScreenName.PerpsTab]: "perps",
                         },
                       },
+                      /**
+                       * ie: "ledgerlive://swap/history?swapId=XXXX" -> will open the swap history with that swap's status drawer
+                       */
+                      [NavigatorName.SwapSubScreens]: {
+                        screens: {
+                          [ScreenName.SwapHistory]: "swap/history",
+                        },
+                      },
                       [NavigatorName.Main]: {
                         initialRouteName: ScreenName.Portfolio,
                         screens: {
@@ -478,6 +486,8 @@ export const DeeplinksProvider = ({
                                * * @params ?currencyId: string
                                * ie: "ledgerlive://earn?action=get-funds&currencyId=ethereum" will open buy drawer with currency
                                *
+                               * ie: "ledgerlive://earn/simulate" will open the earn rewards simulator
+                               *
                                */
                               [ScreenName.Earn]: "earn",
                             },
@@ -514,7 +524,7 @@ export const DeeplinksProvider = ({
                              */
                             [NavigatorName.PayTab]: {
                               screens: {
-                                [ScreenName.PayTab]: "paytab",
+                                [ScreenName.PayTab]: PAY_TAB_DEEP_LINK_PATH,
                               },
                             },
                           }),
@@ -674,15 +684,9 @@ export const DeeplinksProvider = ({
 
           if (hostname === "landing-page-large-mover") {
             const validatedLedgerIds = validateLargeMoverLedgerIds(searchParams.get("ledgerIds"));
-            const validatedCurrencyIds = validateLargeMoverCurrencyIds(
-              searchParams.get("currencyIds"),
-            );
             if (validatedLedgerIds) {
-              url.searchParams.set("currencyIds", "");
+              url.searchParams.delete("currencyIds");
               url.searchParams.set("ledgerIds", validatedLedgerIds);
-            } else if (validatedCurrencyIds) {
-              url.searchParams.delete("ledgerIds");
-              url.searchParams.set("currencyIds", validatedCurrencyIds);
             } else {
               return handleMarketBannerDeeplink();
             }
@@ -792,17 +796,32 @@ export const DeeplinksProvider = ({
               const validatedModal = validateEarnDepositScreen(
                 searchParams.get("cryptoAssetId") || undefined,
                 searchParams.get("accountId") || undefined,
+                searchParams.get("protocolId") || undefined,
               );
-              // Handle deposit deeplink on earnLiveAppNavigator
-              // Creating own search params for deposit deeplink
               url.pathname = "";
               url.searchParams.set("action", "deposit");
               url.searchParams.set("cryptoAssetId", validatedModal.cryptoAssetId ?? "");
               url.searchParams.set("accountId", validatedModal.accountId ?? "");
+              url.searchParams.delete("protocolId");
+              if (validatedModal.protocolId) {
+                url.searchParams.set("protocolId", validatedModal.protocolId);
+              }
+              return getStateFromPath(url.href?.split("://")[1], config);
+            }
+            if (pathname === "/simulate") {
+              url.pathname = "";
+              url.searchParams.set("action", "simulate");
               return getStateFromPath(url.href?.split("://")[1], config);
             }
           }
           if (hostname === "swap") {
+            if (pathname === "/history") {
+              const swapId = searchParams.get("swapId");
+              const historyPath = swapId
+                ? `swap/history?swapId=${encodeURIComponent(swapId)}`
+                : "swap/history";
+              return getStateFromPath(historyPath, config);
+            }
             const swapParams = new URLSearchParams();
             const fromPath = searchParams.get("fromPath");
             const fromToken = searchParams.get("fromToken");

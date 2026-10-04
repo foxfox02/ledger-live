@@ -25,6 +25,8 @@
   },
   "dependencies": {},
   "devDependencies": {
+    "@types/react": "catalog:",
+    "@ledgerhq/test-quarantine": "workspace:*",
     "@types/node": "catalog:",
     "@types/jest": "catalog:",
     "@testing-library/dom": "catalog:",

@@ -88,12 +88,6 @@ export function createRendererConfig(
         // reached over the `zcash:*` channels the main process registers (see
         // `@ledgerhq/coin-zcash/network/ipc/main-host`).
         "@ledgerhq/coin-zcash/network/ZCash$": "@ledgerhq/coin-zcash/network/ZCashIPC",
-        // The Zcash chain-adapter of `coin-bitcoin` needs the same alias -- its
-        // lazy `zcash-native` chunk is still resolved at build time, addon
-        // included -- even though its shielded path is no longer served: the
-        // `zcashShielded` flag routes those accounts to coin-zcash.
-        "@ledgerhq/coin-bitcoin/chain-adapters/zcash/ZCash$":
-          "@ledgerhq/coin-bitcoin/chain-adapters/zcash/ZCashIPC",
         // Fix tests/time.js import for TIMEMACHINE feature
         "../../tests/time.js": path.resolve(rootFolder, "tests", "time.ts"),
         "../tests/time": path.resolve(rootFolder, "tests", "time.ts"),
@@ -132,7 +126,7 @@ export function createRendererConfig(
           "..",
           "node_modules",
           ".pnpm",
-          "casper-js-sdk@5.0.5",
+          "casper-js-sdk@5.1.1",
           "node_modules",
           "casper-js-sdk",
           "dist",
@@ -152,7 +146,8 @@ export function createRendererConfig(
           "lib",
           "index.js",
         ),
-        // Deduplicate @scure/bip39: multiple versions (1.x from cosmos/casper/filecoin, 2.x from @mysten/sui)
+        // Deduplicate @scure/bip39: multiple versions (1.x from cosmos/casper/filecoin, 2.x from @mysten/sui).
+        // The path pins an exact version, so a @mysten/sui bump that moves its 2.x needs it updated.
         // V2 is backward-compatible and shares @noble/hashes@2.x already in the bundle
         "@scure/bip39": path.resolve(
           rootFolder,
@@ -160,7 +155,7 @@ export function createRendererConfig(
           "..",
           "node_modules",
           ".pnpm",
-          "@scure+bip39@2.0.1",
+          "@scure+bip39@2.3.0",
           "node_modules",
           "@scure",
           "bip39",
@@ -189,6 +184,7 @@ export function createRendererConfig(
             path.resolve(lldRoot, "..", "..", "shared"),
             path.resolve(lldRoot, "..", "..", "devtools"),
             path.resolve(lldRoot, "..", "..", "domain"),
+            path.resolve(lldRoot, "..", "..", "libs"),
           ],
           exclude: /node_modules/,
           loader: "builtin:swc-loader",
@@ -273,19 +269,6 @@ export function createRendererConfig(
             filename: "assets/[name]-[hash][ext]",
           },
         },
-        // JSON files in src/ - emit as assets and load via require() at runtime (prod only)
-        // In dev mode, rspack's default JSON handler inlines them for HMR compatibility
-        // In prod mode, this replicates esbuild's JsonPlugin behavior for reduced bundle size
-        ...(isDev
-          ? []
-          : [
-              {
-                test: /\.json$/,
-                include: path.resolve(rootFolder, "src"),
-                type: "javascript/auto" as const,
-                use: [path.resolve(__dirname, "animationJsonLoader.cjs")],
-              },
-            ]),
       ],
     },
     plugins: [

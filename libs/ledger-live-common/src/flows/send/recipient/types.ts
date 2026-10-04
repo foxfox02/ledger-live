@@ -33,6 +33,15 @@ export type MatchedAccount = Readonly<{
   accountBalanceFormatted: string | undefined;
 }>;
 
+export type MatchedContact = Readonly<{
+  contactId: string;
+  contactName: string;
+  isMe: boolean;
+  addressId: string;
+  addressLabel: string;
+  address: string;
+}>;
+
 export type BridgeValidationErrors = {
   recipient?: Error;
   sender?: Error;
@@ -53,6 +62,7 @@ export type AddressSearchResult = Readonly<{
   isFirstInteraction: boolean;
   matchedRecentAddress: RecentAddress | undefined;
   matchedAccounts: MatchedAccount[];
+  matchedContact: MatchedContact | undefined;
   bridgeErrors: BridgeValidationErrors | undefined;
   bridgeWarnings: BridgeValidationWarnings | undefined;
   isBridgeLoading?: boolean;

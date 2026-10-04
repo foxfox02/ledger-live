@@ -5,11 +5,19 @@ import {
   type DeviceSessionState,
   DiscoveredDevice,
 } from "@ledgerhq/device-management-kit";
-import Transport from "@ledgerhq/hw-transport";
+import Transport, { type DescriptorEvent } from "@ledgerhq/hw-transport";
 import { dmkToLedgerDeviceIdMap, activeDeviceSessionSubject } from "@ledgerhq/live-dmk-shared";
 import { LocalTracer } from "@ledgerhq/logs";
-import { DescriptorEvent } from "@ledgerhq/types-devices";
-import { firstValueFrom, Observer, startWith, pairwise, map, Subscription } from "rxjs";
+import {
+  firstValueFrom,
+  Observer,
+  startWith,
+  pairwise,
+  map,
+  Subscription,
+  filter,
+  timeout,
+} from "rxjs";
 import { getDeviceManagementKit } from "../hooks/useDeviceManagementKit";
 
 const tracer = new LocalTracer("live-dmk-tracer", { function: "DeviceManagementKitTransport" });
@@ -70,8 +78,17 @@ export class DeviceManagementKitTransport extends Transport {
     }
 
     tracer.trace("[open] No active session found, starting discovery");
+    // Discovery emits an empty array first (before transports report), so wait
+    // for the first non-empty emission instead of grabbing the initial []. Real
+    // devices are already discovered when open() runs, so this is a no-op for
+    // them; it lets the mock transport's first poll populate the list.
     const [discoveredDevice] = await firstValueFrom(
-      getDeviceManagementKit().listenToAvailableDevices({}),
+      getDeviceManagementKit()
+        .listenToAvailableDevices({})
+        .pipe(
+          filter(devices => devices.length > 0),
+          timeout({ first: 10000 }),
+        ),
     );
     const connectedSessionId = await getDeviceManagementKit().connect({
       device: discoveredDevice,
@@ -109,7 +126,7 @@ export class DeviceManagementKitTransport extends Transport {
             tracer.trace(`[listen] device added ${id}`);
             observer.next({
               type: "add",
-              descriptor: "",
+              descriptor: device.id,
               device: device,
               // @ts-expect-error types are not matching
               deviceModel: {
@@ -124,7 +141,7 @@ export class DeviceManagementKitTransport extends Transport {
             tracer.trace(`[listen] device removed ${id}`);
             observer.next({
               type: "remove",
-              descriptor: "",
+              descriptor: device.id,
               device: device,
               // @ts-expect-error types are not matching
               deviceModel: {
@@ -154,7 +171,7 @@ export class DeviceManagementKitTransport extends Transport {
       tracer.trace(`[listen] device added ${id}`);
       observer.next({
         type: "add",
-        descriptor: "",
+        descriptor: device.id,
         device: device,
         // @ts-expect-error types are not matching
         deviceModel: {
@@ -168,7 +185,7 @@ export class DeviceManagementKitTransport extends Transport {
       tracer.trace(`[listen] device removed ${id}`);
       observer.next({
         type: "remove",
-        descriptor: "",
+        descriptor: device.id,
         device: device,
         // @ts-expect-error types are not matching
         deviceModel: {

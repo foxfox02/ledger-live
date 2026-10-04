@@ -1,5 +1,240 @@
 # @ledgerhq/live-signer-solana
 
+## 0.21.4
+
+### Patch Changes
+
+- Updated dependencies [[`387619d`](https://github.com/LedgerHQ/ledger-live/commit/387619d7be17b3d7cd86031430769c6bb6638a68), [`a62ad28`](https://github.com/LedgerHQ/ledger-live/commit/a62ad28e4900a887567fb61fb8f197af4fa5a23b), [`5d2f40f`](https://github.com/LedgerHQ/ledger-live/commit/5d2f40f470f859960e43a2a08755a962796f6beb), [`31208bf`](https://github.com/LedgerHQ/ledger-live/commit/31208bfbd73f45dbdd817802e6468211cba77de6), [`c55b967`](https://github.com/LedgerHQ/ledger-live/commit/c55b967ed644a1639fb385281b75923532f7f0b7), [`8dead4f`](https://github.com/LedgerHQ/ledger-live/commit/8dead4fcb776189c366401305586323ee9df0525), [`e2134f5`](https://github.com/LedgerHQ/ledger-live/commit/e2134f5cffe4669ff5896e2b52904fe22218461b)]:
+  - @ledgerhq/coin-solana@2.2.0
+  - @ledgerhq/hw-app-solana@7.12.0
+  - @ledgerhq/hw-bolos@6.37.0
+  - @ledgerhq/ledger-wallet-framework@3.5.0
+  - @ledgerhq/live-env@4.1.0
+  - @ledgerhq/ledger-cal-service@1.19.7
+  - @ledgerhq/ledger-trust-service@0.8.18
+
+## 0.21.4-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`387619d`](https://github.com/LedgerHQ/ledger-live/commit/387619d7be17b3d7cd86031430769c6bb6638a68), [`a62ad28`](https://github.com/LedgerHQ/ledger-live/commit/a62ad28e4900a887567fb61fb8f197af4fa5a23b), [`5d2f40f`](https://github.com/LedgerHQ/ledger-live/commit/5d2f40f470f859960e43a2a08755a962796f6beb), [`31208bf`](https://github.com/LedgerHQ/ledger-live/commit/31208bfbd73f45dbdd817802e6468211cba77de6), [`c55b967`](https://github.com/LedgerHQ/ledger-live/commit/c55b967ed644a1639fb385281b75923532f7f0b7), [`8dead4f`](https://github.com/LedgerHQ/ledger-live/commit/8dead4fcb776189c366401305586323ee9df0525), [`e2134f5`](https://github.com/LedgerHQ/ledger-live/commit/e2134f5cffe4669ff5896e2b52904fe22218461b)]:
+  - @ledgerhq/coin-solana@2.2.0-next.0
+  - @ledgerhq/hw-app-solana@7.12.0-next.0
+  - @ledgerhq/hw-bolos@6.37.0-next.0
+  - @ledgerhq/ledger-wallet-framework@3.5.0-next.0
+  - @ledgerhq/live-env@4.1.0-next.0
+  - @ledgerhq/ledger-cal-service@1.19.7-next.0
+  - @ledgerhq/ledger-trust-service@0.8.18-next.0
+
+## 0.21.3
+
+### Patch Changes
+
+- Updated dependencies [[`da3d09d`](https://github.com/LedgerHQ/ledger-live/commit/da3d09d75d7dcae659611cd371c48d75c03f7ae4), [`5ddb9ab`](https://github.com/LedgerHQ/ledger-live/commit/5ddb9ab2874a6715d706042701e8b2242b1c14b9)]:
+  - @ledgerhq/hw-app-solana@7.11.0
+  - @ledgerhq/ledger-wallet-framework@3.4.0
+  - @ledgerhq/coin-solana@2.1.1
+  - @ledgerhq/ledger-cal-service@1.19.6
+  - @ledgerhq/ledger-trust-service@0.8.17
+
+## 0.21.3-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`da3d09d`](https://github.com/LedgerHQ/ledger-live/commit/da3d09d75d7dcae659611cd371c48d75c03f7ae4), [`5ddb9ab`](https://github.com/LedgerHQ/ledger-live/commit/5ddb9ab2874a6715d706042701e8b2242b1c14b9)]:
+  - @ledgerhq/hw-app-solana@7.11.0-next.0
+  - @ledgerhq/ledger-wallet-framework@3.4.0-next.0
+  - @ledgerhq/coin-solana@2.1.1-next.0
+  - @ledgerhq/ledger-cal-service@1.19.6-next.0
+  - @ledgerhq/ledger-trust-service@0.8.17-next.0
+
+## 0.21.2
+
+### Patch Changes
+
+- Updated dependencies [[`e1e7cb2`](https://github.com/LedgerHQ/ledger-live/commit/e1e7cb2fa32ef3b413f8e598687f05780ad1c0e8), [`52f573c`](https://github.com/LedgerHQ/ledger-live/commit/52f573c045c52805d250079dd300870c4468493d), [`2d42e64`](https://github.com/LedgerHQ/ledger-live/commit/2d42e647d55f79cf2eb821ec30a232cc07891219), [`b7d0367`](https://github.com/LedgerHQ/ledger-live/commit/b7d03671db1aa022d3ff375465c7d8470bf2b215), [`5b7d11d`](https://github.com/LedgerHQ/ledger-live/commit/5b7d11dd9a988f0034b4b5b6168f02429ba5a406), [`0dc37f4`](https://github.com/LedgerHQ/ledger-live/commit/0dc37f464793d07436854e14bd358fd0bb7a9225), [`5e971b5`](https://github.com/LedgerHQ/ledger-live/commit/5e971b55429cdcab0f69825ce2056fef24d30215), [`b7a8906`](https://github.com/LedgerHQ/ledger-live/commit/b7a89064587bbcd1f758f7b6205a616225ac2317), [`0c46f58`](https://github.com/LedgerHQ/ledger-live/commit/0c46f58fe1aab809579e5639d9c754ea223e2b51), [`b9e15ac`](https://github.com/LedgerHQ/ledger-live/commit/b9e15ac78e2b89919c605511f333282610e57225)]:
+  - @ledgerhq/coin-solana@2.1.0
+  - @ledgerhq/ledger-wallet-framework@3.3.0
+  - @ledgerhq/live-env@4.0.0
+  - @ledgerhq/ledger-cal-service@1.19.5
+  - @ledgerhq/ledger-trust-service@0.8.16
+
+## 0.21.2-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`e1e7cb2`](https://github.com/LedgerHQ/ledger-live/commit/e1e7cb2fa32ef3b413f8e598687f05780ad1c0e8), [`52f573c`](https://github.com/LedgerHQ/ledger-live/commit/52f573c045c52805d250079dd300870c4468493d), [`2d42e64`](https://github.com/LedgerHQ/ledger-live/commit/2d42e647d55f79cf2eb821ec30a232cc07891219), [`b7d0367`](https://github.com/LedgerHQ/ledger-live/commit/b7d03671db1aa022d3ff375465c7d8470bf2b215), [`5b7d11d`](https://github.com/LedgerHQ/ledger-live/commit/5b7d11dd9a988f0034b4b5b6168f02429ba5a406), [`0dc37f4`](https://github.com/LedgerHQ/ledger-live/commit/0dc37f464793d07436854e14bd358fd0bb7a9225), [`5e971b5`](https://github.com/LedgerHQ/ledger-live/commit/5e971b55429cdcab0f69825ce2056fef24d30215), [`b7a8906`](https://github.com/LedgerHQ/ledger-live/commit/b7a89064587bbcd1f758f7b6205a616225ac2317), [`0c46f58`](https://github.com/LedgerHQ/ledger-live/commit/0c46f58fe1aab809579e5639d9c754ea223e2b51), [`b9e15ac`](https://github.com/LedgerHQ/ledger-live/commit/b9e15ac78e2b89919c605511f333282610e57225)]:
+  - @ledgerhq/coin-solana@2.1.0-next.0
+  - @ledgerhq/ledger-wallet-framework@3.3.0-next.0
+  - @ledgerhq/live-env@4.0.0-next.0
+  - @ledgerhq/ledger-cal-service@1.19.5-next.0
+  - @ledgerhq/ledger-trust-service@0.8.16-next.0
+
+## 0.21.1
+
+### Patch Changes
+
+- Updated dependencies [[`a4e5995`](https://github.com/LedgerHQ/ledger-live/commit/a4e5995bea7f9e1f164bfa50939e15031765b2fa), [`173be30`](https://github.com/LedgerHQ/ledger-live/commit/173be30135caf7ffdb26432dac0a6c4f5701e932), [`27388a8`](https://github.com/LedgerHQ/ledger-live/commit/27388a894eaac67b8e162a60f6d3368aad0a8682), [`e21305a`](https://github.com/LedgerHQ/ledger-live/commit/e21305abce18f0a9408bf6c0e2bb47d5c992e06a), [`bc1093b`](https://github.com/LedgerHQ/ledger-live/commit/bc1093bc06adfda3700841b5dbd5598825cb52d1)]:
+  - @ledgerhq/coin-solana@2.0.0
+  - @ledgerhq/ledger-wallet-framework@3.2.0
+  - @ledgerhq/live-env@3.2.0
+  - @ledgerhq/ledger-cal-service@1.19.4
+  - @ledgerhq/ledger-trust-service@0.8.15
+
+## 0.21.1-next.1
+
+### Patch Changes
+
+- Updated dependencies [[`173be30`](https://github.com/LedgerHQ/ledger-live/commit/173be30135caf7ffdb26432dac0a6c4f5701e932)]:
+  - @ledgerhq/coin-solana@2.0.0-next.1
+
+## 0.21.1-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`a4e5995`](https://github.com/LedgerHQ/ledger-live/commit/a4e5995bea7f9e1f164bfa50939e15031765b2fa), [`27388a8`](https://github.com/LedgerHQ/ledger-live/commit/27388a894eaac67b8e162a60f6d3368aad0a8682), [`e21305a`](https://github.com/LedgerHQ/ledger-live/commit/e21305abce18f0a9408bf6c0e2bb47d5c992e06a), [`bc1093b`](https://github.com/LedgerHQ/ledger-live/commit/bc1093bc06adfda3700841b5dbd5598825cb52d1)]:
+  - @ledgerhq/coin-solana@2.0.0-next.0
+  - @ledgerhq/ledger-wallet-framework@3.2.0-next.0
+  - @ledgerhq/live-env@3.2.0-next.0
+  - @ledgerhq/ledger-cal-service@1.19.4-next.0
+  - @ledgerhq/ledger-trust-service@0.8.15-next.0
+
+## 0.21.0
+
+### Minor Changes
+
+- [#20887](https://github.com/LedgerHQ/ledger-live/pull/20887) [`aa39333`](https://github.com/LedgerHQ/ledger-live/commit/aa393339789242783b168398cb5122a7f1e3f620) Thanks [@fAnselmi-Ledger](https://github.com/fAnselmi-Ledger)! - Add Solana TXC flag
+
+### Patch Changes
+
+- Updated dependencies [[`585d8d7`](https://github.com/LedgerHQ/ledger-live/commit/585d8d78d5e153186c39ee2abfcdb7dc4a5d06e0), [`8161bac`](https://github.com/LedgerHQ/ledger-live/commit/8161bac542474212dfefc8519e714da345b03f71), [`fbc8036`](https://github.com/LedgerHQ/ledger-live/commit/fbc8036d9bd4e1cc30eea4233f05e8b0498c0e5e), [`39a676d`](https://github.com/LedgerHQ/ledger-live/commit/39a676d2f861d04913264e61100205b4f6044cf9)]:
+  - @ledgerhq/ledger-wallet-framework@3.1.0
+  - @ledgerhq/live-env@3.1.0
+  - @ledgerhq/coin-solana@1.0.1
+  - @ledgerhq/ledger-cal-service@1.19.3
+  - @ledgerhq/ledger-trust-service@0.8.14
+
+## 0.21.0-next.0
+
+### Minor Changes
+
+- [#20887](https://github.com/LedgerHQ/ledger-live/pull/20887) [`aa39333`](https://github.com/LedgerHQ/ledger-live/commit/aa393339789242783b168398cb5122a7f1e3f620) Thanks [@fAnselmi-Ledger](https://github.com/fAnselmi-Ledger)! - Add Solana TXC flag
+
+### Patch Changes
+
+- Updated dependencies [[`585d8d7`](https://github.com/LedgerHQ/ledger-live/commit/585d8d78d5e153186c39ee2abfcdb7dc4a5d06e0), [`8161bac`](https://github.com/LedgerHQ/ledger-live/commit/8161bac542474212dfefc8519e714da345b03f71), [`fbc8036`](https://github.com/LedgerHQ/ledger-live/commit/fbc8036d9bd4e1cc30eea4233f05e8b0498c0e5e), [`39a676d`](https://github.com/LedgerHQ/ledger-live/commit/39a676d2f861d04913264e61100205b4f6044cf9)]:
+  - @ledgerhq/ledger-wallet-framework@3.1.0-next.0
+  - @ledgerhq/live-env@3.1.0-next.0
+  - @ledgerhq/coin-solana@1.0.1-next.0
+  - @ledgerhq/ledger-cal-service@1.19.3-next.0
+  - @ledgerhq/ledger-trust-service@0.8.14-next.0
+
+## 0.20.0
+
+### Minor Changes
+
+- [#20907](https://github.com/LedgerHQ/ledger-live/pull/20907) [`da0a5ce`](https://github.com/LedgerHQ/ledger-live/commit/da0a5ceb8f889f1bace45ed2d3d4c640cdf24ca8) Thanks [@fAnselmi-Ledger](https://github.com/fAnselmi-Ledger)! - Add Solana TXC flag
+
+### Patch Changes
+
+- Updated dependencies [[`7c8d5df`](https://github.com/LedgerHQ/ledger-live/commit/7c8d5dfa862a2e9c3a35251b5d06a3cd4f905d2a), [`eecf99a`](https://github.com/LedgerHQ/ledger-live/commit/eecf99af5c17ab63724843c31d5f3facc6352dad), [`030fc67`](https://github.com/LedgerHQ/ledger-live/commit/030fc677db03e8a411d3d33d2fa88e1ab04df80b), [`6a437fd`](https://github.com/LedgerHQ/ledger-live/commit/6a437fd60cb8d5c197f104a522ce1406da197e51), [`75d0c9b`](https://github.com/LedgerHQ/ledger-live/commit/75d0c9b97aced42be1f465319ee17ccaafcd649d), [`b6da6b1`](https://github.com/LedgerHQ/ledger-live/commit/b6da6b1b1c98d022f30985c6103c239bffd0c7df), [`b2896a9`](https://github.com/LedgerHQ/ledger-live/commit/b2896a9b10cf6daaa8f532eaa12f016df606eb8b), [`79882e2`](https://github.com/LedgerHQ/ledger-live/commit/79882e26a14f246f1cc969937e011b16e701b8f2), [`a20805c`](https://github.com/LedgerHQ/ledger-live/commit/a20805cebd95f2f620d394c4d7598ec93506c83e), [`030b427`](https://github.com/LedgerHQ/ledger-live/commit/030b42707768af3f9c98a15fc6751f1d64b36fe6)]:
+  - @ledgerhq/coin-solana@1.0.0
+  - @ledgerhq/ledger-wallet-framework@3.0.0
+  - @ledgerhq/ledger-cal-service@1.19.2
+  - @ledgerhq/ledger-trust-service@0.8.13
+
+## 0.20.0-next.1
+
+### Minor Changes
+
+- [#20907](https://github.com/LedgerHQ/ledger-live/pull/20907) [`da0a5ce`](https://github.com/LedgerHQ/ledger-live/commit/da0a5ceb8f889f1bace45ed2d3d4c640cdf24ca8) Thanks [@fAnselmi-Ledger](https://github.com/fAnselmi-Ledger)! - Add Solana TXC flag
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @ledgerhq/coin-solana@1.0.0-next.1
+  - @ledgerhq/ledger-wallet-framework@3.0.0-next.1
+
+## 0.19.2-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`7c8d5df`](https://github.com/LedgerHQ/ledger-live/commit/7c8d5dfa862a2e9c3a35251b5d06a3cd4f905d2a), [`eecf99a`](https://github.com/LedgerHQ/ledger-live/commit/eecf99af5c17ab63724843c31d5f3facc6352dad), [`030fc67`](https://github.com/LedgerHQ/ledger-live/commit/030fc677db03e8a411d3d33d2fa88e1ab04df80b), [`6a437fd`](https://github.com/LedgerHQ/ledger-live/commit/6a437fd60cb8d5c197f104a522ce1406da197e51), [`75d0c9b`](https://github.com/LedgerHQ/ledger-live/commit/75d0c9b97aced42be1f465319ee17ccaafcd649d), [`b6da6b1`](https://github.com/LedgerHQ/ledger-live/commit/b6da6b1b1c98d022f30985c6103c239bffd0c7df), [`b2896a9`](https://github.com/LedgerHQ/ledger-live/commit/b2896a9b10cf6daaa8f532eaa12f016df606eb8b), [`79882e2`](https://github.com/LedgerHQ/ledger-live/commit/79882e26a14f246f1cc969937e011b16e701b8f2), [`a20805c`](https://github.com/LedgerHQ/ledger-live/commit/a20805cebd95f2f620d394c4d7598ec93506c83e), [`030b427`](https://github.com/LedgerHQ/ledger-live/commit/030b42707768af3f9c98a15fc6751f1d64b36fe6)]:
+  - @ledgerhq/coin-solana@1.0.0-next.0
+  - @ledgerhq/ledger-wallet-framework@3.0.0-next.0
+  - @ledgerhq/ledger-cal-service@1.19.2-next.0
+  - @ledgerhq/ledger-trust-service@0.8.13-next.0
+
+## 0.19.1
+
+### Patch Changes
+
+- Updated dependencies [[`3d24a89`](https://github.com/LedgerHQ/ledger-live/commit/3d24a898d59de55364ec29de29eaecb7ca14425d), [`9fcbe39`](https://github.com/LedgerHQ/ledger-live/commit/9fcbe39689ff122568ffb031a30dc3805ebb6add), [`9e1412e`](https://github.com/LedgerHQ/ledger-live/commit/9e1412e08ccccd4af4a7078a797332ea92f86c63), [`aee0e64`](https://github.com/LedgerHQ/ledger-live/commit/aee0e64b491aafc1ca8fea16b1ef124cb183770b), [`2e8b946`](https://github.com/LedgerHQ/ledger-live/commit/2e8b94664bb7b6aba049915cad35b51766874696), [`aa3ea09`](https://github.com/LedgerHQ/ledger-live/commit/aa3ea0972205b589d2f92e352ac7154d11f872bc), [`53c3431`](https://github.com/LedgerHQ/ledger-live/commit/53c3431e01b3139ef689cb589bab0adee4ed6152)]:
+  - @ledgerhq/coin-solana@0.62.0
+  - @ledgerhq/ledger-wallet-framework@2.8.0
+
+## 0.19.1-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`3d24a89`](https://github.com/LedgerHQ/ledger-live/commit/3d24a898d59de55364ec29de29eaecb7ca14425d), [`9fcbe39`](https://github.com/LedgerHQ/ledger-live/commit/9fcbe39689ff122568ffb031a30dc3805ebb6add), [`9e1412e`](https://github.com/LedgerHQ/ledger-live/commit/9e1412e08ccccd4af4a7078a797332ea92f86c63), [`aee0e64`](https://github.com/LedgerHQ/ledger-live/commit/aee0e64b491aafc1ca8fea16b1ef124cb183770b), [`2e8b946`](https://github.com/LedgerHQ/ledger-live/commit/2e8b94664bb7b6aba049915cad35b51766874696), [`aa3ea09`](https://github.com/LedgerHQ/ledger-live/commit/aa3ea0972205b589d2f92e352ac7154d11f872bc), [`53c3431`](https://github.com/LedgerHQ/ledger-live/commit/53c3431e01b3139ef689cb589bab0adee4ed6152)]:
+  - @ledgerhq/coin-solana@0.62.0-next.0
+  - @ledgerhq/ledger-wallet-framework@2.8.0-next.0
+
+## 0.19.0
+
+### Minor Changes
+
+- [#20179](https://github.com/LedgerHQ/ledger-live/pull/20179) [`ec6f940`](https://github.com/LedgerHQ/ledger-live/commit/ec6f9402e65a366bcab2a0a3f845a98c5cbd576d) Thanks [@aussedatlo](https://github.com/aussedatlo)! - Wire CAL_SERVICE_URL (with /v1 path) into DMK ContextModule via setCalConfig
+
+### Patch Changes
+
+- Updated dependencies [[`9fcbe39`](https://github.com/LedgerHQ/ledger-live/commit/9fcbe39689ff122568ffb031a30dc3805ebb6add), [`de041b8`](https://github.com/LedgerHQ/ledger-live/commit/de041b89c67dcacea7bc4eeffab75b76ab1d4bd7), [`c82c09a`](https://github.com/LedgerHQ/ledger-live/commit/c82c09abc5f7f814b68d6db44021d915bc9bc0d7), [`53c3431`](https://github.com/LedgerHQ/ledger-live/commit/53c3431e01b3139ef689cb589bab0adee4ed6152), [`635fa12`](https://github.com/LedgerHQ/ledger-live/commit/635fa12d47f5a98858326f4dd68962dffe82eda9)]:
+  - @ledgerhq/coin-solana@0.61.0
+  - @ledgerhq/ledger-wallet-framework@2.7.0
+  - @ledgerhq/ledger-cal-service@1.19.1
+  - @ledgerhq/ledger-trust-service@0.8.12
+
+## 0.19.0-next.0
+
+### Minor Changes
+
+- [#20179](https://github.com/LedgerHQ/ledger-live/pull/20179) [`ec6f940`](https://github.com/LedgerHQ/ledger-live/commit/ec6f9402e65a366bcab2a0a3f845a98c5cbd576d) Thanks [@aussedatlo](https://github.com/aussedatlo)! - Wire CAL_SERVICE_URL (with /v1 path) into DMK ContextModule via setCalConfig
+
+### Patch Changes
+
+- Updated dependencies [[`9fcbe39`](https://github.com/LedgerHQ/ledger-live/commit/9fcbe39689ff122568ffb031a30dc3805ebb6add), [`de041b8`](https://github.com/LedgerHQ/ledger-live/commit/de041b89c67dcacea7bc4eeffab75b76ab1d4bd7), [`c82c09a`](https://github.com/LedgerHQ/ledger-live/commit/c82c09abc5f7f814b68d6db44021d915bc9bc0d7), [`53c3431`](https://github.com/LedgerHQ/ledger-live/commit/53c3431e01b3139ef689cb589bab0adee4ed6152), [`635fa12`](https://github.com/LedgerHQ/ledger-live/commit/635fa12d47f5a98858326f4dd68962dffe82eda9)]:
+  - @ledgerhq/coin-solana@0.61.0-next.0
+  - @ledgerhq/ledger-wallet-framework@2.7.0-next.0
+  - @ledgerhq/ledger-cal-service@1.19.1-next.0
+  - @ledgerhq/ledger-trust-service@0.8.12-next.0
+
+## 0.18.2
+
+### Patch Changes
+
+- Updated dependencies [[`1070564`](https://github.com/LedgerHQ/ledger-live/commit/107056410174d3da2d45c468232a8d742aea021f), [`24d60d7`](https://github.com/LedgerHQ/ledger-live/commit/24d60d7628696b58764f8fbd4495140a049b3fcc), [`6ac54ab`](https://github.com/LedgerHQ/ledger-live/commit/6ac54abe700847501356adc11231f8437d4a5817), [`9fe07f0`](https://github.com/LedgerHQ/ledger-live/commit/9fe07f0f618e6cde963c922f271ad5d7b29dbce7)]:
+  - @ledgerhq/errors@7.0.0
+  - @ledgerhq/coin-solana@0.60.0
+  - @ledgerhq/ledger-cal-service@1.19.0
+  - @ledgerhq/hw-app-solana@7.10.7
+  - @ledgerhq/hw-transport@6.35.7
+  - @ledgerhq/ledger-trust-service@0.8.11
+  - @ledgerhq/hw-bolos@6.36.7
+
+## 0.18.2-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`1070564`](https://github.com/LedgerHQ/ledger-live/commit/107056410174d3da2d45c468232a8d742aea021f), [`24d60d7`](https://github.com/LedgerHQ/ledger-live/commit/24d60d7628696b58764f8fbd4495140a049b3fcc), [`6ac54ab`](https://github.com/LedgerHQ/ledger-live/commit/6ac54abe700847501356adc11231f8437d4a5817), [`9fe07f0`](https://github.com/LedgerHQ/ledger-live/commit/9fe07f0f618e6cde963c922f271ad5d7b29dbce7)]:
+  - @ledgerhq/errors@7.0.0-next.0
+  - @ledgerhq/coin-solana@0.60.0-next.0
+  - @ledgerhq/ledger-cal-service@1.19.0-next.0
+  - @ledgerhq/hw-app-solana@7.10.7-next.0
+  - @ledgerhq/hw-transport@6.35.7-next.0
+  - @ledgerhq/ledger-trust-service@0.8.11-next.0
+  - @ledgerhq/hw-bolos@6.36.7-next.0
+
 ## 0.18.1
 
 ### Patch Changes
@@ -14,1316 +249,4 @@
 - Updated dependencies [[`d8cb7de`](https://github.com/LedgerHQ/ledger-live/commit/d8cb7deff30c3c1a88ae873d7bcddd6ce0d7375f)]:
   - @ledgerhq/coin-solana@0.59.1-hotfix.0
 
-## 0.18.0
-
-### Minor Changes
-
-- [#19901](https://github.com/LedgerHQ/ledger-live/pull/19901) [`93194e4`](https://github.com/LedgerHQ/ledger-live/commit/93194e4a6efbdb3ae54c0784e604edaa76e342c7) Thanks [@aussedatlo](https://github.com/aussedatlo)! - Set the Solana DMK signer origin token so clear-signing metadata is resolved correctly
-
-### Patch Changes
-
-- Updated dependencies [[`a128521`](https://github.com/LedgerHQ/ledger-live/commit/a1285211f0482229e5011505fb9e8c9d473cb86a), [`4d99006`](https://github.com/LedgerHQ/ledger-live/commit/4d99006589b6855d1a06a8aa1ece23c3f6f3ddf7)]:
-  - @ledgerhq/coin-solana@0.59.0
-  - @ledgerhq/ledger-cal-service@1.18.5
-  - @ledgerhq/ledger-trust-service@0.8.10
-
-## 0.18.0-next.0
-
-### Minor Changes
-
-- [#19901](https://github.com/LedgerHQ/ledger-live/pull/19901) [`93194e4`](https://github.com/LedgerHQ/ledger-live/commit/93194e4a6efbdb3ae54c0784e604edaa76e342c7) Thanks [@aussedatlo](https://github.com/aussedatlo)! - Set the Solana DMK signer origin token so clear-signing metadata is resolved correctly
-
-### Patch Changes
-
-- Updated dependencies [[`a128521`](https://github.com/LedgerHQ/ledger-live/commit/a1285211f0482229e5011505fb9e8c9d473cb86a), [`4d99006`](https://github.com/LedgerHQ/ledger-live/commit/4d99006589b6855d1a06a8aa1ece23c3f6f3ddf7)]:
-  - @ledgerhq/coin-solana@0.59.0-next.0
-  - @ledgerhq/ledger-cal-service@1.18.5-next.0
-  - @ledgerhq/ledger-trust-service@0.8.10-next.0
-
-## 0.17.1
-
-### Patch Changes
-
-- Updated dependencies [[`4b73f23`](https://github.com/LedgerHQ/ledger-live/commit/4b73f23260ecc28574f46a7fd0f5cd7627d6d13f), [`cd43e66`](https://github.com/LedgerHQ/ledger-live/commit/cd43e6689983aefdc3548ac6dcfb86521a1535ff), [`dcacbc9`](https://github.com/LedgerHQ/ledger-live/commit/dcacbc9b7a21ba36f54c1f9872918cd374b0e4e3)]:
-  - @ledgerhq/coin-solana@0.58.0
-  - @ledgerhq/ledger-cal-service@1.18.4
-  - @ledgerhq/ledger-trust-service@0.8.9
-
-## 0.17.1-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`4b73f23`](https://github.com/LedgerHQ/ledger-live/commit/4b73f23260ecc28574f46a7fd0f5cd7627d6d13f), [`cd43e66`](https://github.com/LedgerHQ/ledger-live/commit/cd43e6689983aefdc3548ac6dcfb86521a1535ff), [`dcacbc9`](https://github.com/LedgerHQ/ledger-live/commit/dcacbc9b7a21ba36f54c1f9872918cd374b0e4e3)]:
-  - @ledgerhq/coin-solana@0.58.0-next.0
-  - @ledgerhq/ledger-cal-service@1.18.4-next.0
-  - @ledgerhq/ledger-trust-service@0.8.9-next.0
-
-## 0.17.0
-
-### Minor Changes
-
-- [#19627](https://github.com/LedgerHQ/ledger-live/pull/19627) [`8e3b521`](https://github.com/LedgerHQ/ledger-live/commit/8e3b521c9604cf0b753f056a2c65556d9f91ae79) Thanks [@live-github-bot](https://github.com/apps/live-github-bot)! - Merge release branch into hotfix support branch, resolving version and changelog conflicts
-
-### Patch Changes
-
-- Updated dependencies [[`8e3b521`](https://github.com/LedgerHQ/ledger-live/commit/8e3b521c9604cf0b753f056a2c65556d9f91ae79), [`1e17c12`](https://github.com/LedgerHQ/ledger-live/commit/1e17c127178a871b665b25d6f4208d4613826dd1), [`559f694`](https://github.com/LedgerHQ/ledger-live/commit/559f694fa73a2f68ac3fc867291a0fce99969552), [`df96477`](https://github.com/LedgerHQ/ledger-live/commit/df964774bdaccd897e5e7414c172e9c26ff21f67), [`b9ffdc9`](https://github.com/LedgerHQ/ledger-live/commit/b9ffdc91708686ca1d6c126894b9481b0ffb0305), [`0ebf1f8`](https://github.com/LedgerHQ/ledger-live/commit/0ebf1f8896c1397edd213ae820917394604be0b0), [`596a445`](https://github.com/LedgerHQ/ledger-live/commit/596a4452f04afbffdf0935e946e691f7775cb80c)]:
-  - @ledgerhq/coin-solana@0.57.0
-  - @ledgerhq/devices@8.17.0
-  - @ledgerhq/ledger-cal-service@1.18.3
-  - @ledgerhq/ledger-trust-service@0.8.8
-  - @ledgerhq/hw-transport@6.35.6
-  - @ledgerhq/hw-app-solana@7.10.6
-  - @ledgerhq/hw-bolos@6.36.6
-
-## 0.17.0-next.0
-
-### Minor Changes
-
-- [#19627](https://github.com/LedgerHQ/ledger-live/pull/19627) [`8e3b521`](https://github.com/LedgerHQ/ledger-live/commit/8e3b521c9604cf0b753f056a2c65556d9f91ae79) Thanks [@live-github-bot](https://github.com/apps/live-github-bot)! - Merge release branch into hotfix support branch, resolving version and changelog conflicts
-
-### Patch Changes
-
-- Updated dependencies [[`8e3b521`](https://github.com/LedgerHQ/ledger-live/commit/8e3b521c9604cf0b753f056a2c65556d9f91ae79)]:
-  - @ledgerhq/coin-solana@0.57.0-next.0
-
-## 0.16.1-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`1e17c12`](https://github.com/LedgerHQ/ledger-live/commit/1e17c127178a871b665b25d6f4208d4613826dd1), [`559f694`](https://github.com/LedgerHQ/ledger-live/commit/559f694fa73a2f68ac3fc867291a0fce99969552), [`df96477`](https://github.com/LedgerHQ/ledger-live/commit/df964774bdaccd897e5e7414c172e9c26ff21f67), [`b9ffdc9`](https://github.com/LedgerHQ/ledger-live/commit/b9ffdc91708686ca1d6c126894b9481b0ffb0305), [`0ebf1f8`](https://github.com/LedgerHQ/ledger-live/commit/0ebf1f8896c1397edd213ae820917394604be0b0), [`596a445`](https://github.com/LedgerHQ/ledger-live/commit/596a4452f04afbffdf0935e946e691f7775cb80c)]:
-  - @ledgerhq/coin-solana@0.57.0-next.0
-  - @ledgerhq/devices@8.17.0-next.0
-  - @ledgerhq/ledger-cal-service@1.18.3-next.0
-  - @ledgerhq/ledger-trust-service@0.8.8-next.0
-  - @ledgerhq/hw-transport@6.35.6-next.0
-  - @ledgerhq/hw-app-solana@7.10.6-next.0
-  - @ledgerhq/hw-bolos@6.36.6-next.0
-
-## 0.16.1
-
-### Patch Changes
-
-- Updated dependencies [[`7c0729b`](https://github.com/LedgerHQ/ledger-live/commit/7c0729b140c2d1e7bfb929eac701a4c6bba2f9a9)]:
-  - @ledgerhq/coin-solana@0.56.1
-
-## 0.16.1-hotfix.0
-
-### Patch Changes
-
-- Updated dependencies [[`7c0729b`](https://github.com/LedgerHQ/ledger-live/commit/7c0729b140c2d1e7bfb929eac701a4c6bba2f9a9)]:
-  - @ledgerhq/coin-solana@0.56.1-hotfix.0
-
-## 0.16.0
-
-### Minor Changes
-
-- [#18627](https://github.com/LedgerHQ/ledger-live/pull/18627) [`7fcf623`](https://github.com/LedgerHQ/ledger-live/commit/7fcf62387e642e10b23503a786e230b11d051cb6) Thanks [@OlivierFreyssinet](https://github.com/OlivierFreyssinet)! - Bump Device Management Kit to 1.7.1
-
-### Patch Changes
-
-- Updated dependencies [[`48dbd53`](https://github.com/LedgerHQ/ledger-live/commit/48dbd533a7a505cbb37989f8ce94f273f84bc7d2), [`ebda9d8`](https://github.com/LedgerHQ/ledger-live/commit/ebda9d88805501f4c2c03fef0fe24f116a8a2a6c), [`4ace552`](https://github.com/LedgerHQ/ledger-live/commit/4ace55213a4f1869980aab5160683bb120c65292), [`b79bde9`](https://github.com/LedgerHQ/ledger-live/commit/b79bde945f121cfe05aeaa41043723a37c2b4410)]:
-  - @ledgerhq/errors@6.37.0
-  - @ledgerhq/devices@8.16.0
-  - @ledgerhq/coin-solana@0.56.0
-  - @ledgerhq/hw-app-solana@7.10.5
-  - @ledgerhq/hw-transport@6.35.5
-  - @ledgerhq/ledger-cal-service@1.18.2
-  - @ledgerhq/ledger-trust-service@0.8.7
-  - @ledgerhq/hw-bolos@6.36.5
-
-## 0.16.0-next.0
-
-### Minor Changes
-
-- [#18627](https://github.com/LedgerHQ/ledger-live/pull/18627) [`7fcf623`](https://github.com/LedgerHQ/ledger-live/commit/7fcf62387e642e10b23503a786e230b11d051cb6) Thanks [@OlivierFreyssinet](https://github.com/OlivierFreyssinet)! - Bump Device Management Kit to 1.7.1
-
-### Patch Changes
-
-- Updated dependencies [[`48dbd53`](https://github.com/LedgerHQ/ledger-live/commit/48dbd533a7a505cbb37989f8ce94f273f84bc7d2), [`ebda9d8`](https://github.com/LedgerHQ/ledger-live/commit/ebda9d88805501f4c2c03fef0fe24f116a8a2a6c), [`4ace552`](https://github.com/LedgerHQ/ledger-live/commit/4ace55213a4f1869980aab5160683bb120c65292), [`b79bde9`](https://github.com/LedgerHQ/ledger-live/commit/b79bde945f121cfe05aeaa41043723a37c2b4410)]:
-  - @ledgerhq/errors@6.37.0-next.0
-  - @ledgerhq/devices@8.16.0-next.0
-  - @ledgerhq/coin-solana@0.56.0-next.0
-  - @ledgerhq/hw-app-solana@7.10.5-next.0
-  - @ledgerhq/hw-transport@6.35.5-next.0
-  - @ledgerhq/ledger-cal-service@1.18.2-next.0
-  - @ledgerhq/ledger-trust-service@0.8.7-next.0
-  - @ledgerhq/hw-bolos@6.36.5-next.0
-
-## 0.15.5
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.55.2
-  - @ledgerhq/ledger-cal-service@1.18.1
-  - @ledgerhq/ledger-trust-service@0.8.6
-
-## 0.15.5-next.1
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.55.2-next.1
-
-## 0.15.5-next.0
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.55.2-next.0
-  - @ledgerhq/ledger-cal-service@1.18.1-next.0
-  - @ledgerhq/ledger-trust-service@0.8.6-next.0
-
-## 0.15.4
-
-### Patch Changes
-
-- Updated dependencies [[`4ac4774`](https://github.com/LedgerHQ/ledger-live/commit/4ac4774a41655310e652f1a990e83f9821dee1e4), [`8c0f5f2`](https://github.com/LedgerHQ/ledger-live/commit/8c0f5f22e66aa6a34a3363a256d3da2d98d07dc9)]:
-  - @ledgerhq/ledger-cal-service@1.18.0
-  - @ledgerhq/errors@6.36.0
-  - @ledgerhq/coin-solana@0.55.1
-  - @ledgerhq/ledger-trust-service@0.8.5
-  - @ledgerhq/devices@8.15.1
-  - @ledgerhq/hw-app-solana@7.10.4
-  - @ledgerhq/hw-transport@6.35.4
-  - @ledgerhq/hw-bolos@6.36.4
-
-## 0.15.4-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`4ac4774`](https://github.com/LedgerHQ/ledger-live/commit/4ac4774a41655310e652f1a990e83f9821dee1e4), [`8c0f5f2`](https://github.com/LedgerHQ/ledger-live/commit/8c0f5f22e66aa6a34a3363a256d3da2d98d07dc9)]:
-  - @ledgerhq/ledger-cal-service@1.18.0-next.0
-  - @ledgerhq/errors@6.36.0-next.0
-  - @ledgerhq/coin-solana@0.55.1-next.0
-  - @ledgerhq/ledger-trust-service@0.8.5-next.0
-  - @ledgerhq/devices@8.15.1-next.0
-  - @ledgerhq/hw-app-solana@7.10.4-next.0
-  - @ledgerhq/hw-transport@6.35.4-next.0
-  - @ledgerhq/hw-bolos@6.36.4-next.0
-
-## 0.15.3
-
-### Patch Changes
-
-- Updated dependencies [[`c17272e`](https://github.com/LedgerHQ/ledger-live/commit/c17272e63b4036057022cfb28d7433a4a56201c9), [`0c4eeeb`](https://github.com/LedgerHQ/ledger-live/commit/0c4eeebe1c6bb974a2c98fa911877e22e4d0b4eb), [`76e74f1`](https://github.com/LedgerHQ/ledger-live/commit/76e74f12f49cbbbcd2f0dfa239d99e4b3b199835), [`73afced`](https://github.com/LedgerHQ/ledger-live/commit/73afced223c37efeb24943ffb9cc1ee788b72a6f)]:
-  - @ledgerhq/ledger-cal-service@1.17.0
-  - @ledgerhq/coin-solana@0.55.0
-  - @ledgerhq/devices@8.15.0
-  - @ledgerhq/ledger-trust-service@0.8.4
-  - @ledgerhq/hw-transport@6.35.3
-  - @ledgerhq/hw-app-solana@7.10.3
-  - @ledgerhq/hw-bolos@6.36.3
-
-## 0.15.3-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`c17272e`](https://github.com/LedgerHQ/ledger-live/commit/c17272e63b4036057022cfb28d7433a4a56201c9), [`0c4eeeb`](https://github.com/LedgerHQ/ledger-live/commit/0c4eeebe1c6bb974a2c98fa911877e22e4d0b4eb), [`76e74f1`](https://github.com/LedgerHQ/ledger-live/commit/76e74f12f49cbbbcd2f0dfa239d99e4b3b199835), [`73afced`](https://github.com/LedgerHQ/ledger-live/commit/73afced223c37efeb24943ffb9cc1ee788b72a6f)]:
-  - @ledgerhq/ledger-cal-service@1.17.0-next.0
-  - @ledgerhq/coin-solana@0.55.0-next.0
-  - @ledgerhq/devices@8.15.0-next.0
-  - @ledgerhq/ledger-trust-service@0.8.4-next.0
-  - @ledgerhq/hw-transport@6.35.3-next.0
-  - @ledgerhq/hw-app-solana@7.10.3-next.0
-  - @ledgerhq/hw-bolos@6.36.3-next.0
-
-## 0.15.2
-
-### Patch Changes
-
-- Updated dependencies [[`483bc1c`](https://github.com/LedgerHQ/ledger-live/commit/483bc1c5aa432dac9ab0413d7b7ee27e5ebb0b34), [`fe04e44`](https://github.com/LedgerHQ/ledger-live/commit/fe04e44e0cd41ea9dd896defcea18c010fe36490)]:
-  - @ledgerhq/coin-solana@0.54.0
-  - @ledgerhq/ledger-cal-service@1.16.3
-  - @ledgerhq/ledger-trust-service@0.8.3
-
-## 0.15.2-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`483bc1c`](https://github.com/LedgerHQ/ledger-live/commit/483bc1c5aa432dac9ab0413d7b7ee27e5ebb0b34), [`fe04e44`](https://github.com/LedgerHQ/ledger-live/commit/fe04e44e0cd41ea9dd896defcea18c010fe36490)]:
-  - @ledgerhq/coin-solana@0.54.0-next.0
-  - @ledgerhq/ledger-cal-service@1.16.3-next.0
-  - @ledgerhq/ledger-trust-service@0.8.3-next.0
-
-## 0.15.1
-
-### Patch Changes
-
-- Updated dependencies [[`483bc1c`](https://github.com/LedgerHQ/ledger-live/commit/483bc1c5aa432dac9ab0413d7b7ee27e5ebb0b34)]:
-  - @ledgerhq/coin-solana@0.53.0
-  - @ledgerhq/ledger-cal-service@1.16.2
-  - @ledgerhq/ledger-trust-service@0.8.2
-
-## 0.15.1-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`483bc1c`](https://github.com/LedgerHQ/ledger-live/commit/483bc1c5aa432dac9ab0413d7b7ee27e5ebb0b34)]:
-  - @ledgerhq/coin-solana@0.53.0-next.0
-  - @ledgerhq/ledger-cal-service@1.16.2-next.0
-  - @ledgerhq/ledger-trust-service@0.8.2-next.0
-
-## 0.15.0
-
-### Minor Changes
-
-- [#17111](https://github.com/LedgerHQ/ledger-live/pull/17111) [`0e477ba`](https://github.com/LedgerHQ/ledger-live/commit/0e477bac9a3a16bd9088c2ad5906104b62c13731) Thanks [@henri-ly](https://github.com/henri-ly)! - add resolution delay test and support
-
-- [#16666](https://github.com/LedgerHQ/ledger-live/pull/16666) [`e4f79db`](https://github.com/LedgerHQ/ledger-live/commit/e4f79dbd58b47a02f2cc8229f9fe2866f3c8dbec) Thanks [@henri-ly](https://github.com/henri-ly)! - add 2 step signature for solana
-
-### Patch Changes
-
-- Updated dependencies [[`5457ea4`](https://github.com/LedgerHQ/ledger-live/commit/5457ea4d13f10341403fdfec2d1fbef64cc14682), [`d308b1a`](https://github.com/LedgerHQ/ledger-live/commit/d308b1a6b9c629839f051cf367a527f4232120c7), [`e4f79db`](https://github.com/LedgerHQ/ledger-live/commit/e4f79dbd58b47a02f2cc8229f9fe2866f3c8dbec), [`4daea73`](https://github.com/LedgerHQ/ledger-live/commit/4daea739d928bbd0c3c3c575ad97e30907acaeb5)]:
-  - @ledgerhq/coin-solana@0.52.0
-  - @ledgerhq/errors@6.35.0
-  - @ledgerhq/ledger-cal-service@1.16.1
-  - @ledgerhq/ledger-trust-service@0.8.1
-  - @ledgerhq/devices@8.14.2
-  - @ledgerhq/hw-app-solana@7.10.2
-  - @ledgerhq/hw-transport@6.35.2
-  - @ledgerhq/hw-bolos@6.36.2
-
-## 0.15.0-next.1
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.52.0-next.1
-
-## 0.15.0-next.0
-
-### Minor Changes
-
-- [#17111](https://github.com/LedgerHQ/ledger-live/pull/17111) [`0e477ba`](https://github.com/LedgerHQ/ledger-live/commit/0e477bac9a3a16bd9088c2ad5906104b62c13731) Thanks [@henri-ly](https://github.com/henri-ly)! - add resolution delay test and support
-
-- [#16666](https://github.com/LedgerHQ/ledger-live/pull/16666) [`e4f79db`](https://github.com/LedgerHQ/ledger-live/commit/e4f79dbd58b47a02f2cc8229f9fe2866f3c8dbec) Thanks [@henri-ly](https://github.com/henri-ly)! - add 2 step signature for solana
-
-### Patch Changes
-
-- Updated dependencies [[`5457ea4`](https://github.com/LedgerHQ/ledger-live/commit/5457ea4d13f10341403fdfec2d1fbef64cc14682), [`d308b1a`](https://github.com/LedgerHQ/ledger-live/commit/d308b1a6b9c629839f051cf367a527f4232120c7), [`e4f79db`](https://github.com/LedgerHQ/ledger-live/commit/e4f79dbd58b47a02f2cc8229f9fe2866f3c8dbec), [`4daea73`](https://github.com/LedgerHQ/ledger-live/commit/4daea739d928bbd0c3c3c575ad97e30907acaeb5)]:
-  - @ledgerhq/coin-solana@0.52.0-next.0
-  - @ledgerhq/errors@6.35.0-next.0
-  - @ledgerhq/ledger-cal-service@1.16.1-next.0
-  - @ledgerhq/ledger-trust-service@0.8.1-next.0
-  - @ledgerhq/devices@8.14.2-next.0
-  - @ledgerhq/hw-app-solana@7.10.2-next.0
-  - @ledgerhq/hw-transport@6.35.2-next.0
-  - @ledgerhq/hw-bolos@6.36.2-next.0
-
-## 0.14.3
-
-### Patch Changes
-
-- Updated dependencies [[`202cc42`](https://github.com/LedgerHQ/ledger-live/commit/202cc423b09662b5b25012b84124aecd4dc7245d)]:
-  - @ledgerhq/errors@6.34.1
-  - @ledgerhq/coin-solana@0.51.2
-  - @ledgerhq/devices@8.14.2
-  - @ledgerhq/hw-app-solana@7.10.2
-  - @ledgerhq/hw-transport@6.35.2
-  - @ledgerhq/hw-bolos@6.36.2
-  - @ledgerhq/ledger-cal-service@1.16.1
-  - @ledgerhq/ledger-trust-service@0.8.1
-
-## 0.14.3-hotfix.0
-
-### Patch Changes
-
-- Updated dependencies [[`202cc42`](https://github.com/LedgerHQ/ledger-live/commit/202cc423b09662b5b25012b84124aecd4dc7245d)]:
-  - @ledgerhq/errors@6.34.1-hotfix.0
-  - @ledgerhq/coin-solana@0.51.2-hotfix.0
-  - @ledgerhq/devices@8.14.2-hotfix.0
-  - @ledgerhq/hw-app-solana@7.10.2-hotfix.0
-  - @ledgerhq/hw-transport@6.35.2-hotfix.0
-  - @ledgerhq/hw-bolos@6.36.2-hotfix.0
-  - @ledgerhq/ledger-cal-service@1.16.1-hotfix.0
-  - @ledgerhq/ledger-trust-service@0.8.1-hotfix.0
-
-## 0.14.2
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.51.1
-
-## 0.14.2-next.0
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.51.1-next.0
-
-## 0.14.1
-
-### Patch Changes
-
-- Updated dependencies [[`206730c`](https://github.com/LedgerHQ/ledger-live/commit/206730c71ded9a6ea54254ad39da796c38f4c7ee), [`24656de`](https://github.com/LedgerHQ/ledger-live/commit/24656dea461d4d99dcb5f5e2e4b4e949b0823eeb), [`c353f29`](https://github.com/LedgerHQ/ledger-live/commit/c353f29b9174c20c708662c160f55c597020ee58), [`4cf9b8c`](https://github.com/LedgerHQ/ledger-live/commit/4cf9b8cde388aebfe04a894e9a35584856d1713d), [`dce63b0`](https://github.com/LedgerHQ/ledger-live/commit/dce63b056a7ddb22745269a7c5a7004d99cb8eec), [`fd2311d`](https://github.com/LedgerHQ/ledger-live/commit/fd2311d643f4002c1441bfa4fe79d7288df04c21)]:
-  - @ledgerhq/coin-solana@0.51.0
-  - @ledgerhq/errors@6.34.0
-  - @ledgerhq/ledger-trust-service@0.8.0
-  - @ledgerhq/ledger-cal-service@1.16.0
-  - @ledgerhq/devices@8.14.1
-  - @ledgerhq/hw-app-solana@7.10.1
-  - @ledgerhq/hw-transport@6.35.1
-  - @ledgerhq/hw-bolos@6.36.1
-
-## 0.14.1-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`206730c`](https://github.com/LedgerHQ/ledger-live/commit/206730c71ded9a6ea54254ad39da796c38f4c7ee), [`24656de`](https://github.com/LedgerHQ/ledger-live/commit/24656dea461d4d99dcb5f5e2e4b4e949b0823eeb), [`c353f29`](https://github.com/LedgerHQ/ledger-live/commit/c353f29b9174c20c708662c160f55c597020ee58), [`4cf9b8c`](https://github.com/LedgerHQ/ledger-live/commit/4cf9b8cde388aebfe04a894e9a35584856d1713d), [`dce63b0`](https://github.com/LedgerHQ/ledger-live/commit/dce63b056a7ddb22745269a7c5a7004d99cb8eec), [`fd2311d`](https://github.com/LedgerHQ/ledger-live/commit/fd2311d643f4002c1441bfa4fe79d7288df04c21)]:
-  - @ledgerhq/coin-solana@0.51.0-next.0
-  - @ledgerhq/errors@6.34.0-next.0
-  - @ledgerhq/ledger-trust-service@0.8.0-next.0
-  - @ledgerhq/ledger-cal-service@1.16.0-next.0
-  - @ledgerhq/devices@8.14.1-next.0
-  - @ledgerhq/hw-app-solana@7.10.1-next.0
-  - @ledgerhq/hw-transport@6.35.1-next.0
-  - @ledgerhq/hw-bolos@6.36.1-next.0
-
-## 0.14.0
-
-### Minor Changes
-
-- [#15881](https://github.com/LedgerHQ/ledger-live/pull/15881) [`2ece647`](https://github.com/LedgerHQ/ledger-live/commit/2ece647f386e40f261662fc6e4e6624f302ee34f) Thanks [@iqbalibrahim-ledger](https://github.com/iqbalibrahim-ledger)! - Migrate `libs/live-*` packages from ESLint to Oxlint with shared config under `libs/oxc-live-libs`, add Oxfmt for `live-currency-format`, and align tooling with `ledger-live-common` / apps.
-
-  LIVE-28279
-
-### Patch Changes
-
-- Updated dependencies [[`53df748`](https://github.com/LedgerHQ/ledger-live/commit/53df74819753f084ed3df4a2ab9082d398b54920), [`e31b1cd`](https://github.com/LedgerHQ/ledger-live/commit/e31b1cdfcfc03169b541d6e071471eef08bb881f), [`008a4bd`](https://github.com/LedgerHQ/ledger-live/commit/008a4bdb87f0e65fa23de3a29818a4d02f28f4f8), [`39d4880`](https://github.com/LedgerHQ/ledger-live/commit/39d48807a35ced14767c0747faff4e2c2b09420d), [`c353f29`](https://github.com/LedgerHQ/ledger-live/commit/c353f29b9174c20c708662c160f55c597020ee58), [`fd2311d`](https://github.com/LedgerHQ/ledger-live/commit/fd2311d643f4002c1441bfa4fe79d7288df04c21)]:
-  - @ledgerhq/errors@6.33.0
-  - @ledgerhq/coin-solana@0.50.0
-  - @ledgerhq/devices@8.14.0
-  - @ledgerhq/hw-app-solana@7.10.0
-  - @ledgerhq/hw-bolos@6.36.0
-  - @ledgerhq/hw-transport@6.35.0
-  - @ledgerhq/ledger-cal-service@1.15.2
-  - @ledgerhq/ledger-trust-service@0.7.4
-
-## 0.14.0-next.0
-
-### Minor Changes
-
-- [#15881](https://github.com/LedgerHQ/ledger-live/pull/15881) [`2ece647`](https://github.com/LedgerHQ/ledger-live/commit/2ece647f386e40f261662fc6e4e6624f302ee34f) Thanks [@iqbalibrahim-ledger](https://github.com/iqbalibrahim-ledger)! - Migrate `libs/live-*` packages from ESLint to Oxlint with shared config under `libs/oxc-live-libs`, add Oxfmt for `live-currency-format`, and align tooling with `ledger-live-common` / apps.
-
-  LIVE-28279
-
-### Patch Changes
-
-- Updated dependencies [[`53df748`](https://github.com/LedgerHQ/ledger-live/commit/53df74819753f084ed3df4a2ab9082d398b54920), [`e31b1cd`](https://github.com/LedgerHQ/ledger-live/commit/e31b1cdfcfc03169b541d6e071471eef08bb881f), [`008a4bd`](https://github.com/LedgerHQ/ledger-live/commit/008a4bdb87f0e65fa23de3a29818a4d02f28f4f8), [`39d4880`](https://github.com/LedgerHQ/ledger-live/commit/39d48807a35ced14767c0747faff4e2c2b09420d), [`c353f29`](https://github.com/LedgerHQ/ledger-live/commit/c353f29b9174c20c708662c160f55c597020ee58), [`fd2311d`](https://github.com/LedgerHQ/ledger-live/commit/fd2311d643f4002c1441bfa4fe79d7288df04c21)]:
-  - @ledgerhq/errors@6.33.0-next.0
-  - @ledgerhq/coin-solana@0.50.0-next.0
-  - @ledgerhq/devices@8.14.0-next.0
-  - @ledgerhq/hw-app-solana@7.10.0-next.0
-  - @ledgerhq/hw-bolos@6.36.0-next.0
-  - @ledgerhq/hw-transport@6.35.0-next.0
-  - @ledgerhq/ledger-cal-service@1.15.2-next.0
-  - @ledgerhq/ledger-trust-service@0.7.4-next.0
-
-## 0.13.1
-
-### Patch Changes
-
-- Updated dependencies [[`4af828d`](https://github.com/LedgerHQ/ledger-live/commit/4af828d0790bb3568dd095f89dd9f239f7565e84), [`a8190c5`](https://github.com/LedgerHQ/ledger-live/commit/a8190c5ce7d0d5435bbd59a1f3bd8e1f56f119d2)]:
-  - @ledgerhq/coin-solana@0.49.0
-  - @ledgerhq/ledger-cal-service@1.15.1
-  - @ledgerhq/ledger-trust-service@0.7.3
-
-## 0.13.1-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`4af828d`](https://github.com/LedgerHQ/ledger-live/commit/4af828d0790bb3568dd095f89dd9f239f7565e84), [`a8190c5`](https://github.com/LedgerHQ/ledger-live/commit/a8190c5ce7d0d5435bbd59a1f3bd8e1f56f119d2)]:
-  - @ledgerhq/coin-solana@0.49.0-next.0
-  - @ledgerhq/ledger-cal-service@1.15.1-next.0
-  - @ledgerhq/ledger-trust-service@0.7.3-next.0
-
-## 0.13.0
-
-### Minor Changes
-
-- [#15478](https://github.com/LedgerHQ/ledger-live/pull/15478) [`f645dfc`](https://github.com/LedgerHQ/ledger-live/commit/f645dfcf0b582cd4f6cb3f3953a19b255e8ed6c8) Thanks [@fAnselmi-Ledger](https://github.com/fAnselmi-Ledger)! - Bumped dmk solana signer lib
-
-### Patch Changes
-
-- Updated dependencies [[`a221ae8`](https://github.com/LedgerHQ/ledger-live/commit/a221ae85b846c6d5dc6efb55ed873942d7720b05), [`be83068`](https://github.com/LedgerHQ/ledger-live/commit/be83068b1580be86b1e97c1eb4c6b19db54ff2a4), [`982d4af`](https://github.com/LedgerHQ/ledger-live/commit/982d4afbeb7faf3814c3e96ffb6e3e88b58dfe73), [`6dac7f9`](https://github.com/LedgerHQ/ledger-live/commit/6dac7f974c28dcae409c110a60061996490c5088), [`6658d10`](https://github.com/LedgerHQ/ledger-live/commit/6658d10daafe2a5efadb0946456b061407ed8bf6), [`dd98891`](https://github.com/LedgerHQ/ledger-live/commit/dd98891e9c2e1bd4795b8adcb64b3c8c45b9eb75), [`dc37f21`](https://github.com/LedgerHQ/ledger-live/commit/dc37f215ac14ce2f5c6d0b3fd7c83b10a35926b6), [`8ce1cb7`](https://github.com/LedgerHQ/ledger-live/commit/8ce1cb755b3e68c8688f9e828596d3c2605ef3cb), [`d37431f`](https://github.com/LedgerHQ/ledger-live/commit/d37431fc370a406cf0b2331f0187297ec61ced5d), [`307db00`](https://github.com/LedgerHQ/ledger-live/commit/307db00ad7d6dd029107d708968453e770f385e8)]:
-  - @ledgerhq/coin-solana@0.48.0
-  - @ledgerhq/ledger-cal-service@1.15.0
-  - @ledgerhq/devices@8.13.0
-  - @ledgerhq/errors@6.32.0
-  - @ledgerhq/hw-transport@6.34.1
-  - @ledgerhq/hw-app-solana@7.9.1
-  - @ledgerhq/hw-bolos@6.35.1
-  - @ledgerhq/ledger-trust-service@0.7.2
-
-## 0.13.0-next.0
-
-### Minor Changes
-
-- [#15478](https://github.com/LedgerHQ/ledger-live/pull/15478) [`f645dfc`](https://github.com/LedgerHQ/ledger-live/commit/f645dfcf0b582cd4f6cb3f3953a19b255e8ed6c8) Thanks [@fAnselmi-Ledger](https://github.com/fAnselmi-Ledger)! - Bumped dmk solana signer lib
-
-### Patch Changes
-
-- Updated dependencies [[`a221ae8`](https://github.com/LedgerHQ/ledger-live/commit/a221ae85b846c6d5dc6efb55ed873942d7720b05), [`be83068`](https://github.com/LedgerHQ/ledger-live/commit/be83068b1580be86b1e97c1eb4c6b19db54ff2a4), [`982d4af`](https://github.com/LedgerHQ/ledger-live/commit/982d4afbeb7faf3814c3e96ffb6e3e88b58dfe73), [`6dac7f9`](https://github.com/LedgerHQ/ledger-live/commit/6dac7f974c28dcae409c110a60061996490c5088), [`6658d10`](https://github.com/LedgerHQ/ledger-live/commit/6658d10daafe2a5efadb0946456b061407ed8bf6), [`dd98891`](https://github.com/LedgerHQ/ledger-live/commit/dd98891e9c2e1bd4795b8adcb64b3c8c45b9eb75), [`dc37f21`](https://github.com/LedgerHQ/ledger-live/commit/dc37f215ac14ce2f5c6d0b3fd7c83b10a35926b6), [`8ce1cb7`](https://github.com/LedgerHQ/ledger-live/commit/8ce1cb755b3e68c8688f9e828596d3c2605ef3cb), [`d37431f`](https://github.com/LedgerHQ/ledger-live/commit/d37431fc370a406cf0b2331f0187297ec61ced5d), [`307db00`](https://github.com/LedgerHQ/ledger-live/commit/307db00ad7d6dd029107d708968453e770f385e8)]:
-  - @ledgerhq/coin-solana@0.48.0-next.0
-  - @ledgerhq/ledger-cal-service@1.15.0-next.0
-  - @ledgerhq/devices@8.13.0-next.0
-  - @ledgerhq/errors@6.32.0-next.0
-  - @ledgerhq/hw-transport@6.34.1-next.0
-  - @ledgerhq/hw-app-solana@7.9.1-next.0
-  - @ledgerhq/hw-bolos@6.35.1-next.0
-  - @ledgerhq/ledger-trust-service@0.7.2-next.0
-
-## 0.12.1
-
-### Patch Changes
-
-- Updated dependencies [[`c8d7be6`](https://github.com/LedgerHQ/ledger-live/commit/c8d7be6964aa9d8defd77de0b77ba7d42f472025), [`17423fa`](https://github.com/LedgerHQ/ledger-live/commit/17423fa88b3aa95beee57ff05f77aeeb8e9bc36e), [`0d89669`](https://github.com/LedgerHQ/ledger-live/commit/0d89669b2a5d85f79cfb95a80288414bc58f6c71), [`51e7ee5`](https://github.com/LedgerHQ/ledger-live/commit/51e7ee5e84a70afa726b082e20b21167d2cbe492), [`312d92d`](https://github.com/LedgerHQ/ledger-live/commit/312d92dbd9d115a2ec6ad6628445c31d45806aea), [`a1f550b`](https://github.com/LedgerHQ/ledger-live/commit/a1f550b8c150d698e8e2f9492e909514c6a453ca)]:
-  - @ledgerhq/devices@8.12.0
-  - @ledgerhq/errors@6.31.0
-  - @ledgerhq/hw-app-solana@7.9.0
-  - @ledgerhq/hw-bolos@6.35.0
-  - @ledgerhq/hw-transport@6.34.0
-  - @ledgerhq/ledger-cal-service@1.14.0
-  - @ledgerhq/coin-solana@0.47.0
-  - @ledgerhq/ledger-trust-service@0.7.1
-
-## 0.12.1-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`c8d7be6`](https://github.com/LedgerHQ/ledger-live/commit/c8d7be6964aa9d8defd77de0b77ba7d42f472025), [`17423fa`](https://github.com/LedgerHQ/ledger-live/commit/17423fa88b3aa95beee57ff05f77aeeb8e9bc36e), [`0d89669`](https://github.com/LedgerHQ/ledger-live/commit/0d89669b2a5d85f79cfb95a80288414bc58f6c71), [`51e7ee5`](https://github.com/LedgerHQ/ledger-live/commit/51e7ee5e84a70afa726b082e20b21167d2cbe492), [`312d92d`](https://github.com/LedgerHQ/ledger-live/commit/312d92dbd9d115a2ec6ad6628445c31d45806aea), [`a1f550b`](https://github.com/LedgerHQ/ledger-live/commit/a1f550b8c150d698e8e2f9492e909514c6a453ca)]:
-  - @ledgerhq/devices@8.12.0-next.0
-  - @ledgerhq/errors@6.31.0-next.0
-  - @ledgerhq/hw-app-solana@7.9.0-next.0
-  - @ledgerhq/hw-bolos@6.35.0-next.0
-  - @ledgerhq/hw-transport@6.34.0-next.0
-  - @ledgerhq/ledger-cal-service@1.14.0-next.0
-  - @ledgerhq/coin-solana@0.47.0-next.0
-  - @ledgerhq/ledger-trust-service@0.7.1-next.0
-
-## 0.12.0
-
-### Minor Changes
-
-- [#14913](https://github.com/LedgerHQ/ledger-live/pull/14913) [`dceb492`](https://github.com/LedgerHQ/ledger-live/commit/dceb4921a811ffc3cba96ff532ffcb5d1205431f) Thanks [@gre-ledger](https://github.com/gre-ledger)! - Update TypeScript to latest 5.8.x
-
-### Patch Changes
-
-- Updated dependencies [[`0dbbca3`](https://github.com/LedgerHQ/ledger-live/commit/0dbbca3f0226347b5abc034a066fe4ad89bfe462), [`dceb492`](https://github.com/LedgerHQ/ledger-live/commit/dceb4921a811ffc3cba96ff532ffcb5d1205431f)]:
-  - @ledgerhq/errors@6.30.0
-  - @ledgerhq/hw-app-solana@7.8.0
-  - @ledgerhq/hw-transport@6.33.0
-  - @ledgerhq/hw-bolos@6.34.0
-  - @ledgerhq/devices@8.11.0
-  - @ledgerhq/coin-solana@0.46.0
-  - @ledgerhq/ledger-trust-service@0.7.0
-  - @ledgerhq/ledger-cal-service@1.13.0
-
-## 0.12.0-next.0
-
-### Minor Changes
-
-- [#14913](https://github.com/LedgerHQ/ledger-live/pull/14913) [`dceb492`](https://github.com/LedgerHQ/ledger-live/commit/dceb4921a811ffc3cba96ff532ffcb5d1205431f) Thanks [@gre-ledger](https://github.com/gre-ledger)! - Update TypeScript to latest 5.8.x
-
-### Patch Changes
-
-- Updated dependencies [[`0dbbca3`](https://github.com/LedgerHQ/ledger-live/commit/0dbbca3f0226347b5abc034a066fe4ad89bfe462), [`dceb492`](https://github.com/LedgerHQ/ledger-live/commit/dceb4921a811ffc3cba96ff532ffcb5d1205431f)]:
-  - @ledgerhq/errors@6.30.0-next.0
-  - @ledgerhq/hw-app-solana@7.8.0-next.0
-  - @ledgerhq/hw-transport@6.33.0-next.0
-  - @ledgerhq/hw-bolos@6.34.0-next.0
-  - @ledgerhq/devices@8.11.0-next.0
-  - @ledgerhq/coin-solana@0.46.0-next.0
-  - @ledgerhq/ledger-trust-service@0.7.0-next.0
-  - @ledgerhq/ledger-cal-service@1.13.0-next.0
-
-## 0.11.3
-
-### Patch Changes
-
-- Updated dependencies [[`2181570`](https://github.com/LedgerHQ/ledger-live/commit/2181570a2f764950547db823471968fbdebca5aa)]:
-  - @ledgerhq/ledger-cal-service@1.12.0
-  - @ledgerhq/coin-solana@0.45.2
-  - @ledgerhq/ledger-trust-service@0.6.4
-
-## 0.11.3-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`2181570`](https://github.com/LedgerHQ/ledger-live/commit/2181570a2f764950547db823471968fbdebca5aa)]:
-  - @ledgerhq/ledger-cal-service@1.12.0-next.0
-  - @ledgerhq/coin-solana@0.45.2-next.0
-  - @ledgerhq/ledger-trust-service@0.6.4-next.0
-
-## 0.11.2
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.45.1
-  - @ledgerhq/ledger-cal-service@1.11.3
-  - @ledgerhq/ledger-trust-service@0.6.3
-
-## 0.11.2-next.0
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.45.1-next.0
-  - @ledgerhq/ledger-cal-service@1.11.3-next.0
-  - @ledgerhq/ledger-trust-service@0.6.3-next.0
-
-## 0.11.1
-
-### Patch Changes
-
-- Updated dependencies [[`c4e7d20`](https://github.com/LedgerHQ/ledger-live/commit/c4e7d20ce631d43d7c8847d3f56187f68140fbab), [`6b74a70`](https://github.com/LedgerHQ/ledger-live/commit/6b74a7029baab853b3032122be5e7fbf39969128)]:
-  - @ledgerhq/coin-solana@0.45.0
-
-## 0.11.1-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`c4e7d20`](https://github.com/LedgerHQ/ledger-live/commit/c4e7d20ce631d43d7c8847d3f56187f68140fbab), [`6b74a70`](https://github.com/LedgerHQ/ledger-live/commit/6b74a7029baab853b3032122be5e7fbf39969128)]:
-  - @ledgerhq/coin-solana@0.45.0-next.0
-
-## 0.11.0
-
-### Minor Changes
-
-- [#13982](https://github.com/LedgerHQ/ledger-live/pull/13982) [`6bb478f`](https://github.com/LedgerHQ/ledger-live/commit/6bb478fcabc6b2097873082c3b2babea076f5dcd) Thanks [@fAnselmi-Ledger](https://github.com/fAnselmi-Ledger)! - Added userInputType enum and logger in evm dmk mock
-
-### Patch Changes
-
-- Updated dependencies [[`6bb478f`](https://github.com/LedgerHQ/ledger-live/commit/6bb478fcabc6b2097873082c3b2babea076f5dcd)]:
-  - @ledgerhq/coin-solana@0.44.0
-  - @ledgerhq/ledger-cal-service@1.11.2
-  - @ledgerhq/ledger-trust-service@0.6.2
-
-## 0.11.0-next.0
-
-### Minor Changes
-
-- [#13982](https://github.com/LedgerHQ/ledger-live/pull/13982) [`6bb478f`](https://github.com/LedgerHQ/ledger-live/commit/6bb478fcabc6b2097873082c3b2babea076f5dcd) Thanks [@fAnselmi-Ledger](https://github.com/fAnselmi-Ledger)! - Added userInputType enum and logger in evm dmk mock
-
-### Patch Changes
-
-- Updated dependencies [[`6bb478f`](https://github.com/LedgerHQ/ledger-live/commit/6bb478fcabc6b2097873082c3b2babea076f5dcd)]:
-  - @ledgerhq/coin-solana@0.44.0-next.0
-  - @ledgerhq/ledger-cal-service@1.11.2-next.0
-  - @ledgerhq/ledger-trust-service@0.6.2-next.0
-
-## 0.10.2
-
-### Patch Changes
-
-- Updated dependencies [[`1531219`](https://github.com/LedgerHQ/ledger-live/commit/1531219874faf54259a821033fb55cec85671968)]:
-  - @ledgerhq/coin-solana@0.43.0
-
-## 0.10.2-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`1531219`](https://github.com/LedgerHQ/ledger-live/commit/1531219874faf54259a821033fb55cec85671968)]:
-  - @ledgerhq/coin-solana@0.43.0-next.0
-
-## 0.10.1
-
-### Patch Changes
-
-- Updated dependencies [[`6c9b829`](https://github.com/LedgerHQ/ledger-live/commit/6c9b82957c777e81e65b3321f4d0d5d66384992f)]:
-  - @ledgerhq/coin-solana@0.42.0
-  - @ledgerhq/ledger-cal-service@1.11.1
-  - @ledgerhq/ledger-trust-service@0.6.1
-
-## 0.10.1-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`6c9b829`](https://github.com/LedgerHQ/ledger-live/commit/6c9b82957c777e81e65b3321f4d0d5d66384992f)]:
-  - @ledgerhq/coin-solana@0.42.0-next.0
-  - @ledgerhq/ledger-cal-service@1.11.1-next.0
-  - @ledgerhq/ledger-trust-service@0.6.1-next.0
-
-## 0.10.0
-
-### Minor Changes
-
-- [#13396](https://github.com/LedgerHQ/ledger-live/pull/13396) [`b9a3e43`](https://github.com/LedgerHQ/ledger-live/commit/b9a3e431be33943ab4feb4294d6a7f27b966e61b) Thanks [@gre-ledger](https://github.com/gre-ledger)! - Update Jest to v30
-
-### Patch Changes
-
-- Updated dependencies [[`433a1dd`](https://github.com/LedgerHQ/ledger-live/commit/433a1dd0b55f0d4bdad03ce2deb65b801770832d), [`b9a3e43`](https://github.com/LedgerHQ/ledger-live/commit/b9a3e431be33943ab4feb4294d6a7f27b966e61b)]:
-  - @ledgerhq/ledger-cal-service@1.11.0
-  - @ledgerhq/hw-app-solana@7.7.0
-  - @ledgerhq/hw-transport@6.32.0
-  - @ledgerhq/hw-bolos@6.33.0
-  - @ledgerhq/devices@8.10.0
-  - @ledgerhq/coin-solana@0.41.0
-  - @ledgerhq/errors@6.29.0
-  - @ledgerhq/ledger-trust-service@0.6.0
-
-## 0.10.0-next.0
-
-### Minor Changes
-
-- [#13396](https://github.com/LedgerHQ/ledger-live/pull/13396) [`b9a3e43`](https://github.com/LedgerHQ/ledger-live/commit/b9a3e431be33943ab4feb4294d6a7f27b966e61b) Thanks [@gre-ledger](https://github.com/gre-ledger)! - Update Jest to v30
-
-### Patch Changes
-
-- Updated dependencies [[`433a1dd`](https://github.com/LedgerHQ/ledger-live/commit/433a1dd0b55f0d4bdad03ce2deb65b801770832d), [`b9a3e43`](https://github.com/LedgerHQ/ledger-live/commit/b9a3e431be33943ab4feb4294d6a7f27b966e61b)]:
-  - @ledgerhq/ledger-cal-service@1.11.0-next.0
-  - @ledgerhq/hw-app-solana@7.7.0-next.0
-  - @ledgerhq/hw-transport@6.32.0-next.0
-  - @ledgerhq/hw-bolos@6.33.0-next.0
-  - @ledgerhq/devices@8.10.0-next.0
-  - @ledgerhq/coin-solana@0.41.0-next.0
-  - @ledgerhq/errors@6.29.0-next.0
-  - @ledgerhq/ledger-trust-service@0.6.0-next.0
-
-## 0.9.0
-
-### Minor Changes
-
-- [#13426](https://github.com/LedgerHQ/ledger-live/pull/13426) [`a8c59da`](https://github.com/LedgerHQ/ledger-live/commit/a8c59da888c8cb3c200a9f62869ca54aba706cae) Thanks [@gre-ledger](https://github.com/gre-ledger)! - update semver library (minor)
-
-### Patch Changes
-
-- Updated dependencies [[`753027f`](https://github.com/LedgerHQ/ledger-live/commit/753027fb4579a990080907aad4084572dabc7a3c), [`a8c59da`](https://github.com/LedgerHQ/ledger-live/commit/a8c59da888c8cb3c200a9f62869ca54aba706cae), [`9874905`](https://github.com/LedgerHQ/ledger-live/commit/98749050026e6b19a207065b312dc99770af639d), [`f9a893e`](https://github.com/LedgerHQ/ledger-live/commit/f9a893e972a52ac2a4953efa3a5dccb614da79e6)]:
-  - @ledgerhq/coin-solana@0.40.0
-  - @ledgerhq/devices@8.9.0
-  - @ledgerhq/ledger-trust-service@0.5.0
-  - @ledgerhq/ledger-cal-service@1.10.0
-  - @ledgerhq/hw-transport@6.31.16
-  - @ledgerhq/hw-app-solana@7.6.3
-  - @ledgerhq/hw-bolos@6.32.12
-
-## 0.9.0-next.1
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.40.0-next.1
-
-## 0.9.0-next.0
-
-### Minor Changes
-
-- [#13426](https://github.com/LedgerHQ/ledger-live/pull/13426) [`a8c59da`](https://github.com/LedgerHQ/ledger-live/commit/a8c59da888c8cb3c200a9f62869ca54aba706cae) Thanks [@gre-ledger](https://github.com/gre-ledger)! - update semver library (minor)
-
-### Patch Changes
-
-- Updated dependencies [[`753027f`](https://github.com/LedgerHQ/ledger-live/commit/753027fb4579a990080907aad4084572dabc7a3c), [`a8c59da`](https://github.com/LedgerHQ/ledger-live/commit/a8c59da888c8cb3c200a9f62869ca54aba706cae), [`9874905`](https://github.com/LedgerHQ/ledger-live/commit/98749050026e6b19a207065b312dc99770af639d), [`f9a893e`](https://github.com/LedgerHQ/ledger-live/commit/f9a893e972a52ac2a4953efa3a5dccb614da79e6)]:
-  - @ledgerhq/coin-solana@0.40.0-next.0
-  - @ledgerhq/devices@8.9.0-next.0
-  - @ledgerhq/ledger-trust-service@0.5.0-next.0
-  - @ledgerhq/ledger-cal-service@1.10.0-next.0
-  - @ledgerhq/hw-transport@6.31.16-next.0
-  - @ledgerhq/hw-app-solana@7.6.3-next.0
-  - @ledgerhq/hw-bolos@6.32.12-next.0
-
-## 0.8.1
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.39.1
-
-## 0.8.1-hotfix.0
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.39.1-hotfix.0
-
-## 0.8.0
-
-### Minor Changes
-
-- [#13155](https://github.com/LedgerHQ/ledger-live/pull/13155) [`aadb3d5`](https://github.com/LedgerHQ/ledger-live/commit/aadb3d57f5719cc2cc397975eafec8094b160afe) Thanks [@gre-ledger](https://github.com/gre-ledger)! - rxjs@7.8.2 everywhere
-
-### Patch Changes
-
-- Updated dependencies [[`e63194f`](https://github.com/LedgerHQ/ledger-live/commit/e63194f7dbd5ff2b0135c26aac3842a2be676b0a), [`4be69a7`](https://github.com/LedgerHQ/ledger-live/commit/4be69a71dcd7624a1cba8dd1b1847ef009eb2d83), [`450f518`](https://github.com/LedgerHQ/ledger-live/commit/450f518d4cedb828c5fe1e7ccffaabd483f53226), [`9823ce1`](https://github.com/LedgerHQ/ledger-live/commit/9823ce1ba3f1258ad95469787a66817b42f9f4de), [`bdacedf`](https://github.com/LedgerHQ/ledger-live/commit/bdacedfe32bea8ffce96ab675a44c0d7cf395143), [`5e8d6be`](https://github.com/LedgerHQ/ledger-live/commit/5e8d6be609dd37c48d747890e56189e0716d5273), [`aadb3d5`](https://github.com/LedgerHQ/ledger-live/commit/aadb3d57f5719cc2cc397975eafec8094b160afe), [`34248c3`](https://github.com/LedgerHQ/ledger-live/commit/34248c306479dafe6335b2c176daf25064c85b3b)]:
-  - @ledgerhq/coin-solana@0.39.0
-  - @ledgerhq/errors@6.28.0
-  - @ledgerhq/devices@8.8.0
-  - @ledgerhq/hw-app-solana@7.6.2
-  - @ledgerhq/hw-transport@6.31.15
-  - @ledgerhq/ledger-cal-service@1.9.3
-  - @ledgerhq/ledger-trust-service@0.4.5
-  - @ledgerhq/hw-bolos@6.32.11
-
-## 0.8.0-next.0
-
-### Minor Changes
-
-- [#13155](https://github.com/LedgerHQ/ledger-live/pull/13155) [`aadb3d5`](https://github.com/LedgerHQ/ledger-live/commit/aadb3d57f5719cc2cc397975eafec8094b160afe) Thanks [@gre-ledger](https://github.com/gre-ledger)! - rxjs@7.8.2 everywhere
-
-### Patch Changes
-
-- Updated dependencies [[`e63194f`](https://github.com/LedgerHQ/ledger-live/commit/e63194f7dbd5ff2b0135c26aac3842a2be676b0a), [`4be69a7`](https://github.com/LedgerHQ/ledger-live/commit/4be69a71dcd7624a1cba8dd1b1847ef009eb2d83), [`450f518`](https://github.com/LedgerHQ/ledger-live/commit/450f518d4cedb828c5fe1e7ccffaabd483f53226), [`9823ce1`](https://github.com/LedgerHQ/ledger-live/commit/9823ce1ba3f1258ad95469787a66817b42f9f4de), [`bdacedf`](https://github.com/LedgerHQ/ledger-live/commit/bdacedfe32bea8ffce96ab675a44c0d7cf395143), [`5e8d6be`](https://github.com/LedgerHQ/ledger-live/commit/5e8d6be609dd37c48d747890e56189e0716d5273), [`aadb3d5`](https://github.com/LedgerHQ/ledger-live/commit/aadb3d57f5719cc2cc397975eafec8094b160afe), [`34248c3`](https://github.com/LedgerHQ/ledger-live/commit/34248c306479dafe6335b2c176daf25064c85b3b)]:
-  - @ledgerhq/coin-solana@0.39.0-next.0
-  - @ledgerhq/errors@6.28.0-next.0
-  - @ledgerhq/devices@8.8.0-next.0
-  - @ledgerhq/hw-app-solana@7.6.2-next.0
-  - @ledgerhq/hw-transport@6.31.15-next.0
-  - @ledgerhq/ledger-cal-service@1.9.3-next.0
-  - @ledgerhq/ledger-trust-service@0.4.5-next.0
-  - @ledgerhq/hw-bolos@6.32.11-next.0
-
-## 0.7.1
-
-### Patch Changes
-
-- Updated dependencies [[`b68b749`](https://github.com/LedgerHQ/ledger-live/commit/b68b749b53c9583dd983ab057faa89fced1e541e)]:
-  - @ledgerhq/errors@6.27.1
-  - @ledgerhq/coin-solana@0.38.1
-  - @ledgerhq/devices@8.7.1
-  - @ledgerhq/hw-app-solana@7.6.1
-  - @ledgerhq/hw-transport@6.31.14
-  - @ledgerhq/hw-bolos@6.32.10
-  - @ledgerhq/ledger-cal-service@1.9.2
-  - @ledgerhq/ledger-trust-service@0.4.4
-
-## 0.7.1-hotfix.0
-
-### Patch Changes
-
-- Updated dependencies [[`b68b749`](https://github.com/LedgerHQ/ledger-live/commit/b68b749b53c9583dd983ab057faa89fced1e541e)]:
-  - @ledgerhq/errors@6.27.1-hotfix.0
-  - @ledgerhq/coin-solana@0.38.1-hotfix.0
-  - @ledgerhq/devices@8.7.1-hotfix.0
-  - @ledgerhq/hw-app-solana@7.6.1-hotfix.0
-  - @ledgerhq/hw-transport@6.31.14-hotfix.0
-  - @ledgerhq/hw-bolos@6.32.10-hotfix.0
-  - @ledgerhq/ledger-cal-service@1.9.2-hotfix.0
-  - @ledgerhq/ledger-trust-service@0.4.4-hotfix.0
-
-## 0.7.0
-
-### Minor Changes
-
-- [#12610](https://github.com/LedgerHQ/ledger-live/pull/12610) [`927ae64`](https://github.com/LedgerHQ/ledger-live/commit/927ae64db0bb04af54e25623655a001a68e0f2d3) Thanks [@fAnselmi-Ledger](https://github.com/fAnselmi-Ledger)! - Add DMK solana signer behind FF
-
-### Patch Changes
-
-- Updated dependencies [[`9be4b9f`](https://github.com/LedgerHQ/ledger-live/commit/9be4b9fcd7d01b600561302113654b17854856ab), [`3e0c113`](https://github.com/LedgerHQ/ledger-live/commit/3e0c1137e8e2c34fab711aa76591c10ad491ce5a), [`927ae64`](https://github.com/LedgerHQ/ledger-live/commit/927ae64db0bb04af54e25623655a001a68e0f2d3), [`d02914b`](https://github.com/LedgerHQ/ledger-live/commit/d02914bd12cadcff4720dd77d05dc5b4665aae6f)]:
-  - @ledgerhq/coin-solana@0.38.0
-  - @ledgerhq/ledger-cal-service@1.9.1
-  - @ledgerhq/ledger-trust-service@0.4.3
-
-## 0.7.0-next.0
-
-### Minor Changes
-
-- [#12610](https://github.com/LedgerHQ/ledger-live/pull/12610) [`927ae64`](https://github.com/LedgerHQ/ledger-live/commit/927ae64db0bb04af54e25623655a001a68e0f2d3) Thanks [@fAnselmi-Ledger](https://github.com/fAnselmi-Ledger)! - Add DMK solana signer behind FF
-
-### Patch Changes
-
-- Updated dependencies [[`9be4b9f`](https://github.com/LedgerHQ/ledger-live/commit/9be4b9fcd7d01b600561302113654b17854856ab), [`3e0c113`](https://github.com/LedgerHQ/ledger-live/commit/3e0c1137e8e2c34fab711aa76591c10ad491ce5a), [`927ae64`](https://github.com/LedgerHQ/ledger-live/commit/927ae64db0bb04af54e25623655a001a68e0f2d3), [`d02914b`](https://github.com/LedgerHQ/ledger-live/commit/d02914bd12cadcff4720dd77d05dc5b4665aae6f)]:
-  - @ledgerhq/coin-solana@0.38.0-next.0
-  - @ledgerhq/ledger-cal-service@1.9.1-next.0
-  - @ledgerhq/ledger-trust-service@0.4.3-next.0
-
-## 0.6.1
-
-### Patch Changes
-
-- Updated dependencies [[`74a340b`](https://github.com/LedgerHQ/ledger-live/commit/74a340b258589c9c37476103029eb036b930616c), [`8cd8bbc`](https://github.com/LedgerHQ/ledger-live/commit/8cd8bbcbf9c06e2a601cce3b58f831d88b5e2d8e), [`544721d`](https://github.com/LedgerHQ/ledger-live/commit/544721d198454526ef83516619d59c881ba34eb9), [`3a5e317`](https://github.com/LedgerHQ/ledger-live/commit/3a5e317908246db5e816e6a8825218d228f09ed9)]:
-  - @ledgerhq/coin-solana@0.37.0
-  - @ledgerhq/ledger-cal-service@1.9.0
-  - @ledgerhq/ledger-trust-service@0.4.2
-
-## 0.6.1-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`74a340b`](https://github.com/LedgerHQ/ledger-live/commit/74a340b258589c9c37476103029eb036b930616c), [`8cd8bbc`](https://github.com/LedgerHQ/ledger-live/commit/8cd8bbcbf9c06e2a601cce3b58f831d88b5e2d8e), [`544721d`](https://github.com/LedgerHQ/ledger-live/commit/544721d198454526ef83516619d59c881ba34eb9), [`3a5e317`](https://github.com/LedgerHQ/ledger-live/commit/3a5e317908246db5e816e6a8825218d228f09ed9)]:
-  - @ledgerhq/coin-solana@0.37.0-next.0
-  - @ledgerhq/ledger-cal-service@1.9.0-next.0
-  - @ledgerhq/ledger-trust-service@0.4.2-next.0
-
-## 0.6.0
-
-### Minor Changes
-
-- [#12199](https://github.com/LedgerHQ/ledger-live/pull/12199) [`2a67525`](https://github.com/LedgerHQ/ledger-live/commit/2a67525bfce19b673126ce6dddfca240559b10db) Thanks [@dilaouid](https://github.com/dilaouid)! - feat(solana): new P2 field user input type ATA/SOL
-
-### Patch Changes
-
-- Updated dependencies [[`63e8f34`](https://github.com/LedgerHQ/ledger-live/commit/63e8f342f6b951ab77bb710b9971f033c05e579e), [`8d7c1f7`](https://github.com/LedgerHQ/ledger-live/commit/8d7c1f7a92489647399b0e780d4bb926508e8554), [`2a67525`](https://github.com/LedgerHQ/ledger-live/commit/2a67525bfce19b673126ce6dddfca240559b10db), [`c1a4bfd`](https://github.com/LedgerHQ/ledger-live/commit/c1a4bfd34b46c6b6587d247673cadb3c078deb1d), [`b962966`](https://github.com/LedgerHQ/ledger-live/commit/b962966525517c5cfa7f1f8826f8f2b9162189e4), [`759064d`](https://github.com/LedgerHQ/ledger-live/commit/759064d4815c636af2d73ba548a85b4f53e7b491), [`3d4188a`](https://github.com/LedgerHQ/ledger-live/commit/3d4188a26021d33b950129d82cb55d2c2e8d4358)]:
-  - @ledgerhq/coin-solana@0.36.0
-  - @ledgerhq/hw-app-solana@7.6.0
-  - @ledgerhq/devices@8.7.0
-  - @ledgerhq/ledger-cal-service@1.8.0
-  - @ledgerhq/errors@6.27.0
-  - @ledgerhq/ledger-trust-service@0.4.1
-  - @ledgerhq/hw-transport@6.31.13
-  - @ledgerhq/hw-bolos@6.32.9
-
-## 0.6.0-next.0
-
-### Minor Changes
-
-- [#12199](https://github.com/LedgerHQ/ledger-live/pull/12199) [`2a67525`](https://github.com/LedgerHQ/ledger-live/commit/2a67525bfce19b673126ce6dddfca240559b10db) Thanks [@dilaouid](https://github.com/dilaouid)! - feat(solana): new P2 field user input type ATA/SOL
-
-### Patch Changes
-
-- Updated dependencies [[`63e8f34`](https://github.com/LedgerHQ/ledger-live/commit/63e8f342f6b951ab77bb710b9971f033c05e579e), [`8d7c1f7`](https://github.com/LedgerHQ/ledger-live/commit/8d7c1f7a92489647399b0e780d4bb926508e8554), [`2a67525`](https://github.com/LedgerHQ/ledger-live/commit/2a67525bfce19b673126ce6dddfca240559b10db), [`c1a4bfd`](https://github.com/LedgerHQ/ledger-live/commit/c1a4bfd34b46c6b6587d247673cadb3c078deb1d), [`b962966`](https://github.com/LedgerHQ/ledger-live/commit/b962966525517c5cfa7f1f8826f8f2b9162189e4), [`759064d`](https://github.com/LedgerHQ/ledger-live/commit/759064d4815c636af2d73ba548a85b4f53e7b491), [`3d4188a`](https://github.com/LedgerHQ/ledger-live/commit/3d4188a26021d33b950129d82cb55d2c2e8d4358)]:
-  - @ledgerhq/coin-solana@0.36.0-next.0
-  - @ledgerhq/hw-app-solana@7.6.0-next.0
-  - @ledgerhq/devices@8.7.0-next.0
-  - @ledgerhq/ledger-cal-service@1.8.0-next.0
-  - @ledgerhq/errors@6.27.0-next.0
-  - @ledgerhq/ledger-trust-service@0.4.1-next.0
-  - @ledgerhq/hw-transport@6.31.13-next.0
-  - @ledgerhq/hw-bolos@6.32.9-next.0
-
-## 0.5.8
-
-### Patch Changes
-
-- Updated dependencies [[`3691bed`](https://github.com/LedgerHQ/ledger-live/commit/3691bed5f5706f010037f54e2396ad71e48cf208), [`a9aacdb`](https://github.com/LedgerHQ/ledger-live/commit/a9aacdb330700f0a294833f7d77de17f179229b2), [`03af552`](https://github.com/LedgerHQ/ledger-live/commit/03af552b621e19e31747a65b1870dfe8d3bb005b), [`565da80`](https://github.com/LedgerHQ/ledger-live/commit/565da807b1ebbfc830fd0e47b3d8856f88d410a6), [`f077f72`](https://github.com/LedgerHQ/ledger-live/commit/f077f7205667f4f7b82ae7584e80964c5ac7601a), [`bc6e500`](https://github.com/LedgerHQ/ledger-live/commit/bc6e500bfd0f47bfbee2fdbe65f9a42e02793255)]:
-  - @ledgerhq/ledger-cal-service@1.7.0
-  - @ledgerhq/coin-solana@0.35.0
-  - @ledgerhq/ledger-trust-service@0.4.0
-
-## 0.5.8-next.1
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.35.0-next.1
-
-## 0.5.8-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`3691bed`](https://github.com/LedgerHQ/ledger-live/commit/3691bed5f5706f010037f54e2396ad71e48cf208), [`a9aacdb`](https://github.com/LedgerHQ/ledger-live/commit/a9aacdb330700f0a294833f7d77de17f179229b2), [`03af552`](https://github.com/LedgerHQ/ledger-live/commit/03af552b621e19e31747a65b1870dfe8d3bb005b), [`565da80`](https://github.com/LedgerHQ/ledger-live/commit/565da807b1ebbfc830fd0e47b3d8856f88d410a6), [`f077f72`](https://github.com/LedgerHQ/ledger-live/commit/f077f7205667f4f7b82ae7584e80964c5ac7601a), [`bc6e500`](https://github.com/LedgerHQ/ledger-live/commit/bc6e500bfd0f47bfbee2fdbe65f9a42e02793255)]:
-  - @ledgerhq/ledger-cal-service@1.7.0-next.0
-  - @ledgerhq/coin-solana@0.35.0-next.0
-  - @ledgerhq/ledger-trust-service@0.4.0-next.0
-
-## 0.5.7
-
-### Patch Changes
-
-- Updated dependencies [[`c2d8d86`](https://github.com/LedgerHQ/ledger-live/commit/c2d8d8670f848989836c46ea08ae88c88086fdd6), [`42f2449`](https://github.com/LedgerHQ/ledger-live/commit/42f244956720dfe13cf16334ef79064f651c67d0)]:
-  - @ledgerhq/errors@6.26.0
-  - @ledgerhq/ledger-cal-service@1.6.0
-  - @ledgerhq/coin-solana@0.34.1
-  - @ledgerhq/devices@8.6.1
-  - @ledgerhq/hw-app-solana@7.5.5
-  - @ledgerhq/hw-transport@6.31.12
-  - @ledgerhq/ledger-trust-service@0.3.14
-  - @ledgerhq/hw-bolos@6.32.8
-
-## 0.5.7-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`c2d8d86`](https://github.com/LedgerHQ/ledger-live/commit/c2d8d8670f848989836c46ea08ae88c88086fdd6), [`42f2449`](https://github.com/LedgerHQ/ledger-live/commit/42f244956720dfe13cf16334ef79064f651c67d0)]:
-  - @ledgerhq/errors@6.26.0-next.0
-  - @ledgerhq/ledger-cal-service@1.6.0-next.0
-  - @ledgerhq/coin-solana@0.34.1-next.0
-  - @ledgerhq/devices@8.6.1-next.0
-  - @ledgerhq/hw-app-solana@7.5.5-next.0
-  - @ledgerhq/hw-transport@6.31.12-next.0
-  - @ledgerhq/ledger-trust-service@0.3.14-next.0
-  - @ledgerhq/hw-bolos@6.32.8-next.0
-
-## 0.5.6
-
-### Patch Changes
-
-- Updated dependencies [[`38a172c`](https://github.com/LedgerHQ/ledger-live/commit/38a172c23035040d077433c7f4fce60f72962ae0), [`173073d`](https://github.com/LedgerHQ/ledger-live/commit/173073da1f9a0a899fdb4d5fa3625554bf7c41dd), [`f671769`](https://github.com/LedgerHQ/ledger-live/commit/f6717696fcb2ad672a48fdd7f8654dedf11b4a65)]:
-  - @ledgerhq/devices@8.6.0
-  - @ledgerhq/coin-solana@0.34.0
-  - @ledgerhq/ledger-cal-service@1.5.0
-  - @ledgerhq/hw-transport@6.31.11
-  - @ledgerhq/ledger-trust-service@0.3.13
-  - @ledgerhq/hw-app-solana@7.5.4
-  - @ledgerhq/hw-bolos@6.32.7
-
-## 0.5.6-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`38a172c`](https://github.com/LedgerHQ/ledger-live/commit/38a172c23035040d077433c7f4fce60f72962ae0), [`173073d`](https://github.com/LedgerHQ/ledger-live/commit/173073da1f9a0a899fdb4d5fa3625554bf7c41dd), [`f671769`](https://github.com/LedgerHQ/ledger-live/commit/f6717696fcb2ad672a48fdd7f8654dedf11b4a65)]:
-  - @ledgerhq/devices@8.6.0-next.0
-  - @ledgerhq/coin-solana@0.34.0-next.0
-  - @ledgerhq/ledger-cal-service@1.5.0-next.0
-  - @ledgerhq/hw-transport@6.31.11-next.0
-  - @ledgerhq/ledger-trust-service@0.3.13-next.0
-  - @ledgerhq/hw-app-solana@7.5.4-next.0
-  - @ledgerhq/hw-bolos@6.32.7-next.0
-
-## 0.5.5
-
-### Patch Changes
-
-- Updated dependencies [[`64b059c`](https://github.com/LedgerHQ/ledger-live/commit/64b059cc514e199320b0e668dfed647ac2b658a9), [`21ebab2`](https://github.com/LedgerHQ/ledger-live/commit/21ebab29b2b2a7650460ba6db3362ffacf6ab8dc)]:
-  - @ledgerhq/coin-solana@0.33.0
-  - @ledgerhq/ledger-cal-service@1.4.0
-  - @ledgerhq/ledger-trust-service@0.3.12
-
-## 0.5.5-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`64b059c`](https://github.com/LedgerHQ/ledger-live/commit/64b059cc514e199320b0e668dfed647ac2b658a9), [`21ebab2`](https://github.com/LedgerHQ/ledger-live/commit/21ebab29b2b2a7650460ba6db3362ffacf6ab8dc)]:
-  - @ledgerhq/coin-solana@0.33.0-next.0
-  - @ledgerhq/ledger-cal-service@1.4.0-next.0
-  - @ledgerhq/ledger-trust-service@0.3.12-next.0
-
-## 0.5.4
-
-### Patch Changes
-
-- Updated dependencies [[`212f772`](https://github.com/LedgerHQ/ledger-live/commit/212f772b17dc3db97009ebe62912f8f183c1ef2e), [`9fcc4eb`](https://github.com/LedgerHQ/ledger-live/commit/9fcc4eb5cd6e96e772daa154bd87ae374f925ddc), [`8936f39`](https://github.com/LedgerHQ/ledger-live/commit/8936f390edbe9cbc36ac6590b01562daf5c580e1)]:
-  - @ledgerhq/coin-solana@0.32.0
-  - @ledgerhq/errors@6.25.0
-  - @ledgerhq/ledger-cal-service@1.3.1
-  - @ledgerhq/ledger-trust-service@0.3.11
-  - @ledgerhq/devices@8.5.1
-  - @ledgerhq/hw-app-solana@7.5.3
-  - @ledgerhq/hw-transport@6.31.10
-  - @ledgerhq/hw-bolos@6.32.6
-
-## 0.5.4-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`212f772`](https://github.com/LedgerHQ/ledger-live/commit/212f772b17dc3db97009ebe62912f8f183c1ef2e), [`9fcc4eb`](https://github.com/LedgerHQ/ledger-live/commit/9fcc4eb5cd6e96e772daa154bd87ae374f925ddc), [`8936f39`](https://github.com/LedgerHQ/ledger-live/commit/8936f390edbe9cbc36ac6590b01562daf5c580e1)]:
-  - @ledgerhq/coin-solana@0.32.0-next.0
-  - @ledgerhq/errors@6.25.0-next.0
-  - @ledgerhq/ledger-cal-service@1.3.1-next.0
-  - @ledgerhq/ledger-trust-service@0.3.11-next.0
-  - @ledgerhq/devices@8.5.1-next.0
-  - @ledgerhq/hw-app-solana@7.5.3-next.0
-  - @ledgerhq/hw-transport@6.31.10-next.0
-  - @ledgerhq/hw-bolos@6.32.6-next.0
-
-## 0.5.3
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.31.1
-
-## 0.5.3-next.0
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.31.1-next.0
-
-## 0.5.2
-
-### Patch Changes
-
-- Updated dependencies [[`5698516`](https://github.com/LedgerHQ/ledger-live/commit/5698516e45934e51f2c3e1019b8cade898d425bb), [`75a08cc`](https://github.com/LedgerHQ/ledger-live/commit/75a08cc3061347bae98ddef7ac3cdcd6181ddab5), [`354fa83`](https://github.com/LedgerHQ/ledger-live/commit/354fa83c8107cf8e6b56a8b306569ee65980e10c), [`67e2a7c`](https://github.com/LedgerHQ/ledger-live/commit/67e2a7c5a74d000f22684254778dfec5b8b5163d)]:
-  - @ledgerhq/coin-solana@0.31.0
-  - @ledgerhq/errors@6.24.0
-  - @ledgerhq/devices@8.5.0
-  - @ledgerhq/ledger-cal-service@1.3.0
-  - @ledgerhq/ledger-trust-service@0.3.10
-  - @ledgerhq/hw-app-solana@7.5.2
-  - @ledgerhq/hw-transport@6.31.9
-  - @ledgerhq/hw-bolos@6.32.5
-
-## 0.5.2-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`5698516`](https://github.com/LedgerHQ/ledger-live/commit/5698516e45934e51f2c3e1019b8cade898d425bb), [`75a08cc`](https://github.com/LedgerHQ/ledger-live/commit/75a08cc3061347bae98ddef7ac3cdcd6181ddab5), [`354fa83`](https://github.com/LedgerHQ/ledger-live/commit/354fa83c8107cf8e6b56a8b306569ee65980e10c), [`67e2a7c`](https://github.com/LedgerHQ/ledger-live/commit/67e2a7c5a74d000f22684254778dfec5b8b5163d)]:
-  - @ledgerhq/coin-solana@0.31.0-next.0
-  - @ledgerhq/errors@6.24.0-next.0
-  - @ledgerhq/devices@8.5.0-next.0
-  - @ledgerhq/ledger-cal-service@1.3.0-next.0
-  - @ledgerhq/ledger-trust-service@0.3.10-next.0
-  - @ledgerhq/hw-app-solana@7.5.2-next.0
-  - @ledgerhq/hw-transport@6.31.9-next.0
-  - @ledgerhq/hw-bolos@6.32.5-next.0
-
-## 0.5.1
-
-### Patch Changes
-
-- Updated dependencies [[`69010f8`](https://github.com/LedgerHQ/ledger-live/commit/69010f87cdffcabd825464ba5b5aba58ce2c350b)]:
-  - @ledgerhq/coin-solana@0.30.0
-  - @ledgerhq/ledger-cal-service@1.2.2
-  - @ledgerhq/ledger-trust-service@0.3.9
-
-## 0.5.1-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`69010f8`](https://github.com/LedgerHQ/ledger-live/commit/69010f87cdffcabd825464ba5b5aba58ce2c350b)]:
-  - @ledgerhq/coin-solana@0.30.0-next.0
-  - @ledgerhq/ledger-cal-service@1.2.2-next.0
-  - @ledgerhq/ledger-trust-service@0.3.9-next.0
-
-## 0.5.0
-
-### Minor Changes
-
-- [#11029](https://github.com/LedgerHQ/ledger-live/pull/11029) [`d235ec0`](https://github.com/LedgerHQ/ledger-live/commit/d235ec0b843b94de81642952c322e2a3b3adedaf) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - fix(live-signer-solana): do not check min version on LNS
-
-### Patch Changes
-
-- Updated dependencies [[`cc50885`](https://github.com/LedgerHQ/ledger-live/commit/cc508857db6743756dae3d8914b6563104f831d0)]:
-  - @ledgerhq/coin-solana@0.29.0
-
-## 0.5.0-next.1
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.29.0-next.1
-
-## 0.5.0-next.0
-
-### Minor Changes
-
-- [#11029](https://github.com/LedgerHQ/ledger-live/pull/11029) [`d235ec0`](https://github.com/LedgerHQ/ledger-live/commit/d235ec0b843b94de81642952c322e2a3b3adedaf) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - fix(live-signer-solana): do not check min version on LNS
-
-### Patch Changes
-
-- Updated dependencies [[`cc50885`](https://github.com/LedgerHQ/ledger-live/commit/cc508857db6743756dae3d8914b6563104f831d0)]:
-  - @ledgerhq/coin-solana@0.29.0-next.0
-
-## 0.4.2
-
-### Patch Changes
-
-- Updated dependencies [[`20406e5`](https://github.com/LedgerHQ/ledger-live/commit/20406e52b4167289fced610c6ca9824a6d68cdac), [`5bba610`](https://github.com/LedgerHQ/ledger-live/commit/5bba610a62cb0872b4eb7d1c3b432cb40aa3d328)]:
-  - @ledgerhq/errors@6.23.0
-  - @ledgerhq/coin-solana@0.28.0
-  - @ledgerhq/ledger-cal-service@1.2.1
-  - @ledgerhq/ledger-trust-service@0.3.8
-  - @ledgerhq/devices@8.4.8
-  - @ledgerhq/hw-app-solana@7.5.1
-  - @ledgerhq/hw-transport@6.31.8
-  - @ledgerhq/hw-bolos@6.32.4
-
-## 0.4.2-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`20406e5`](https://github.com/LedgerHQ/ledger-live/commit/20406e52b4167289fced610c6ca9824a6d68cdac), [`5bba610`](https://github.com/LedgerHQ/ledger-live/commit/5bba610a62cb0872b4eb7d1c3b432cb40aa3d328)]:
-  - @ledgerhq/errors@6.23.0-next.0
-  - @ledgerhq/coin-solana@0.28.0-next.0
-  - @ledgerhq/ledger-cal-service@1.2.1-next.0
-  - @ledgerhq/ledger-trust-service@0.3.8-next.0
-  - @ledgerhq/devices@8.4.8-next.0
-  - @ledgerhq/hw-app-solana@7.5.1-next.0
-  - @ledgerhq/hw-transport@6.31.8-next.0
-  - @ledgerhq/hw-bolos@6.32.4-next.0
-
-## 0.4.1
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.27.2
-
-## 0.4.1-next.0
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.27.2-next.0
-
-## 0.4.0
-
-### Minor Changes
-
-- [#10691](https://github.com/LedgerHQ/ledger-live/pull/10691) [`14f840d`](https://github.com/LedgerHQ/ledger-live/commit/14f840d9c6228a786dfacb975b3aed1bd59f18a2) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - chore(live-signer-solana): bump app Solana min trusted version to `1.9.2`
-
-### Patch Changes
-
-- Updated dependencies [[`5299c33`](https://github.com/LedgerHQ/ledger-live/commit/5299c3345335b42ec29d090c7bba6dff85fa237e)]:
-  - @ledgerhq/ledger-cal-service@1.2.0
-  - @ledgerhq/coin-solana@0.27.1
-
-## 0.4.0-next.0
-
-### Minor Changes
-
-- [#10691](https://github.com/LedgerHQ/ledger-live/pull/10691) [`14f840d`](https://github.com/LedgerHQ/ledger-live/commit/14f840d9c6228a786dfacb975b3aed1bd59f18a2) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - chore(live-signer-solana): bump app Solana min trusted version to `1.9.2`
-
-### Patch Changes
-
-- Updated dependencies [[`5299c33`](https://github.com/LedgerHQ/ledger-live/commit/5299c3345335b42ec29d090c7bba6dff85fa237e)]:
-  - @ledgerhq/ledger-cal-service@1.2.0-next.0
-  - @ledgerhq/coin-solana@0.27.1-next.0
-
-## 0.3.1
-
-### Patch Changes
-
-- Updated dependencies [[`0c5070b`](https://github.com/LedgerHQ/ledger-live/commit/0c5070ba6effeacbcb6a009d86738c39a9a831d2), [`5735489`](https://github.com/LedgerHQ/ledger-live/commit/5735489ddcee66110fc0cccc6bdd696876b8be4d)]:
-  - @ledgerhq/coin-solana@0.27.0
-  - @ledgerhq/ledger-cal-service@1.1.0
-  - @ledgerhq/ledger-trust-service@0.3.7
-
-## 0.3.1-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`0c5070b`](https://github.com/LedgerHQ/ledger-live/commit/0c5070ba6effeacbcb6a009d86738c39a9a831d2), [`5735489`](https://github.com/LedgerHQ/ledger-live/commit/5735489ddcee66110fc0cccc6bdd696876b8be4d)]:
-  - @ledgerhq/coin-solana@0.27.0-next.0
-  - @ledgerhq/ledger-cal-service@1.1.0-next.0
-  - @ledgerhq/ledger-trust-service@0.3.7-next.0
-
-## 0.3.0
-
-### Minor Changes
-
-- [#10225](https://github.com/LedgerHQ/ledger-live/pull/10225) [`e65c386`](https://github.com/LedgerHQ/ledger-live/commit/e65c386cfb3e53e3ee9f501dc08971a93eb5cf81) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - core(coin-solana,hw-app-solana): support SPL tokens dynamically
-
-- [#10576](https://github.com/LedgerHQ/ledger-live/pull/10576) [`fa8e7c5`](https://github.com/LedgerHQ/ledger-live/commit/fa8e7c547d5c996fbcbe8a0351b250d13074a4d2) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - chore(live-signer-solana): bump app Solana min trusted version
-
-### Patch Changes
-
-- Updated dependencies [[`e65c386`](https://github.com/LedgerHQ/ledger-live/commit/e65c386cfb3e53e3ee9f501dc08971a93eb5cf81), [`9ceee03`](https://github.com/LedgerHQ/ledger-live/commit/9ceee03c33c41bb035fe64f9303acd36872536b6), [`b5e3217`](https://github.com/LedgerHQ/ledger-live/commit/b5e321789d3a6f9cb1916067790590640db0876f)]:
-  - @ledgerhq/ledger-cal-service@1.0.0
-  - @ledgerhq/hw-app-solana@7.5.0
-  - @ledgerhq/coin-solana@0.26.0
-  - @ledgerhq/errors@6.22.0
-  - @ledgerhq/devices@8.4.7
-  - @ledgerhq/hw-transport@6.31.7
-  - @ledgerhq/hw-bolos@6.32.3
-  - @ledgerhq/ledger-trust-service@0.3.6
-
-## 0.3.0-next.0
-
-### Minor Changes
-
-- [#10225](https://github.com/LedgerHQ/ledger-live/pull/10225) [`e65c386`](https://github.com/LedgerHQ/ledger-live/commit/e65c386cfb3e53e3ee9f501dc08971a93eb5cf81) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - core(coin-solana,hw-app-solana): support SPL tokens dynamically
-
-- [#10576](https://github.com/LedgerHQ/ledger-live/pull/10576) [`fa8e7c5`](https://github.com/LedgerHQ/ledger-live/commit/fa8e7c547d5c996fbcbe8a0351b250d13074a4d2) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - chore(live-signer-solana): bump app Solana min trusted version
-
-### Patch Changes
-
-- Updated dependencies [[`e65c386`](https://github.com/LedgerHQ/ledger-live/commit/e65c386cfb3e53e3ee9f501dc08971a93eb5cf81), [`9ceee03`](https://github.com/LedgerHQ/ledger-live/commit/9ceee03c33c41bb035fe64f9303acd36872536b6), [`b5e3217`](https://github.com/LedgerHQ/ledger-live/commit/b5e321789d3a6f9cb1916067790590640db0876f)]:
-  - @ledgerhq/ledger-cal-service@1.0.0-next.0
-  - @ledgerhq/hw-app-solana@7.5.0-next.0
-  - @ledgerhq/coin-solana@0.26.0-next.0
-  - @ledgerhq/errors@6.22.0-next.0
-  - @ledgerhq/devices@8.4.7-next.0
-  - @ledgerhq/hw-transport@6.31.7-next.0
-  - @ledgerhq/hw-bolos@6.32.3-next.0
-  - @ledgerhq/ledger-trust-service@0.3.6-next.0
-
-## 0.2.1
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.25.1
-  - @ledgerhq/ledger-cal-service@0.5.1
-  - @ledgerhq/ledger-trust-service@0.3.5
-
-## 0.2.1-next.1
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.25.1-next.1
-
-## 0.2.1-next.0
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.25.1-next.0
-  - @ledgerhq/ledger-cal-service@0.5.1-next.0
-  - @ledgerhq/ledger-trust-service@0.3.5-next.0
-
-## 0.2.0
-
-### Minor Changes
-
-- [#10385](https://github.com/LedgerHQ/ledger-live/pull/10385) [`1a4e5e5`](https://github.com/LedgerHQ/ledger-live/commit/1a4e5e5913fe5e12d6127b36f3849e4c81e5e50e) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - feat(solana-coin-tester): add SPL scenarios
-
-### Patch Changes
-
-- Updated dependencies [[`1860aa3`](https://github.com/LedgerHQ/ledger-live/commit/1860aa33a013716fbd128089faaf7562de1748c8), [`e05503a`](https://github.com/LedgerHQ/ledger-live/commit/e05503a0d9d7b38c5bfc48b6d1b1536bb399117f), [`1a4e5e5`](https://github.com/LedgerHQ/ledger-live/commit/1a4e5e5913fe5e12d6127b36f3849e4c81e5e50e)]:
-  - @ledgerhq/coin-solana@0.25.0
-  - @ledgerhq/ledger-cal-service@0.5.0
-  - @ledgerhq/devices@8.4.6
-  - @ledgerhq/hw-transport@6.31.6
-  - @ledgerhq/hw-app-solana@7.4.2
-  - @ledgerhq/hw-bolos@6.32.2
-  - @ledgerhq/ledger-trust-service@0.3.4
-
-## 0.2.0-next.2
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.25.0-next.2
-  - @ledgerhq/devices@8.4.6-next.1
-  - @ledgerhq/hw-transport@6.31.6-next.1
-  - @ledgerhq/hw-app-solana@7.4.2-next.1
-  - @ledgerhq/hw-bolos@6.32.2-next.1
-  - @ledgerhq/ledger-cal-service@0.5.0-next.2
-  - @ledgerhq/ledger-trust-service@0.3.4-next.1
-
-## 0.2.0-next.1
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @ledgerhq/coin-solana@0.25.0-next.1
-  - @ledgerhq/devices@8.4.6-next.0
-  - @ledgerhq/hw-transport@6.31.6-next.0
-  - @ledgerhq/hw-app-solana@7.4.2-next.0
-  - @ledgerhq/hw-bolos@6.32.2-next.0
-  - @ledgerhq/ledger-cal-service@0.5.0-next.1
-  - @ledgerhq/ledger-trust-service@0.3.4-next.0
-
-## 0.2.0-next.0
-
-### Minor Changes
-
-- [#10385](https://github.com/LedgerHQ/ledger-live/pull/10385) [`1a4e5e5`](https://github.com/LedgerHQ/ledger-live/commit/1a4e5e5913fe5e12d6127b36f3849e4c81e5e50e) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - feat(solana-coin-tester): add SPL scenarios
-
-### Patch Changes
-
-- Updated dependencies [[`1860aa3`](https://github.com/LedgerHQ/ledger-live/commit/1860aa33a013716fbd128089faaf7562de1748c8), [`e05503a`](https://github.com/LedgerHQ/ledger-live/commit/e05503a0d9d7b38c5bfc48b6d1b1536bb399117f), [`1a4e5e5`](https://github.com/LedgerHQ/ledger-live/commit/1a4e5e5913fe5e12d6127b36f3849e4c81e5e50e)]:
-  - @ledgerhq/coin-solana@0.25.0-next.0
-  - @ledgerhq/ledger-cal-service@0.5.0-next.0
-
-## 0.1.1
-
-### Patch Changes
-
-- Updated dependencies [[`107f35a`](https://github.com/LedgerHQ/ledger-live/commit/107f35a0650412716b088a3503b86435e6d9cf47), [`d8de57e`](https://github.com/LedgerHQ/ledger-live/commit/d8de57e1c166bc06620828043ed2795e19718fe9), [`9081c26`](https://github.com/LedgerHQ/ledger-live/commit/9081c2648490f977469a33762a3c67bb2c2a0be5)]:
-  - @ledgerhq/errors@6.21.0
-  - @ledgerhq/coin-solana@0.24.0
-  - @ledgerhq/devices@8.4.5
-  - @ledgerhq/hw-app-solana@7.4.1
-  - @ledgerhq/hw-transport@6.31.5
-  - @ledgerhq/ledger-cal-service@0.4.3
-  - @ledgerhq/ledger-trust-service@0.3.3
-  - @ledgerhq/hw-bolos@6.32.1
-
-## 0.1.1-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`107f35a`](https://github.com/LedgerHQ/ledger-live/commit/107f35a0650412716b088a3503b86435e6d9cf47), [`d8de57e`](https://github.com/LedgerHQ/ledger-live/commit/d8de57e1c166bc06620828043ed2795e19718fe9), [`9081c26`](https://github.com/LedgerHQ/ledger-live/commit/9081c2648490f977469a33762a3c67bb2c2a0be5)]:
-  - @ledgerhq/errors@6.21.0-next.0
-  - @ledgerhq/coin-solana@0.24.0-next.0
-  - @ledgerhq/devices@8.4.5-next.0
-  - @ledgerhq/hw-app-solana@7.4.1-next.0
-  - @ledgerhq/hw-transport@6.31.5-next.0
-  - @ledgerhq/ledger-cal-service@0.4.3-next.0
-  - @ledgerhq/ledger-trust-service@0.3.3-next.0
-  - @ledgerhq/hw-bolos@6.32.1-next.0
+<!-- changelog-pruned: older entries were removed to keep this file small. Full history is in `git log -p CHANGELOG.md` and in the GitHub release for each version. -->

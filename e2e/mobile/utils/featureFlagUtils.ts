@@ -1,63 +1,149 @@
 import { parseExtraFeatureFlags } from "@ledgerhq/live-e2e-shared/featureFlagsJsonUtils";
-import { getFlags } from "../bridge/server";
+import { getFlags } from "@e2e/bridge/server";
 
-import type { OptionalFeatureMap, Features } from "@shared/feature-flags";
+import type { PartialFeatures, Features } from "@shared/feature-flags";
 
-export const FF_LWM_WALLET_40_Q1 = {
+const FF_LWM_WALLET_40_Q1 = {
   lwmWallet40: {
     enabled: true,
     params: {
-      tour: false,
       lazyOnboarding: true,
       assetSection: false,
       brazePlacement: true,
       operationsList: false,
       aggregatedAssets: false,
       myWallet: false,
+      pnl: false,
       earnUpselling: false,
       earnSimulator: false,
-      onboardingWidget: false,
       assetDiscoverability: false,
-      q2Tour: false,
     },
   },
-} satisfies OptionalFeatureMap;
+} satisfies PartialFeatures;
 
 export const FF_LWM_WALLET_40_Q2 = {
   lwmWallet40: {
     enabled: true,
     params: {
-      tour: false,
       lazyOnboarding: true,
       assetSection: true,
       brazePlacement: true,
       operationsList: true,
       aggregatedAssets: true,
       myWallet: true,
+      pnl: true,
       earnUpselling: true,
       earnSimulator: true,
-      onboardingWidget: true,
       assetDiscoverability: true,
-      q2Tour: false,
     },
   },
-} satisfies OptionalFeatureMap;
+} satisfies PartialFeatures;
+
+export const FF_PASSWORD_REVAMP = {
+  lwmPasswordRevamp: { enabled: true },
+} satisfies PartialFeatures;
+
+export const FF_BORROW_ENABLED = {
+  ...FF_LWM_WALLET_40_Q2,
+  ptxBorrowLiveApp: {
+    enabled: true,
+    params: { manifest_id: "borrow" },
+  },
+  largeScreenUpsell: { enabled: false },
+  // Note: Prevent usage of DIE, which is not Speculos ready yet. The device-intent drawer bypasses
+  // the SignTransaction screens, so it also ignores the SWAP_DISABLE_APPS_INSTALL bypass swapSetup
+  // installs; leaving this to Firebase would make signing non-deterministic.
+  llmWalletApiDeviceIntentSign: { enabled: false },
+  lwmWallet40: {
+    ...FF_LWM_WALLET_40_Q2.lwmWallet40,
+    params: {
+      ...FF_LWM_WALLET_40_Q2.lwmWallet40.params,
+      pnl: true,
+    },
+  },
+} satisfies PartialFeatures;
+
+export const FF_NEW_SEND_FLOW_FIRST_INTERACTION_BANNER_ENABLED = {
+  newSendFlowFirstInteractionBanner: { enabled: true },
+} satisfies PartialFeatures;
+
+export const FF_LWM_CONTACTS_ENABLED = {
+  lwmContacts: {
+    enabled: true,
+    params: { newBadge: false, eligibleAddressFamilies: ["evm", "tron"] },
+  },
+} satisfies PartialFeatures;
 
 export const FF_NEW_SEND_FLOW_ENABLED = {
   newSendFlow: {
     enabled: true,
     params: {
-      families: ["cosmos", "polkadot"],
+      families: ["cosmos", "polkadot", "evm", "algorand", "solana", "tron", "stellar", "xrp"],
       excludedCurrencyIds: [],
     },
   },
   useDeviceActionSignatureSend: { enabled: true }, // Note: Prevent usage of DIE, which is not Speculos ready yet.
-} satisfies OptionalFeatureMap;
+  ...FF_NEW_SEND_FLOW_FIRST_INTERACTION_BANNER_ENABLED,
+} satisfies PartialFeatures;
+
+// Disable new send flow to avoid the new send flow on legacy send flow tests.
+export const FF_DISABLE_NEW_SEND_FLOW: PartialFeatures = {
+  newSendFlow: {
+    enabled: false,
+  },
+};
+
+// Mina staking is not in the remote stakePrograms list yet, so the account's Earn action would not
+// render without this. An empty `redirects` keeps the native Ledger Live flow rather than a partner
+// app.
+export const FF_MINA_STAKING_ENABLED = {
+  stakePrograms: {
+    enabled: true,
+    params: {
+      list: ["mina"],
+      redirects: {},
+    },
+  },
+} satisfies PartialFeatures;
+
+export const FF_BABYLON_STAKING_ENABLED = {
+  currencyBabylon: { enabled: true },
+  stakePrograms: {
+    enabled: true,
+    params: {
+      list: ["babylon"],
+      redirects: {},
+    },
+  },
+} satisfies PartialFeatures;
+
+export const FF_TEZOS_STAKING_ENABLED = {
+  llmTezosStaking: { enabled: true },
+} satisfies PartialFeatures;
+
+export const FF_CONTACTS_ENABLED = {
+  lwmContacts: {
+    enabled: true,
+    params: { newBadge: false, eligibleAddressFamilies: ["evm", "tron"] },
+  },
+} satisfies PartialFeatures;
+
+export const FF_PAY_TAB = {
+  lwmPayTab: {
+    enabled: true,
+    params: {
+      card_native: true,
+      card_live_app: false,
+      card_disclaimer: false,
+      legacyTopUp: false,
+    },
+  },
+} satisfies PartialFeatures;
 
 export const getMergedFeatureFlags = ({
   testFlags,
-}: { testFlags?: OptionalFeatureMap } = {}): OptionalFeatureMap => {
-  const ffPresetMap: Record<string, OptionalFeatureMap> = {
+}: { testFlags?: PartialFeatures } = {}): PartialFeatures => {
+  const ffPresetMap: Record<string, PartialFeatures> = {
     /*
      * The keys here are the values of the `E2E_MOBILE_FEATURE_FLAGS` environment variable.
      * We can add more mappings here in the future to test different feature flag combinations.
@@ -68,10 +154,17 @@ export const getMergedFeatureFlags = ({
     "wallet40-q1": FF_LWM_WALLET_40_Q1,
   };
 
-  const defaultFlags: OptionalFeatureMap = {
+  const defaultFlags: PartialFeatures = {
     // explicit defaults
     onboardingWidget: {
       enabled: true,
+    },
+    largeScreenUpsell: { enabled: false },
+    releaseTour: { enabled: false },
+    brazePushNotifications: { enabled: false },
+    ratingsPrompt: { enabled: false },
+    llmWalletApiDeviceIntentSign: {
+      enabled: false, // Note: Prevent usage of DIE, which is not Speculos ready yet.
     },
     llmModularDrawer: {
       enabled: true,
@@ -94,7 +187,7 @@ export const getMergedFeatureFlags = ({
   };
 
   // parse JSON override flags for any overrides
-  const jsonOverrideFlags: OptionalFeatureMap = parseExtraFeatureFlags(
+  const jsonOverrideFlags: PartialFeatures = parseExtraFeatureFlags<PartialFeatures>(
     process.env.E2E_FEATURE_FLAGS_JSON,
   );
 
@@ -106,8 +199,8 @@ export const getMergedFeatureFlags = ({
   };
 };
 
-export const getLwmWallet40StaticFlag = (): Features["lwmWallet40"] | undefined =>
-  getMergedFeatureFlags().lwmWallet40 as Features["lwmWallet40"] | undefined;
+const getLwmWallet40StaticFlag = (): Features["lwmWallet40"] | undefined =>
+  getMergedFeatureFlags().lwmWallet40;
 
 export const isQ2WithAggregatedAssets = (): boolean => {
   const lwmWallet40 = getLwmWallet40StaticFlag();
@@ -119,12 +212,10 @@ export const isQ2WithOperationsList = (): boolean => {
   return lwmWallet40?.enabled === true && lwmWallet40?.params?.operationsList === true;
 };
 
-export const getLwmFlag = async (): Promise<Features["lwmWallet40"] | undefined> => {
+const getLwmFlag = async (): Promise<Features["lwmWallet40"] | undefined> => {
   const flags = await getFlags();
-  if (!flags.trim()) {
-    return undefined; // avoid parse errors
-  }
-  return JSON.parse(flags).lwmWallet40 as Features["lwmWallet40"];
+  const parsed = parseExtraFeatureFlags<PartialFeatures>(flags);
+  return parsed.lwmWallet40;
 };
 
 export const isAssetDiscoverabilityEnabled = async (): Promise<boolean> => {

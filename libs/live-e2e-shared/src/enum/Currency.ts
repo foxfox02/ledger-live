@@ -19,6 +19,15 @@ export class Currency {
     return this.ticker;
   }
 
+  /**
+   * Label used in the `[…]` prefix of e2e test names. Defaults to the ticker; tokens and
+   * the currencies that share a ticker with another one carry their network so the name
+   * stays unique across LWD and LWM. See CURRENCY_TEST_LABELS.
+   */
+  get testLabel(): string {
+    return CURRENCY_TEST_LABELS.get(this) ?? this.ticker;
+  }
+
   static readonly CELO = new Currency("Celo", "CELO", "celo", AppInfos.CELO, [Network.CELO]);
 
   static readonly INJ = new Currency("Injective", "INJ", "injective", AppInfos.INJECTIVE, [
@@ -140,6 +149,14 @@ export class Currency {
     AppInfos.ETHEREUM,
     [Network.ETHEREUM],
   );
+  static readonly ETH_WGNK = new Currency(
+    "Wrapped Gonka",
+    "WGNK",
+    "ethereum/erc20/wrapped_gonka_0x972a7a92d92796a98801a8818bcf91f1648f2f68",
+    AppInfos.ETHEREUM,
+    [Network.ETHEREUM],
+    "0x972a7A92D92796a98801A8818bcF91f1648f2F68",
+  );
   static readonly XLM_USDC = new Currency("USDC", "USDC", "stellar", AppInfos.STELLAR, [
     Network.STELLAR,
   ]);
@@ -174,6 +191,9 @@ export class Currency {
   static readonly NEAR = new Currency("NEAR", "NEAR", "near", AppInfos.NEAR, [Network.NEAR]);
   static readonly OSMO = new Currency("Osmosis", "OSMO", "osmo", AppInfos.OSMOSIS, [
     Network.OSMOSIS,
+  ]);
+  static readonly BABY = new Currency("Babylon", "BABY", "babylon", AppInfos.BABYLON, [
+    Network.BABYLON,
   ]);
   static readonly MULTIVERS_X = new Currency("MultiversX", "EGLD", "elrond", AppInfos.MULTIVERS_X, [
     Network.MULTIVERS_X,
@@ -252,3 +272,23 @@ export class Currency {
     Network.SEI,
   ]);
 }
+
+const CURRENCY_TEST_LABELS = new Map<Currency, string>([
+  [Currency.sepETH, "ETH (Sepolia)"],
+  [Currency.BASE, "ETH (Base)"],
+  [Currency.ETH_USDT, "USDT (Ethereum)"],
+  [Currency.ETH_USDC, "USDC (Ethereum)"],
+  [Currency.ETH_LIDO, "STETH (Ethereum)"],
+  [Currency.ETH_WGNK, "WGNK (Ethereum)"],
+  [Currency.XLM_USDC, "USDC (Stellar)"],
+  [Currency.ALGO_USDT, "USDT (Algorand)"],
+  [Currency.TRX_USDT, "USDT (Tron)"],
+  [Currency.TRX_BTT, "BTT (Tron)"],
+  [Currency.BSC_BUSD, "BUSD (BNB Chain)"],
+  [Currency.POL_DAI, "DAI (Polygon)"],
+  [Currency.POL_UNI, "UNI (Polygon)"],
+  [Currency.SOL_GIGA, "GIGA (Solana)"],
+  [Currency.SOL_WIF, "WIF (Solana)"],
+  [Currency.SUI_USDC, "USDC (Sui)"],
+  [Currency.BASE_AERODROME, "AERO (Base)"],
+]);

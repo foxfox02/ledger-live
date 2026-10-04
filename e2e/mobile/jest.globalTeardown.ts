@@ -1,13 +1,3 @@
-import { register } from "tsconfig-paths";
-
-// Register path mappings explicitly with the correct tsconfig
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- JSON config load
-const tsConfig = require("./tsconfig.json");
-register({
-  baseUrl: __dirname,
-  paths: tsConfig.compilerOptions.paths,
-});
-
 import { globalTeardown } from "detox/runners/jest";
 import { promises as fs } from "fs";
 import {
@@ -16,18 +6,25 @@ import {
   getFlags,
   loadConfig,
   setFeatureFlags,
-} from "./bridge/server";
+} from "@e2e/bridge/server";
 import { formatEnvData, formatFlagsData } from "@ledgerhq/live-e2e-shared";
-import { launchApp } from "./helpers/commonHelpers";
-import { getMergedFeatureFlags } from "./utils/featureFlagUtils";
+import { launchApp } from "@e2e/helpers/commonHelpers";
+import { getMergedFeatureFlags } from "@e2e/utils/featureFlagUtils";
 import detox from "detox/internals";
 import path from "path";
 import { glob } from "glob";
 import { log } from "detox";
 import { Subject } from "rxjs";
-import { NativeElementHelpers } from "./helpers/elementHelpers";
+import { NativeElementHelpers } from "@e2e/helpers/elementHelpers";
 import { sanitizeError } from "@ledgerhq/live-e2e-shared/index";
-import { withTimeout } from "./utils/withTimeout";
+import { withTimeout } from "@e2e/utils/withTimeout";
+
+/** Default Detox teardown, guarded against proper-lockfile CI hangs. */
+const GLOBAL_TEARDOWN_TIMEOUT = 60_000;
+/** Detox cleanup after the CI env-collection pass. */
+const GLOBAL_CLEANUP_TIMEOUT = 30_000;
+/** Waiting for the relaunched app in the CI env-collection pass. */
+const GLOBAL_TEARDOWN_APP_READY_TIMEOUT = 120_000;
 
 const ARTIFACT_ENV_PATH = path.resolve("artifacts/environment.properties");
 const USERDATA_DIR = path.resolve(__dirname, "userdata");
@@ -50,7 +47,10 @@ export default async () => {
       await launchApp({ newInstance: true });
       await setFeatureFlags(getMergedFeatureFlags());
       await loadConfig("1AccountBTC1AccountETHReadOnlyFalse", true);
-      await NativeElementHelpers.waitForElementById("topbar-settings", 120_000);
+      await NativeElementHelpers.waitForElementById(
+        "topbar-discover",
+        GLOBAL_TEARDOWN_APP_READY_TIMEOUT,
+      );
     } catch (err) {
       log.warn("Error starting the app in CI global teardown:", sanitizeError(err));
     }
@@ -63,7 +63,7 @@ export default async () => {
     }
     try {
       closeBridge();
-      await withTimeout(cleanupDetox(), 30_000, "cleanupDetox");
+      await withTimeout(cleanupDetox(), GLOBAL_CLEANUP_TIMEOUT, "cleanupDetox");
     } catch (cleanupErr) {
       log.warn("Error during cleanup in CI global teardown:", sanitizeError(cleanupErr));
     }
@@ -77,7 +77,9 @@ export default async () => {
 
   // default Detox teardown with timeout protection to prevent CI hangs from proper-lockfile issues.
   // Surface real failures (orphaned simulators, broken cleanup) instead of swallowing them.
-  await withTimeout(globalTeardown(), 60_000, "globalTeardown", { rethrow: true });
+  await withTimeout(globalTeardown(), GLOBAL_TEARDOWN_TIMEOUT, "globalTeardown", {
+    rethrow: true,
+  });
 
   // parallel file cleanups and force close any lingering connections
   await Promise.all([cleanupUserdata(), forceGarbageCollection()]);

@@ -1,6 +1,6 @@
 {
   "name": "@ledgerhq/live-signer-canton",
-  "version": "0.9.12",
+  "version": "0.9.21",
   "private": true,
   "description": "Ledger Hardware Wallet Canton Application API",
   "keywords": [
@@ -29,9 +29,9 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@ledgerhq/coin-canton": "workspace:^",
-    "@ledgerhq/devices": "workspace:*",
+    "@ledgerhq/devices": "catalog:",
     "@ledgerhq/hw-app-canton": "workspace:^",
-    "@ledgerhq/hw-transport": "workspace:*",
+    "@ledgerhq/hw-transport": "catalog:",
     "semver": "catalog:"
   },
   "scripts": {
@@ -46,14 +46,15 @@
   },
   "devDependencies": {
     "@ledgerhq/disable-network-setup": "workspace:^",
+    "@ledgerhq/test-quarantine": "workspace:*",
     "@ledgerhq/types-live": "workspace:^",
+    "@swc/core": "catalog:",
+    "@swc/jest": "catalog:",
     "@types/jest": "catalog:",
     "@types/node": "catalog:",
     "@types/semver": "catalog:",
     "jest": "catalog:",
     "rimraf": "^4.4.1",
-    "@swc/jest": "catalog:",
-    "@swc/core": "catalog:",
     "ts-node": "^10.4.0"
   },
   "exports": {

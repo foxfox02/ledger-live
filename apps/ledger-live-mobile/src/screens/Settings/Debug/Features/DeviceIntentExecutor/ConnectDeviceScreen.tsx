@@ -19,7 +19,7 @@ type DeviceConnectionResult = Parameters<ConnectDeviceInput["onConnected"]>[0];
 type StateHistoryEntry = {
   id: number;
   timestamp: string;
-  type: ConnectDeviceUIStateTypes;
+  type: ConnectDeviceUIState["type"];
   details: string;
 };
 
@@ -422,7 +422,6 @@ function toSerializableConnectionResult(result: DeviceConnectionResult): unknown
   return {
     sessionId: result.sessionId,
     compatDeviceId: result.compatDeviceId,
-    compatDeviceModelId: result.compatDeviceModelId,
     compatDeviceName: result.compatDeviceName,
     compatDeviceWired: result.compatDeviceWired,
     connectedDevice: {

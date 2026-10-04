@@ -1,23 +1,42 @@
-import { useCallback, useMemo } from "react";
+import { track } from "@shared/analytics";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useNavigation } from "@react-navigation/native";
 import { BigNumber } from "bignumber.js";
 import { useTranslation } from "~/context/Locale";
 import { useMaybeAccountName } from "~/reducers/wallet";
 import { ScreenName } from "~/const";
 import type { BaseNavigationComposite } from "~/components/RootNavigator/types/helpers";
+import { useSendFlowTrackingProperties } from "../hooks/useSendFlowTrackingProperties";
 
 import { SEND_FLOW_STEP } from "@ledgerhq/live-common/flows/send/types";
+import { resolveCurrencyConfig } from "@ledgerhq/live-common/flows/send/utils/resolveCurrencyConfig";
 import { useSendAmountDisplayMode } from "@ledgerhq/live-common/flows/send/amount/SendAmountDisplayModeContext";
+import {
+  buildTransactionPatchFromURIScheme,
+  type DecodedURISchemePayment,
+} from "@ledgerhq/live-common/flows/send/utils/uriScheme";
 import { useSendFlowData, useSendFlowActions } from "../context/SendFlowContext";
+import { useSendMemoReset } from "../context/SendMemoResetContext";
 import { useAvailableBalance } from "./useAvailableBalance";
 import { useCurrentSendFlowStep } from "./useCurrentSendFlowStep";
 import {
-  getRecipientDisplayValue,
   getRecipientSearchPrefillValue,
   SEND_ADDRESS_FORMAT_OPTIONS,
 } from "@ledgerhq/live-common/flows/send/utils";
+import { getRecipientHeaderPresentation } from "@ledgerhq/live-common/flows/send/recipient/utils/getRecipientHeaderPresentation";
+import type { RecipientHeaderContact } from "@ledgerhq/live-common/flows/send/recipient/utils/getRecipientHeaderPresentation";
+import {
+  isEligibleAddressCurrency,
+  useContactsFeature,
+  useContactDisplayName,
+} from "@features/platform-contacts";
+import { selectContacts } from "@domain/entity-contact";
+import { useSelector } from "~/context/hooks";
 import { formatAddress } from "@ledgerhq/live-common/utils/addressUtils";
 import type { SendFlowNavigationProp } from "../types";
+import { useRecipientContactSelection } from "../context/RecipientContactSelectionContext";
+import { useSendFlowTracking } from "../context/SendFlowTrackingContext";
+import { getSendFlowTrackingPage } from "../utils/contactTracking";
 
 export type SendHeaderViewModel = {
   title: string;
@@ -34,6 +53,7 @@ export type SendHeaderViewModel = {
     clear: () => void;
   };
   formattedAddress: string;
+  recipientContact: RecipientHeaderContact | undefined;
   recipientPlaceholder: string;
   handleBackPress: () => void;
   handleClose: () => void;
@@ -41,7 +61,20 @@ export type SendHeaderViewModel = {
   setRecipientSearchValue: (value: string) => void;
   clearRecipientSearch: () => void;
   handleQrCodeClick: () => void;
+  handleRecipientInputChange: (value: string) => void;
 };
+
+function getRecipientPlaceholderKey({
+  supportsDomain,
+  canSearchContacts,
+}: Readonly<{ supportsDomain: boolean; canSearchContacts: boolean }>): string {
+  if (canSearchContacts) {
+    return supportsDomain
+      ? "send.newSendFlow.placeholderWithContacts"
+      : "send.newSendFlow.placeholderNoEnsWithContacts";
+  }
+  return supportsDomain ? "send.newSendFlow.placeholder" : "send.newSendFlow.placeholderNoENS";
+}
 
 export function useSendHeaderViewModel(): SendHeaderViewModel {
   const navigation = useNavigation<BaseNavigationComposite<SendFlowNavigationProp>>();
@@ -49,7 +82,16 @@ export function useSendHeaderViewModel(): SendHeaderViewModel {
   const { uiConfig, recipientSearch, state } = useSendFlowData();
   const { close, transaction, setRecipientSearchValue, clearRecipientSearch } =
     useSendFlowActions();
+  const { resetViewState } = useSendMemoReset();
   const { displayMode } = useSendAmountDisplayMode();
+  const {
+    isEnabled: isContactsFeatureEnabled,
+    eligibleAddressFamilies,
+    excludedCurrencyIds,
+  } = useContactsFeature("mobile");
+  const contacts = useSelector(selectContacts);
+  const { selectedContact, clearSelectedContact } = useRecipientContactSelection();
+  const { recipientType, setInputMethod } = useSendFlowTracking();
 
   const accountName = useMaybeAccountName(state.account.account);
   const [currentStep, currentStepConfig] = useCurrentSendFlowStep();
@@ -57,11 +99,16 @@ export function useSendHeaderViewModel(): SendHeaderViewModel {
   const spendableBalanceText = useAvailableBalance(state.account.account, headerDisplayMode);
 
   const currencyName = state.account.currency?.ticker ?? "";
+  const isRecipientStep = currentStep === SEND_FLOW_STEP.RECIPIENT;
+  const isAmountStep = currentStep === SEND_FLOW_STEP.AMOUNT;
+  const isSelectingContactAddress = isRecipientStep && selectedContact !== undefined;
   const showTitle = currentStepConfig?.showTitle !== false;
   const isCustomFeesStep = currentStep === SEND_FLOW_STEP.CUSTOM_FEES;
   const isCoinControlStep = currentStep === SEND_FLOW_STEP.COIN_CONTROL;
   let title = "";
-  if (showTitle) {
+  if (isSelectingContactAddress) {
+    title = t("send.newSendFlow.selectAddress");
+  } else if (showTitle) {
     if (isCustomFeesStep) {
       title = t("send.newSendFlow.customFees.title");
     } else if (isCoinControlStep) {
@@ -70,16 +117,34 @@ export function useSendHeaderViewModel(): SendHeaderViewModel {
       title = t("send.newSendFlow.title", { currency: currencyName });
     }
   }
-  const descriptionText =
-    showTitle && !isCustomFeesStep
+  const descriptionText = isSelectingContactAddress
+    ? selectedContact.name
+    : showTitle && !isCustomFeesStep
       ? [accountName, spendableBalanceText].filter(Boolean).join(" · ")
       : "";
 
-  const showHeaderRight = currentStepConfig?.showHeaderRight !== false;
-  const canGoBack = Boolean(currentStepConfig?.canGoBack && navigation.canGoBack());
-  const isRecipientStep = currentStep === SEND_FLOW_STEP.RECIPIENT;
-  const isAmountStep = currentStep === SEND_FLOW_STEP.AMOUNT;
-  const showRecipientInput = Boolean(currentStepConfig?.addressInput);
+  const showHeaderRight =
+    !isSelectingContactAddress && currentStepConfig?.showHeaderRight !== false;
+  const canGoBack =
+    isSelectingContactAddress || Boolean(currentStepConfig?.canGoBack && navigation.canGoBack());
+  const showRecipientInput = Boolean(currentStepConfig?.addressInput) && !isSelectingContactAddress;
+  const trackingProperties = useSendFlowTrackingProperties();
+
+  useEffect(() => {
+    if (!isSelectingContactAddress) {
+      return;
+    }
+
+    return navigation.addListener("beforeRemove", event => {
+      event.preventDefault();
+      track("button_clicked", {
+        button: "back",
+        page: "select contact address",
+        ...trackingProperties,
+      });
+      clearSelectedContact();
+    });
+  }, [clearSelectedContact, isSelectingContactAddress, navigation, trackingProperties]);
 
   const recipientFromTransaction = useMemo(() => {
     const address = state.transaction.transaction?.recipient;
@@ -87,70 +152,190 @@ export function useSendHeaderViewModel(): SendHeaderViewModel {
     return { address } as const;
   }, [state.transaction.transaction?.recipient]);
 
+  const recipientHeader = useMemo(
+    () =>
+      getRecipientHeaderPresentation({
+        recipient: recipientFromTransaction,
+        contacts,
+        currencyId: state.account.currency?.id,
+        isContactsFeatureEnabled: isContactsFeatureEnabled && isAmountStep,
+      }),
+    [
+      contacts,
+      isAmountStep,
+      isContactsFeatureEnabled,
+      recipientFromTransaction,
+      state.account.currency?.id,
+    ],
+  );
+  const getDisplayName = useContactDisplayName();
+  const recipientLabel = recipientHeader.contact
+    ? getDisplayName(recipientHeader.contact)
+    : recipientHeader.recipientDisplayValue;
+
   const formattedAddress = useMemo(() => {
     if (isRecipientStep) {
       return formatAddress(recipientSearch.value, SEND_ADDRESS_FORMAT_OPTIONS);
     }
     if (isAmountStep) {
-      return getRecipientDisplayValue(recipientFromTransaction);
+      return recipientLabel;
     }
     return "";
-  }, [isRecipientStep, isAmountStep, recipientSearch.value, recipientFromTransaction]);
+  }, [isRecipientStep, isAmountStep, recipientLabel, recipientSearch.value]);
+
+  // The recipient step keeps a draft in the transaction while the user types: the memo input
+  // writes the resolved address as soon as it validates, before anything is confirmed. Going back
+  // means cancelling that edit, otherwise the draft reaches a step that has no memo confirmation.
+  const recipientBeforeEditRef = useRef(state.recipient);
+  const cancelRecipientEdit = useCallback(() => {
+    const recipientBeforeEdit = recipientBeforeEditRef.current;
+    if (!recipientBeforeEdit || recipientBeforeEdit === state.recipient) return;
+    transaction.setRecipient(recipientBeforeEdit);
+  }, [state.recipient, transaction]);
+
+  const leaveAmountStep = useCallback(
+    (prefillOverride?: string) => {
+      transaction.updateTransaction(tx => ({
+        ...tx,
+        amount: new BigNumber(0),
+        useAllAmount: false,
+        feesStrategy: null,
+      }));
+      resetViewState();
+
+      const prefillValue =
+        prefillOverride ?? getRecipientSearchPrefillValue(recipientFromTransaction);
+      if (prefillValue) {
+        setRecipientSearchValue(prefillValue);
+      }
+    },
+    [recipientFromTransaction, resetViewState, setRecipientSearchValue, transaction],
+  );
 
   const handleBackPress = useCallback(() => {
+    if (isSelectingContactAddress) {
+      track("button_clicked", {
+        button: "back",
+        page: "select contact address",
+        ...trackingProperties,
+      });
+      clearSelectedContact();
+      return;
+    }
+
     if (canGoBack) {
       if (currentStep === SEND_FLOW_STEP.AMOUNT) {
-        transaction.updateTransaction(tx => ({
-          ...tx,
-          amount: new BigNumber(0),
-          useAllAmount: false,
-          feesStrategy: null,
-        }));
+        // A contact was picked from the list: go back to the full list, not a search for it.
+        leaveAmountStep(recipientHeader.contact ? "" : undefined);
+      } else if (isRecipientStep) {
+        cancelRecipientEdit();
       }
       navigation.goBack();
     } else {
       close();
     }
-  }, [canGoBack, close, currentStep, navigation, transaction]);
+  }, [
+    canGoBack,
+    cancelRecipientEdit,
+    clearSelectedContact,
+    close,
+    currentStep,
+    isRecipientStep,
+    isSelectingContactAddress,
+    leaveAmountStep,
+    navigation,
+    recipientHeader.contact,
+    trackingProperties,
+  ]);
 
   const handleClose = useCallback(() => {
+    track("button_clicked", {
+      button: "close",
+      page: getSendFlowTrackingPage(currentStep, isSelectingContactAddress),
+      recipientType,
+      ...trackingProperties,
+    });
     close();
-  }, [close]);
+  }, [close, currentStep, isSelectingContactAddress, recipientType, trackingProperties]);
 
   const handleRecipientInputPress = useCallback(() => {
     if (!isAmountStep) return;
 
-    const prefillValue = getRecipientSearchPrefillValue(recipientFromTransaction);
-    if (prefillValue) {
-      setRecipientSearchValue(prefillValue);
-    }
+    leaveAmountStep(recipientHeader.contact?.name);
 
-    navigation.goBack();
-  }, [isAmountStep, navigation, recipientFromTransaction, setRecipientSearchValue]);
+    const { routes, index } = navigation.getState();
+    if (routes[index - 1]?.name === ScreenName.SendFlowRecipient) {
+      navigation.goBack();
+      return;
+    }
+    navigation.navigate(ScreenName.SendFlowRecipient);
+  }, [isAmountStep, leaveAmountStep, navigation, recipientHeader.contact?.name]);
+
+  const handleScannedURI = useCallback(
+    (decoded: DecodedURISchemePayment) => {
+      setInputMethod("qr_code");
+      setRecipientSearchValue(decoded.address);
+
+      const currentTransaction = state.transaction.transaction;
+      if (currentTransaction) {
+        const patch = buildTransactionPatchFromURIScheme(currentTransaction, decoded);
+        if (Object.keys(patch).length > 0) {
+          transaction.updateTransaction(tx => ({ ...tx, ...patch }) as typeof tx);
+        }
+      }
+    },
+    [setInputMethod, setRecipientSearchValue, state.transaction.transaction, transaction],
+  );
 
   const handleQrCodeClick = useCallback(() => {
-    const account = state.account.account;
-    if (!account) return;
+    if (!state.account.account) return;
 
+    track("button_clicked", {
+      button: "scan qr code",
+      page: "step recipient",
+      ...trackingProperties,
+    });
     clearRecipientSearch();
     navigation.navigate(ScreenName.ScanRecipient, {
-      accountId: account.id,
+      accountId: state.account.account.id,
       parentId: state.account.parentAccount?.id,
       transaction: state.transaction.transaction ?? undefined,
-      onScanned: setRecipientSearchValue,
+      onScannedURI: handleScannedURI,
     });
   }, [
     clearRecipientSearch,
+    handleScannedURI,
     navigation,
-    setRecipientSearchValue,
     state.account.account,
     state.account.parentAccount?.id,
     state.transaction.transaction,
+    trackingProperties,
   ]);
 
-  const recipientPlaceholder = uiConfig.recipientSupportsDomain
-    ? t("send.newSendFlow.placeholder")
-    : t("send.newSendFlow.placeholderNoENS");
+  const handleRecipientInputChange = useCallback(
+    (value: string) => {
+      const addedLength = value.length - recipientSearch.value.length;
+      setInputMethod(addedLength > 1 ? "paste" : "manual");
+      recipientSearch.setValue(value);
+    },
+    [recipientSearch, setInputMethod],
+  );
+
+  const config = resolveCurrencyConfig(state.account.currency?.id);
+  const canSearchContacts =
+    isContactsFeatureEnabled &&
+    isEligibleAddressCurrency(
+      eligibleAddressFamilies,
+      state.account.currency ?? undefined,
+      excludedCurrencyIds,
+      config,
+    );
+  const recipientPlaceholder = t(
+    getRecipientPlaceholderKey({
+      supportsDomain: uiConfig.recipientSupportsDomain,
+      canSearchContacts,
+    }),
+  );
 
   return {
     title,
@@ -163,6 +348,7 @@ export function useSendHeaderViewModel(): SendHeaderViewModel {
     showRecipientInput,
     recipientSearch,
     formattedAddress,
+    recipientContact: recipientHeader.contact,
     recipientPlaceholder,
     handleBackPress,
     handleClose,
@@ -170,5 +356,6 @@ export function useSendHeaderViewModel(): SendHeaderViewModel {
     setRecipientSearchValue,
     clearRecipientSearch,
     handleQrCodeClick,
+    handleRecipientInputChange,
   };
 }

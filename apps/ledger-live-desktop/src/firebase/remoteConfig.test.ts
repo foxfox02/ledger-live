@@ -12,17 +12,21 @@ jest.mock("firebase/app", () => ({
 jest.mock("firebase/remote-config", () => ({
   getRemoteConfig: (...args: unknown[]) => mockGetRemoteConfig(...(args as [])),
   fetchAndActivate: (...args: unknown[]) => mockFetchAndActivate(...(args as [])),
+  ensureInitialized: jest.fn().mockResolvedValue(undefined),
   getAll: (...args: unknown[]) => mockGetAll(...(args as [])),
 }));
 jest.mock("~/firebase-setup", () => ({
   getFirebaseConfig: () => ({ projectId: "test" }),
 }));
-jest.mock("@features/platform-feature-flags", () => ({
-  DEFAULT_FEATURES: { mockFeature: { enabled: false } },
+jest.mock("@features/platform-feature-flags-firebase", () => ({
+  ...jest.requireActual("@features/platform-feature-flags-firebase"),
   formatDefaultFeatures: () => ({ feature_mock_feature: JSON.stringify({ enabled: false }) }),
 }));
 
-const value = (raw: string) => ({ asString: () => raw });
+const value = (raw: string, source: "remote" | "default" | "static" = "remote") => ({
+  asString: () => raw,
+  getSource: () => source,
+});
 
 async function loadModule() {
   return await import("./remoteConfig");
@@ -43,6 +47,12 @@ describe("fetchRemoteFlags", () => {
     mockGetAll.mockReturnValue({
       feature_counter_value: value(JSON.stringify({ enabled: true })),
       feature_lwd_wallet_40: value(JSON.stringify({ enabled: false, params: { mainNav: true } })),
+      feature_copy_upgrade_banner: value(
+        JSON.stringify({
+          enabled: true,
+          copy: { "upgrade.banner.title": "Discover Ledger Flex" },
+        }),
+      ),
       config_unrelated: value('"ignored"'),
       stranger_key: value('"ignored"'),
       feature_unknown_flag: value('"ignored"'),
@@ -55,6 +65,11 @@ describe("fetchRemoteFlags", () => {
       counterValue: { enabled: true },
       lwdWallet40: { enabled: false, params: { mainNav: true } },
     });
+    const { getContentAbTestCopy } = await import("@features/platform-content-ab-tests");
+    expect(getContentAbTestCopy()).toEqual({
+      "upgrade.banner.title": "Discover Ledger Flex",
+    });
+    expect(mockGetAll).toHaveBeenCalledTimes(1);
   });
 
   it("resolves Firebase keys whose snake_case ↔ camelCase round-trip is lossy", async () => {
@@ -187,38 +202,5 @@ describe("subscribeToRemoteFlags", () => {
     unsubscribe();
     await fetchRemoteFlags();
     expect(cb).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("whenReady", () => {
-  it("resolves after the first successful fetch", async () => {
-    mockGetAll.mockReturnValue({});
-    const { fetchRemoteFlags, whenReady } = await loadModule();
-
-    let resolved = false;
-    void whenReady().then(() => {
-      resolved = true;
-    });
-
-    await Promise.resolve();
-    expect(resolved).toBe(false);
-
-    await fetchRemoteFlags();
-    await Promise.resolve();
-    expect(resolved).toBe(true);
-  });
-
-  it("resolves even when the first fetch fails (so boot is not blocked)", async () => {
-    mockFetchAndActivate.mockRejectedValue(new Error("network down"));
-    const { fetchRemoteFlags, whenReady } = await loadModule();
-
-    let resolved = false;
-    void whenReady().then(() => {
-      resolved = true;
-    });
-
-    await fetchRemoteFlags().catch(() => null);
-    await Promise.resolve();
-    expect(resolved).toBe(true);
   });
 });

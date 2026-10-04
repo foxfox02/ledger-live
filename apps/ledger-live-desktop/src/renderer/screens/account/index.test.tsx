@@ -3,6 +3,9 @@ import { render, screen, withFlagOverrides } from "tests/testSetup";
 import { genAccount } from "@ledgerhq/live-common/mock/account";
 import { getCryptoCurrencyById } from "@domain/entity-currency-crypto";
 import { useLLDCoinFamily } from "~/renderer/families";
+import { computeAccountAlias } from "@domain/entity-account-alias";
+import { parseAnyAccountId } from "@domain/entity-account";
+import { getAccountUrl } from "~/renderer/utils";
 import AccountPageWrapper from "./index";
 
 jest.mock("~/renderer/families");
@@ -31,7 +34,10 @@ jest.mock("@ledgerhq/live-common/bridge/react/index", () => ({
 }));
 
 // Heavy children unrelated to the family-slot logic under test.
-jest.mock("~/renderer/analytics/TrackPage", () => () => null);
+jest.mock("@shared/analytics-react", () => ({
+  ...jest.requireActual("@shared/analytics-react"),
+  TrackPage: () => null,
+}));
 jest.mock("./AccountHeaderRow", () => () => <div data-testid="account-header-row" />);
 jest.mock("./AccountHeaderActions", () => () => null);
 jest.mock("./AccountWarningBanner", () => ({
@@ -80,5 +86,43 @@ describe("AccountPage — useLLDCoinFamily slots", () => {
 
     expect(screen.queryByTestId("body-header")).not.toBeInTheDocument();
     expect(screen.queryByTestId("sub-header")).not.toBeInTheDocument();
+  });
+});
+
+describe("AccountPage — aliased route params", () => {
+  beforeEach(() => {
+    mockFamily.mockReturnValue({} as never);
+  });
+
+  it("renders the account the route alias points to", () => {
+    useParams.mockReturnValue({
+      id: computeAccountAlias(parseAnyAccountId(account.id)),
+      parentId: undefined,
+      "*": undefined,
+    });
+
+    render(<AccountPageWrapper />, {
+      initialState: { ...accountPageFlags, accounts: [account] },
+    });
+
+    expect(screen.getByTestId("balance-summary")).toBeInTheDocument();
+  });
+
+  it("keeps the account id out of the url getAccountUrl builds for it", () => {
+    expect(getAccountUrl(account.id)).not.toContain(account.id);
+  });
+
+  it("falls back to the accounts list when the alias is unknown", () => {
+    useParams.mockReturnValue({
+      id: computeAccountAlias(parseAnyAccountId("js:2:bitcoin:not-an-account:segwit")),
+      parentId: undefined,
+      "*": undefined,
+    });
+
+    render(<AccountPageWrapper />, {
+      initialState: { ...accountPageFlags, accounts: [account] },
+    });
+
+    expect(screen.queryByTestId("balance-summary")).not.toBeInTheDocument();
   });
 });

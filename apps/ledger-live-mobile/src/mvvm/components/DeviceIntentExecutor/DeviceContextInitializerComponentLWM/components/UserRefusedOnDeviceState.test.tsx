@@ -1,21 +1,13 @@
+import { track } from "@shared/analytics";
+import { TrackScreen } from "@shared/analytics-react";
 import React from "react";
 import { render, screen } from "@tests/test-renderer";
 import { DeviceModelId } from "@ledgerhq/types-devices";
 import { RetryableStateType } from "@ledgerhq/live-dmk-shared";
-import { TrackScreen, track } from "~/analytics";
 import { DeviceIntentTrackingProvider } from "../../utils/DeviceIntentTrackingContext";
 import { PAGE_CONNECT_APP } from "../../utils/trackDeviceIntent";
 import { UserRefusedOnDeviceState } from "./UserRefusedOnDeviceState";
 import type { InitializerDevice } from "../types";
-
-jest.mock("~/analytics", () => {
-  const actual = jest.requireActual("~/analytics");
-  return {
-    ...actual,
-    TrackScreen: jest.fn(() => null),
-    track: jest.fn(),
-  };
-});
 
 const mockedTrackScreen = jest.mocked(TrackScreen);
 const mockedTrack = jest.mocked(track);
@@ -55,7 +47,7 @@ describe("UserRefusedOnDeviceState", () => {
   it("GIVEN the user refused state WHEN rendering THEN it renders the title and action buttons", () => {
     renderState();
 
-    expect(screen.getByText("Operation rejected on device")).toBeVisible();
+    expect(screen.getByText("Operation rejected on Ledger device")).toBeVisible();
     expect(screen.getByText("Close")).toBeVisible();
     expect(screen.getByText("Retry")).toBeVisible();
   });

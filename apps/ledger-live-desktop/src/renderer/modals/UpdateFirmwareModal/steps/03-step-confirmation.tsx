@@ -2,8 +2,7 @@ import React, { useEffect } from "react";
 import styled from "styled-components";
 import { useTranslation } from "react-i18next";
 import { log } from "@ledgerhq/logs";
-import TrackPage from "~/renderer/analytics/TrackPage";
-import Track from "~/renderer/analytics/Track";
+import { TrackPage, Track } from "@shared/analytics-react";
 import { getDeviceModel } from "@ledgerhq/devices";
 import Box from "~/renderer/components/Box";
 import { StepProps } from "../types";
@@ -36,10 +35,20 @@ const SubTitle = styled(Box).attrs(() => ({
   text-align: center;
 `;
 
-const StepConfirmation = ({ deviceModelId, appsToBeReinstalled }: StepProps) => {
+const StepConfirmation = ({
+  deviceModelId,
+  appsToBeReinstalled,
+  setFirmwareUpdateCompleted,
+}: StepProps) => {
   const device = getDeviceModel(deviceModelId);
   const { t } = useTranslation();
   const deviceName = { deviceName: device ? device.productName : "" };
+
+  // Reaching this step means the firmware update flow completed successfully
+  // (the error path renders `DeviceCancel` instead of the stepper).
+  useEffect(() => {
+    setFirmwareUpdateCompleted(true);
+  }, [setFirmwareUpdateCompleted]);
 
   useEffect(() => () => log("firmware-record-end"), []);
 

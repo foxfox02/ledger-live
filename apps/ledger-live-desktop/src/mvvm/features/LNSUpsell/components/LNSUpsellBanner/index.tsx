@@ -1,4 +1,4 @@
-import { t } from "i18next";
+import { t } from "~/renderer/i18n/init";
 import { Trans } from "react-i18next";
 import React, { type ReactElement } from "react";
 import { BannerCard, Button, Flex, Icons, Link, NotificationCard, Text } from "@ledgerhq/react-ui";
@@ -11,6 +11,8 @@ import type { LNSBannerModel } from "./types";
 
 type Props = FlexBoxProps & { location: LNSBannerLocation };
 
+const FULL_WIDTH_BANNER_LOCATIONS = new Set<LNSBannerLocation>(["notification_center"]);
+
 export function LNSUpsellBanner({ location, ...boxProps }: Props) {
   return <View {...useLNSUpsellBannerModel(location)} {...boxProps} />;
 }
@@ -18,7 +20,7 @@ export function LNSUpsellBanner({ location, ...boxProps }: Props) {
 function View({
   location,
   variant,
-  tracking,
+  copyKeys,
   discount,
   handleCTAClick,
   imageUrl,
@@ -30,11 +32,18 @@ function View({
   if (variant.type === "none") return null;
 
   if (shouldUseLumenMediaBanner) {
+    const isFullWidth = FULL_WIDTH_BANNER_LOCATIONS.has(location);
     return (
-      <Flex width="50%" maxWidth="50%" minWidth={0} alignSelf="flex-start" {...boxProps}>
+      <Flex
+        width={isFullWidth ? "100%" : "50%"}
+        maxWidth={isFullWidth ? "100%" : "50%"}
+        minWidth={0}
+        alignSelf="flex-start"
+        {...boxProps}
+      >
         <LNSUpsellMediaBanner
-          title={t(`lnsUpsellMediaBanner.${tracking}.title`)}
-          description={t(`lnsUpsellMediaBanner.${tracking}.description`)}
+          title={t(copyKeys.title)}
+          description={t(copyKeys.description, { discount })}
           imageUrl={imageUrl}
           onClick={handleCTAClick}
         />
@@ -47,18 +56,18 @@ function View({
       return (
         <BannerCard
           {...boxProps}
-          title={t(`lnsUpsell.${tracking}.title`)}
+          title={t(copyKeys.title)}
           description={
-            <Trans i18nKey={`lnsUpsell.${tracking}.description`} values={{ discount }}>
+            <Trans i18nKey={copyKeys.description} values={{ discount }}>
               <Text color="primary.c80" />
             </Trans>
           }
           cta={
             <Button variant="main" outline={false}>
-              {t(`lnsUpsell.${tracking}.cta`)}
+              {t(copyKeys.cta)}
             </Button>
           }
-          image={variant.image}
+          image={imageUrl}
           borderRadius="5px"
           onClick={handleCTAClick}
         />
@@ -68,14 +77,15 @@ function View({
       return (
         <NotificationCard
           {...boxProps}
+          title={t(copyKeys.title)}
           description={
-            <Trans i18nKey={`lnsUpsell.${tracking}.description`} values={{ discount }}>
+            <Trans i18nKey={copyKeys.description} values={{ discount }}>
               <span />
             </Trans>
           }
           cta={
             <Link alignSelf="start" color="primary.c80" size="small">
-              {t(`lnsUpsell.${tracking}.cta`)}
+              {t(copyKeys.cta)}
               <Icons.ExternalLink size="S" style={{ marginLeft: "8px", verticalAlign: "middle" }} />
             </Link>
           }

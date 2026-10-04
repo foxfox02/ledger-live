@@ -1,8 +1,12 @@
+import { TrackScreen } from "@shared/analytics-react";
 import React, { useCallback, useLayoutEffect } from "react";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useContactsFeature } from "@features/flow-contacts";
-import { TrackScreen } from "~/analytics";
+import type { Contact } from "@domain/entity-contact";
+import { isContactsSearchNoResultsViewModel } from "@features/flow-contacts";
+import { useContactsFeature } from "@features/platform-contacts";
+import { ScreenName } from "~/const";
+import type { MyWalletNavigatorStackParamList } from "LLM/features/MyWallet/types";
 import { ContactsPageContent } from "./components/ContactsPageContent";
 import { useContactsAddContactDrawerAdapter } from "./hooks/useContactsAddContactDrawerAdapter";
 import { useContactsPageNavigationViewModel } from "./hooks/useContactsPageNavigationViewModel";
@@ -19,22 +23,42 @@ function ContactsScreenRedirect() {
   return null;
 }
 
-function ContactsScreenContent() {
-  const pageViewModel = useContactsPageViewModel();
+type ContactsPageProps = Readonly<{
+  title?: string;
+  onSelectContact?: (contact: Contact) => void;
+}>;
+
+export function ContactsPage({ title, onSelectContact }: ContactsPageProps) {
+  const pageViewModel = useContactsPageViewModel(onSelectContact);
   const { onSearchQueryChange } = pageViewModel;
   const onSaveSuccess = useCallback(() => {
     onSearchQueryChange("");
   }, [onSearchQueryChange]);
   const addContactDrawer = useContactsAddContactDrawerAdapter(onSaveSuccess);
+  const onAddContact = useCallback(() => {
+    pageViewModel.onRequestAddContact(addContactDrawer.onOpen);
+  }, [addContactDrawer.onOpen, pageViewModel]);
   const viewModel = {
     ...pageViewModel,
-    onAddContact: addContactDrawer.onOpen,
+    onAddContact,
     addContactDrawer,
   };
 
-  useContactsPageNavigationViewModel(pageViewModel.labels.addContact, addContactDrawer.onOpen);
+  useContactsPageNavigationViewModel(
+    pageViewModel.labels.addContact,
+    !isContactsSearchNoResultsViewModel(pageViewModel.viewModel),
+    onAddContact,
+    title,
+  );
 
   return <ContactsPageContent {...viewModel} />;
+}
+
+function ContactsScreenContent() {
+  const { params } =
+    useRoute<RouteProp<MyWalletNavigatorStackParamList, typeof ScreenName.MyWalletContacts>>();
+
+  return <ContactsPage title={params?.title} />;
 }
 
 export function ContactsScreen() {

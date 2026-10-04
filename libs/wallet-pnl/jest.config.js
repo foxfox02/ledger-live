@@ -15,12 +15,14 @@ module.exports = {
     ],
   },
   testEnvironment: "jsdom",
-  setupFiles: ["<rootDir>/jest-env-setup.js"],
+  setupFiles: ["<rootDir>/jest-env-setup.js", "<rootDir>/jest-rate-lookup-setup.ts"],
   testPathIgnorePatterns: ["lib/", "lib-es/", "helpers/"],
   coverageReporters: ["json", ["lcov", { file: "lcov.info", projectRoot: "../../" }], "text"],
   reporters: [
     "default",
     ...(process.env.CI ? ["github-actions"] : []),
     ["jest-sonar", { outputName: "sonar-executionTests-report.xml", reportedFilePath: "absolute" }],
+    "@ledgerhq/test-quarantine/jest",
   ],
+  setupFilesAfterEnv: ["@ledgerhq/test-quarantine/jest-retries"],
 };

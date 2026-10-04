@@ -1,3 +1,4 @@
+import { TrackScreen } from "@shared/analytics-react";
 import React, { useCallback, useMemo, useState } from "react";
 import { useSelector } from "~/context/hooks";
 import {
@@ -6,12 +7,16 @@ import {
   getParentAccount,
 } from "@ledgerhq/live-common/account/helpers";
 import { Flex } from "@ledgerhq/native-ui";
-import { getAccountSpendableBalance, getMainAccount } from "@ledgerhq/live-common/account/index";
+import {
+  getAccountSpendableBalance,
+  getMainAccount,
+  isReceiveDisabledForFamily,
+  isSendDisabledForFamily,
+} from "@ledgerhq/live-common/account/index";
 import { useAccountBridgeMany } from "@ledgerhq/live-common/bridge/useAccountBridge";
 import { NotEnoughBalance } from "@ledgerhq/ledger-wallet-framework/errors";
 import { ScreenName, NavigatorName } from "~/const";
 import { accountsSelector } from "~/reducers/accounts";
-import { TrackScreen } from "~/analytics";
 import AccountSelector from "~/components/AccountSelector";
 import GenericErrorBottomModal from "~/components/GenericErrorBottomModal";
 import { SendFundsNavigatorStackParamList } from "~/components/RootNavigator/types/SendFundsNavigator";
@@ -80,12 +85,17 @@ function ReceiveFunds({ navigation, route }: Props) {
   );
   const mainAccounts = accounts.filter((a): a is Account => parentAccountIds.has(a.id));
   const bridges = useAccountBridgeMany(mainAccounts);
-  const bridgeById = new Map(mainAccounts.map((a, i) => [a.id, bridges[i]]));
-  const allAccounts = notEmptyAccounts
-    ? enhancedAccounts.filter(
-        a => !bridgeById.get(a.type === "Account" ? a.id : a.parentId)?.isAccountEmpty(a),
-      )
-    : enhancedAccounts;
+  const mainById = new Map(mainAccounts.map((a, i) => [a.id, { account: a, bridge: bridges[i] }]));
+  // Some families expose no send or no receive on Ledger Wallet (e.g. HyperCore): keep them out of
+  // the picker instead of letting the flow fail later when crafting the transaction. This screen
+  // serves both directions, hence picking the check off `next`.
+  const isDisabledForFlow =
+    next === ScreenName.SendSelectRecipient ? isSendDisabledForFamily : isReceiveDisabledForFamily;
+  const allAccounts = enhancedAccounts.filter(a => {
+    const main = mainById.get(a.type === "Account" ? a.id : a.parentId);
+    if (main && isDisabledForFlow(main.account.currency.family)) return false;
+    return !notEmptyAccounts || !main?.bridge?.isAccountEmpty(a);
+  });
 
   const { isEnabledForFamily, getFamilyFromAccount, getCurrencyIdFromAccount } =
     useNewSendFlowFeature();

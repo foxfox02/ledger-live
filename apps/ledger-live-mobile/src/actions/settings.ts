@@ -61,11 +61,11 @@ import {
   SettingsIsOnboardingFlowPayload,
   SettingsIsOnboardingFlowReceiveSuccessPayload,
   SettingsIsPostOnboardingFlowPayload,
-  SettingsSetHasSeenWalletV4TourPayload,
   SettingsSetHasDismissedContactsFeatureIntroductionPayload,
   SettingsSetDoNotAskAgainSkipMemoPayload,
   SettingsSetProductTourCompletedPayload,
   SettingsSetHasSeenQ2WalletV4TourPayload,
+  SettingsSetHasSeenQ3WalletV4TourPayload,
   SettingsSetAnalyticsConsentInfoPayload,
   SettingsSetHasClickedRecoverPayload,
 } from "./types";
@@ -280,10 +280,6 @@ export const setSelectedTabPortfolioAssets =
     SettingsActionTypes.SET_SELECTED_TAB_PORTFOLIO_ASSETS,
   );
 
-export const setHasSeenWalletV4Tour = createAction<SettingsSetHasSeenWalletV4TourPayload>(
-  SettingsActionTypes.SET_HAS_SEEN_WALLET_V4_TOUR,
-);
-
 export const setHasDismissedContactsFeatureIntroduction =
   createAction<SettingsSetHasDismissedContactsFeatureIntroductionPayload>(
     SettingsActionTypes.SET_HAS_DISMISSED_CONTACTS_FEATURE_INTRODUCTION,
@@ -299,6 +295,10 @@ export const setProductTourCompleted = createAction<SettingsSetProductTourComple
 
 export const setHasSeenQ2WalletV4Tour = createAction<SettingsSetHasSeenQ2WalletV4TourPayload>(
   SettingsActionTypes.SET_HAS_SEEN_Q2_WALLET_V4_TOUR,
+);
+
+export const setHasSeenQ3WalletV4Tour = createAction<SettingsSetHasSeenQ3WalletV4TourPayload>(
+  SettingsActionTypes.SET_HAS_SEEN_Q3_WALLET_V4_TOUR,
 );
 
 export const setHasClickedRecover = createAction<SettingsSetHasClickedRecoverPayload>(

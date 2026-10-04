@@ -1,29 +1,24 @@
-import { getAccountCurrency } from "@ledgerhq/ledger-wallet-framework/account/helpers";
 import {
   calculate,
   filterSupportedTrackingPairs,
   importCountervalues,
-  inferTrackingPairForAccounts,
-  loadCountervalues,
-} from "@ledgerhq/live-countervalues/logic";
-import type {
-  CounterValuesState,
-  CounterValuesStateRaw,
-  CountervaluesSettings,
-  TrackingPair,
-} from "@ledgerhq/live-countervalues/types";
+  inferCurrencyAPIID,
+  type CounterValuesState,
+  type CounterValuesStateRaw,
+  type CountervaluesSettings,
+} from "@domain/entity-market-countervalues";
+import { loadCountervalues, type RateSource } from "@domain/api-market-countervalues";
+import { CountervaluesContext } from "@features/platform-market-countervalues";
+import { log } from "@ledgerhq/logs";
 import { useDebounce } from "@ledgerhq/live-hooks/useDebounce";
-import type { Currency, Unit } from "@ledgerhq/ledger-wallet-framework/types";
-import type { Account, AccountLike } from "@ledgerhq/types-live";
+import type {
+  CryptoCurrency,
+  Currency,
+  TokenCurrency,
+  Unit,
+} from "@ledgerhq/ledger-wallet-framework/types";
 import { BigNumber } from "bignumber.js";
-import React, {
-  ReactElement,
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-} from "react";
+import React, { ReactElement, useCallback, useContext, useEffect, useMemo } from "react";
 
 export interface PollingState {
   isPolling: boolean;
@@ -35,12 +30,18 @@ export interface PollingState {
  * @note: make sure that the object is memoized to avoid re-renders.
  */
 export interface CountervaluesBridge {
+  /**
+   * Where rates come from. The app builds one at composition time, because this package holds no
+   * Redux reference and cannot reach a dispatch. It is a plain object, never a hook: the
+   * non-React callers of `loadCountervalues` construct their own.
+   */
+  rates: RateSource;
   setPollingIsPolling(polling: boolean): void;
   setPollingTriggerLoad(triggerLoad: boolean): void;
   setState(state: CounterValuesState): void;
   setStateError(error: Error): void;
   setStatePending(pending: boolean): void;
-  useMarketcapIds(): string[];
+  useSupportedCryptoIds(): string[];
   usePollingIsPolling(): boolean;
   usePollingTriggerLoad(): boolean;
   useStateError(): Error | null;
@@ -81,11 +82,8 @@ export type Props = {
   savedState?: CounterValuesStateRaw;
 };
 
-/**
- * Base Countervalues Context to use without polling logic.
- */
-export const CountervaluesContext = createContext<CountervaluesBridge | null>(null);
-
+// The context is the platform package's, so a provider from either package serves the hooks of both
+// while consumers move over.
 function useCountervaluesBridgeContext() {
   const bridge = useContext(CountervaluesContext);
   if (!bridge) {
@@ -94,13 +92,6 @@ function useCountervaluesBridgeContext() {
     );
   }
   return bridge;
-}
-
-function trackingPairsHash(a: TrackingPair[]) {
-  return a
-    .map(p => `${p.from.ticker}:${p.to.ticker}:${p.startDate.toISOString().slice(0, 10) || ""}`)
-    .sort()
-    .join("|");
 }
 
 /**
@@ -115,13 +106,13 @@ function Effect({
   const userSettings = bridge.useUserSettings();
   const { refreshRate, marketCapBatchingAfterRank } = userSettings;
 
-  const marketcapIds = bridge.useMarketcapIds();
+  const supportedCryptoIds = bridge.useSupportedCryptoIds();
   const filteredUserSettings = useMemo(
     () => ({
       ...userSettings,
-      trackingPairs: filterSupportedTrackingPairs(userSettings.trackingPairs, marketcapIds),
+      trackingPairs: filterSupportedTrackingPairs(userSettings.trackingPairs, supportedCryptoIds),
     }),
-    [marketcapIds, userSettings],
+    [supportedCryptoIds, userSettings],
   );
   const debouncedUserSettings = useDebounce(filteredUserSettings, debounceDelay);
 
@@ -129,11 +120,11 @@ function Effect({
     () => ({
       shouldBatchCurrencyFrom: (currency: Currency) => {
         if (currency.type === "FiatCurrency") return false;
-        const i = marketcapIds.indexOf(currency.id);
+        const i = supportedCryptoIds.indexOf(inferCurrencyAPIID(currency));
         return i === -1 || i > marketCapBatchingAfterRank;
       },
     }),
-    [marketCapBatchingAfterRank, marketcapIds],
+    [marketCapBatchingAfterRank, supportedCryptoIds],
   );
 
   // flag used to trigger a loadCountervalues
@@ -154,12 +145,12 @@ function Effect({
     bridge.setPollingTriggerLoad(false);
 
     bridge.setStatePending(true);
-    loadCountervalues(
-      currentState,
-      filteredUserSettings,
+    loadCountervalues(currentState, filteredUserSettings, {
+      rates: bridge.rates,
       batchStrategySolver,
-      filteredUserSettings.granularitiesRates,
-    ).then(
+      granularitiesRates: filteredUserSettings.granularitiesRates,
+      log,
+    }).then(
       s => {
         bridge.setState(s);
         bridge.setStatePending(false);
@@ -181,7 +172,10 @@ function Effect({
   // manage the auto polling loop
   const isPolling = bridge.usePollingIsPolling();
   useEffect(() => {
-    if (!isPolling) return;
+    // Both apps initialise refreshRate to 0 and overwrite it from LiveConfig once it resolves.
+    // Re-arming at 0 is a zero-delay self-rescheduling loop, so wait for a real rate; the effect
+    // re-runs when one arrives.
+    if (!isPolling || refreshRate <= 0) return;
     let pollingTimeout: ReturnType<typeof setTimeout>;
     function pollingLoop() {
       bridge.setPollingTriggerLoad(true);
@@ -273,11 +267,11 @@ export function useCalculateCountervalueCallback({
 
 /** Helper for send-flow: returns fiat amount and reverse calculation. */
 export function useSendAmount({
-  account,
+  cryptoCurrency,
   fiatCurrency,
   cryptoAmount,
 }: {
-  account: AccountLike;
+  cryptoCurrency: CryptoCurrency | TokenCurrency;
   fiatCurrency: Currency;
   cryptoAmount: BigNumber;
 }): {
@@ -285,7 +279,6 @@ export function useSendAmount({
   fiatUnit: Unit;
   calculateCryptoAmount: (fiatAmount: BigNumber) => BigNumber;
 } {
-  const cryptoCurrency = getAccountCurrency(account);
   const fiatCountervalue = useCalculate({
     from: cryptoCurrency,
     to: fiatCurrency,
@@ -308,19 +301,4 @@ export function useSendAmount({
     [state, cryptoCurrency, fiatCurrency],
   );
   return { fiatAmount, fiatUnit, calculateCryptoAmount };
-}
-
-export function useTrackingPairForAccounts(
-  accounts: Account[],
-  countervalue: Currency,
-): TrackingPair[] {
-  // first we cache the tracking pairs with its hash
-  const c = useMemo(() => {
-    const pairs = inferTrackingPairForAccounts(accounts, countervalue);
-    return { pairs, hash: trackingPairsHash(pairs) };
-  }, [accounts, countervalue]);
-  // we only want to return the pairs when the hash changes
-  // to not recalculate pairs as fast as accounts resynchronizes
-  // oxlint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => c.pairs, [c.hash]);
 }

@@ -1,6 +1,9 @@
 import { firstValueFrom, lastValueFrom, Subject, toArray } from "rxjs";
 import { DeviceActionStatus, UserInteractionRequired } from "@ledgerhq/device-management-kit";
-import type { DeviceConnectionResult, DeviceExtractedContext } from "@ledgerhq/device-intent";
+import type {
+  DeviceConnectionResult,
+  DeviceExtractedContext,
+} from "@features/platform-device-intent";
 import type { Account } from "@ledgerhq/types-live";
 
 // `@ledgerhq/device-signer-kit-ethereum` lazily loads
@@ -45,12 +48,9 @@ jest.mock("@ledgerhq/live-signer-evm", () => ({
 }));
 
 const craftTransaction = jest.fn();
-jest.mock("@ledgerhq/coin-evm/logic/craftTransaction", () => ({
-  craftTransaction: (...args: unknown[]) => craftTransaction(...args),
-}));
-
 const combine = jest.fn();
-jest.mock("@ledgerhq/coin-evm/logic/combine", () => ({
+jest.mock("@ledgerhq/coin-evm/logic", () => ({
+  craftTransaction: (...args: unknown[]) => craftTransaction(...args),
   combine: (...args: unknown[]) => combine(...args),
 }));
 
@@ -77,6 +77,7 @@ function run(input: SignSwapEvmIntentInput = BASE_INPUT) {
     deviceConnectionResult: FAKE_CONNECTION,
     deviceExtractedContext: FAKE_CONTEXT,
     input,
+    onResult: jest.fn(),
   });
 }
 

@@ -1,3 +1,4 @@
+import type { Logger } from "@ledgerhq/coin-module-framework/config";
 import BigNumber from "bignumber.js";
 import {
   decode58Check,
@@ -6,6 +7,8 @@ import {
   formatTrongridTxResponse,
 } from "./format";
 import { Trc20API, TransactionTronAPI } from "./types";
+
+const mockLogger: Logger = jest.fn();
 
 const ownerHex = "41fd49eda0f23ff7ec1d03b52c3a45991c24cd440e";
 const toHex = "4198927ffb9f554dc4a453c64b2e553a02d6df514b";
@@ -52,7 +55,7 @@ describe("formatTrongridTrc20TxResponse", () => {
       token_info: { address: "addr" },
       type: "Approval",
     };
-    const result = formatTrongridTrc20TxResponse(tx as unknown as Trc20API);
+    const result = formatTrongridTrc20TxResponse(mockLogger, tx as unknown as Trc20API);
     expect(result).toEqual({
       txID: "txId",
       date: new Date(1),
@@ -83,7 +86,7 @@ describe("formatTrongridTrc20TxResponse", () => {
       token_info: { address: "tokenId" },
       type: "Transfer",
     };
-    const result = formatTrongridTrc20TxResponse(tx as unknown as Trc20API);
+    const result = formatTrongridTrc20TxResponse(mockLogger, tx as unknown as Trc20API);
     expect(result).toEqual({
       txID: "txId",
       date: new Date(1),
@@ -127,7 +130,7 @@ describe("formatTrongridTrc20TxResponse", () => {
       token_info: {},
       type: "Transfer",
     };
-    const result = formatTrongridTrc20TxResponse(tx as unknown as Trc20API);
+    const result = formatTrongridTrc20TxResponse(mockLogger, tx as unknown as Trc20API);
     expect(result).toMatchObject({
       type: "TriggerSmartContract",
       tokenId: "TU1wcXoAq5EXhZp7ga6E1Vb1Sqw1ciQP4s",
@@ -161,7 +164,7 @@ describe("formatTrongridTrc20TxResponse", () => {
       token_info: { address: "tokenAddr" },
       type: "Transfer",
     };
-    const result = formatTrongridTrc20TxResponse(tx as unknown as Trc20API);
+    const result = formatTrongridTrc20TxResponse(mockLogger, tx as unknown as Trc20API);
     expect(result).toEqual({
       txID: "txId",
       date: new Date(1),
@@ -193,7 +196,7 @@ describe("formatTrongridTxResponse", () => {
         },
       },
     });
-    const result = await formatTrongridTxResponse(tx, () => Promise.resolve(null));
+    const result = await formatTrongridTxResponse(mockLogger, tx, () => Promise.resolve(null));
     expect(result).toEqual({
       txID: "txId",
       date: new Date(1),
@@ -211,6 +214,60 @@ describe("formatTrongridTxResponse", () => {
     });
   });
 
+  it("decodes the memo carried in raw_data.data", async () => {
+    const memo = "ledger-e2e";
+    const contract: TransactionTronAPI["raw_data"]["contract"][0] = {
+      type: "TransferContract",
+      parameter: {
+        type_url: "",
+        value: { owner_address: ownerHex, to_address: toHex, amount: 1_000_000 },
+      },
+    };
+    const tx = baseTransactionTronApi(contract, {
+      raw_data: {
+        contract: [contract],
+        ref_block_bytes: "",
+        ref_block_hash: "",
+        expiration: 0,
+        data: Buffer.from(memo).toString("hex"),
+      },
+    });
+
+    const result = await formatTrongridTxResponse(mockLogger, tx, () => Promise.resolve(null));
+
+    expect(result?.memo).toBe(memo);
+  });
+
+  it("does not surface raw_data.data as a memo for a non-transfer contract type", async () => {
+    // A TriggerSmartContract's `data` is the ABI-encoded call, not a user memo — decoding it as UTF-8
+    // would surface binary garbage, so only transfer contracts are decoded.
+    const contract: TransactionTronAPI["raw_data"]["contract"][0] = {
+      type: "TriggerSmartContract",
+      parameter: {
+        type_url: "",
+        value: {
+          owner_address: ownerHex,
+          to_address: toHex,
+          contract_address: trc20ContractHex,
+          amount: 0,
+        },
+      },
+    };
+    const tx = baseTransactionTronApi(contract, {
+      raw_data: {
+        contract: [contract],
+        ref_block_bytes: "",
+        ref_block_hash: "",
+        expiration: 0,
+        data: Buffer.from("not-a-memo").toString("hex"),
+      },
+    });
+
+    const result = await formatTrongridTxResponse(mockLogger, tx, () => Promise.resolve(null));
+
+    expect(result?.memo).toBeUndefined();
+  });
+
   it("should set hasFailed when contract execution did not succeed", async () => {
     const tx = baseTransactionTronApi(
       {
@@ -226,7 +283,7 @@ describe("formatTrongridTxResponse", () => {
       },
       { ret: [{ contractRet: "REVERT", fee: 0 }] },
     );
-    const result = await formatTrongridTxResponse(tx, () => Promise.resolve(null));
+    const result = await formatTrongridTxResponse(mockLogger, tx, () => Promise.resolve(null));
     expect(result?.hasFailed).toBe(true);
   });
 
@@ -244,7 +301,7 @@ describe("formatTrongridTxResponse", () => {
         },
       },
     });
-    const result = await formatTrongridTxResponse(tx, () => Promise.resolve(null));
+    const result = await formatTrongridTxResponse(mockLogger, tx, () => Promise.resolve(null));
     expect(result).toEqual({
       txID: "txId",
       date: new Date(1),
@@ -275,7 +332,7 @@ describe("formatTrongridTxResponse", () => {
         },
       },
     });
-    const result = await formatTrongridTxResponse(tx, () => Promise.resolve(null));
+    const result = await formatTrongridTxResponse(mockLogger, tx, () => Promise.resolve(null));
     expect(result).toEqual({
       txID: "txId",
       date: new Date(1),
@@ -306,7 +363,7 @@ describe("formatTrongridTxResponse", () => {
       },
       { withdraw_amount: 5_000_000 },
     );
-    const result = await formatTrongridTxResponse(tx, () => Promise.resolve(null));
+    const result = await formatTrongridTxResponse(mockLogger, tx, () => Promise.resolve(null));
     expect(result?.value).toEqual(new BigNumber(5_000_000));
   });
 
@@ -321,7 +378,7 @@ describe("formatTrongridTxResponse", () => {
         },
       },
     });
-    const result = await formatTrongridTxResponse(tx, () => Promise.resolve(null));
+    const result = await formatTrongridTxResponse(mockLogger, tx, () => Promise.resolve(null));
     expect(result?.value).toEqual(new BigNumber(777));
   });
 
@@ -342,7 +399,7 @@ describe("formatTrongridTxResponse", () => {
         },
       },
     });
-    const result = await formatTrongridTxResponse(tx, getValidatorName);
+    const result = await formatTrongridTxResponse(mockLogger, tx, getValidatorName);
     expect(getValidatorName).toHaveBeenCalledWith(encode58Check(voteAddressHex));
     expect(result?.extra).toEqual({
       votes: [
@@ -357,7 +414,7 @@ describe("formatTrongridTxResponse", () => {
 
   it("should return undefined when the transaction payload cannot be parsed", async () => {
     const tx = { txID: "broken", block_timestamp: 1 } as TransactionTronAPI;
-    const result = await formatTrongridTxResponse(tx, () => Promise.resolve(null));
+    const result = await formatTrongridTxResponse(mockLogger, tx, () => Promise.resolve(null));
     expect(result).toBeUndefined();
   });
 });

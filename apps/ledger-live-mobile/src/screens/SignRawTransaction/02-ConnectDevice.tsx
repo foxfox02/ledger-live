@@ -1,3 +1,4 @@
+import { TrackScreen } from "@shared/analytics-react";
 import invariant from "invariant";
 import React, { memo, useCallback, useMemo } from "react";
 import { StyleSheet } from "react-native";
@@ -9,7 +10,6 @@ import { isSwapDisableAppsInstall } from "@ledgerhq/live-common/exchange/swap/ut
 import { useTheme } from "@react-navigation/native";
 import { TransactionResult } from "@ledgerhq/live-common/hw/actions/transaction";
 import DeviceAction from "~/components/DeviceAction";
-import { TrackScreen } from "~/analytics";
 import { SignRawTransactionNavigatorParamList } from "~/components/RootNavigator/types/SignRawTransactionNavigator";
 import { ScreenName } from "~/const";
 import type {
@@ -33,7 +33,8 @@ function ConnectDevice({ navigation, route }: SignRawTransactionConnectDevicePro
   const { colors } = useTheme();
   const { account, parentAccount } = useAccountScreen(route);
   invariant(account, "account is required");
-  const { transaction, broadcast, appName, dependencies, onSuccess } = route.params;
+  const { transaction, broadcast, appName, dependencies, manifestId, manifestName, onSuccess } =
+    route.params;
   const mainAccount = getMainAccount(account, parentAccount);
   const handleTx = useCallback(
     (result: TransactionResult) => {
@@ -77,6 +78,8 @@ function ConnectDevice({ navigation, route }: SignRawTransactionConnectDevicePro
       transaction,
       broadcast,
       dependencies: connectAppDependencies,
+      manifestId,
+      manifestName,
       requireLatestFirmware: !swapSpeculosBypass,
     }),
     [
@@ -84,6 +87,8 @@ function ConnectDevice({ navigation, route }: SignRawTransactionConnectDevicePro
       appName,
       broadcast,
       connectAppDependencies,
+      manifestId,
+      manifestName,
       parentAccount,
       swapSpeculosBypass,
       transaction,

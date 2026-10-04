@@ -1,7 +1,5 @@
 import { test } from "tests/fixtures/common";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { addTmsLink } from "tests/utils/allureUtils";
-import { getDescription } from "tests/utils/customJsonReporter";
 import {
   Account,
   TokenAccount,
@@ -47,7 +45,7 @@ const assets: Array<{ buySell: BuySell; xrayTicket: string }> = [
 ];
 
 for (const asset of assets) {
-  test.describe("Buy / Sell flow from different entry point", () => {
+  test.describe("Buy and sell", () => {
     setupEnv(true);
 
     const { crypto, fiat, operation, amount } = asset.buySell;
@@ -61,7 +59,7 @@ for (const asset of assets) {
     });
 
     test(
-      `Entry Point - Asset Allocation page with [${crypto.currency.name}] asset`,
+      `[${crypto.currency.testLabel}] - Buy entry point from asset page`,
       {
         tag: buildTags({ currencyId: crypto.currency.id }),
         annotation: {
@@ -70,7 +68,6 @@ for (const asset of assets) {
         },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
         await app.mainNavigation.openTargetFromMainNavigation("home");
         await app.portfolio.clickAsset(crypto.currency);
         await app.assetPage.startBuyFlow();
@@ -81,7 +78,7 @@ for (const asset of assets) {
     );
 
     test(
-      `Entry Point - Market page with [${crypto.currency.name}] asset`,
+      `[${crypto.currency.testLabel}] - Buy entry point from market page`,
       {
         tag: [...DEVICE_TAGS],
         annotation: {
@@ -90,7 +87,6 @@ for (const asset of assets) {
         },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
         await app.marketBanner.clickExploreMarketHeader();
         await app.market.search(crypto.currency.ticker);
         await app.market.openBuyPage(crypto.currency.ticker);
@@ -101,7 +97,7 @@ for (const asset of assets) {
     );
 
     test(
-      `Entry Point - Account page with [${crypto.currency.name}] asset`,
+      `[${crypto.currency.testLabel}] - Buy entry point from account page`,
       {
         tag: buildTags({ currencyId: crypto.currency.id }),
         annotation: {
@@ -110,7 +106,6 @@ for (const asset of assets) {
         },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
         await app.mainNavigation.openTargetFromMainNavigation("accounts");
         await app.accounts.navigateToAccountByName(getParentAccountName(asset.buySell.crypto));
         if (asset.buySell.crypto.tokenType) {
@@ -131,7 +126,7 @@ for (const asset of assets) {
     );
 
     test(
-      `Buy [${crypto.currency.name}] asset from portfolio page`,
+      `[${crypto.currency.testLabel}] - Buy from portfolio page`,
       {
         tag: buildTags({ currencyId: crypto.currency.id }),
         annotation: {
@@ -140,7 +135,6 @@ for (const asset of assets) {
         },
       },
       async ({ app, userdataDestinationPath }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
         await app.portfolio.clickBuyButton();
         await app.buyAndSell.chooseAssetIfNotSelected(crypto);
         await app.buyAndSell.verifyBuySellLandingAndCryptoAssetSelector(crypto, operation);
@@ -184,7 +178,7 @@ const sellAssets: Array<{ buySell: Omit<BuySell, "amount">; xrayTicket: string }
 ];
 
 for (const sellAsset of sellAssets) {
-  test.describe(`Sell flow - [${sellAsset.buySell.crypto.currency.name}]`, () => {
+  test.describe("Buy and sell", () => {
     setupEnv(true);
 
     const { crypto, fiat, operation } = sellAsset.buySell;
@@ -198,7 +192,7 @@ for (const sellAsset of sellAssets) {
     });
 
     test(
-      `Sell [${crypto.currency.name}] asset`,
+      `[${crypto.currency.testLabel}] - Sell`,
       {
         tag: buildTags({ currencyId: crypto.currency.id }),
         annotation: {
@@ -207,7 +201,6 @@ for (const sellAsset of sellAssets) {
         },
       },
       async ({ app, userdataDestinationPath }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
         await app.portfolio.clickSellButton();
         await app.buyAndSell.chooseAssetIfNotSelected(crypto);
         await app.buyAndSell.verifyBuySellLandingAndCryptoAssetSelector(crypto, OperationType.Sell);
@@ -217,8 +210,8 @@ for (const sellAsset of sellAssets) {
         await app.buyAndSell.changeRegionAndCurrency(fiat);
         await app.buyAndSell.verifyFiatAssetSelector(fiat.currencyTicker);
         const amount = await getMinimumSellAmount(crypto.currency.id);
-        const buySell = { ...sellAsset.buySell, amount };
-        await app.buyAndSell.setAmountToPay(amount, operation);
+        const actualAmount = await app.buyAndSell.setAmountToPay(amount, operation);
+        const buySell = { ...sellAsset.buySell, amount: actualAmount };
         const provider = await app.buyAndSell.selectRotatingProvider(operation);
         await app.buyAndSell.selectQuote();
         await app.buyAndSell.verifyProviderUrl(provider, buySell, userdataDestinationPath);

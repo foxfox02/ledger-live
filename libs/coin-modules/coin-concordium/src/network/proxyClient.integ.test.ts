@@ -1,4 +1,4 @@
-import { setupTestnetCoinConfig } from "../test/fixtures";
+import { createFixtureConfig } from "../test/fixtures";
 import {
   getConsensusInfo,
   getBlockInfoByHash,
@@ -13,17 +13,14 @@ import {
 
 describe("proxyClient", () => {
   const currencyId = "concordium_testnet";
+  const config = createFixtureConfig();
   const ADDRESS_WITH_BALANCE = "3U6m951FWryY56SKFFHgMLGVHtJtk4VaxN7V2F9hjkR7Sg1FUx";
   const ADDRESS_PRISTINE = "4ox4d7b4S9Mi3qA696v3yYjBQB4f6GDEVATrH9oFnoHUd5zLgh";
   const PUBLIC_KEY = "aa".repeat(32);
 
-  beforeAll(() => {
-    setupTestnetCoinConfig();
-  });
-
   describe("getConsensusInfo", () => {
     it("should return consensus info", async () => {
-      const result = await getConsensusInfo(currencyId);
+      const result = await getConsensusInfo(config, currencyId);
 
       expect(result).toHaveProperty("lastFinalizedBlockHeight");
       expect(result).toHaveProperty("lastFinalizedBlock");
@@ -37,8 +34,8 @@ describe("proxyClient", () => {
 
   describe("getBlockInfoByHash", () => {
     it("should return block info for valid hash", async () => {
-      const { lastFinalizedBlock } = await getConsensusInfo(currencyId);
-      const result = await getBlockInfoByHash(currencyId, lastFinalizedBlock);
+      const { lastFinalizedBlock } = await getConsensusInfo(config, currencyId);
+      const result = await getBlockInfoByHash(config, currencyId, lastFinalizedBlock);
 
       expect(result.blockHash).toBe(lastFinalizedBlock);
       expect(result.blockHeight).toBeGreaterThan(0);
@@ -50,7 +47,7 @@ describe("proxyClient", () => {
 
   describe("getBlocksAtHeight", () => {
     it("should return block hashes at height", async () => {
-      const result = await getBlocksAtHeight(currencyId, 1000);
+      const result = await getBlocksAtHeight(config, currencyId, 1000);
 
       expect(Array.isArray(result)).toBe(true);
       expect(result.length).toBeGreaterThan(0);
@@ -58,8 +55,8 @@ describe("proxyClient", () => {
     });
 
     it("should return consistent results for same height", async () => {
-      const result1 = await getBlocksAtHeight(currencyId, 1000);
-      const result2 = await getBlocksAtHeight(currencyId, 1000);
+      const result1 = await getBlocksAtHeight(config, currencyId, 1000);
+      const result2 = await getBlocksAtHeight(config, currencyId, 1000);
 
       expect(result1).toEqual(result2);
     });
@@ -68,14 +65,14 @@ describe("proxyClient", () => {
   describe("getAccountsByPublicKey", () => {
     it("should return accounts for valid public key", async () => {
       // Note: This will return empty for test public key, but should not error
-      const result = await getAccountsByPublicKey(currencyId, PUBLIC_KEY);
+      const result = await getAccountsByPublicKey(config, currencyId, PUBLIC_KEY);
 
       expect(Array.isArray(result)).toBe(true);
     });
 
     it("should return array even for unknown public key", async () => {
       const unknownPubKey = "bb".repeat(32);
-      const result = await getAccountsByPublicKey(currencyId, unknownPubKey);
+      const result = await getAccountsByPublicKey(config, currencyId, unknownPubKey);
 
       expect(Array.isArray(result)).toBe(true);
     });
@@ -83,18 +80,21 @@ describe("proxyClient", () => {
 
   describe("getAccountBalance", () => {
     it("should return balance for existing account", async () => {
-      const result = await getAccountBalance(currencyId, ADDRESS_WITH_BALANCE);
+      const result = await getAccountBalance(config, currencyId, ADDRESS_WITH_BALANCE);
 
-      expect(result).toHaveProperty("finalizedBalance");
-      expect(result.finalizedBalance).toHaveProperty("accountAmount");
-      expect(result.finalizedBalance).toHaveProperty("accountAtDisposal");
-      expect(typeof result.finalizedBalance.accountAmount).toBe("string");
-      expect(typeof result.finalizedBalance.accountAtDisposal).toBe("string");
+      // Thrown rather than asserted: the field is absent only for an address
+      // that does not exist, and this one does, so its absence is a failure of
+      // the case under test and not a shape to tolerate.
+      const { finalizedBalance } = result;
+      if (!finalizedBalance) throw new Error("expected a funded account to have a balance");
+
+      expect(typeof finalizedBalance.accountAmount).toBe("string");
+      expect(typeof finalizedBalance.accountAtDisposal).toBe("string");
     });
 
     it("should return balance structure for pristine account", async () => {
       try {
-        const result = await getAccountBalance(currencyId, ADDRESS_PRISTINE);
+        const result = await getAccountBalance(config, currencyId, ADDRESS_PRISTINE);
         expect(result).toHaveProperty("finalizedBalance");
       } catch (error) {
         // Pristine accounts may not exist yet, which is expected
@@ -103,7 +103,8 @@ describe("proxyClient", () => {
     });
 
     it("should parse balance as valid numbers", async () => {
-      const result = await getAccountBalance(currencyId, ADDRESS_WITH_BALANCE);
+      const result = await getAccountBalance(config, currencyId, ADDRESS_WITH_BALANCE);
+      if (!result.finalizedBalance) throw new Error("expected a funded account to have a balance");
 
       const amount = BigInt(result.finalizedBalance.accountAmount);
       const atDisposal = BigInt(result.finalizedBalance.accountAtDisposal);
@@ -116,7 +117,7 @@ describe("proxyClient", () => {
 
   describe("getAccountNonce", () => {
     it("should return nonce for existing account", async () => {
-      const result = await getAccountNonce(currencyId, ADDRESS_WITH_BALANCE);
+      const result = await getAccountNonce(config, currencyId, ADDRESS_WITH_BALANCE);
 
       expect(result).toHaveProperty("nonce");
       expect(typeof result.nonce).toBe("number");
@@ -125,7 +126,7 @@ describe("proxyClient", () => {
 
     it("should handle pristine account", async () => {
       try {
-        const result = await getAccountNonce(currencyId, ADDRESS_PRISTINE);
+        const result = await getAccountNonce(config, currencyId, ADDRESS_PRISTINE);
         expect(result).toHaveProperty("nonce");
       } catch (error) {
         // Pristine accounts may not exist yet, which is expected
@@ -134,8 +135,8 @@ describe("proxyClient", () => {
     });
 
     it("should return consistent nonce for same account", async () => {
-      const result1 = await getAccountNonce(currencyId, ADDRESS_WITH_BALANCE);
-      const result2 = await getAccountNonce(currencyId, ADDRESS_WITH_BALANCE);
+      const result1 = await getAccountNonce(config, currencyId, ADDRESS_WITH_BALANCE);
+      const result2 = await getAccountNonce(config, currencyId, ADDRESS_WITH_BALANCE);
 
       // Nonce should be the same or higher (if transactions were sent in between)
       expect(result2.nonce).toBeGreaterThanOrEqual(result1.nonce);
@@ -144,7 +145,7 @@ describe("proxyClient", () => {
 
   describe("getTransactions", () => {
     it("should return transactions for account", async () => {
-      const result = await getTransactions(currencyId, ADDRESS_WITH_BALANCE);
+      const result = await getTransactions(config, currencyId, ADDRESS_WITH_BALANCE);
 
       expect(result).toHaveProperty("transactions");
       expect(Array.isArray(result.transactions)).toBe(true);
@@ -152,13 +153,13 @@ describe("proxyClient", () => {
 
     it("should respect limit parameter", async () => {
       const limit = 5;
-      const result = await getTransactions(currencyId, ADDRESS_WITH_BALANCE, { limit });
+      const result = await getTransactions(config, currencyId, ADDRESS_WITH_BALANCE, { limit });
 
       expect(result.transactions.length).toBeLessThanOrEqual(limit);
     });
 
     it("should respect order parameter", async () => {
-      const resultDesc = await getTransactions(currencyId, ADDRESS_WITH_BALANCE, {
+      const resultDesc = await getTransactions(config, currencyId, ADDRESS_WITH_BALANCE, {
         limit: 10,
         order: "d",
       });
@@ -174,7 +175,7 @@ describe("proxyClient", () => {
     });
 
     it("should return transactions with valid structure", async () => {
-      const result = await getTransactions(currencyId, ADDRESS_WITH_BALANCE, { limit: 5 });
+      const result = await getTransactions(config, currencyId, ADDRESS_WITH_BALANCE, { limit: 5 });
 
       if (result.transactions.length > 0) {
         result.transactions.forEach(tx => {
@@ -192,7 +193,10 @@ describe("proxyClient", () => {
   describe("getTransactionCost", () => {
     it("should return cost estimation for simple transfer", async () => {
       const numSignatures = 1;
-      const result = await getTransactionCost(currencyId, { numSignatures });
+      const result = await getTransactionCost(config, currencyId, {
+        type: "simpleTransfer",
+        numSignatures,
+      });
 
       expect(result).toHaveProperty("cost");
       expect(result).toHaveProperty("energy");
@@ -209,8 +213,15 @@ describe("proxyClient", () => {
       const numSignatures = 1;
       const memoSize = 50;
 
-      const resultWithoutMemo = await getTransactionCost(currencyId, { numSignatures });
-      const resultWithMemo = await getTransactionCost(currencyId, { numSignatures, memoSize });
+      const resultWithoutMemo = await getTransactionCost(config, currencyId, {
+        type: "simpleTransfer",
+        numSignatures,
+      });
+      const resultWithMemo = await getTransactionCost(config, currencyId, {
+        type: "simpleTransfer",
+        numSignatures,
+        memoSize,
+      });
 
       const costWithoutMemo = BigInt(resultWithoutMemo.cost);
       const costWithMemo = BigInt(resultWithMemo.cost);
@@ -221,8 +232,13 @@ describe("proxyClient", () => {
     it("should scale with memo size", async () => {
       const numSignatures = 1;
 
-      const resultSmallMemo = await getTransactionCost(currencyId, { numSignatures, memoSize: 10 });
-      const resultLargeMemo = await getTransactionCost(currencyId, {
+      const resultSmallMemo = await getTransactionCost(config, currencyId, {
+        type: "simpleTransfer",
+        numSignatures,
+        memoSize: 10,
+      });
+      const resultLargeMemo = await getTransactionCost(config, currencyId, {
+        type: "simpleTransfer",
         numSignatures,
         memoSize: 100,
       });
@@ -236,26 +252,95 @@ describe("proxyClient", () => {
     it("should return consistent results for same parameters", async () => {
       const numSignatures = 1;
 
-      const result1 = await getTransactionCost(currencyId, { numSignatures });
-      const result2 = await getTransactionCost(currencyId, { numSignatures });
+      const result1 = await getTransactionCost(config, currencyId, {
+        type: "simpleTransfer",
+        numSignatures,
+      });
+      const result2 = await getTransactionCost(config, currencyId, {
+        type: "simpleTransfer",
+        numSignatures,
+      });
 
       expect(result1.cost).toBe(result2.cost);
       expect(result1.energy).toBe(result2.energy);
+    });
+
+    // These four assert the live contract rather than our encoding of it, since
+    // a silent change to it would surface only as a wrong fee.
+    it("should price a tokenUpdate", async () => {
+      const result = await getTransactionCost(config, currencyId, {
+        type: "tokenUpdate",
+        numSignatures: 1,
+        tokenId: "tUSDT",
+        listOperationsSize: 42,
+        tokenOperationTypeCount: { transfer: 1 },
+      });
+
+      expect(BigInt(result.cost)).toBeGreaterThan(BigInt(0));
+      expect(BigInt(result.energy)).toBeGreaterThan(BigInt(0));
+    });
+
+    it("should charge more for a larger operations blob", async () => {
+      const base = { type: "tokenUpdate" as const, numSignatures: 1, tokenId: "tUSDT" };
+      const count = { transfer: 1 };
+
+      const small = await getTransactionCost(config, currencyId, {
+        ...base,
+        listOperationsSize: 10,
+        tokenOperationTypeCount: count,
+      });
+      const large = await getTransactionCost(config, currencyId, {
+        ...base,
+        listOperationsSize: 200,
+        tokenOperationTypeCount: count,
+      });
+
+      expect(BigInt(large.cost)).toBeGreaterThan(BigInt(small.cost));
+    });
+
+    it("should charge more for a longer token id", async () => {
+      const base = {
+        type: "tokenUpdate" as const,
+        numSignatures: 1,
+        listOperationsSize: 42,
+        tokenOperationTypeCount: { transfer: 1 },
+      };
+
+      const short = await getTransactionCost(config, currencyId, { ...base, tokenId: "a" });
+      const long = await getTransactionCost(config, currencyId, {
+        ...base,
+        tokenId: "a".repeat(64),
+      });
+
+      expect(BigInt(long.cost)).toBeGreaterThan(BigInt(short.cost));
+    });
+
+    it("should reject an operation name it cannot price", async () => {
+      await expect(
+        getTransactionCost(config, currencyId, {
+          type: "tokenUpdate",
+          numSignatures: 1,
+          tokenId: "tUSDT",
+          listOperationsSize: 42,
+          // Not in the proxy's known-cost map, so this is a 400.
+          tokenOperationTypeCount: { transfer: 1, notAnOperation: 1 } as never,
+        }),
+      ).rejects.toThrow();
     });
   });
 
   describe("Network connectivity", () => {
     it("should successfully connect to proxy endpoint", async () => {
-      await expect(getTransactionCost(currencyId, { numSignatures: 1 })).resolves.toHaveProperty(
-        "cost",
-      );
+      await expect(
+        getTransactionCost(config, currencyId, { type: "simpleTransfer", numSignatures: 1 }),
+      ).resolves.toHaveProperty("cost");
     });
 
     it("should handle multiple concurrent requests", async () => {
       const promises = [
-        getTransactionCost(currencyId, { numSignatures: 1 }),
-        getTransactionCost(currencyId, { numSignatures: 1 }),
-        getTransactionCost(currencyId, { numSignatures: 1 }),
+        getTransactionCost(config, currencyId, { type: "simpleTransfer", numSignatures: 1 }),
+        getTransactionCost(config, currencyId, { type: "simpleTransfer", numSignatures: 1 }),
+        getTransactionCost(config, currencyId, { type: "simpleTransfer", numSignatures: 1 }),
       ];
 
       const results = await Promise.all(promises);
@@ -270,7 +355,7 @@ describe("proxyClient", () => {
   describe("submitTransfer", () => {
     it("throws when broadcasting a valid tx with an invalid signature", async () => {
       await expect(
-        submitTransfer(currencyId, {
+        submitTransfer(config, currencyId, {
           transaction:
             "44ecadfc705f1fdb3133fc1e48db5d93273fc925d1c082b6661c9b291c9e2bd1" +
             "0000000000000001" +

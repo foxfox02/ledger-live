@@ -6,7 +6,10 @@ on:
 jobs:
   create-release:
     name: Create Release
-    runs-on: ubuntu-24.04
+    runs-on: ledger-wallet-4cpu-aws-public-docker
+    permissions:
+      contents: read
+      id-token: write
     env:
       NODE_OPTIONS: "--max-old-space-size=7168"
       RELEASE_BRANCH: "release"
@@ -17,6 +20,8 @@ jobs:
         with:
           app-id: ${{ secrets.GH_BOT_APP_ID }}
           private-key: ${{ secrets.GH_BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: develop
@@ -33,6 +38,10 @@ jobs:
           use-mise: true
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           skip-nx-cache: "true"
+      - name: JFrog npm auth
+        uses: LedgerHQ/ledger-live/tools/actions/composites/jfrog-npm-auth@develop
+        with:
+          registry: ${{ vars.ARTIFACTORY_URL }}
       - name: Push branch
         run: git push -u origin $RELEASE_BRANCH
       - name: Move patch updates to minor
@@ -43,9 +52,11 @@ jobs:
           from_level: patch
           to_level: minor
       - name: Install dependencies
-        run: pnpm install -D --ignore-scripts
+        run: pnpm install --frozen-lockfile -D --ignore-scripts
       - name: enter prerelease mode
         run: pnpm changeset pre enter next
+      - name: Prune changelogs
+        run: node tools/prune-changelogs/bin/prune-changelogs.mjs --keep=20
       - name: Add changed files
         run: |
           git add .

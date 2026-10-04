@@ -132,6 +132,8 @@ export interface HederaDelegation {
 export interface HederaEnrichedDelegation extends HederaDelegation {
   status: HEDERA_DELEGATION_STATUS;
   validator: HederaValidator;
+  loading: boolean;
+  error: Error | null;
 }
 
 interface HederaDelegationRaw {
@@ -176,7 +178,7 @@ export type HederaOperationExtra = {
 };
 
 export type HederaValidator = {
-  nodeId: number;
+  id: string;
   minStake: BigNumber;
   maxStake: BigNumber;
   activeStake: BigNumber;
@@ -185,23 +187,7 @@ export type HederaValidator = {
   addressChecksum: string | null;
   name: string;
   overstaked: boolean;
-};
-
-export type HederaValidatorRaw = {
-  nodeId: number;
-  minStake: string;
-  maxStake: string;
-  activeStake: string;
-  activeStakePercentage: string;
-  address: string;
-  addressChecksum: string | null;
-  name: string;
-  overstaked: boolean;
-};
-
-export type HederaPreloadData = {
-  validators: HederaValidator[];
-  associatedTokenId?: string;
+  isLedgerNode: boolean;
 };
 
 export type HederaOperation = Operation<HederaOperationExtra>;

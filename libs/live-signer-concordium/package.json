@@ -1,6 +1,6 @@
 {
   "name": "@ledgerhq/live-signer-concordium",
-  "version": "0.6.2",
+  "version": "0.9.0",
   "description": "Ledger Hardware Wallet Concordium Signer",
   "keywords": [
     "Ledger",
@@ -17,9 +17,7 @@
     "url": "https://github.com/LedgerHQ/ledger-live/issues"
   },
   "homepage": "https://github.com/LedgerHQ/ledger-live/tree/develop/libs/live-signer-concordium",
-  "publishConfig": {
-    "access": "public"
-  },
+  "private": true,
   "main": "lib/index.js",
   "module": "lib-es/index.js",
   "types": "lib-es/index.d.ts",
@@ -30,7 +28,7 @@
     "@ledgerhq/context-module": "catalog:",
     "@ledgerhq/device-management-kit": "catalog:",
     "@ledgerhq/device-signer-kit-concordium": "catalog:",
-    "@ledgerhq/hw-transport": "workspace:^",
+    "@ledgerhq/hw-transport": "catalog:",
     "rxjs": "catalog:"
   },
   "scripts": {
@@ -45,12 +43,13 @@
     "coverage": "jest --coverage"
   },
   "devDependencies": {
+    "@ledgerhq/test-quarantine": "workspace:*",
+    "@swc/core": "catalog:",
+    "@swc/jest": "catalog:",
     "@types/jest": "catalog:",
     "@types/node": "catalog:",
     "jest": "catalog:",
     "rimraf": "^4.4.1",
-    "@swc/jest": "catalog:",
-    "@swc/core": "catalog:",
     "ts-node": "^10.4.0"
   },
   "exports": {

@@ -2,23 +2,36 @@ name: "[Libraries] - Test - Called"
 
 on:
   workflow_call:
+    inputs:
+      skip-unit-tests:
+        description: "Skip the unit test job. Set at the merge gate, where no product code executes."
+        type: boolean
+        required: false
+        default: false
+
     outputs:
       coverage_generated:
         value: ${{ jobs.test-libraries.outputs.coverage_generated }}
 
     secrets:
       AWS_ACCOUNT_ID_PROD:
-        required: false
+        required: true
       AWS_CACHE_OIDC_ROLE_ARN_BRANCH:
-        required: false
+        required: true
       AWS_CACHE_OIDC_ROLE_ARN_DEVELOP:
-        required: false
+        required: true
       AWS_CACHE_REGION:
-        required: false
+        required: true
       AWS_CACHE_ROLE_NAME:
-        required: false
+        required: true
       NX_KEY:
+        required: true
+      # Without credentials the flake reporter degrades gracefully
+      FLAKE_API_KEY_CI:
         required: false
+      FLAKE_API_HOST:
+        required: false
+
   workflow_dispatch:
     inputs:
       since_branch:
@@ -37,6 +50,7 @@ permissions:
 jobs:
   test-libraries:
     name: "Libraries Test"
+    if: ${{ !inputs.skip-unit-tests }}
     permissions:
       id-token: write
       contents: read
@@ -45,10 +59,12 @@ jobs:
       NODE_OPTIONS: "--max-old-space-size=7168"
       FORCE_COLOR: 3
       CI_OS: ubuntu-22.04
+      FLAKE_API_KEY: ${{ secrets.FLAKE_API_KEY_CI }}
+      FLAKE_API_HOST: ${{ secrets.FLAKE_API_HOST }}
     outputs:
       coverage_generated: ${{ contains(steps.generate_coverage.outcome, 'success') }}
 
-    runs-on: [ledger-live-linux-8CPU-32RAM]
+    runs-on: ledger-wallet-8cpu-aws-public
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -73,7 +89,7 @@ jobs:
           registry: ${{ vars.ARTIFACTORY_URL }}
 
       - name: Install dependencies
-        run: pnpm i --filter="{./libs/**}..."
+        run: pnpm i --frozen-lockfile --filter="{./libs/**}..."
 
       - name: Run coverage on appropriate libraries
         run: |
@@ -165,7 +181,7 @@ jobs:
       FORCE_COLOR: 3
       CI_OS: ubuntu-22.04
 
-    runs-on: ledger-live-4xlarge
+    runs-on: ledger-wallet-4cpu-aws-public
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -188,28 +204,12 @@ jobs:
         with:
           registry: ${{ vars.ARTIFACTORY_URL }}
       - name: Install dependencies
-        run: pnpm i
-      - name: Check formatting of affected libraries
-        id: format-check-libs
-        if: github.base_ref == 'develop' || github.ref == 'refs/heads/develop' || github.event_name == 'workflow_dispatch'
-        run: pnpm exec nx run-many -t format:check --exclude=ledger-live-desktop,live-mobile,@ledgerhq/live-cli,@ledgerhq/web-tools,ledger-live-desktop-e2e-tests,ledger-live-mobile-e2e-tests --parallel=3 --nxBail=false
-      - name: Lint affected libraries
-        id: lint-libs
-        run: pnpm exec nx run-many -t lint --exclude=ledger-live-desktop,live-mobile,@ledgerhq/live-cli,@ledgerhq/web-tools,ledger-live-desktop-e2e-tests,ledger-live-mobile-e2e-tests --parallel=3 --nxBail=false -- --quiet
-      - name: Typecheck affected libraries
-        id: typecheck-libs
-        run: pnpm exec nx run-many -t typecheck --exclude=ledger-live-desktop,live-mobile,@ledgerhq/live-cli,@ledgerhq/web-tools,ledger-live-desktop-e2e-tests,ledger-live-mobile-e2e-tests --parallel=3 --nxBail=false
-      - name: Test unimported files
-        id: unimported
-        run: pnpm exec nx run-many -t unimported --exclude=ledger-live-desktop,live-mobile,@ledgerhq/live-cli,@ledgerhq/web-tools,ledger-live-desktop-e2e-tests,ledger-live-mobile-e2e-tests --parallel=3 --nxBail=false
-        shell: bash
-      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        if: ${{ !cancelled() }}
+        run: pnpm i --frozen-lockfile --filter="{./libs/**}..."
+      - name: Codechecks
+        uses: LedgerHQ/ledger-live/tools/actions/composites/nx-codechecks@develop
         with:
-          script: |
-            const fs = require("fs");
-            fs.writeFileSync("summary-typecheck.txt", "${{ steps.typecheck-libs.outcome }}", "utf-8");
-            fs.writeFileSync("summary-lint.txt", "${{ steps.lint-libs.outcome }}", "utf-8");
+          projects: tag:scope:libs
+          emit-summaries: "true"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: ${{ !cancelled() }}
         with:
@@ -218,43 +218,8 @@ jobs:
             ${{ github.workspace }}/summary-typecheck.txt
             ${{ github.workspace }}/summary-lint.txt
 
-  test-docs:
-    name: "Libraries Documentation Check"
-    permissions:
-      id-token: write
-      contents: read
-    runs-on: ubuntu-22.04
-    outputs:
-      fail: ${{ steps.diff.outputs.diff }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ inputs.ref || github.sha }}
-      - name: Setup the caches
-        uses: LedgerHQ/ledger-live/tools/actions/composites/setup-caches@develop
-        id: setup-caches
-        with:
-          use-mise: true
-          gh-token: ${{ secrets.GITHUB_TOKEN }}
-          cache-develop-role-arn: ${{ secrets.AWS_CACHE_OIDC_ROLE_ARN_DEVELOP }}
-          cache-branch-role-arn: ${{ secrets.AWS_CACHE_OIDC_ROLE_ARN_BRANCH }}
-          nx-key: ${{ secrets.NX_KEY }}
-          accountId: ${{ secrets.AWS_ACCOUNT_ID_PROD }}
-          roleName: ${{ secrets.AWS_CACHE_ROLE_NAME }}
-          region: ${{ secrets.AWS_CACHE_REGION }}
-      - name: Install dependencies
-        run: pnpm i --filter="!./apps/**"
-      - name: run doc
-        run: pnpm exec nx run-many -t doc --projects=tag:scope:libs-ledgerjs
-      - name: get diff
-        id: diff
-        run: |
-          diff=$(git diff --exit-code > /dev/null && echo 0 || echo 1)
-          echo "diff=$diff" >> $GITHUB_OUTPUT
-          exit $diff
-
   report:
-    needs: [test-docs, test-libraries, codecheck-libraries]
+    needs: [test-libraries, codecheck-libraries]
     name: "Libraries Test > Report"
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-22.04
@@ -273,10 +238,6 @@ jobs:
             const resultLint = fs.readFileSync("${{ github.workspace }}/outputs/summary-lint.txt", "utf-8");
             const resultTypecheck = fs.readFileSync("${{ github.workspace }}/outputs/summary-typecheck.txt", "utf-8");
             const statuses = {
-              doc: {
-                pass: ${{ needs.test-docs.outputs.fail != '1' }},
-                status: "${{ needs.test-docs.result }}",
-              },
               codecheck: {
                 pass: ${{ needs.codecheck-libraries.result == 'success' }},
                 status: "${{ needs.codecheck-libraries.result }}",
@@ -295,13 +256,9 @@ jobs:
               },
             };
 
-            const summary = `### Test documentation files
-            ${statuses.doc.pass ? "Documentation files are fine" : "Documentation files are outdated"}
-              - ${statuses.doc.pass ? "✅" : "❌"} **Test documentation files** ended with status \`${statuses.doc.status}\`
+            const summary = `### Codecheck Libraries
 
-            ### Codecheck Libraries
-
-            ${statuses.codecheck.pass ? "Codecheck was successfull" : "Codecheck failed"}
+            ${statuses.codecheck.pass ? "Codecheck was successful" : "Codecheck failed"}
               - ${statuses.codecheck.pass ? "✅" : "❌"} **Codecheck** ended with status \`${statuses.codecheck.status}\`
 
             | Lint | Typecheck |
@@ -314,22 +271,9 @@ jobs:
               - ${statuses.tests.pass ? "✅" : "❌"} **Test Libs** ended with status \`${statuses.tests.status}\`
             `;
 
-            const actions = [];
-
-            if (${{ needs.test-docs.outputs.fail == '1' }}) {
-              actions.push({
-                // 20 chars max
-                label: "Regen. Doc Files",
-                // 20 chars max
-                identifier: "regen_doc",
-                // 40 chars max
-                description: "Will regenerate doc files for ljs",
-              });
-            }
-
             const output = {
               summary,
-              actions
+              actions: [],
             };
 
             fs.writeFileSync("summary-libraries.json", JSON.stringify(output), "utf-8");

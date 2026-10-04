@@ -14,14 +14,16 @@ import {
   fetchSpeculinhoStatus,
   getSpeculinhoRunIdFromError,
 } from "@ledgerhq/live-e2e-shared/speculosCI";
-import { isSpeculosRemote } from "../helpers/commonHelpers";
-import { addKnownSpeculos, getEnvs, removeKnownSpeculos } from "../bridge/server";
-import { CLI } from "./cliUtils";
+import { isSpeculosRemote } from "@e2e/helpers/commonHelpers";
+import { addKnownSpeculos, getEnvs, removeKnownSpeculos } from "@e2e/bridge/server";
+import { CLI } from "@e2e/utils/cliUtils";
+import { retryUntilTimeout } from "@e2e/utils/retry";
 import { promises as fs } from "fs";
 import path from "path";
 
 import { sanitizeError } from "@ledgerhq/live-e2e-shared/index";
-import { getCapturedStderr } from "./loggingUtils";
+import { getCapturedStderr } from "@e2e/utils/loggingUtils";
+import { INTERVAL, TIMEOUT } from "@e2e/utils/timeouts";
 
 const SPECULOS_STDOUT_MARKER = "--- Speculos stdout ---";
 const SPECULOS_STDERR_MARKER = "--- Speculos stderr ---";
@@ -162,7 +164,7 @@ export async function launchSpeculos(appName: string) {
 async function findPortByDeviceId(
   deviceId: string,
   maxAttempts = 3,
-  delay = 1000,
+  delay = INTERVAL.medium,
 ): Promise<number | undefined> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     log.info(
@@ -281,8 +283,8 @@ export async function takeSpeculosScreenshot() {
     if (isSpeculosRemote()) {
       try {
         await waitForSpeculosReady(deviceId, {
-          interval: 5_000,
-          timeout: 30_000,
+          interval: INTERVAL.slow,
+          timeout: TIMEOUT.xlarge,
         });
       } catch {
         log.warn("E2E", `Skipping screenshot: Speculos with ${deviceId} unreachable.`);
@@ -299,7 +301,9 @@ export async function takeSpeculosScreenshot() {
 
 export async function registerSpeculos(speculosPort: number) {
   const speculosAddress = process.env.SPECULOS_ADDRESS;
-  await device.reverseTcpPort(speculosPort);
+  if (!isSpeculosRemote()) {
+    await device.reverseTcpPort(speculosPort);
+  }
   process.env.SPECULOS_API_PORT = speculosPort.toString();
   delete process.env.DEVICE_PROXY_URL;
   CLI.registerSpeculosTransport(speculosPort.toString(), speculosAddress);
@@ -321,29 +325,35 @@ function getKnownSpeculosAddress(speculosPort: number): string {
     : `${withoutTrailingSlash}:${speculosPort}`;
 }
 
+/** How long the app may take to report an env value the test just pushed over the bridge. */
+const BRIDGE_ENV_SYNC_TIMEOUT = 15_000;
+
 async function waitForBridgeEnv(
   key: string,
   expectedValue: string,
-  attempts = 12,
-  delayMs = 500,
+  timeout = BRIDGE_ENV_SYNC_TIMEOUT,
+  interval = INTERVAL.short,
 ): Promise<void> {
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    try {
-      const envsRaw = await getEnvs();
-      if (envsRaw) {
-        const envs = JSON.parse(envsRaw) as Record<string, string | undefined>;
-        if ((envs[key] ?? "") === expectedValue) return;
-      }
-    } catch {
-      // retry until timeout
-    }
-    if (attempt < attempts) {
-      await new Promise(resolve => setTimeout(resolve, delayMs));
-    }
+  try {
+    await retryUntilTimeout(
+      async () => {
+        const envsRaw = await getEnvs();
+        const envs = envsRaw ? (JSON.parse(envsRaw) as Record<string, string | undefined>) : {};
+        if ((envs[key] ?? "") !== expectedValue) {
+          throw new Error(`env ${key} not yet "${expectedValue}"`);
+        }
+      },
+      timeout,
+      interval,
+      { cancellable: true },
+    );
+  } catch (cause) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(
+      `Bridge env sync failed: expected ${key}="${expectedValue}" after ${timeout}ms — ${reason}`,
+      { cause },
+    );
   }
-  throw new Error(
-    `Bridge env sync failed: expected ${key}="${expectedValue}" after ${attempts} attempts`,
-  );
 }
 
 export async function registerKnownSpeculos(speculosPort: number) {
@@ -355,10 +365,12 @@ export async function registerKnownSpeculos(speculosPort: number) {
 export async function removeSpeculosAndDeregisterKnownSpeculos(deviceId?: string) {
   const speculosPort = await deleteSpeculos(deviceId);
   if (speculosPort) {
-    try {
-      await device.unreverseTcpPort(speculosPort);
-    } catch (e) {
-      log.warn(`unreverseTcpPort(${speculosPort}) failed: ${sanitizeError(e)}`);
+    if (!isSpeculosRemote()) {
+      try {
+        await device.unreverseTcpPort(speculosPort);
+      } catch (e) {
+        log.warn(`unreverseTcpPort(${speculosPort}) failed: ${sanitizeError(e)}`);
+      }
     }
     await removeKnownSpeculos(getKnownSpeculosAddress(speculosPort));
     await waitForBridgeEnv("DEVICE_PROXY_URL", "");

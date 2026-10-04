@@ -1,15 +1,16 @@
+import type { Logger } from "@ledgerhq/coin-module-framework/config";
+import type { TronCoinConfig } from "../config";
 import { TronWeb } from "tronweb";
 import { broadcast } from "./broadcast";
-import coinConfig from "../config";
+
+const mockLogger: Logger = jest.fn();
+
+const mockConfig = {
+  status: { type: "active" },
+  explorer: { url: "https://tron.coin.ledger.com" },
+} as TronCoinConfig;
 
 describe("Broadcast", () => {
-  beforeAll(() => {
-    coinConfig.setCoinConfig(() => ({
-      status: { type: "active" },
-      explorer: { url: "https://tron.coin.ledger.com" },
-    }));
-  });
-
   it("throws on insufficient funds", async () => {
     const tronWeb = new TronWeb({
       fullHost: "https://tron.coin.ledger.com",
@@ -23,6 +24,8 @@ describe("Broadcast", () => {
     );
     const signed = await tronWeb.trx.sign(tx, sender.privateKey);
 
-    await expect(broadcast(signed)).rejects.toThrow(/CONTRACT_VALIDATE_ERROR/);
+    await expect(broadcast(mockLogger, mockConfig, signed)).rejects.toThrow(
+      /CONTRACT_VALIDATE_ERROR/,
+    );
   });
 });

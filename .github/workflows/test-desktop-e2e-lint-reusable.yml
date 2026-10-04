@@ -5,17 +5,17 @@ on:
 
     secrets:
       AWS_ACCOUNT_ID_PROD:
-        required: false
+        required: true
       AWS_CACHE_OIDC_ROLE_ARN_BRANCH:
-        required: false
+        required: true
       AWS_CACHE_OIDC_ROLE_ARN_DEVELOP:
-        required: false
+        required: true
       AWS_CACHE_REGION:
-        required: false
+        required: true
       AWS_CACHE_ROLE_NAME:
-        required: false
+        required: true
       NX_KEY:
-        required: false
+        required: true
 permissions:
   id-token: write
   contents: read
@@ -23,7 +23,8 @@ permissions:
 jobs:
   test-desktop-e2e-lint:
     name: "Desktop E2E Lint & Typecheck"
-    runs-on: ubuntu-22.04
+    runs-on: ledger-wallet-2cpu-aws-public
+    timeout-minutes: 5
     env:
       NODE_OPTIONS: "--max-old-space-size=7168"
       FORCE_COLOR: 3
@@ -45,11 +46,16 @@ jobs:
           roleName: ${{ secrets.AWS_CACHE_ROLE_NAME }}
           region: ${{ secrets.AWS_CACHE_REGION }}
 
+      - name: JFrog npm auth
+        uses: LedgerHQ/ledger-live/tools/actions/composites/jfrog-npm-auth@develop
+        with:
+          registry: ${{ vars.ARTIFACTORY_URL }}
+
       - name: Install dependencies
-        run: pnpm i --filter="ledger-live-desktop-e2e-tests..." --filter="ledger-live-desktop..." --no-frozen-lockfile --unsafe-perm
+        run: pnpm i --filter="ledger-live-desktop-e2e-tests..." --filter="ledger-live-desktop..." --frozen-lockfile --unsafe-perm
 
       - name: Run format check
-        if: github.base_ref == 'develop' || github.ref == 'refs/heads/develop'
+        if: github.base_ref == 'develop' || github.ref == 'refs/heads/develop' || github.event_name == 'merge_group'
         run: pnpm exec nx run ledger-live-desktop-e2e-tests:format:check
 
       - name: Run lint and typecheck

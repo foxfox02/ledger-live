@@ -7,7 +7,6 @@ export const arc = currency({
   name: "Arc",
   managerAppName: "Ethereum",
   ticker: "USDC",
-  deviceTicker: "USDC",
   scheme: "arc",
   color: "#1A2B5F",
   family: "evm",
@@ -38,9 +37,6 @@ export const arc = currency({
       magnitude: 0,
     },
   ],
-  ethereumLikeInfo: {
-    chainId: 5042,
-  },
   explorerViews: [
     {
       tx: "https://explorer.arc.io/tx/$hash",

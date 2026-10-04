@@ -1,3 +1,4 @@
+import { TrackScreen } from "@shared/analytics-react";
 import { getAccountCurrency, getMainAccount } from "@ledgerhq/live-common/account/index";
 import { useAccountBridge } from "@ledgerhq/live-common/bridge/useAccountBridge";
 import useBridgeTransaction from "@ledgerhq/live-common/bridge/useBridgeTransaction";
@@ -19,7 +20,6 @@ import React, { ReactNode, useCallback, useEffect, useMemo } from "react";
 import { Trans } from "~/context/Locale";
 import { Animated, StyleSheet, View, TextStyle, StyleProp } from "react-native";
 import SafeAreaView from "~/components/SafeAreaView";
-import { TrackScreen } from "~/analytics";
 import { rgba } from "../../../colors";
 import Button from "~/components/Button";
 import Circle from "~/components/Circle";
@@ -73,7 +73,8 @@ export default function StakingSummary({ navigation, route }: Props) {
           account,
           transaction: bridge.updateTransaction(t, {
             mode: "stake",
-            recipient: chosenValidator.validatorAddress,
+            // Validators load asynchronously; the effect below fills the recipient in once they arrive.
+            recipient: chosenValidator?.validatorAddress ?? "",
           }),
         };
       }
@@ -86,7 +87,7 @@ export default function StakingSummary({ navigation, route }: Props) {
   invariant(transaction.family === "near", "transaction near");
 
   useEffect(() => {
-    if (chosenValidator.validatorAddress !== transaction.recipient) {
+    if (chosenValidator && chosenValidator.validatorAddress !== transaction.recipient) {
       setTransaction(
         bridge.updateTransaction(transaction, {
           recipient: chosenValidator.validatorAddress,
@@ -109,6 +110,9 @@ export default function StakingSummary({ navigation, route }: Props) {
   const color = getCurrencyColor(currency);
 
   const onChangeAmount = () => {
+    // The amount screen requires a validator and its header dereferences it, so stay put until
+    // the asynchronous validator fetch has produced one.
+    if (!chosenValidator) return;
     navigation.navigate(ScreenName.NearStakingAmount, {
       ...route.params,
       transaction,
@@ -171,7 +175,7 @@ export default function StakingSummary({ navigation, route }: Props) {
                   }}
                 >
                   <ValidatorImage
-                    isLedger={chosenValidator.validatorAddress === FIGMENT_NEAR_VALIDATOR_ADDRESS}
+                    isLedger={chosenValidator?.validatorAddress === FIGMENT_NEAR_VALIDATOR_ADDRESS}
                     name={chosenValidator?.validatorAddress}
                   />
                 </Animated.View>

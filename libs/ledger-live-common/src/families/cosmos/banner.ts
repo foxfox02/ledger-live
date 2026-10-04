@@ -11,16 +11,14 @@ export interface AccountBannerState {
 }
 
 export function getAccountBannerState(account: CosmosAccount): AccountBannerState {
-  // Group current validator
-  const cosmosResources = account.cosmosResources
-    ? account.cosmosResources
-    : { delegations: [], redelegations: [] };
-  const delegationAddresses = cosmosResources.delegations.map(delegation => {
+  const { delegations, redelegations } = account.stakingResources;
+  const delegationAddresses = delegations.map(delegation => {
     return delegation.validatorAddress;
   });
-  const redelegationAddresses = cosmosResources.redelegations.map(redelegation => {
-    return redelegation.validatorDstAddress;
-  });
+  const now = new Date();
+  const redelegationAddresses = redelegations
+    .filter(redelegation => redelegation.completionDate > now)
+    .map(redelegation => redelegation.validatorDstAddress);
   const validatorAdresses = [...delegationAddresses, ...redelegationAddresses];
 
   const LEDGER_VALIDATOR_ADDRESS = cryptoFactory(account.currency.id).ledgerValidator;

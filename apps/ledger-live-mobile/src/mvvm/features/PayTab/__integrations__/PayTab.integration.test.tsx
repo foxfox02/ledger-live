@@ -1,0 +1,670 @@
+import React from "react";
+import { View } from "react-native";
+import type { QueuedBottomSheetProps } from "@shared/ui-queued-bottom-sheet";
+import { screen, waitFor, within } from "@tests/test-renderer";
+import { PAY_CARD_BALANCE_FILTER_ALL } from "@features/flow-pay-balance/state";
+import { AssetCategory } from "@domain/api-aggregated-assets";
+import { SEND_FLOW_SOURCE } from "@ledgerhq/live-common/flows/send/types";
+import { ScreenName } from "~/const";
+import { track, trackPage } from "@shared/analytics";
+import {
+  mockContact,
+  mockContactWithAddress,
+  mockContactWithMultipleAddresses,
+  mockMeContact,
+} from "@domain/entity-contact/schema.mock";
+import {
+  EMPTY_DESCRIPTION,
+  EMPTY_TITLE,
+  FEATURE_TOUR_CTA,
+  FEATURE_TOUR_ROW,
+  holdDada,
+  mockStablecoinMadCatalog,
+  mockFullAssetCatalog,
+  renderPayTab,
+  renderRequestReceive,
+  seedContacts,
+  selectUsdcOnEthereum,
+  setDada,
+  usdc,
+} from "./shared";
+
+jest.mock("LLM/features/Contacts/hooks/useContactsLedgerSyncStatus", () => ({
+  useContactsLedgerSyncStatus: () => "ready",
+}));
+jest.mock("@features/flow-pay-card", () => ({
+  Card: () => (
+    <>
+      <View testID="card-login" />
+      <View testID="card-logout" />
+    </>
+  ),
+}));
+
+jest.mock("@shared/ui-queued-bottom-sheet", () => {
+  const actual = jest.requireActual("@shared/ui-queued-bottom-sheet");
+  const React = jest.requireActual<typeof import("react")>("react");
+  const { QueuedBottomSheet } = actual;
+
+  function MockQueuedBottomSheet({
+    isRequestingToBeOpened,
+    isForcingToBeOpened,
+    onOpened,
+    ...props
+  }: QueuedBottomSheetProps) {
+    const shouldOpen = !!(isRequestingToBeOpened || isForcingToBeOpened);
+    React.useEffect(() => {
+      if (shouldOpen) {
+        onOpened?.();
+      }
+    }, [onOpened, shouldOpen]);
+    return (
+      <QueuedBottomSheet
+        isRequestingToBeOpened={isRequestingToBeOpened}
+        isForcingToBeOpened={isForcingToBeOpened}
+        onOpened={onOpened}
+        {...props}
+      />
+    );
+  }
+
+  return {
+    ...actual,
+    QueuedBottomSheet: MockQueuedBottomSheet,
+  };
+});
+
+async function openBankTransferIntro(user: ReturnType<typeof renderPayTab>["user"]) {
+  await user.press(await screen.findByText("Add stablecoin"));
+  await user.press(await screen.findByText("Bank transfer"));
+  await screen.findByRole("header", { name: "Send cash, receive stablecoin" });
+}
+
+describe("PayTab integration", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe("feature tour", () => {
+    it("should show the feature tour on first visit", async () => {
+      renderPayTab({ hasSeenFeatureTour: false });
+
+      expect(screen.getByTestId("paytab-screen")).toBeVisible();
+      await waitFor(() => {
+        expect(screen.getByText(FEATURE_TOUR_ROW)).toBeVisible();
+      });
+    });
+
+    it("should persist dismissal and hide the tour after pressing Explore Pay", async () => {
+      const { user, store } = renderPayTab({ hasSeenFeatureTour: false });
+
+      await waitFor(() => {
+        expect(screen.getByText(FEATURE_TOUR_ROW)).toBeVisible();
+      });
+
+      await user.press(screen.getByText(FEATURE_TOUR_CTA));
+
+      await waitFor(() => {
+        expect(store.getState().payCardFeatureTour.hasSeenFeatureTour).toBe(true);
+        expect(screen.queryByText(FEATURE_TOUR_ROW)).toBeNull();
+      });
+    });
+
+    it("should not show the feature tour once it has been seen", () => {
+      renderPayTab();
+
+      expect(screen.getByTestId("paytab-screen")).toBeVisible();
+      expect(screen.queryByText(FEATURE_TOUR_ROW)).toBeNull();
+    });
+
+    it("should show the disclaimer at the bottom of the screen", () => {
+      renderPayTab();
+
+      expect(screen.getByTestId("pay-disclaimer")).toBeVisible();
+      expect(screen.getByText("Provided by Monavate Onchain")).toBeVisible();
+    });
+  });
+
+  describe("balance", () => {
+    it("should render the empty hero when the user holds no stablecoins", async () => {
+      renderPayTab();
+
+      expect(await screen.findByTestId("pay-card-balance-empty-state")).toBeVisible();
+      expect(screen.getByText(EMPTY_TITLE)).toBeVisible();
+      expect(screen.getByText(EMPTY_DESCRIPTION)).toBeVisible();
+      expect(screen.queryByTestId("pay-card-balance-funded-state")).toBeNull();
+      expect(screen.getByTestId("action-tile-deposit")).toBeVisible();
+      expect(screen.getByTestId("action-tile-request")).toBeVisible();
+    });
+
+    it("should render the aggregated stablecoin balance when the user holds stablecoins", async () => {
+      renderPayTab({ holdsUsdc: true });
+
+      expect(await screen.findByTestId("pay-card-balance-funded-state")).toBeVisible();
+      expect(screen.queryByTestId("pay-card-balance-empty-state")).toBeNull();
+    });
+
+    it("should render the empty hero when the user holds USDC with a zero balance", async () => {
+      renderPayTab({ holdsEmptyUsdc: true });
+
+      expect(await screen.findByTestId("pay-card-balance-empty-state")).toBeVisible();
+      expect(screen.queryByTestId("pay-card-balance-funded-state")).toBeNull();
+    });
+
+    it("should render the empty hero when accounts hold only crypto", async () => {
+      renderPayTab({ cryptoOnly: true });
+
+      expect(await screen.findByTestId("pay-card-balance-empty-state")).toBeVisible();
+      expect(screen.queryByTestId("pay-card-balance-funded-state")).toBeNull();
+    });
+
+    it("should stay empty while DADA hangs if the user holds no stablecoins", async () => {
+      setDada("hang");
+      renderPayTab({ cryptoOnly: true });
+
+      expect(await screen.findByTestId("pay-card-balance-empty-state")).toBeVisible();
+      expect(screen.queryByTestId("pay-card-balance-funded-state")).toBeNull();
+    });
+
+    it("should stay funded while the catalog hangs if the user holds USDC", async () => {
+      setDada("hang");
+      renderPayTab({ holdsUsdc: true });
+
+      expect(await screen.findByTestId("pay-card-balance-funded-state")).toBeVisible();
+      expect(screen.queryByTestId("pay-card-balance-empty-state")).toBeNull();
+    });
+
+    it("should stay empty when DADA fails if the user holds no stablecoins", async () => {
+      setDada("error");
+      renderPayTab({ cryptoOnly: true });
+
+      expect(await screen.findByTestId("pay-card-balance-empty-state")).toBeVisible();
+      expect(screen.queryByTestId("pay-card-balance-funded-state")).toBeNull();
+    });
+
+    it("should stay funded when DADA fails if the user holds USDC", async () => {
+      setDada("error");
+      renderPayTab({ holdsUsdc: true });
+
+      expect(await screen.findByTestId("pay-card-balance-funded-state")).toBeVisible();
+      expect(screen.queryByTestId("pay-card-balance-empty-state")).toBeNull();
+    });
+
+    it("should become funded when DADA resolves a USDC holding", async () => {
+      const release = holdDada();
+      renderPayTab({ holdsUsdc: true });
+
+      expect(await screen.findByTestId("pay-card-balance-funded-state")).toBeVisible();
+      release();
+      expect(await screen.findByTestId("pay-card-balance-funded-state")).toBeVisible();
+      expect(screen.queryByTestId("pay-card-balance-empty-state")).toBeNull();
+    });
+
+    it("should stay empty when DADA resolves with no stablecoin holding", async () => {
+      const release = holdDada();
+      renderPayTab({ cryptoOnly: true });
+
+      expect(await screen.findByTestId("pay-card-balance-empty-state")).toBeVisible();
+      release();
+      expect(await screen.findByTestId("pay-card-balance-empty-state")).toBeVisible();
+      expect(screen.queryByTestId("pay-card-balance-funded-state")).toBeNull();
+    });
+
+    it("should be funded while DADA hangs if the user holds UNI, then empty when it resolves", async () => {
+      const release = holdDada();
+      renderPayTab({ holdsUni: true });
+
+      expect(await screen.findByTestId("pay-card-balance-funded-state")).toBeVisible();
+      expect(screen.queryByTestId("pay-card-balance-empty-state")).toBeNull();
+      release();
+      expect(await screen.findByTestId("pay-card-balance-empty-state")).toBeVisible();
+      expect(screen.queryByTestId("pay-card-balance-funded-state")).toBeNull();
+    });
+
+    it("should render Deposit and Request action tiles when the hero is funded", async () => {
+      renderPayTab({ holdsUsdc: true });
+
+      expect(await screen.findByTestId("action-tile-deposit")).toBeVisible();
+      expect(screen.getByTestId("action-tile-request")).toBeVisible();
+      expect(screen.getByText("Add stablecoin")).toBeVisible();
+      expect(screen.getByText("Request")).toBeVisible();
+    });
+
+    it("should track button_clicked with quick action location when an action tile is pressed", async () => {
+      const { user } = renderPayTab({ holdsUsdc: true });
+
+      await user.press(await screen.findByTestId("action-tile-deposit"));
+
+      expect(jest.mocked(track)).toHaveBeenCalledWith(
+        "button_clicked",
+        expect.objectContaining({
+          button: "deposit",
+          buttonLocation: "quick action",
+          page: "Pay",
+        }),
+      );
+
+      await user.press(screen.getByTestId("action-tile-request"));
+
+      expect(jest.mocked(track)).toHaveBeenCalledWith(
+        "button_clicked",
+        expect.objectContaining({
+          button: "request",
+          buttonLocation: "quick action",
+          page: "Pay",
+        }),
+      );
+    });
+
+    it("should track the Pay page with the active balance filter on view", async () => {
+      renderPayTab();
+
+      await waitFor(() => {
+        expect(jest.mocked(trackPage)).toHaveBeenCalledWith(
+          { category: "Pay", name: undefined, props: { balanceFilter: "all" } },
+          { updateRoutes: true, refreshSource: true, avoidDuplicates: false, mandatory: false },
+        );
+      });
+    });
+
+    it("should still render the card login block below the hero", async () => {
+      renderPayTab();
+
+      expect(await screen.findByTestId("pay-card-balance-empty-state")).toBeVisible();
+      expect(screen.getByTestId("card-login")).toBeVisible();
+    });
+
+    it("should hide the card and its disclaimer when the pay tab card param is false", async () => {
+      renderPayTab({ cardEnabled: false });
+
+      expect(await screen.findByTestId("pay-card-balance-empty-state")).toBeVisible();
+      expect(screen.queryByTestId("card-login")).toBeNull();
+      expect(screen.queryByTestId("pay-disclaimer")).toBeNull();
+      expect(screen.queryByTestId("pay-card-disclaimer-link")).toBeNull();
+    });
+
+    it("should show the card disclaimer instead of the card", async () => {
+      renderPayTab({ cardEnabled: false, cardDisclaimer: true });
+
+      expect(await screen.findByTestId("pay-card-balance-empty-state")).toBeVisible();
+      expect(screen.queryByTestId("card-login")).toBeNull();
+      expect(screen.queryByTestId("pay-disclaimer")).toBeNull();
+      expect(screen.getByTestId("pay-card-disclaimer-link")).toBeVisible();
+      expect(screen.getByText("Looking for your crypto card?")).toBeVisible();
+      expect(screen.getByText("Go to CL Card")).toBeVisible();
+    });
+
+    it("should open the balance filter bottom sheet from the hero pill and track the interaction", async () => {
+      const { user } = renderPayTab({ holdsUsdc: true });
+
+      const pill = await screen.findByTestId("pay-card-balance-filter-pill");
+      expect(pill).toBeVisible();
+
+      await user.press(pill);
+
+      expect(await screen.findByTestId("pay-card-balance-filter-picker")).toBeVisible();
+      expect(jest.mocked(track)).toHaveBeenCalledWith(
+        "button_clicked",
+        expect.objectContaining({ button: "balance filter", page: "Pay" }),
+      );
+    });
+
+    it("should persist the selected stablecoin, update the hero pill and track the confirmation", async () => {
+      const { user, store } = renderPayTab({ holdsUsdc: true });
+
+      await user.press(await screen.findByTestId("pay-card-balance-filter-pill"));
+
+      await user.press(await screen.findByTestId("pay-card-balance-filter-option-usdc"));
+      await user.press(screen.getByTestId("pay-card-balance-filter-confirm"));
+
+      await waitFor(() => {
+        expect(store.getState().payCardBalance.balanceFilter).not.toBe(PAY_CARD_BALANCE_FILTER_ALL);
+      });
+
+      const pill = screen.getByTestId("pay-card-balance-filter-pill");
+      expect(within(pill).getByText("USDC")).toBeVisible();
+
+      expect(jest.mocked(track)).toHaveBeenCalledWith(
+        "button_clicked",
+        expect.objectContaining({
+          button: "confirm balance filter",
+          asset: "USDC",
+          page: "Pay",
+        }),
+      );
+    });
+  });
+
+  describe("deposit options", () => {
+    it("opens the deposit options bottom sheet with the four options from the deposit tile", async () => {
+      const { user } = renderPayTab({ holdsUsdc: true });
+
+      await user.press(await screen.findByTestId("action-tile-deposit"));
+
+      expect(await screen.findByTestId("pay-card-deposit-options")).toBeVisible();
+      expect(screen.getByText("Add stablecoins")).toBeVisible();
+      (["bankTransfer", "swap", "receive", "buy"] as const).forEach(id => {
+        expect(screen.getByTestId(`pay-card-deposit-option-${id}`)).toBeVisible();
+      });
+    });
+
+    it("opens the request flow when the crypto address option is selected", async () => {
+      const { user, store } = renderPayTab({ holdsUsdc: true });
+
+      await user.press(await screen.findByTestId("action-tile-deposit"));
+      await user.press(await screen.findByTestId("pay-card-deposit-option-receive"));
+
+      await waitFor(() => {
+        expect(store.getState().modularDrawer).toMatchObject({
+          isOpen: true,
+          flow: "request",
+          source: "pay",
+          categories: [AssetCategory.Stablecoins],
+          enableAccountSelection: true,
+        });
+      });
+    });
+  });
+
+  describe("bank transfer", () => {
+    it("should show the cash-to-stable intro when Bank transfer is selected", async () => {
+      const { user } = renderPayTab({ holdsUsdc: true });
+
+      await openBankTransferIntro(user);
+
+      expect(screen.getByRole("header", { name: "Send cash, receive stablecoin" })).toBeVisible();
+      expect(
+        screen.getByText("Transfer cash and receive stablecoins straight to your Ledger Wallet™."),
+      ).toBeVisible();
+      expect(screen.getByText("Receive transfers from any bank")).toBeVisible();
+      expect(screen.getByText("No hidden fees")).toBeVisible();
+      expect(screen.getByText("Put your money to work right away")).toBeVisible();
+      expect(screen.getByText("Provided by Noah")).toBeVisible();
+      expect(screen.getByRole("button", { name: "Create an account" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Log in to Noah" })).toBeVisible();
+      expect(screen.queryByText(`${ScreenName.ReceiveProvider}:noah`)).toBeNull();
+    });
+
+    it("should track the deposit row and the cash-to-stable page when Bank transfer is selected", async () => {
+      const { user } = renderPayTab({ holdsUsdc: true });
+
+      await openBankTransferIntro(user);
+
+      expect(jest.mocked(track)).toHaveBeenCalledWith(
+        "button_clicked",
+        expect.objectContaining({
+          button: "bank transfer",
+          buttonLocation: "deposit",
+          page: "Pay",
+        }),
+      );
+      expect(jest.mocked(trackPage)).toHaveBeenCalledWith(
+        expect.objectContaining({ category: "Feature Intro", name: "Cash to stable" }),
+        expect.anything(),
+      );
+    });
+
+    it("should open Noah when Create an account is pressed", async () => {
+      const { user } = renderPayTab({ holdsUsdc: true });
+
+      await openBankTransferIntro(user);
+      await user.press(screen.getByRole("button", { name: "Create an account" }));
+
+      expect(await screen.findByText(`${ScreenName.ReceiveProvider}:noah`)).toBeVisible();
+      expect(jest.mocked(track)).toHaveBeenCalledWith(
+        "button_clicked",
+        expect.objectContaining({
+          button: "create an account",
+          flow: "Cash to stable",
+          page: "Feature Intro Cash to stable",
+        }),
+      );
+      expect(jest.mocked(track)).not.toHaveBeenCalledWith(
+        "button_clicked",
+        expect.objectContaining({
+          button: "close",
+          flow: "Cash to stable",
+          page: "Feature Intro Cash to stable",
+        }),
+      );
+    });
+
+    it("should open Noah when Log in to Noah is pressed", async () => {
+      const { user } = renderPayTab({ holdsUsdc: true });
+
+      await openBankTransferIntro(user);
+      await user.press(screen.getByRole("button", { name: "Log in to Noah" }));
+
+      expect(await screen.findByText(`${ScreenName.ReceiveProvider}:noah`)).toBeVisible();
+      expect(jest.mocked(track)).toHaveBeenCalledWith(
+        "button_clicked",
+        expect.objectContaining({
+          button: "log in to noah",
+          flow: "Cash to stable",
+          page: "Feature Intro Cash to stable",
+        }),
+      );
+    });
+  });
+
+  describe("request", () => {
+    it("opens the modular asset drawer for the request flow when the request tile is pressed", async () => {
+      const { user, store } = renderPayTab({ holdsUsdc: true });
+
+      await user.press(await screen.findByTestId("action-tile-request"));
+
+      await waitFor(() => {
+        expect(store.getState().modularDrawer).toMatchObject({
+          isOpen: true,
+          flow: "request",
+          source: "pay",
+          categories: [AssetCategory.Stablecoins],
+          enableAccountSelection: true,
+        });
+      });
+    });
+
+    it("should open the request screen after selecting USDC on Ethereum", async () => {
+      mockFullAssetCatalog();
+      const { user } = renderPayTab({ holdsUsdc: true });
+
+      await selectUsdcOnEthereum(user);
+
+      expect(await screen.findByText("Request USD Coin")).toBeVisible();
+      expect(screen.getByTestId("pay-request-receive")).toBeVisible();
+      expect(screen.getByTestId("pay-request-receive-qr-code")).toBeVisible();
+    });
+
+    it("should render the request receive card for the selected account", async () => {
+      renderRequestReceive();
+
+      expect(await screen.findByText("Request USD Coin")).toBeVisible();
+      expect(screen.getByTestId("pay-request-receive")).toBeVisible();
+      expect(screen.getByTestId("pay-request-receive-summary")).toBeVisible();
+      expect(screen.getByText("Share")).toBeVisible();
+    });
+
+    it("should render an error when the account is missing", () => {
+      renderRequestReceive({
+        accountId: "missing-account",
+        currency: usdc,
+      });
+
+      expect(screen.getByTestId("generic-error-modal")).toBeVisible();
+      expect(screen.queryByTestId("pay-request-receive-qr-code")).toBeNull();
+    });
+
+    it("should show the parent address when the selected token is not yet a sub-account", async () => {
+      mockFullAssetCatalog();
+      const { user } = renderPayTab({ cryptoOnly: true });
+
+      await selectUsdcOnEthereum(user);
+
+      expect(await screen.findByText("Request USD Coin")).toBeVisible();
+      expect(screen.getByTestId("pay-request-receive-qr-code")).toBeVisible();
+    });
+  });
+
+  describe("contacts strip", () => {
+    it("should not render the contacts section when lwmContacts is disabled", async () => {
+      renderPayTab({ contacts: seedContacts(8) });
+
+      expect(await screen.findByText(EMPTY_TITLE)).toBeVisible();
+      expect(screen.queryByRole("button", { name: "New" })).not.toBeOnTheScreen();
+    });
+
+    it("should render the Pay tile without see-all when 8 or fewer recipients are available", async () => {
+      const { user } = renderPayTab({ contacts: seedContacts(7), contactsEnabled: true });
+
+      expect(await screen.findByRole("button", { name: "New" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "Contact 6" })).toBeVisible();
+      expect(screen.getByRole("button", { name: "My addresses (Me)" })).toBeVisible();
+      expect(screen.queryByRole("button", { name: "Contact 7" })).not.toBeOnTheScreen();
+
+      await user.press(screen.getByText("Pay"));
+
+      expect(
+        screen.queryByText(`${ScreenName.MyWalletContacts}:Pay contact`),
+      ).not.toBeOnTheScreen();
+    });
+
+    it("should open Send through the stablecoin MAD from the New tile", async () => {
+      mockStablecoinMadCatalog();
+      const { user, store } = renderPayTab({
+        contacts: [mockMeContact()],
+        contactsEnabled: true,
+        holdsUsdc: true,
+      });
+
+      await user.press(await screen.findByRole("button", { name: "New" }));
+
+      expect(store.getState().modularDrawer).toMatchObject({
+        isOpen: true,
+        flow: "send",
+        source: SEND_FLOW_SOURCE.PAY,
+        categories: [AssetCategory.Stablecoins],
+      });
+      await user.press(await screen.findByTestId("asset-item-USDC"));
+      await user.press(await screen.findByTestId("network-item-Ethereum"));
+      await user.press(await screen.findByTestId("account-item"));
+
+      expect(await screen.findByTestId("recipient-input")).toBeVisible();
+    });
+
+    it("should open the address sheet then MAD from see-all", async () => {
+      const yana = mockContactWithAddress({ id: "contact-yana", name: "Yana" });
+      const address = yana.addresses[0];
+      const { user, store } = renderPayTab({
+        contacts: [
+          mockMeContact(),
+          yana,
+          ...Array.from({ length: 8 }, (_, index) =>
+            mockContact({ id: `contact-extra-${index}`, name: `Zed ${index}` }),
+          ),
+        ],
+        contactsEnabled: true,
+      });
+
+      await user.press(await screen.findByTestId("pay-contacts-see-all"));
+      expect(await screen.findByTestId("contacts-screen")).toBeVisible();
+      expect(screen.getByText("My addresses (Me)")).toBeVisible();
+      await user.press(screen.getByTestId(`contacts-saved-contact-${yana.id}`));
+      await user.press(await screen.findByLabelText(`${address.label}, ${address.address}`));
+
+      expect(store.getState().modularDrawer).toMatchObject({
+        isOpen: true,
+        flow: "send",
+        source: SEND_FLOW_SOURCE.PAY,
+        preselectedCurrencies: [address.currencyId],
+      });
+    });
+
+    it("should cap the strip at 8 and open Pay contact via see-all", async () => {
+      const { user, store } = renderPayTab({ contacts: seedContacts(9), contactsEnabled: true });
+
+      expect(await screen.findByRole("button", { name: "New" })).toBeVisible();
+      expect(screen.getAllByRole("button", { name: /^Contact / })).toHaveLength(8);
+
+      await user.press(screen.getByText("Pay"));
+
+      expect(await screen.findByTestId("contacts-screen")).toBeVisible();
+      expect(screen.getByText("My addresses (Me)")).toBeVisible();
+      expect(store.getState().appstate.isMainNavigatorVisible).toBe(false);
+    });
+
+    it("should pick a contact address before opening MAD", async () => {
+      const contact = mockContactWithMultipleAddresses({
+        id: "contact-stephanie",
+        name: "Stephanie",
+      });
+      const address = contact.addresses[0];
+      const { user, store } = renderPayTab({
+        contacts: [mockMeContact(), contact],
+        contactsEnabled: true,
+      });
+
+      await user.press(await screen.findByRole("button", { name: "Stephanie" }));
+
+      expect(await screen.findByText("Select Stephanie's address")).toBeVisible();
+
+      await user.press(screen.getByLabelText(`${address.label}, ${address.address}`));
+
+      expect(store.getState().modularDrawer).toMatchObject({
+        isOpen: true,
+        flow: "send",
+        source: SEND_FLOW_SOURCE.PAY,
+        uiUseCase: "pay",
+        preselectedCurrencies: [address.currencyId],
+      });
+      expect(
+        screen.queryByText(`${ScreenName.SendCoin}:${address.currencyId}`),
+      ).not.toBeOnTheScreen();
+    });
+
+    it("should still open the address sheet when the contact has one address", async () => {
+      const contact = mockContactWithAddress({
+        id: "contact-yana",
+        name: "Yana",
+      });
+      const address = contact.addresses[0];
+      const { user, store } = renderPayTab({
+        contacts: [mockMeContact(), contact],
+        contactsEnabled: true,
+      });
+
+      await user.press(await screen.findByRole("button", { name: "Yana" }));
+
+      expect(await screen.findByText("Select Yana's address")).toBeVisible();
+
+      await user.press(screen.getByLabelText(`${address.label}, ${address.address}`));
+
+      expect(store.getState().modularDrawer).toMatchObject({
+        isOpen: true,
+        flow: "send",
+        uiUseCase: "pay",
+        preselectedCurrencies: [address.currencyId],
+      });
+    });
+
+    it("should open the contact to add an address when the picker has none", async () => {
+      const contact = mockContact({
+        id: "contact-rosa",
+        name: "Rosa",
+      });
+      const { user } = renderPayTab({
+        contacts: [mockMeContact(), contact],
+        contactsEnabled: true,
+      });
+
+      await user.press(await screen.findByRole("button", { name: "Rosa" }));
+
+      expect(await screen.findByText("Select Rosa's address")).toBeVisible();
+
+      await user.press(screen.getByText("Add address"));
+
+      expect(
+        await screen.findByText(`${ScreenName.MyWalletContactDetail}:${contact.id}`),
+      ).toBeVisible();
+    });
+  });
+});

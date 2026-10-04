@@ -1,17 +1,24 @@
 import React from "react";
-import { render, screen, waitFor } from "tests/testSetup";
+import { render, screen, waitFor, act, withFlagOverrides } from "tests/testSetup";
 import BigNumber from "bignumber.js";
 import { genAccount } from "@ledgerhq/ledger-wallet-framework/mocks/account";
 import { getCryptoCurrencyById } from "@domain/entity-currency-crypto";
+import type { Contact } from "@domain/entity-contact";
 import type { Account } from "@ledgerhq/types-live";
 import type { Transaction } from "@ledgerhq/live-common/generated/types";
+import type { BalanceTypeConfig } from "@ledgerhq/live-common/bridge/descriptor/types";
+import type { SponsoredCoinApi } from "@ledgerhq/live-common/bridge/generic-coin-framework/sponsored";
+import { SPONSORED_PHASE } from "@ledgerhq/live-common/flows/send/sponsored/types";
+import type { SponsoredState } from "@ledgerhq/live-common/flows/send/sponsored/types";
+import { TRON_USDT_FEE_ASSET } from "../screens/Recipient/__integrations__/__fixtures__/accounts";
 import { SendWorkflow } from "../index";
 
-export { screen, waitFor };
+export { screen, waitFor, act };
 
-type SupportedMockFamily = "bitcoin" | "evm";
+type SupportedMockFamily = "bitcoin" | "evm" | "tron";
 type EvmTransaction = Extract<Transaction, { family: "evm" }>;
 type BtcTransaction = Extract<Transaction, { family: "bitcoin" }>;
+type TronTransaction = Extract<Transaction, { family: "tron" }>;
 
 export type MockTransactionStatus = {
   errors: Record<string, Error>;
@@ -23,10 +30,15 @@ export type MockTransactionStatus = {
 let mockBridgeRecipientValidation = { errors: {}, warnings: {}, isLoading: false };
 let mockDeviceActionResult: unknown = null;
 let mockScannedCode = "";
+let mockContacts: readonly Contact[] = [];
+let mockContactsFeatureEnabled = false;
+let mockBalanceTypeConfig: BalanceTypeConfig | null = null;
+let mockCoinFamily: Record<string, unknown> = {};
 
 const mockSetTransaction = jest.fn();
 const mockUpdateTransaction = jest.fn();
 const mockSetAccount = jest.fn();
+const mockUpdateAccount = jest.fn();
 const mockRecentAddressesStore = {
   getAddresses: jest.fn(() => []),
   addAddress: jest.fn(),
@@ -35,6 +47,7 @@ const mockRecentAddressesStore = {
 
 export const VALID_EVM_RECIPIENT = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd";
 export const VALID_BTC_RECIPIENT = "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh";
+export const VALID_XRP_RECIPIENT = "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh";
 
 export const createResolvedStatus = (
   errors: Record<string, Error> = {},
@@ -91,9 +104,26 @@ export const createMinimalBtcTransaction = (overrides?: Partial<BtcTransaction>)
   ...overrides,
 });
 
+const defaultTronTransaction: TronTransaction = {
+  family: "tron",
+  mode: "send",
+  amount: new BigNumber(0),
+  recipient: "",
+  useAllAmount: false,
+  subAccountId: null,
+};
+
+export const createMinimalTronTransaction = (
+  overrides?: Partial<TronTransaction>,
+): Transaction => ({
+  ...defaultTronTransaction,
+  ...overrides,
+});
+
 const transactionFactories: Record<SupportedMockFamily, () => Transaction> = {
   bitcoin: createMinimalBtcTransaction,
   evm: createMinimalEvmTransaction,
+  tron: createMinimalTronTransaction,
 };
 
 let mockTransaction: Transaction = createMinimalEvmTransaction();
@@ -139,13 +169,128 @@ export const setMockScannedCode = (code: string) => {
   mockScannedCode = code;
 };
 
+export const setMockContacts = (contacts: readonly Contact[], isEnabled = true) => {
+  mockContacts = contacts;
+  mockContactsFeatureEnabled = isEnabled;
+};
+
+export const setMockBalanceTypeConfig = (config: BalanceTypeConfig | null) => {
+  mockBalanceTypeConfig = config;
+};
+
+export const setMockLLDCoinFamily = (family: Record<string, unknown> = {}) => {
+  mockCoinFamily = family;
+};
+
+let mockSponsoredApi: SponsoredCoinApi | null = null;
+const mockSponsoredIntent: unknown = { kind: "mock-sponsored-intent" };
+
+function fakeSponsoredSeam(overrides: Partial<SponsoredCoinApi> = {}): SponsoredCoinApi {
+  return {
+    feeOptionId: "tronify",
+    providerName: "Tronify",
+    waivesErrorKeys: ["gasLimit"],
+    waivesWarningKeys: ["amount"],
+    reservationDedupKey: jest.fn().mockReturnValue("1.5"),
+    listFeeOptions: jest.fn().mockResolvedValue([]),
+    estimateSponsoredFeeQuote: jest
+      .fn()
+      .mockResolvedValue({ feeAsset: TRON_USDT_FEE_ASSET, value: 0n, originalValue: 0n }),
+    buildEnergyRentRequest: jest.fn().mockResolvedValue({
+      payerAddress: "TPayerAddress",
+      receiverAddress: "TReceiverAddress",
+      energy: 1000n,
+      durationSeconds: 60,
+    }),
+    craftEnergyRentTransaction: jest.fn(),
+    submitEnergyRentPayment: jest.fn().mockResolvedValue(undefined),
+    getEnergyRentStatus: jest.fn().mockResolvedValue("pending"),
+    awaitEnergyDelivery: jest.fn().mockResolvedValue(undefined),
+    isEnergyDelivered: jest.fn().mockResolvedValue(false),
+    getEnergyRentSignaturePayload: jest
+      .fn()
+      .mockReturnValue({ toSign: "0a02abcd", paymentTxId: "txA" }),
+    buildSignedEnergyRentTransaction: jest.fn().mockReturnValue({}),
+    rentPayment: jest.fn().mockReturnValue({ asset: TRON_USDT_FEE_ASSET, amount: 0n }),
+    ...overrides,
+  };
+}
+
+export const setMockSponsoredSeam = (overrides: Partial<SponsoredCoinApi>) => {
+  mockSponsoredApi = fakeSponsoredSeam(overrides);
+};
+
 export const resetSendFlowTestState = (family: SupportedMockFamily = "evm") => {
   jest.clearAllMocks();
   resetBridgeState(family);
   setMockDeviceActionResult(null);
   setMockBridgeRecipientValidation({ errors: {}, warnings: {}, isLoading: false });
   setMockScannedCode("");
+  setMockContacts([], false);
+  setMockBalanceTypeConfig(null);
+  setMockLLDCoinFamily();
+  mockSponsoredApi = null;
+  resetMockOrchestration();
 };
+
+jest.mock("~/renderer/families", () => ({
+  useLLDCoinFamily: () => mockCoinFamily,
+}));
+
+jest.mock("@ledgerhq/live-common/bridge/generic-coin-framework/sponsored", () => ({
+  getSponsoredCoinApi: jest.fn(() => Promise.resolve(mockSponsoredApi)),
+}));
+
+jest.mock("@ledgerhq/live-common/bridge/generic-coin-framework/buildIntent", () => ({
+  buildGenericTransactionIntent: jest.fn(() => Promise.resolve(mockSponsoredIntent)),
+}));
+
+// Fake orchestration: the real one's POLLING setInterval stops act() settling. Must start IDLE:
+// useSponsoredPhaseNavigator routes any other phase on mount, sponsored or not.
+const initialMockOrchestrationState: SponsoredState = {
+  phase: SPONSORED_PHASE.IDLE,
+  order: null,
+  toSign: null,
+  rentPayment: null,
+  payerAddress: null,
+  receiverAddress: null,
+  energyNeeded: null,
+  paymentTxId: null,
+  failureKind: null,
+  failureError: null,
+  contractDataResumePhase: SPONSORED_PHASE.RENT_SIGNING,
+};
+let mockOrchestrationState: SponsoredState = initialMockOrchestrationState;
+let mockOrchestrationSetState: ((state: SponsoredState) => void) | null = null;
+
+export const mockSponsoredOrchestrationActions = {
+  craftRent: jest.fn(() => Promise.resolve()),
+  startRentPayment: jest.fn(() => Promise.resolve()),
+  onTransferSuccess: jest.fn(),
+  onTransferError: jest.fn(),
+  setContractDataFailure: jest.fn(),
+  retry: jest.fn(),
+  reset: jest.fn(),
+};
+
+/** Call inside act(): re-renders the mounted mocked hook. */
+export const setMockOrchestrationState = (patch: Partial<SponsoredState>) => {
+  mockOrchestrationState = { ...mockOrchestrationState, ...patch };
+  mockOrchestrationSetState?.(mockOrchestrationState);
+};
+
+const resetMockOrchestration = () => {
+  mockOrchestrationState = initialMockOrchestrationState;
+  mockOrchestrationSetState = null;
+};
+
+jest.mock("@ledgerhq/live-common/flows/send/sponsored/useSponsoredSendOrchestration", () => ({
+  useSponsoredSendOrchestration: () => {
+    const [state, setState] = React.useState(mockOrchestrationState);
+    mockOrchestrationSetState = setState;
+    return { state, actions: mockSponsoredOrchestrationActions };
+  },
+}));
 
 jest.mock("@ledgerhq/live-common/market/state-manager/api", () => ({
   marketApi: {
@@ -183,6 +328,7 @@ jest.mock("@ledgerhq/live-common/bridge/useBridgeTransaction", () =>
       bridgeError: null,
       bridgePending: mockBridgePending,
       setAccount: mockSetAccount,
+      updateAccount: mockUpdateAccount,
     };
   }),
 );
@@ -199,6 +345,7 @@ const mockGetTransactionStatus = jest.fn(() => Promise.resolve(mockStatus));
 jest.mock("@ledgerhq/live-common/bridge/index", () => ({
   getAccountBridge: jest.fn(() => {
     const bridge = {
+      createTransaction: () => ({ ...mockTransaction }),
       updateTransaction: mockBridgeUpdateTransaction,
       prepareTransaction: mockPrepareTransaction,
       getTransactionStatus: mockGetTransactionStatus,
@@ -210,11 +357,15 @@ jest.mock("@ledgerhq/live-common/bridge/index", () => ({
     const bridge = {};
     return Object.assign(Promise.resolve(bridge), { status: "fulfilled", value: bridge });
   }),
+  getAccountBridgeByFamily: jest.fn(async () => ({
+    validateAddress: jest.fn(async () => true),
+  })),
 }));
 
 jest.mock("@ledgerhq/live-common/bridge/impl", () => ({
   getAccountBridge: jest.fn(() => {
     const bridge = {
+      createTransaction: () => ({ ...mockTransaction }),
       updateTransaction: mockBridgeUpdateTransaction,
       prepareTransaction: mockPrepareTransaction,
       getTransactionStatus: mockGetTransactionStatus,
@@ -226,6 +377,9 @@ jest.mock("@ledgerhq/live-common/bridge/impl", () => ({
     const bridge = {};
     return Object.assign(Promise.resolve(bridge), { status: "fulfilled", value: bridge });
   }),
+  getAccountBridgeByFamily: jest.fn(async () => ({
+    validateAddress: jest.fn(async () => true),
+  })),
 }));
 
 jest.mock("@ledgerhq/domain-service/hooks/index", () => ({
@@ -240,6 +394,30 @@ jest.mock("@ledgerhq/ledger-wallet-framework/sanction/index", () => ({
 jest.mock("@ledgerhq/live-common/flows/send/recipient/hooks/useBridgeRecipientValidation", () => ({
   useBridgeRecipientValidation: jest.fn(() => mockBridgeRecipientValidation),
 }));
+
+jest.mock("@ledgerhq/live-common/bridge/descriptor/send/features", () => {
+  const actual = jest.requireActual("@ledgerhq/live-common/bridge/descriptor/send/features");
+  return {
+    ...actual,
+    sendFeatures: {
+      ...actual.sendFeatures,
+      hasBalanceTypeStep: jest.fn(() => mockBalanceTypeConfig !== null),
+      getBalanceTypeConfig: jest.fn(() => mockBalanceTypeConfig),
+    },
+  };
+});
+
+jest.mock("@features/platform-contacts", () => ({
+  ...jest.requireActual("@features/platform-contacts"),
+  useContacts: () => mockContacts,
+  useContactsFeature: () => ({
+    isEnabled: mockContactsFeatureEnabled,
+    showNewBadge: false,
+    eligibleAddressFamilies: ["evm"],
+  }),
+}));
+
+jest.mock("@features/platform-contacts/device");
 
 jest.mock("@ledgerhq/live-common/account/index", () => {
   const actual = jest.requireActual("@ledgerhq/live-common/account/index");
@@ -280,31 +458,33 @@ jest.mock("../screens/Recipient/components/RecipientQrScanner", () => {
 
 jest.mock("~/renderer/hooks/useConnectAppAction", () => ({
   useTransactionAction: jest.fn(() => jest.fn()),
+  useRawTransactionAction: jest.fn(() => jest.fn()),
 }));
 
+const mockStableBroadcast = jest.fn(() =>
+  Promise.resolve({
+    id: "op-1",
+    hash: "0xabc",
+    type: "OUT",
+    value: new BigNumber(1000),
+    fee: new BigNumber(100),
+    senders: ["sender"],
+    recipients: ["recipient"],
+    accountId: "mock-account-id",
+    date: new Date(),
+    blockHeight: null,
+    blockHash: null,
+    extra: {},
+  }),
+);
+
 jest.mock("@ledgerhq/live-common/hooks/useBroadcast", () => ({
-  useBroadcast: jest.fn(() =>
-    jest.fn(() =>
-      Promise.resolve({
-        id: "op-1",
-        hash: "0xabc",
-        type: "OUT",
-        value: new BigNumber(1000),
-        fee: new BigNumber(100),
-        senders: ["sender"],
-        recipients: ["recipient"],
-        accountId: "mock-account-id",
-        date: new Date(),
-        blockHeight: null,
-        blockHash: null,
-        extra: {},
-      }),
-    ),
-  ),
+  useBroadcast: jest.fn(() => mockStableBroadcast),
 }));
 
 const ethCurrency = getCryptoCurrencyById("ethereum");
 const btcCurrency = getCryptoCurrencyById("bitcoin");
+const xrpCurrency = getCryptoCurrencyById("ripple");
 
 export const createEthereumAccount = (overrides?: Partial<Account>): Account => {
   const account = genAccount("send-integration-test");
@@ -332,15 +512,52 @@ export const createBitcoinAccount = (overrides?: Partial<Account>): Account => {
   };
 };
 
-export const renderSendFlow = (account: Account) =>
-  render(<SendWorkflow isOpen onClose={jest.fn()} params={{ account }} />, {
+export const createRippleAccount = (overrides?: Partial<Account>): Account => {
+  const account = genAccount("send-ripple-integration-test", { currency: xrpCurrency });
+  return {
+    ...account,
+    id: "mock-ripple-account-id",
+    freshAddress: "rN7n7otQDd6FczFgLdSqtcsAUxDkw6fzRH",
+    balance: new BigNumber("100000000"),
+    spendableBalance: new BigNumber("100000000"),
+    currency: xrpCurrency,
+    ...overrides,
+  };
+};
+
+const tronCurrency = getCryptoCurrencyById("tron");
+
+export const VALID_TRON_RECIPIENT = "TWKsL6EqQgQXqhq6cJnP2sQrbUdRJDvUCX";
+
+export const createTronAccount = (overrides?: Partial<Account>): Account => {
+  const account = genAccount("send-tron-integration-test");
+  return {
+    ...account,
+    id: "mock-tron-account-id",
+    freshAddress: "TLsV52sRDL79HXGGm9yzwKibb6BeruhUzy",
+    balance: new BigNumber("100000000"),
+    spendableBalance: new BigNumber("100000000"),
+    currency: tronCurrency,
+    ...overrides,
+  };
+};
+
+export const renderSendFlow = (
+  account: Account,
+  params: Omit<NonNullable<React.ComponentProps<typeof SendWorkflow>["params"]>, "account"> = {},
+  contacts: readonly Contact[] = [],
+  options?: { flags?: Parameters<typeof withFlagOverrides>[0] },
+) =>
+  render(<SendWorkflow isOpen onClose={jest.fn()} params={{ account, ...params }} />, {
     initialState: {
       accounts: [account],
+      contacts: { contacts: [...contacts] },
       settings: {
         counterValue: "USD",
         counterValueExchange: "BINANCE",
         currenciesSettings: {},
       },
+      ...(options?.flags ? withFlagOverrides(options.flags) : {}),
     },
   });
 

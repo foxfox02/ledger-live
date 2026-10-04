@@ -7,6 +7,21 @@ import {
 } from "@ledgerhq/live-env";
 
 const teamCoinIntegration = {
+  A4_URL_STG: {
+    def: "https://explorers.api.live.stg.ledger-test.com/a4",
+    parser: stringParser,
+    desc: "A4 indexer base URL for staging. No trailing network segment.",
+  },
+  A4_URL_PPR: {
+    def: "https://explorers.api.live.ppr.ledger-test.com/a4",
+    parser: stringParser,
+    desc: "A4 indexer base URL for pre-prod. No trailing network segment.",
+  },
+  A4_URL_PRD: {
+    def: "https://explorers.api.live.ledger.com/a4",
+    parser: stringParser,
+    desc: "A4 indexer base URL for production. No trailing network segment.",
+  },
   API_ALGORAND_BLOCKCHAIN_EXPLORER_API_ENDPOINT: {
     def: "https://algorand.coin.ledger.com",
     parser: stringParser,
@@ -163,7 +178,7 @@ const teamCoinIntegration = {
     desc: "minimum priority fee percents allowed compared to network conditions allowed when EIP1559_MINIMUM_FEES_GATE is activated",
   },
   EIP1559_BASE_FEE_MULTIPLIER: {
-    def: 1.27,
+    def: 1.6,
     parser: floatParser,
     desc: "multiplier for the base fee that is composing the maxFeePerGas property",
   },
@@ -436,16 +451,6 @@ const teamCoinIntegration = {
     def: 4,
     parser: intParser,
     desc: "define maximum number of utxos to display in CLI",
-  },
-  INDEXER_BOILERPLATE: {
-    def: "",
-    parser: stringParser,
-    desc: "Indexer endpoint for the boilerplate coin module",
-  },
-  NODE_BOILERPLATE: {
-    def: "",
-    parser: stringParser,
-    desc: "Node endpoint for the boilerplate coin module",
   },
 };
 

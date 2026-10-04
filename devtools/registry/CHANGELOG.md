@@ -1,5 +1,219 @@
 # @devtools/registry
 
+## 0.5.0
+
+### Minor Changes
+
+- [#22145](https://github.com/LedgerHQ/ledger-live/pull/22145) [`6844ca4`](https://github.com/LedgerHQ/ledger-live/commit/6844ca4e220c98ff99dd5d259dab339223624847) Thanks [@ysitbon](https://github.com/ysitbon)! - Put every devtools package under knip and remove the dead code it found
+
+  Dual-platform packages run knip once per platform through `createDualPlatformKnipConfig`, so a
+  suffix-less `./Tool` specifier resolves to the right twin instead of orphaning both. Removed: the
+  unreachable `Expand` component, the `metadata` and web-only `hooks` barrels, and the named exports
+  that duplicated a default export. `@devtools/protocols` now enumerates its two subpath exports
+  instead of a `./*` wildcard.
+
+- [#22309](https://github.com/LedgerHQ/ledger-live/pull/22309) [`01473d6`](https://github.com/LedgerHQ/ledger-live/commit/01473d6dff53295312cef15863aff5abbf6ccf09) Thanks [@RobinVncnt](https://github.com/RobinVncnt)! - Add the Device Onboarding devtool, which runs the shared onboarding flow against a real device
+
+### Patch Changes
+
+- Updated dependencies [[`72367fc`](https://github.com/LedgerHQ/ledger-live/commit/72367fcf2343fa488008236f1005da589e6e3054), [`845ac4a`](https://github.com/LedgerHQ/ledger-live/commit/845ac4a101b405b6c93333e335115ef1105ef824), [`91531f2`](https://github.com/LedgerHQ/ledger-live/commit/91531f29e71e4e186375a5e2908ddca0c351c0ac), [`6844ca4`](https://github.com/LedgerHQ/ledger-live/commit/6844ca4e220c98ff99dd5d259dab339223624847), [`01473d6`](https://github.com/LedgerHQ/ledger-live/commit/01473d6dff53295312cef15863aff5abbf6ccf09), [`43e1a21`](https://github.com/LedgerHQ/ledger-live/commit/43e1a21f2060d53875256b001e054cf0b1f7b86a)]:
+  - @devtools/pay-card@0.7.0
+  - @devtools/cloud-sync@0.2.0
+  - @devtools/feature-flags@0.10.0
+  - @devtools/env@0.2.0
+  - @devtools/trustchain@0.2.0
+  - @devtools/device-onboarding@0.2.0
+
+## 0.5.0-next.0
+
+### Minor Changes
+
+- [#22145](https://github.com/LedgerHQ/ledger-live/pull/22145) [`6844ca4`](https://github.com/LedgerHQ/ledger-live/commit/6844ca4e220c98ff99dd5d259dab339223624847) Thanks [@ysitbon](https://github.com/ysitbon)! - Put every devtools package under knip and remove the dead code it found
+
+  Dual-platform packages run knip once per platform through `createDualPlatformKnipConfig`, so a
+  suffix-less `./Tool` specifier resolves to the right twin instead of orphaning both. Removed: the
+  unreachable `Expand` component, the `metadata` and web-only `hooks` barrels, and the named exports
+  that duplicated a default export. `@devtools/protocols` now enumerates its two subpath exports
+  instead of a `./*` wildcard.
+
+- [#22309](https://github.com/LedgerHQ/ledger-live/pull/22309) [`01473d6`](https://github.com/LedgerHQ/ledger-live/commit/01473d6dff53295312cef15863aff5abbf6ccf09) Thanks [@RobinVncnt](https://github.com/RobinVncnt)! - Add the Device Onboarding devtool, which runs the shared onboarding flow against a real device
+
+### Patch Changes
+
+- Updated dependencies [[`72367fc`](https://github.com/LedgerHQ/ledger-live/commit/72367fcf2343fa488008236f1005da589e6e3054), [`845ac4a`](https://github.com/LedgerHQ/ledger-live/commit/845ac4a101b405b6c93333e335115ef1105ef824), [`91531f2`](https://github.com/LedgerHQ/ledger-live/commit/91531f29e71e4e186375a5e2908ddca0c351c0ac), [`6844ca4`](https://github.com/LedgerHQ/ledger-live/commit/6844ca4e220c98ff99dd5d259dab339223624847), [`01473d6`](https://github.com/LedgerHQ/ledger-live/commit/01473d6dff53295312cef15863aff5abbf6ccf09), [`43e1a21`](https://github.com/LedgerHQ/ledger-live/commit/43e1a21f2060d53875256b001e054cf0b1f7b86a)]:
+  - @devtools/pay-card@0.7.0-next.0
+  - @devtools/cloud-sync@0.2.0-next.0
+  - @devtools/feature-flags@0.10.0-next.0
+  - @devtools/env@0.2.0-next.0
+  - @devtools/trustchain@0.2.0-next.0
+  - @devtools/device-onboarding@0.2.0-next.0
+
+## 0.4.3
+
+### Patch Changes
+
+- Updated dependencies [[`799219e`](https://github.com/LedgerHQ/ledger-live/commit/799219e262e80a339272113ea164fa506243b438), [`41f7dc9`](https://github.com/LedgerHQ/ledger-live/commit/41f7dc963ac7329e5ec07236c85e322a56476be7), [`fbfdc3f`](https://github.com/LedgerHQ/ledger-live/commit/fbfdc3f5767a4dfbbf79de16fe9bcc61f9b5b941), [`cef83ae`](https://github.com/LedgerHQ/ledger-live/commit/cef83ae58ffc5529bebda292737502e78e3b7522), [`fcc2ac4`](https://github.com/LedgerHQ/ledger-live/commit/fcc2ac4c5ed270fb63df4c0079068ad6dac94612), [`eddc89e`](https://github.com/LedgerHQ/ledger-live/commit/eddc89e7b86a13aeedfc0ae4956c2dcd08494e5f)]:
+  - @devtools/pay-card@0.6.0
+  - @devtools/feature-flags@0.9.2
+
+## 0.4.3-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`799219e`](https://github.com/LedgerHQ/ledger-live/commit/799219e262e80a339272113ea164fa506243b438), [`41f7dc9`](https://github.com/LedgerHQ/ledger-live/commit/41f7dc963ac7329e5ec07236c85e322a56476be7), [`fbfdc3f`](https://github.com/LedgerHQ/ledger-live/commit/fbfdc3f5767a4dfbbf79de16fe9bcc61f9b5b941), [`cef83ae`](https://github.com/LedgerHQ/ledger-live/commit/cef83ae58ffc5529bebda292737502e78e3b7522), [`fcc2ac4`](https://github.com/LedgerHQ/ledger-live/commit/fcc2ac4c5ed270fb63df4c0079068ad6dac94612), [`eddc89e`](https://github.com/LedgerHQ/ledger-live/commit/eddc89e7b86a13aeedfc0ae4956c2dcd08494e5f)]:
+  - @devtools/pay-card@0.6.0-next.0
+  - @devtools/feature-flags@0.9.2-next.0
+
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies [[`81aa729`](https://github.com/LedgerHQ/ledger-live/commit/81aa7294c94ef114e6e82ec4c277f0a6c0038c92), [`60ee73c`](https://github.com/LedgerHQ/ledger-live/commit/60ee73c7b89b101dde708a04ded260341ef86d44), [`ef29f07`](https://github.com/LedgerHQ/ledger-live/commit/ef29f0711ecec104e4dd9c9d86d4e4d41c4ddee3), [`d6b290b`](https://github.com/LedgerHQ/ledger-live/commit/d6b290b37b8ad6f677ab382bef53bf05cd394ca2), [`0a02a32`](https://github.com/LedgerHQ/ledger-live/commit/0a02a325f99033c086864b0778a8f81c3b4178ae), [`66c7569`](https://github.com/LedgerHQ/ledger-live/commit/66c7569dcfae90739b369ffb3a92cee75dd2e9cd), [`543b17d`](https://github.com/LedgerHQ/ledger-live/commit/543b17d7a6b49728001c0311c184c665e8c9bbb2), [`c3de11c`](https://github.com/LedgerHQ/ledger-live/commit/c3de11cdf58c4feac701435548bbb96819ae09f6), [`760dab2`](https://github.com/LedgerHQ/ledger-live/commit/760dab246a27d62f0feaa349122164e1c48aa6e4)]:
+  - @devtools/pay-card@0.5.0
+  - @devtools/feature-flags@0.9.1
+
+## 0.4.2-next.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @devtools/feature-flags@0.9.1-next.1
+
+## 0.4.2-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`81aa729`](https://github.com/LedgerHQ/ledger-live/commit/81aa7294c94ef114e6e82ec4c277f0a6c0038c92), [`60ee73c`](https://github.com/LedgerHQ/ledger-live/commit/60ee73c7b89b101dde708a04ded260341ef86d44), [`ef29f07`](https://github.com/LedgerHQ/ledger-live/commit/ef29f0711ecec104e4dd9c9d86d4e4d41c4ddee3), [`d6b290b`](https://github.com/LedgerHQ/ledger-live/commit/d6b290b37b8ad6f677ab382bef53bf05cd394ca2), [`0a02a32`](https://github.com/LedgerHQ/ledger-live/commit/0a02a325f99033c086864b0778a8f81c3b4178ae), [`66c7569`](https://github.com/LedgerHQ/ledger-live/commit/66c7569dcfae90739b369ffb3a92cee75dd2e9cd), [`543b17d`](https://github.com/LedgerHQ/ledger-live/commit/543b17d7a6b49728001c0311c184c665e8c9bbb2), [`c3de11c`](https://github.com/LedgerHQ/ledger-live/commit/c3de11cdf58c4feac701435548bbb96819ae09f6), [`760dab2`](https://github.com/LedgerHQ/ledger-live/commit/760dab246a27d62f0feaa349122164e1c48aa6e4)]:
+  - @devtools/pay-card@0.5.0-next.0
+  - @devtools/feature-flags@0.9.1-next.0
+
+## 0.4.1
+
+### Patch Changes
+
+- Updated dependencies [[`1190ce1`](https://github.com/LedgerHQ/ledger-live/commit/1190ce10656496de8af6aa893b6cafca6c8a36d8)]:
+  - @devtools/feature-flags@0.9.0
+  - @devtools/cloud-sync@0.1.1
+
+## 0.4.1-next.0
+
+### Patch Changes
+
+- Updated dependencies [[`1190ce1`](https://github.com/LedgerHQ/ledger-live/commit/1190ce10656496de8af6aa893b6cafca6c8a36d8)]:
+  - @devtools/feature-flags@0.9.0-next.0
+  - @devtools/cloud-sync@0.1.1-next.0
+
+## 0.4.0
+
+### Minor Changes
+
+- [#21033](https://github.com/LedgerHQ/ledger-live/pull/21033) [`ce4ae4a`](https://github.com/LedgerHQ/ledger-live/commit/ce4ae4a61b4721d8d1ad7b9e8c82a182350d3be4) Thanks [@Sebastien-Dav1d](https://github.com/Sebastien-Dav1d)! - All devtools packages now enforce the `suffix-imports/no-platform-suffix` oxlint rule via a shared `.oxlintrc.json` at the `devtools/` root. Each package gains a `lint` script. Existing `.native` suffix imports in shell test files are fixed.
+
+- [#20733](https://github.com/LedgerHQ/ledger-live/pull/20733) [`132ae4a`](https://github.com/LedgerHQ/ledger-live/commit/132ae4a0776bc04797e0344d7123cef0d1124bb4) Thanks [@Sebastien-Dav1d](https://github.com/Sebastien-Dav1d)! - Rename metadata folder from `team-platform` to `platform`, remove unused `icon` field from `ToolMetadata` schema, and consolidate the add-tool guide into `README.md`
+
+### Patch Changes
+
+- Updated dependencies [[`ce4ae4a`](https://github.com/LedgerHQ/ledger-live/commit/ce4ae4a61b4721d8d1ad7b9e8c82a182350d3be4)]:
+  - @devtools/feature-flags@0.8.0
+  - @devtools/pay-card@0.4.0
+
+## 0.4.0-next.0
+
+### Minor Changes
+
+- [#21033](https://github.com/LedgerHQ/ledger-live/pull/21033) [`ce4ae4a`](https://github.com/LedgerHQ/ledger-live/commit/ce4ae4a61b4721d8d1ad7b9e8c82a182350d3be4) Thanks [@Sebastien-Dav1d](https://github.com/Sebastien-Dav1d)! - All devtools packages now enforce the `suffix-imports/no-platform-suffix` oxlint rule via a shared `.oxlintrc.json` at the `devtools/` root. Each package gains a `lint` script. Existing `.native` suffix imports in shell test files are fixed.
+
+- [#20733](https://github.com/LedgerHQ/ledger-live/pull/20733) [`132ae4a`](https://github.com/LedgerHQ/ledger-live/commit/132ae4a0776bc04797e0344d7123cef0d1124bb4) Thanks [@Sebastien-Dav1d](https://github.com/Sebastien-Dav1d)! - Rename metadata folder from `team-platform` to `platform`, remove unused `icon` field from `ToolMetadata` schema, and consolidate the add-tool guide into `README.md`
+
+### Patch Changes
+
+- Updated dependencies [[`ce4ae4a`](https://github.com/LedgerHQ/ledger-live/commit/ce4ae4a61b4721d8d1ad7b9e8c82a182350d3be4)]:
+  - @devtools/feature-flags@0.8.0-next.0
+  - @devtools/pay-card@0.4.0-next.0
+
+## 0.3.0
+
+### Minor Changes
+
+- [#20634](https://github.com/LedgerHQ/ledger-live/pull/20634) [`dd0e578`](https://github.com/LedgerHQ/ledger-live/commit/dd0e578b82b8fc94fa8690cd8111f5826254b197) Thanks [@Sebastien-Dav1d](https://github.com/Sebastien-Dav1d)! - Extract tool registry map and types into registry.ts; rename metadata/team-platform to metadata/platform
+
+### Patch Changes
+
+- Updated dependencies [[`2edf614`](https://github.com/LedgerHQ/ledger-live/commit/2edf614eed7608714821ee54574d8c4d2b6f7d98), [`e54d98b`](https://github.com/LedgerHQ/ledger-live/commit/e54d98b123ad8814be57c2f0e0f26689902ab4fd)]:
+  - @devtools/pay-card@0.3.0
+  - @devtools/feature-flags@0.7.1
+
+## 0.3.0-next.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @devtools/feature-flags@0.7.1-next.1
+
+## 0.3.0-next.0
+
+### Minor Changes
+
+- [#20634](https://github.com/LedgerHQ/ledger-live/pull/20634) [`dd0e578`](https://github.com/LedgerHQ/ledger-live/commit/dd0e578b82b8fc94fa8690cd8111f5826254b197) Thanks [@Sebastien-Dav1d](https://github.com/Sebastien-Dav1d)! - Extract tool registry map and types into registry.ts; rename metadata/team-platform to metadata/platform
+
+### Patch Changes
+
+- Updated dependencies [[`2edf614`](https://github.com/LedgerHQ/ledger-live/commit/2edf614eed7608714821ee54574d8c4d2b6f7d98), [`e54d98b`](https://github.com/LedgerHQ/ledger-live/commit/e54d98b123ad8814be57c2f0e0f26689902ab4fd)]:
+  - @devtools/pay-card@0.3.0-next.0
+  - @devtools/feature-flags@0.7.1-next.0
+
+## 0.2.0
+
+### Minor Changes
+
+- [#20461](https://github.com/LedgerHQ/ledger-live/pull/20461) [`6bb6cb0`](https://github.com/LedgerHQ/ledger-live/commit/6bb6cb058d79074de3d7f23a89074bef3311cf8d) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - Add the Card / Pay DevTool foundation package (`@devtools/pay-card`): shared `PayCardToolProps` contract, platform-neutral `usePayCardViewModel`, and registry wiring under the Wallet XP team (LIVE-35496).
+
+### Patch Changes
+
+- Updated dependencies [[`6bb6cb0`](https://github.com/LedgerHQ/ledger-live/commit/6bb6cb058d79074de3d7f23a89074bef3311cf8d), [`1e0edb4`](https://github.com/LedgerHQ/ledger-live/commit/1e0edb42fd2c8c0e6edc4249f4eb3a13162aea2a), [`9c2a85e`](https://github.com/LedgerHQ/ledger-live/commit/9c2a85ef5c1c6a264b53bc3f4581385a250be2ad), [`2edf614`](https://github.com/LedgerHQ/ledger-live/commit/2edf614eed7608714821ee54574d8c4d2b6f7d98), [`5edd732`](https://github.com/LedgerHQ/ledger-live/commit/5edd732aa9fd1769667a349b513ebdb985a1475c)]:
+  - @devtools/pay-card@0.2.0
+  - @devtools/feature-flags@0.7.0
+
+## 0.2.0-next.0
+
+### Minor Changes
+
+- [#20461](https://github.com/LedgerHQ/ledger-live/pull/20461) [`6bb6cb0`](https://github.com/LedgerHQ/ledger-live/commit/6bb6cb058d79074de3d7f23a89074bef3311cf8d) Thanks [@mcayuelas-ledger](https://github.com/mcayuelas-ledger)! - Add the Card / Pay DevTool foundation package (`@devtools/pay-card`): shared `PayCardToolProps` contract, platform-neutral `usePayCardViewModel`, and registry wiring under the Wallet XP team (LIVE-35496).
+
+### Patch Changes
+
+- Updated dependencies [[`6bb6cb0`](https://github.com/LedgerHQ/ledger-live/commit/6bb6cb058d79074de3d7f23a89074bef3311cf8d), [`1e0edb4`](https://github.com/LedgerHQ/ledger-live/commit/1e0edb42fd2c8c0e6edc4249f4eb3a13162aea2a), [`9c2a85e`](https://github.com/LedgerHQ/ledger-live/commit/9c2a85ef5c1c6a264b53bc3f4581385a250be2ad), [`2edf614`](https://github.com/LedgerHQ/ledger-live/commit/2edf614eed7608714821ee54574d8c4d2b6f7d98), [`5edd732`](https://github.com/LedgerHQ/ledger-live/commit/5edd732aa9fd1769667a349b513ebdb985a1475c)]:
+  - @devtools/pay-card@0.2.0-next.0
+  - @devtools/feature-flags@0.7.0-next.0
+
+## 0.1.9
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @devtools/feature-flags@0.6.4
+
+## 0.1.9-next.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @devtools/feature-flags@0.6.4-next.0
+
+## 0.1.8
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @devtools/feature-flags@0.6.3
+
+## 0.1.8-next.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @devtools/feature-flags@0.6.3-next.0
+
 ## 0.1.7
 
 ### Patch Changes
@@ -14,107 +228,4 @@
 - Updated dependencies []:
   - @devtools/feature-flags@0.6.2-next.0
 
-## 0.1.6
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @devtools/feature-flags@0.6.1
-
-## 0.1.6-next.0
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @devtools/feature-flags@0.6.1-next.0
-
-## 0.1.5
-
-### Patch Changes
-
-- Updated dependencies [[`f8d5212`](https://github.com/LedgerHQ/ledger-live/commit/f8d5212153829a32fcafc6fded768e5468251413), [`3711e2b`](https://github.com/LedgerHQ/ledger-live/commit/3711e2bfdcc0be2cdb7c8d4567242fb14875ab1c), [`5e081d3`](https://github.com/LedgerHQ/ledger-live/commit/5e081d349639537e0f3eb8536218a55f2f0ee241)]:
-  - @devtools/feature-flags@0.6.0
-
-## 0.1.5-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`f8d5212`](https://github.com/LedgerHQ/ledger-live/commit/f8d5212153829a32fcafc6fded768e5468251413), [`3711e2b`](https://github.com/LedgerHQ/ledger-live/commit/3711e2bfdcc0be2cdb7c8d4567242fb14875ab1c), [`5e081d3`](https://github.com/LedgerHQ/ledger-live/commit/5e081d349639537e0f3eb8536218a55f2f0ee241)]:
-  - @devtools/feature-flags@0.6.0-next.0
-
-## 0.1.4
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @devtools/feature-flags@0.5.1
-
-## 0.1.4-next.2
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @devtools/feature-flags@0.5.1-next.2
-
-## 0.1.4-next.1
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @devtools/feature-flags@0.5.1-next.1
-
-## 0.1.4-next.0
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @devtools/feature-flags@0.5.1-next.0
-
-## 0.1.3
-
-### Patch Changes
-
-- Updated dependencies [[`fc60d9e`](https://github.com/LedgerHQ/ledger-live/commit/fc60d9e91ef2e77434a101a1dc2d558afa0aa4ae), [`59e5b2c`](https://github.com/LedgerHQ/ledger-live/commit/59e5b2c933040d58ac896d7f971eabf834e81edf)]:
-  - @devtools/feature-flags@0.5.0
-
-## 0.1.3-next.1
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @devtools/feature-flags@0.5.0-next.1
-
-## 0.1.3-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`fc60d9e`](https://github.com/LedgerHQ/ledger-live/commit/fc60d9e91ef2e77434a101a1dc2d558afa0aa4ae), [`59e5b2c`](https://github.com/LedgerHQ/ledger-live/commit/59e5b2c933040d58ac896d7f971eabf834e81edf)]:
-  - @devtools/feature-flags@0.5.0-next.0
-
-## 0.1.2
-
-### Patch Changes
-
-- Updated dependencies [[`c5f0a61`](https://github.com/LedgerHQ/ledger-live/commit/c5f0a61c63858227287e4ae7c48f19868eba8b24)]:
-  - @devtools/feature-flags@0.4.0
-
-## 0.1.2-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`c5f0a61`](https://github.com/LedgerHQ/ledger-live/commit/c5f0a61c63858227287e4ae7c48f19868eba8b24)]:
-  - @devtools/feature-flags@0.4.0-next.0
-
-## 0.1.1
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @devtools/feature-flags@0.3.2
-
-## 0.1.1-next.0
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @devtools/feature-flags@0.3.2-next.0
+<!-- changelog-pruned: older entries were removed to keep this file small. Full history is in `git log -p CHANGELOG.md` and in the GitHub release for each version. -->

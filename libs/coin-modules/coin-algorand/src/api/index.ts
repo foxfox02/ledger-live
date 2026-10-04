@@ -1,18 +1,14 @@
 import { rejectBalanceOptions } from "@ledgerhq/coin-module-framework/api/getBalance/rejectBalanceOptions";
 import {
-  CoinModuleApi,
-  Block,
-  CraftedTransaction,
-  Cursor,
-  Page,
-  Reward,
-  Stake,
+  Balance,
+  CoinModuleImpl,
+  FeeEstimation,
   TransactionIntent,
-  Validator,
   BalanceOptions,
 } from "@ledgerhq/coin-module-framework/api/index";
 import { craftTransactionData } from "@ledgerhq/coin-module-framework/logic/craftTransactionData";
-import coinConfig, { type AlgorandCoinConfig } from "../config";
+import type { AlgorandCoinConfig, AlgorandContext } from "../config";
+import type { AddressValidationCurrencyParameters } from "@ledgerhq/coin-module-framework/api/types";
 import {
   broadcast,
   combine,
@@ -27,47 +23,50 @@ import {
 import type { AlgorandMemo } from "../types";
 import { validateAddress } from "../validateAddress";
 
-export function createApi(config: AlgorandCoinConfig): CoinModuleApi<AlgorandMemo> {
-  coinConfig.setCoinConfig(() => ({ ...config, status: { type: "active" } }));
-
+// Checked against CoinModuleImpl with `satisfies` rather than annotated as it, so the precise shape
+// survives and a caller sees exactly which methods exist.
+//
+// Omitted rather than stubbed: `call`, `register`, `craftRawTransaction`, `getBlock`, `getStakes`,
+// `getRewards`, `getValidators` — none are supported for Algorand — and `getNextSequence`, which the
+// module recorded as not applicable to Algorand. The consumer resolver applies `withDefaults`, which
+// answers "not supported" for each.
+//
+// `getBlockInfo`, `validateIntent` and `validateAddress` stay: they are real implementations, and
+// listing them here is what tells a caller they are more than a placeholder.
+export function createApi() {
   return {
-    broadcast,
-    async call() {
-      throw new Error("call is not supported");
-    },
-    combine,
-    craftTransaction: craftApiTransaction,
-    estimateFees: (_transactionIntent: TransactionIntent<AlgorandMemo>) => estimateFees(),
-    getBalance: (address: string, options?: BalanceOptions) =>
-      rejectBalanceOptions(() => getBalance(address), options),
-    getBlockInfo,
-    lastBlock,
-    listOperations,
-    validateIntent,
-    getBlock(_height: number): Promise<Block> {
-      throw new Error("getBlock is not supported for Algorand");
-    },
-    getNextSequence(_address: string): Promise<bigint> {
-      throw new Error("getNextSequence is not applicable for Algorand");
-    },
-    getStakes(_address: string, _cursor?: Cursor): Promise<Page<Stake>> {
-      throw new Error("getStakes is not supported for Algorand");
-    },
-    getRewards(_address: string, _cursor?: Cursor): Promise<Page<Reward>> {
-      throw new Error("getRewards is not supported for Algorand");
-    },
-    getValidators(_cursor?: Cursor): Promise<Page<Validator>> {
-      throw new Error("getValidators is not supported for Algorand");
-    },
-    craftRawTransaction: (
-      _transaction: string,
-      _sender: string,
-      _publicKey: string,
-      _sequence: bigint,
-    ): Promise<CraftedTransaction> => {
-      throw new Error("craftRawTransaction is not supported for Algorand");
-    },
-    validateAddress,
-    craftTransactionData,
-  };
+    broadcast: (context: AlgorandContext, signedTx: string, _options?) =>
+      broadcast(context, signedTx),
+    combine: (_context: AlgorandContext, unsignedTx: string, signature: string[], _options?) =>
+      combine(unsignedTx, signature),
+    craftTransaction: (
+      context: AlgorandContext,
+      transactionIntent: TransactionIntent<AlgorandMemo>,
+      _options?,
+    ) => craftApiTransaction(context, transactionIntent),
+    estimateFees: (
+      context: AlgorandContext,
+      _transactionIntent: TransactionIntent<AlgorandMemo>,
+      _options?,
+    ) => estimateFees(context),
+    getBalance: (context: AlgorandContext, address: string, options?: BalanceOptions) =>
+      rejectBalanceOptions(() => getBalance(context, address), options),
+    getBlockInfo: (context: AlgorandContext, height: number) => getBlockInfo(context, height),
+    lastBlock: (context: AlgorandContext) => lastBlock(context),
+    listOperations: (context: AlgorandContext, address: string, options) =>
+      listOperations(context, address, options),
+    validateIntent: (
+      context: AlgorandContext,
+      intent: TransactionIntent<AlgorandMemo>,
+      balances: Balance[],
+      options?: { customFees?: FeeEstimation },
+    ) => validateIntent(context, intent, balances, options?.customFees),
+    validateAddress: (
+      _context: AlgorandContext,
+      address: string,
+      parameters: Partial<AddressValidationCurrencyParameters>,
+    ) => validateAddress(address, parameters),
+    craftTransactionData: (_context: AlgorandContext, intent: TransactionIntent) =>
+      craftTransactionData(intent),
+  } satisfies CoinModuleImpl<AlgorandCoinConfig, AlgorandMemo>;
 }

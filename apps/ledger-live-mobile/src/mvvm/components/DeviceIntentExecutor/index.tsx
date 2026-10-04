@@ -1,17 +1,17 @@
 import {
-  DeviceIntentExecutor,
   type DeviceIntentExecutorProps,
   type ExecutorPlatformConfiguration,
-} from "@ledgerhq/device-intent";
+} from "@features/platform-device-intent";
+import { DeviceIntentExecutor } from "@features/platform-device-intent/react";
+import { DeviceIntentExecutorHeaderContext } from "@ledgerhq/live-dmk-shared";
 import { BottomSheetHeader, BottomSheetScrollView } from "@ledgerhq/lumen-ui-rnative";
-import QueuedBottomSheet from "LLM/components/QueuedDrawer/QueuedBottomSheet";
+import { QueuedBottomSheet } from "@shared/ui-queued-bottom-sheet";
 import React from "react";
 import { Platform, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DeviceDisconnected } from "./components/DeviceDisconnected";
 import { IntentError } from "./components/IntentError";
 import { InvalidOperation } from "./components/InvalidOperation";
-import { OverrideDeviceIntentExecutorHeader } from "./components/OverrideDeviceIntentExecutorHeader";
 import DeviceConnectionComponentLWM from "./DeviceConnectionComponentLWM";
 import DeviceContextInitializerComponentLWM, {
   InitializerConfig,
@@ -21,7 +21,6 @@ import {
   type DeviceIntentTrackingProperties,
   type SourceFlow,
 } from "./utils/DeviceIntentTrackingContext";
-import { DeviceIntentExecutorHeaderContext } from "./utils/DeviceIntentExecutorHeaderContext";
 import type { InitializationInput } from "./types";
 import { useDeviceIntentExecutorLWMViewModel } from "./useDeviceIntentExecutorLWMViewModel";
 
@@ -34,13 +33,13 @@ export type {
   DeviceIntentTrackingProperties,
   SourceFlow,
 } from "./utils/DeviceIntentTrackingContext";
-export { OverrideDeviceIntentExecutorHeader };
 
-type Props<JobState, Input, ExtraProps> = DeviceIntentExecutorProps<
+type Props<JobState, Input, ExtraProps, Result = undefined> = DeviceIntentExecutorProps<
   JobState,
   Input,
   ExtraProps,
-  InitializationInput
+  InitializationInput,
+  Result
 > & {
   initializerConfig?: InitializerConfig;
   /**
@@ -62,31 +61,24 @@ const platformConfig: ExecutorPlatformConfiguration<InitializationInput, Initial
   InvalidOperationComponent: InvalidOperation,
 };
 
-const emptyAnalyticsProperties: DeviceIntentTrackingProperties = {};
-
 /**
- * LWM wrapper around `@ledgerhq/device-intent`'s `DeviceIntentExecutor`.
+ * LWM wrapper around `@features/platform-device-intent`'s `DeviceIntentExecutor`.
  */
-export function DeviceIntentExecutorLWM<JobState, Input, ExtraProps>(
-  props: Props<JobState, Input, ExtraProps>,
+export function DeviceIntentExecutorLWM<JobState, Input, ExtraProps, Result = undefined>(
+  props: Props<JobState, Input, ExtraProps, Result>,
 ): React.ReactElement {
   const { height: windowHeight } = useWindowDimensions();
   const { top: topInset, bottom: bottomInset } = useSafeAreaInsets();
   // Lumen's static preset can force Android dynamic sheets full height, so use the live window cap.
   const maxDynamicContentSize = Platform.OS === "ios" ? "fullWithOffset" : windowHeight - topInset;
   const {
-    sourceFlow,
     wrappedProps,
     hasHeaderOverride,
     headerContextValue,
+    trackingContextValue,
     onHeaderClosePressed,
     onBackdropPress,
   } = useDeviceIntentExecutorLWMViewModel(props);
-  const analyticsProperties = props.analyticsProperties ?? emptyAnalyticsProperties;
-  const trackingContextValue = React.useMemo(
-    () => ({ sourceFlow, analyticsProperties }),
-    [sourceFlow, analyticsProperties],
-  );
 
   return (
     <QueuedBottomSheet

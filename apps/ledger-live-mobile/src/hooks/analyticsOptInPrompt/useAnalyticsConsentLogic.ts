@@ -6,7 +6,7 @@ import {
   useNavigation,
 } from "@react-navigation/native";
 import { useFeature, useWalletFeaturesConfig } from "@features/platform-feature-flags";
-import { resolveAnalyticsOptInParams } from "@ledgerhq/live-common/analyticsConsent/index";
+import { resolveAnalyticsOptInParams } from "@features/flow-analytics-consent";
 import { useDispatch, useSelector } from "~/context/hooks";
 import {
   setAnalytics,
@@ -24,7 +24,7 @@ import {
 import { OnboardingNavigatorParamList } from "~/components/RootNavigator/types/OnboardingNavigator";
 import { EntryPoint } from "~/components/RootNavigator/types/AnalyticsOptInPromptNavigator";
 import { BaseNavigatorStackParamList } from "~/components/RootNavigator/types/BaseNavigator";
-import { useNotificationsContext } from "LLM/features/NotificationsPrompt";
+import { useNotificationsPrompt } from "LLM/features/NotificationsPrompt";
 import { useCompleteLazyOnboarding } from "LLM/features/NotificationsOptIn";
 
 type NavigationProp = RootNavigationComposite<
@@ -67,11 +67,12 @@ const useAnalyticsConsentLogic = ({ entryPoint }: Props): UseAnalyticsConsentLog
   const hasSeenAnalyticsOptInPrompt = useSelector(hasSeenAnalyticsOptInPromptSelector);
   const shouldWeTrack = isTrackingEnabled || !hasSeenAnalyticsOptInPrompt;
   const { shouldUseLazyOnboarding } = useWalletFeaturesConfig("mobile");
-  const { notifyFlowCompleted } = useNotificationsContext();
+  const { notifyFlowCompleted } = useNotificationsPrompt();
   const analyticsOptInFeature = useFeature("analyticsOptIn");
   const lwmNotificationsOptIn = useFeature("lwmNotificationsOptIn");
   const completeLazyOnboarding = useCompleteLazyOnboarding();
-  const { policyVersion } = resolveAnalyticsOptInParams(analyticsOptInFeature);
+  const policyVersion =
+    resolveAnalyticsOptInParams(analyticsOptInFeature).currentPolicyVersion?.normalized ?? null;
   const flow = trackingKeysByFlow[entryPoint];
 
   const skipDeviceOnboarding = useCallback(() => {

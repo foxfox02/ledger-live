@@ -2,12 +2,15 @@ import { useStake } from "LLD/hooks/useStake";
 import BigNumber from "bignumber.js";
 import { renderHookWithLiveAppProvider, withFlagOverrides } from "tests/testSetup";
 
-import { accountRawToAccountUserData, WalletState } from "@ledgerhq/live-wallet/store";
+import { accountRawToAccountUserData } from "@ledgerhq/live-common/account/index";
+import type { WalletState } from "~/renderer/reducers/wallet";
 
 import { AccountRaw, TokenAccount } from "@ledgerhq/types-live";
 
 import { fromAccountRaw } from "@ledgerhq/ledger-wallet-framework/serialization/account";
 import { setCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
+import { getAccountUrl } from "~/renderer/utils";
+import { parseAnyAccountId } from "@domain/entity-account";
 
 const raw: AccountRaw = {
   id: "js:2:ethereum:0x01:",
@@ -101,10 +104,7 @@ const mockUSDCTokenAccount: TokenAccount = {
 const walletState: WalletState = {
   accountNames: new Map(),
   starredAccountIds: new Set(),
-  walletSyncState: {
-    data: null,
-    version: 0,
-  },
+  walletSync: { walletSyncState: { data: null, version: 0 } },
   nonImportedAccountInfos: [],
   recentAddresses: {},
 };
@@ -112,8 +112,8 @@ const walletState: WalletState = {
 const userData = accountRawToAccountUserData(raw);
 const userDataTron = accountRawToAccountUserData(rawTron);
 
-walletState.accountNames.set(userData.id, userData.name);
-walletState.accountNames.set(userDataTron.id, userDataTron.name);
+walletState.accountNames.set(parseAnyAccountId(userData.id), userData.name);
+walletState.accountNames.set(parseAnyAccountId(userDataTron.id), userDataTron.name);
 
 const feature_stake_programs_json = {
   enabled: true,
@@ -243,7 +243,7 @@ describe("useStake()", () => {
           customDappUrl: `https://mockdapp.com/?embed=true&chainId=1&accountId=${URIEncodedParentAccountId}`,
           name: "Mock Dapp v3",
           walletAccountId: "1a536838-dd18-5e39-b13f-0ba422fb395c",
-          returnTo: "/account/js:2:ethereum:0x01:/js:2:ethereum:0x01:usdt:",
+          returnTo: getAccountUrl("js:2:ethereum:0x01:usdt:", "js:2:ethereum:0x01:"),
           chainId: 1,
         },
       }),
@@ -267,7 +267,7 @@ describe("useStake()", () => {
           name: "Mock dapp browser v1 app",
           appId: "mock-dapp-v1",
           walletAccountId: "6760dd02-ab43-5c5a-9c7e-c75731580a08",
-          returnTo: "/account/js:2:ethereum:0x01:/js:2:ethereum:0x01:usdc:",
+          returnTo: getAccountUrl("js:2:ethereum:0x01:usdc:", "js:2:ethereum:0x01:"),
           chainId: 1,
         },
       }),
@@ -291,7 +291,7 @@ describe("useStake()", () => {
         name: "Mock Live App",
         appId: "mock-live-app",
         walletAccountId: "0eda416c-9669-57a2-84f6-741df8c11267",
-        returnTo: "/account/js:2:tron:T:",
+        returnTo: getAccountUrl("js:2:tron:T:"),
         yieldId: "tron-native-staking",
       },
     });

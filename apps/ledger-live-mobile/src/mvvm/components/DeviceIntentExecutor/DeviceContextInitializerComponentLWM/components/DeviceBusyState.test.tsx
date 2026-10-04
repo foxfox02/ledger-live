@@ -1,21 +1,13 @@
+import { track } from "@shared/analytics";
+import { TrackScreen } from "@shared/analytics-react";
 import React from "react";
 import { render, screen } from "@tests/test-renderer";
 import { DeviceModelId } from "@ledgerhq/types-devices";
 import { RetryableStateType } from "@ledgerhq/live-dmk-shared";
-import { TrackScreen, track } from "~/analytics";
 import { DeviceIntentTrackingProvider } from "../../utils/DeviceIntentTrackingContext";
 import { PAGE_CONNECT_APP } from "../../utils/trackDeviceIntent";
 import { DeviceBusyState } from "./DeviceBusyState";
 import type { InitializerDevice } from "../types";
-
-jest.mock("~/analytics", () => {
-  const actual = jest.requireActual("~/analytics");
-  return {
-    ...actual,
-    TrackScreen: jest.fn(() => null),
-    track: jest.fn(),
-  };
-});
 
 const mockedTrackScreen = jest.mocked(TrackScreen);
 const mockedTrack = jest.mocked(track);
@@ -55,8 +47,10 @@ describe("DeviceBusyState", () => {
   it("GIVEN the device busy state WHEN rendering THEN it renders the title, description and action buttons", () => {
     renderState();
 
-    expect(screen.getByText("Action pending on your Ledger device")).toBeVisible();
-    expect(screen.getByText("Complete it and then select Retry.")).toBeVisible();
+    expect(screen.getByText("Action needed on your Ledger device")).toBeVisible();
+    expect(
+      screen.getByText("Finish the action on your device, then select “Retry” below."),
+    ).toBeVisible();
     expect(screen.getByText("Retry")).toBeVisible();
     expect(screen.getByText("Cancel operation")).toBeVisible();
   });

@@ -1,0 +1,78 @@
+import React, { useState } from "react";
+import { Balance } from "@features/flow-pay-balance";
+import { Contacts, ContactAddressPicker } from "@features/flow-pay-contact";
+import { ContactsLedgerSyncIntroductionDialog } from "@features/flow-contacts-introduction";
+import { DepositOptions } from "@features/flow-pay-deposit";
+import { BankTransferIntro } from "@features/flow-pay-bank-transfer";
+import { RequestReceive, VerifyAddress } from "@features/flow-pay-request";
+import { FeatureTour } from "@features/flow-pay-feature-tour";
+import { TrackPage } from "@shared/analytics-react";
+import PayTabHeader from "./components/PayTabHeader";
+import { PayCardDisclaimer } from "./components/PayCardDisclaimer";
+import { VerifyAddressExecutorLWD } from "./verifyAddressIntent/VerifyAddressExecutorLWD";
+import type { PayTabViewModel } from "./usePayTabViewModel";
+
+export function PayTabView({
+  balance,
+  actionTiles,
+  depositOptions,
+  bankTransferIntro,
+  requestReceive,
+  verifyAddress,
+  deviceIntent,
+  contacts,
+  ledgerSyncIntroduction,
+  contactAddressPicker,
+  isContactsEnabled,
+  cardDisclaimer,
+  trackRequestAddressVerification,
+  trackRecipientAddressSelection,
+}: Readonly<PayTabViewModel>) {
+  const [initialBalanceFilter] = useState(balance.filter);
+
+  return (
+    <div className="flex flex-col pb-32" data-testid="paytab-screen">
+      <TrackPage category="Pay" balance_filter={initialBalanceFilter} />
+      {requestReceive.isOpen && requestReceive.address ? (
+        <TrackPage
+          category="Request complete"
+          flow="request"
+          asset={requestReceive.asset.ticker}
+          network={requestReceive.network}
+        />
+      ) : null}
+      {trackRequestAddressVerification && <TrackPage category="Request Address Verification" />}
+      <div className="flex flex-col gap-24">
+        <PayTabHeader />
+        <Balance {...balance} actionTiles={actionTiles} />
+      </div>
+
+      {isContactsEnabled && (
+        <>
+          <Contacts {...contacts} />
+          {trackRecipientAddressSelection && (
+            <TrackPage category="Recipient address selection" refreshSource={false} />
+          )}
+          <ContactAddressPicker {...contactAddressPicker} />
+          <ContactsLedgerSyncIntroductionDialog {...ledgerSyncIntroduction} />
+        </>
+      )}
+
+      {cardDisclaimer.isVisible && <PayCardDisclaimer onOpenCardApp={cardDisclaimer.openCardApp} />}
+
+      <DepositOptions {...depositOptions} />
+      <BankTransferIntro {...bankTransferIntro} />
+      <RequestReceive {...requestReceive} />
+
+      <VerifyAddress {...verifyAddress} />
+      {deviceIntent.active && deviceIntent.selection && (
+        <VerifyAddressExecutorLWD
+          selection={deviceIntent.selection}
+          onReady={deviceIntent.onReady}
+          onExit={deviceIntent.onExit}
+        />
+      )}
+      <FeatureTour />
+    </div>
+  );
+}

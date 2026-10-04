@@ -164,7 +164,7 @@ describe("CoinConfigSettings integration", () => {
   it("clicking Restore all clears every override", async () => {
     const { user, store } = renderSettings({
       [SOLANA_KEY]: { token2022Enabled: true },
-      [ETH_KEY]: { showNfts: false },
+      [ETH_KEY]: { supportedTokens: [] },
     });
 
     await user.click(screen.getByRole("button", { name: /Show/i }));
@@ -189,21 +189,21 @@ describe("CoinConfigSettings integration", () => {
     it("dispatching setCoinConfigOverride flows through the bridge into LiveConfig", async () => {
       const { store } = renderSettings();
 
-      store.dispatch(setCoinConfigOverride({ key: ETH_KEY, value: { showNfts: false } }));
+      store.dispatch(setCoinConfigOverride({ key: ETH_KEY, value: { supportedTokens: [] } }));
 
       await waitFor(() => {
-        const resolved = LiveConfig.getValueByKey(ETH_KEY) as { showNfts: boolean };
-        expect(resolved.showNfts).toBe(false);
+        const resolved = LiveConfig.getValueByKey(ETH_KEY) as { supportedTokens: string[] };
+        expect(resolved.supportedTokens).toEqual([]);
       });
     });
 
     it("clearing an override via Restore reverts LiveConfig to the default value", async () => {
       const { user, store } = renderSettings({
-        [SOLANA_KEY]: { token2022Enabled: true },
+        [SOLANA_KEY]: { token2022Enabled: false },
       });
 
       const overridden = LiveConfig.getValueByKey(SOLANA_KEY) as { token2022Enabled: boolean };
-      expect(overridden.token2022Enabled).toBe(true);
+      expect(overridden.token2022Enabled).toBe(false);
 
       await user.click(screen.getByRole("button", { name: /Show/i }));
       await user.click(await screen.findByText(SOLANA_KEY));
@@ -213,7 +213,7 @@ describe("CoinConfigSettings integration", () => {
         expect(coinConfigOverridesSelector(store.getState())[SOLANA_KEY]).toBeUndefined();
       });
       const restored = LiveConfig.getValueByKey(SOLANA_KEY) as { token2022Enabled: boolean };
-      expect(restored.token2022Enabled).toBe(false);
+      expect(restored.token2022Enabled).toBe(true);
     });
   });
 });

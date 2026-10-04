@@ -1,9 +1,9 @@
-import { runSwapWithoutAccountTest } from "./swap.other";
+import { runSwapWithoutAccountTest } from "@e2e/specs/swap/otherTestCases/swap.other";
 
 const noAccountFromTestConfig = {
   account1: Account.BTC_NATIVE_SEGWIT_1,
   account2: Account.ETH_1,
-  testTitle: "from Account not present to Account present",
+  testTitle: "Swap from account not present to account present",
   tmsLinks: ["B2CQA-3353"],
   tags: [
     "@NanoSP",

@@ -32,23 +32,15 @@ export const bitcoin_regtest = currency({
       magnitude: 0,
     },
   ],
-  deviceTicker: "TEST",
   supportsSegwit: true,
   supportsNativeSegwit: true,
   isTestnetFor: "bitcoin",
-  disableCountervalue: true,
   family: "bitcoin",
   blockAvgTime: 900,
-  bitcoinLikeInfo: {
-    P2PKH: 111,
-    P2SH: 196,
-    XPUBVersion: 70617039,
-  },
   explorerViews: [
     {
       tx: "https://live.blockcypher.com/btc-testnet/tx/$hash",
       address: "https://live.blockcypher.com/btc-testnet/address/$address",
     },
   ],
-  explorerId: "btc_testnet",
 });

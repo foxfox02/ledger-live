@@ -1,18 +1,10 @@
+import { track } from "@shared/analytics";
+import { TrackScreen } from "@shared/analytics-react";
 import React from "react";
 import { render, screen } from "@tests/test-renderer";
-import { TrackScreen, track } from "~/analytics";
 import { DeviceIntentTrackingProvider } from "../utils/DeviceIntentTrackingContext";
 import { PAGE_DEVICE_ACTION } from "../utils/trackDeviceIntent";
 import { InvalidOperation } from "./InvalidOperation";
-
-jest.mock("~/analytics", () => {
-  const actual = jest.requireActual("~/analytics");
-  return {
-    ...actual,
-    TrackScreen: jest.fn(() => null),
-    track: jest.fn(),
-  };
-});
 
 const mockedTrackScreen = jest.mocked(TrackScreen);
 const mockedTrack = jest.mocked(track);
@@ -34,11 +26,9 @@ describe("InvalidOperation", () => {
     renderState();
 
     expect(screen.getByTestId("device-intent-executor-invalid-operation")).toBeVisible();
-    expect(screen.getByText("Invalid state")).toBeVisible();
+    expect(screen.getByText("An error occurred")).toBeVisible();
     expect(
-      screen.getByText(
-        "An error occurred. Please try again or contact Ledger support if the issue persists.",
-      ),
+      screen.getByText("Try again or contact Ledger Support if the issue continues."),
     ).toBeVisible();
     expect(screen.getByText("Close")).toBeVisible();
   });

@@ -4,7 +4,8 @@ import type { Operation } from "@ledgerhq/types-live";
 import { Account, AccountLike } from "@ledgerhq/types-live";
 import type { Device } from "@ledgerhq/live-common/hw/actions/types";
 import type { Transaction, TransactionStatus } from "@ledgerhq/live-common/generated/types";
-import type { GasOptions, Transaction as EvmTransaction } from "@ledgerhq/coin-evm/types/index";
+import type { GasOptions } from "@ledgerhq/coin-evm/types";
+import type { Transaction as EvmTransaction } from "@ledgerhq/live-common/families/evm/types";
 import type { TransactionBroadcastError } from "@ledgerhq/live-common/errors/transactionBroadcastErrors";
 import type {
   CardanoAccount,
@@ -68,6 +69,13 @@ export type SendFundsNavigatorStackParamList = {
   [ScreenName.SendSelectRecipient]: {
     accountId?: string;
     parentId?: string;
+    /**
+     * The already-resolved account, forwarded when the send flow is entered from the
+     * Modular Asset Drawer. `accountScreenSelector` prefers this over re-resolving from the
+     * store by id, so accounts that aren't top-level entries (e.g. token sub-accounts) resolve
+     * reliably instead of tripping the "account is missing" invariant.
+     */
+    account?: AccountLike;
     transaction?: Transaction;
     justScanned?: boolean;
   };
@@ -397,6 +405,8 @@ export type SendFundsNavigatorStackParamList = {
     account: AccountLike;
     parentAccount?: Account;
     isSelfTransfer: boolean;
+    recipient?: string;
+    skipRecipientStep?: boolean;
   };
   [ScreenName.AleoMandatoryPrivateSync]: {
     account: AccountLike;

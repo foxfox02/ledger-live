@@ -4,7 +4,7 @@ import { Account } from "@ledgerhq/types-live";
 import { Scenario, ScenarioTransaction } from "@ledgerhq/coin-tester/main";
 import { encodeTokenAccountId } from "@ledgerhq/ledger-wallet-framework/account/index";
 import { resetIndexer, setBlock, indexBlocks, initMswHandlers } from "../indexer";
-import { getCoinConfig, setCoinConfig } from "@ledgerhq/coin-evm/config";
+import type { EvmConfigInfo } from "@ledgerhq/coin-evm/config";
 import { makeAccount } from "../fixtures";
 import { callMyDealer, expectAddressInList, getBridges, bnb, VITALIK } from "../helpers";
 import { killAnvil, spawnAnvil } from "../anvil";
@@ -89,50 +89,34 @@ export const scenarioBnb: Scenario<GenericTransaction, Account> = {
     // start indexing at next block
     setBlock(lastBlockNumber + 1);
 
-    setCoinConfig(() => ({
-      info: {
-        status: {
-          type: "active",
-        },
-        gasTracker: {
-          type: "ledger",
-          explorerId: "bnb",
-        },
-        node: {
-          type: "external",
-          uri: "http://127.0.0.1:8545",
-        },
-        explorer: {
-          type: "ledger",
-          explorerId: "bnb",
-        },
-        showNfts: true,
+    const info: EvmConfigInfo = {
+      status: {
+        type: "active",
       },
-    }));
+      chainId: 56,
+      name: "BNB Chain",
+      unit: { name: "BNB", code: "BNB", magnitude: 18 },
+      gasTracker: {
+        type: "ledger",
+        explorerId: "bnb",
+      },
+      node: {
+        type: "external",
+        uri: "http://127.0.0.1:8545",
+      },
+      explorer: {
+        type: "ledger",
+        explorerId: "bnb",
+      },
+      supportedTokens: ["erc721", "erc1155"],
+    };
     LiveConfig.setConfig({
       config_currency_bsc: {
         type: "object",
-        default: {
-          status: {
-            type: "active",
-          },
-          gasTracker: {
-            type: "ledger",
-            explorerId: "bnb",
-          },
-          node: {
-            type: "external",
-            uri: "http://127.0.0.1:8545",
-          },
-          explorer: {
-            type: "ledger",
-            explorerId: "bnb",
-          },
-          showNfts: true,
-        },
+        default: info,
       },
     });
-    initMswHandlers(getCoinConfig(bnb.id).info);
+    initMswHandlers(info);
     const { currencyBridge, accountBridge, getAddress } = await getBridges(signer);
 
     const { address } = await getAddress("", {
@@ -157,7 +141,7 @@ export const scenarioBnb: Scenario<GenericTransaction, Account> = {
   },
   getTransactions: address => makeScenarioTransactions({ address }),
   beforeSync: async () => {
-    await indexBlocks(bnb.ethereumLikeInfo?.chainId || 56);
+    await indexBlocks(56);
   },
   beforeAll: account => {
     expect(account.balance.toFixed()).toBe(ethers.parseEther("10000").toString());

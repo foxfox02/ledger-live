@@ -1,16 +1,19 @@
 import React from "react";
 import { Navigate } from "react-router";
-import { useContactsFeature } from "@features/flow-contacts";
+import { useContactsFeature } from "@features/platform-contacts";
 import { ContactsView } from "./ContactsView";
 import { useAddContactDialogAdapter } from "./useAddContactDialogAdapter";
 import { useContactsViewModel } from "./useContactsViewModel";
 
 function ContactsScreen() {
   const pageViewModel = useContactsViewModel();
-  const addContactDialog = useAddContactDialogAdapter(pageViewModel.onClearSearch);
+  const addContactDialog = useAddContactDialogAdapter(contact => {
+    pageViewModel.onClearSearch();
+    pageViewModel.onSelectContact(contact.id);
+  });
   const viewModel = {
     ...pageViewModel,
-    onAddContact: addContactDialog.onOpen,
+    onAddContact: () => pageViewModel.onRequestAddContact(addContactDialog.onOpen),
     addContactDialog,
   };
 

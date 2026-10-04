@@ -1,39 +1,48 @@
 import { test as base, Page, ElectronApplication, ChromiumBrowserContext } from "@playwright/test";
-import { execFileSync } from "child_process";
+import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "fs/promises";
+import cloneDeep from "lodash/cloneDeep";
 import merge from "lodash/merge";
 import * as path from "path";
-import type { OptionalFeatureMap } from "@shared/feature-flags";
+import type { PartialFeatures } from "@shared/feature-flags";
 import { setEnv } from "@shared/env";
 
 import { Application } from "tests/page";
 import { safeAppendFile, NANO_APP_CATALOG_PATH } from "tests/utils/fileUtils";
+import { PAYTAB_SPECS_DIR } from "tests/reporters/cardSessionReporter";
 import { launchApp } from "tests/utils/electronUtils";
 import {
   captureArtifacts,
   addTeamOwner,
+  addAnnotationLinks,
   attachMergedFeatureFlags,
-  runCliStep,
 } from "tests/utils/allureUtils";
 import { isLastRetry } from "tests/utils/testInfoUtils";
 import { PageLogCollector } from "tests/utils/pageLogCollector";
 import { randomUUID } from "crypto";
 import { AppInfos } from "@ledgerhq/live-e2e-shared/enum/AppInfos";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { lastValueFrom, Observable } from "rxjs";
 import { launchSpeculos, cleanSpeculos } from "tests/utils/speculosUtils";
+import {
+  canSkipSpeculosLaunch,
+  executeCliCommands,
+  runCliCommandsOnLaunchedApps,
+  type CliCommand,
+} from "tests/utils/cliFixtureUtils";
 import { getSpeculosAddress, SpeculosDevice } from "@ledgerhq/live-e2e-shared/speculos";
-import { attachNetworkLogging } from "../utils/networkLogging";
+import { attachNetworkLogging } from "tests/utils/networkLogging";
 import type { LiveAppManifest } from "@ledgerhq/live-common/platform/types";
 import { unregisterAllTransportModules } from "@ledgerhq/live-common/hw/index";
 import { getMergedFeatureFlags } from "tests/utils/featureFlagUtils";
+import {
+  CARD_SESSION_BOOTSTRAP_ENV,
+  resolveCardSessionBootstrap,
+} from "@ledgerhq/baanx-test-client";
 
-type CliCommand = ((userdataPath?: string) => Observable<unknown> | Promise<unknown> | string) & {
-  canUseGeneratedUserdata?: () => boolean;
-};
+export type { CliCommand };
 
 /** Mutable Speculos handle: {@link current} is always the latest device for teardown and env. */
-export type SpeculosFixtureHandle = {
+type SpeculosFixtureHandle = {
   get current(): SpeculosDevice;
   get device(): SpeculosDevice | undefined;
   relaunch: (appName: string) => Promise<SpeculosDevice>;
@@ -51,7 +60,7 @@ type TestFixtures = {
   env: Record<string, string>;
   electronApp: ElectronApplication;
   page: Page;
-  featureFlags: OptionalFeatureMap;
+  featureFlags: PartialFeatures;
   simulateCamera: string;
   app: Application;
   cliCommands?: CliCommand[];
@@ -61,6 +70,8 @@ type TestFixtures = {
   }[];
   localManifestOverride?: LiveAppManifest[];
   teamOwner?: Team;
+  teamOwnerLabel: void;
+  annotationLinks: void;
   speculos: SpeculosFixtureHandle;
   speculosForSetupOnly?: boolean;
 };
@@ -68,15 +79,10 @@ type TestFixtures = {
 const IS_DEBUG_MODE = !!process.env.PWDEBUG;
 
 setEnv("DISABLE_APP_VERSION_REQUIREMENTS", true);
-setEnv("SWAP_API_BASE", process.env.SWAP_API_BASE || "https://swap-stg.ledger-test.com/v5");
-
-async function executeCliCommand(cmd: CliCommand, userdataDestinationPath?: string) {
-  const label = cmd.name || "anonymous";
-  return runCliStep(label, async () => {
-    const promise = await cmd(`${userdataDestinationPath}/app.json`);
-    return promise instanceof Observable ? await lastValueFrom(promise) : await promise;
-  });
-}
+setEnv(
+  "SWAP_API_BASE",
+  process.env.SWAP_API_BASE || "https://global.api.stg.ledger-test.com/swap/v5",
+);
 
 export const test = base.extend<TestFixtures>({
   env: undefined,
@@ -92,6 +98,24 @@ export const test = base.extend<TestFixtures>({
   localManifestOverride: undefined,
   teamOwner: undefined,
   speculosForSetupOnly: false,
+
+  teamOwnerLabel: [
+    async ({ teamOwner }, use) => {
+      if (teamOwner !== undefined) {
+        await addTeamOwner(teamOwner);
+      }
+      await use();
+    },
+    { auto: true },
+  ],
+
+  annotationLinks: [
+    async ({}, use, testInfo) => {
+      await addAnnotationLinks(testInfo.annotations);
+      await use();
+    },
+    { auto: true },
+  ],
 
   app: async ({ page, electronApp }, use) => {
     const app = new Application(page, electronApp);
@@ -110,7 +134,8 @@ export const test = base.extend<TestFixtures>({
       ? await readFile(userdataOriginalFile, { encoding: "utf-8" }).then(JSON.parse)
       : {};
 
-    const userData = merge({ data: { settings } }, fileUserData);
+    const perTestSettings = cloneDeep(settings);
+    const userData = merge({ data: { settings: perTestSettings } }, fileUserData);
     if (localManifestOverride?.length) {
       userData.data = userData.data || {};
       userData.data.discover = userData.data.discover || {};
@@ -137,7 +162,7 @@ export const test = base.extend<TestFixtures>({
     const handle: SpeculosFixtureHandle = {
       get current(): SpeculosDevice {
         if (!currentDevice) {
-          throw new Error("[E2E] speculos fixture: no device (missing speculosApp?)");
+          base.abort("[E2E] speculos fixture: no device (missing speculosApp?)");
         }
         return currentDevice;
       },
@@ -160,28 +185,19 @@ export const test = base.extend<TestFixtures>({
       unregisterAllTransportModules();
 
       if (cliCommandsOnApp?.length) {
-        for (const { app, cmd } of cliCommandsOnApp) {
-          currentDevice = await launchSpeculos(app.name, testInfo.title);
-          await executeCliCommand(cmd, userdataDestinationPath);
-          await cleanSpeculos(currentDevice);
-        }
+        currentDevice = await runCliCommandsOnLaunchedApps(
+          cliCommandsOnApp,
+          testInfo.title,
+          userdataDestinationPath,
+        );
+      }
+
+      if (speculosApp && !canSkipSpeculosLaunch(speculosForSetupOnly, cliCommands)) {
+        currentDevice = await launchSpeculos(speculosApp.name, testInfo.title);
       }
 
       if (speculosApp) {
-        const skipSpeculos =
-          !!speculosForSetupOnly &&
-          !!cliCommands?.length &&
-          cliCommands.every(cmd => cmd.canUseGeneratedUserdata?.() ?? false);
-
-        if (!skipSpeculos) {
-          currentDevice = await launchSpeculos(speculosApp.name, testInfo.title);
-        }
-
-        if (cliCommands?.length) {
-          for (const cmd of cliCommands) {
-            await executeCliCommand(cmd, userdataDestinationPath);
-          }
-        }
+        await executeCliCommands(cliCommands, userdataDestinationPath);
       }
 
       await use(handle);
@@ -200,7 +216,6 @@ export const test = base.extend<TestFixtures>({
     const mergedFeatureFlags = getMergedFeatureFlags({
       testFlags: featureFlags,
     });
-    await attachMergedFeatureFlags(testInfo, mergedFeatureFlags);
 
     // default environment variables
     env = Object.assign(
@@ -224,6 +239,15 @@ export const test = base.extend<TestFixtures>({
       },
       env,
     );
+    delete env[CARD_SESSION_BOOTSTRAP_ENV];
+
+    if (testInfo.file.replaceAll("\\", "/").includes(`/${PAYTAB_SPECS_DIR}/`)) {
+      const { BAANX_TEST_API_URL, BAANX_TEST_CLIENT_KEY } = process.env;
+      env["CARD_BAANX_API_URL"] = BAANX_TEST_API_URL || "https://dev.api.baanx.com";
+      env["CARD_BAANX_CLIENT_KEY"] =
+        BAANX_TEST_CLIENT_KEY || "dc16bbda-eb1b-487c-be60-1a90ca7c9dd6";
+      env[CARD_SESSION_BOOTSTRAP_ENV] = await resolveCardSessionBootstrap();
+    }
 
     // launch app
     const windowSize = { width: 1024, height: 768 };
@@ -240,6 +264,11 @@ export const test = base.extend<TestFixtures>({
 
     await use(electronApp);
 
+    // Attach merged feature flags on failure only — they add noise to green tests (QAA-1433).
+    if (testInfo.status === "failed" || testInfo.status === "timedOut") {
+      await attachMergedFeatureFlags(testInfo, mergedFeatureFlags);
+    }
+
     try {
       await electronApp.close();
     } catch {
@@ -252,13 +281,10 @@ export const test = base.extend<TestFixtures>({
       // No lingering process (only Reset App reboots the main process into a new instance)
     }
   },
-  page: async ({ electronApp, speculos, cliCommandsOnApp, teamOwner }, use, testInfo) => {
+  page: async ({ electronApp, speculos, cliCommandsOnApp }, use, testInfo) => {
     // app is ready
     const page = await electronApp.firstWindow();
 
-    if (teamOwner !== undefined) {
-      await addTeamOwner(teamOwner);
-    }
     // we need to give enough time for the playwright app to start. when the CI is slow, 30s was apprently not enough.
     page.setDefaultTimeout(120000);
 

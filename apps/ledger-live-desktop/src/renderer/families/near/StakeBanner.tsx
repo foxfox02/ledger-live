@@ -1,11 +1,12 @@
 import { useTranslation } from "react-i18next";
 import { useFeature } from "@features/platform-feature-flags";
 import { AccountBanner } from "~/renderer/screens/account/AccountBanner";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import { stakeDefaultTrack } from "~/renderer/screens/stake/constants";
 import React from "react";
 import { StakeAccountBannerParams } from "~/renderer/screens/account/types";
 import { getAccountBannerState as getNearBannerState } from "@ledgerhq/live-common/families/near/banner";
+import { useLedgerFirstShuffledValidatorsNear } from "@ledgerhq/live-common/families/near/react";
 import { openModal } from "~/renderer/actions/modals";
 import { useDispatch } from "LLD/hooks/redux";
 import { NearAccount } from "@ledgerhq/live-common/families/near/types";
@@ -16,7 +17,8 @@ const StakeBanner: React.FC<{ account: NearAccount }> = ({ account }) => {
   const stakeAccountBanner = useFeature("stakeAccountBanner");
   const stakeAccountBannerParams: StakeAccountBannerParams | null =
     stakeAccountBanner?.params ?? null;
-  const state = getNearBannerState(account);
+  const validators = useLedgerFirstShuffledValidatorsNear("");
+  const state = getNearBannerState(account, validators);
   const { redelegate, display, ledgerValidator, validatorId } = state;
 
   if (redelegate && !stakeAccountBannerParams?.near?.redelegate) return null;

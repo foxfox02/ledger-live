@@ -18,6 +18,25 @@ export class Account {
   static readonly ADA_1 = new Account(Currency.ADA, "Cardano 1", 0, "1852'/1815'/0'/0/3");
   static readonly ADA_2 = new Account(Currency.ADA, "Cardano 2", 1, "1852'/1815'/1'/0/2");
 
+  static readonly ALEO_1 = new Account(
+    Currency.ALEO,
+    "Aleo 1",
+    0,
+    "44'/683'/0'/0'",
+    undefined,
+    undefined,
+    "aleo",
+  );
+  static readonly ALEO_2 = new Account(
+    Currency.ALEO,
+    "Aleo 2",
+    1,
+    "44'/683'/1'/0'",
+    undefined,
+    undefined,
+    "aleo",
+  );
+
   static readonly ALGO_1 = new Account(Currency.ALGO, "Algorand 1", 0, "44'/283'/0'/0/0");
   static readonly ALGO_2 = new Account(Currency.ALGO, "Algorand 2", 1, "44'/283'/1'/0/0");
   // Algorand account without ASA (tokens) for specific scenarios
@@ -28,6 +47,9 @@ export class Account {
 
   static readonly ATOM_1 = new Account(Currency.ATOM, "Cosmos 1", 0, "44'/118'/0'/0/0");
   static readonly ATOM_2 = new Account(Currency.ATOM, "Cosmos 2", 1, "44'/118'/1'/0/0");
+
+  static readonly BABY_1 = new Account(Currency.BABY, "Babylon 1", 0, "44'/118'/0'/0/0");
+  static readonly BABY_2 = new Account(Currency.BABY, "Babylon 2", 1, "44'/118'/1'/0/0");
 
   static readonly BCH_1 = new Account(
     Currency.BCH,
@@ -183,7 +205,7 @@ export class Account {
     undefined,
     undefined,
     undefined,
-    "0.0.10310433",
+    "0.0.10837606",
   );
   static readonly HEDERA_2 = new Account(
     Currency.HBAR,
@@ -194,7 +216,7 @@ export class Account {
     undefined,
     undefined,
     undefined,
-    "0.0.10337251",
+    "0.0.10837630",
   );
 
   static readonly INJ_1 = new Account(Currency.INJ, "Injective 1", 0, "44'/60'/0'/0/0");
@@ -206,6 +228,9 @@ export class Account {
 
   static readonly MINA_1 = new Account(Currency.MINA, "Mina 1", 0, "44'/12586'/0'/0/0");
   static readonly MINA_2 = new Account(Currency.MINA, "Mina 2", 1, "44'/12586'/1'/0/0");
+  static readonly MINA_3 = new Account(Currency.MINA, "Mina 3", 2, "44'/12586'/2'/0/0");
+  static readonly MINA_4 = new Account(Currency.MINA, "Mina 4", 3, "44'/12586'/3'/0/0");
+  static readonly MINA_5 = new Account(Currency.MINA, "Mina 5", 4, "44'/12586'/4'/0/0");
 
   static readonly MULTIVERS_X_1 = new Account(
     Currency.MULTIVERS_X,
@@ -379,6 +404,24 @@ export class TokenAccount extends Account {
   static readonly ETH_USDT_3 = new TokenAccount(
     Currency.ETH_USDT,
     "Tether USD 3",
+    2,
+    Account.ETH_3.accountPath,
+    TokenType.ERC20,
+    Account.ETH_3,
+  );
+
+  static readonly ETH_WGNK_1 = new TokenAccount(
+    Currency.ETH_WGNK,
+    "(Ethereum) Wrapped Gonka 1",
+    0,
+    Account.ETH_1.accountPath,
+    TokenType.ERC20,
+    Account.ETH_1,
+  );
+
+  static readonly ETH_WGNK_3 = new TokenAccount(
+    Currency.ETH_WGNK,
+    "Wrapped Gonka 3",
     2,
     Account.ETH_3.accountPath,
     TokenType.ERC20,

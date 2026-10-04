@@ -6,8 +6,7 @@ import { ViewAllTile } from "./ViewAllTile";
 import { TrendingAssetTile } from "./TrendingAssetTile";
 import SkeletonList from "./SkeletonList";
 import GenericError from "./GenericError";
-import { track } from "~/renderer/analytics/segment";
-import { setTrackingSource } from "~/renderer/analytics/TrackPage";
+import { setTrackingSource, track } from "@shared/analytics";
 import FearAndGreed from "LLD/features/FearAndGreed";
 import { HorizontalScroll } from "LLD/components/HorizontalScroll";
 import { PORTFOLIO_TRACKING_PAGE_NAME } from "LLD/utils/constants";
@@ -25,14 +24,16 @@ export const TrendingAssetsList = ({ items, isLoading, isError }: TrendingAssets
   const { shouldDisplayAggregatedAssets } = useWalletFeaturesConfig("desktop");
 
   const onAssetClick = useCallback(
-    (id: string) => () => {
+    (item: MarketItemPerformer) => () => {
       track("button_clicked", {
         button: "Market Tile",
-        currency: id,
+        currency: item.id,
         page: PORTFOLIO_TRACKING_PAGE_NAME,
       });
       setTrackingSource(MARKET_BANNER_TRACKING_SOURCE);
-      navigate(getMarketOrAssetDetailPath(id, shouldDisplayAggregatedAssets));
+      navigate(getMarketOrAssetDetailPath(item.id, shouldDisplayAggregatedAssets), {
+        state: { id: item.id, ledgerIds: item.ledgerIds },
+      });
     },
     [navigate, shouldDisplayAggregatedAssets],
   );

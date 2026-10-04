@@ -3,25 +3,23 @@
  */
 import BigNumber from "bignumber.js";
 import { renderHook, waitFor } from "@testing-library/react";
-import { Transaction } from "@ledgerhq/coin-evm/types/index";
-import { getGasTracker } from "@ledgerhq/coin-evm/network/gasTracker/index";
-import type { GasTrackerApi } from "@ledgerhq/coin-evm/network/gasTracker/types";
+import { Transaction } from "@ledgerhq/live-common/families/evm/types";
+import { getGasTracker } from "@ledgerhq/coin-evm/network";
+import type { GasTrackerApi } from "@ledgerhq/coin-evm/network";
 import { CryptoCurrency, CryptoCurrencyIdSchema } from "@domain/entity-currency-crypto";
+import { LiveConfig } from "@ledgerhq/live-config/LiveConfig";
 import { useGasOptions } from "./react";
 
 jest.useFakeTimers();
 jest.spyOn(global, "setInterval");
 
-jest.mock("@ledgerhq/coin-evm/network/gasTracker/index");
+jest.mock("@ledgerhq/coin-evm/network");
 const mockedGetGasTracker = jest.mocked(getGasTracker);
 
 const mockedGetGasOptions = jest.fn();
 
 const fakeCurrency: Partial<CryptoCurrency> = {
   id: CryptoCurrencyIdSchema.parse("my_new_chain"),
-  ethereumLikeInfo: {
-    chainId: 1,
-  },
   units: [{ code: "ETH", name: "ETH", magnitude: 18 }],
 };
 
@@ -63,6 +61,14 @@ const expectedGasOptions = {
 };
 
 describe("useGasOptions", () => {
+  beforeAll(() => {
+    // useGasOptions reads currency config via getCurrencyConfiguration (LiveConfig). The gas tracker
+    // is mocked, so config content is irrelevant — a minimal entry avoids "No currency configuration".
+    LiveConfig.setConfig({
+      config_currency_my_new_chain: { type: "object", default: {} },
+    } as never);
+  });
+
   beforeEach(() => {
     mockedGetGasTracker.mockImplementation(() => ({ getGasOptions: mockedGetGasOptions }));
     mockedGetGasOptions.mockReturnValue(Promise.resolve(expectedGasOptions));
@@ -154,7 +160,7 @@ describe("useGasOptions", () => {
 
     await waitFor(() =>
       expect(mockedGetGasOptions).toHaveBeenCalledWith({
-        currency: fakeCurrency,
+        config: {},
         options: { useEIP1559: true },
       }),
     );
@@ -177,7 +183,7 @@ describe("useGasOptions", () => {
 
     await waitFor(() =>
       expect(mockedGetGasOptions).toHaveBeenCalledWith({
-        currency: fakeCurrency,
+        config: {},
         options: { useEIP1559: false },
       }),
     );

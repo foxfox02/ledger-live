@@ -7,7 +7,6 @@ export const base_sepolia = currency({
   name: "Base Sepolia",
   managerAppName: "Ethereum",
   ticker: "ETH",
-  deviceTicker: "ETH",
   scheme: "base_sepolia",
   color: "#FF0000",
   family: "evm",
@@ -38,11 +37,7 @@ export const base_sepolia = currency({
       magnitude: 0,
     },
   ],
-  disableCountervalue: true,
   isTestnetFor: "base",
-  ethereumLikeInfo: {
-    chainId: 84532,
-  },
   explorerViews: [
     {
       tx: "https://base-sepolia.blockscout.com/tx/$hash",

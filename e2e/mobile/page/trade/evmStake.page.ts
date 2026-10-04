@@ -1,10 +1,12 @@
 import { Step } from "jest-allure2-reporter/api";
+import { TIMEOUT } from "@e2e/utils/timeouts";
 
 const VALIDATOR_ROW_REGEX = /^evm-validator-row-.+$/;
 // The staking quick-action testID suffix depends on account state: `cta` when the account has no
 // delegation yet, `addDelegation` once it already delegates. Both navigate to the validator list.
 const START_DELEGATE_CTA_REGEX = /^account-quick-action-button-(cta|addDelegation)$/;
-const FEE_ESTIMATION_TIMEOUT = 120000;
+// Fee estimation round-trips to the node before the continue button enables.
+const FEE_ESTIMATION_TIMEOUT = TIMEOUT.xxxlarge;
 
 export default class EvmStakePage {
   addDelegationCtaId = "account-quick-action-button-addDelegation";
@@ -21,12 +23,6 @@ export default class EvmStakePage {
     await tapById(ctaId);
   }
 
-  @Step("Tap on Add delegation CTA")
-  async tapAddDelegation() {
-    await waitForElementById(this.addDelegationCtaId);
-    await tapById(this.addDelegationCtaId);
-  }
-
   @Step("Wait for the validator list to be visible")
   async waitForValidatorListVisible() {
     await waitForElement(getElementById(VALIDATOR_ROW_REGEX));
@@ -41,7 +37,7 @@ export default class EvmStakePage {
     return firstValidatorRowId;
   }
 
-  @Step("Set delegation amount to {amount}")
+  @Step("Set delegation amount to {{{0}}}")
   async setAmount(amount: string) {
     await waitForElementById(this.amountInputId);
     await typeTextById(this.amountInputId, amount);
@@ -65,7 +61,7 @@ export default class EvmStakePage {
     await tapById(this.amountContinueButtonId);
   }
 
-  @Step("Set amount and continue once fees are ready")
+  @Step("Set amount and continue once fees are ready {{{0}}}")
   async setAmountAndContinue(amount: string) {
     await this.setAmount(amount);
     await this.waitForAmountContinueEnabled();

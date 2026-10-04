@@ -1,3 +1,4 @@
+import { track } from "@shared/analytics";
 import React, { useState, useCallback, useMemo, ReactNode, memo, useEffect } from "react";
 import { useTheme } from "styled-components/native";
 import {
@@ -26,7 +27,6 @@ import { TransactionsPendingConfirmationWarningForAccount } from "./Transactions
 import { NoCountervaluePlaceholder } from "./CounterValue";
 import { ensureContrast } from "../colors";
 import { NavigatorName, ScreenName } from "~/const";
-import { track } from "~/analytics";
 import { StackNavigatorNavigation } from "./RootNavigator/types/helpers";
 import { BaseNavigatorStackParamList } from "./RootNavigator/types/BaseNavigator";
 import { GraphPlaceholder } from "./Graph/Placeholder";
@@ -61,6 +61,8 @@ type Props = {
   renderAccountSummary?: () => ReactNode;
   onSwitchAccountCurrency: () => void;
   parentAccount?: Account;
+  /** Rendered between the account name and balance block and the graph itself. */
+  belowHeader?: ReactNode;
 };
 
 const timeRangeMapped = {
@@ -77,6 +79,7 @@ function AccountGraphCard({
   history,
   counterValueCurrency,
   useCounterValue,
+  belowHeader,
   renderAccountSummary,
   onSwitchAccountCurrency,
   valueChange,
@@ -152,6 +155,7 @@ function AccountGraphCard({
         parentAccount={parentAccount}
         currency={currency}
       />
+      {belowHeader}
       {account.type === "TokenAccount" && tokensWithUnsupportedGraph.includes(account.token.id) ? (
         <GraphPlaceholder />
       ) : (

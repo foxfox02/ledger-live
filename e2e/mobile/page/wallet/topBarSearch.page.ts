@@ -1,5 +1,6 @@
 import { Step } from "jest-allure2-reporter/api";
-import { retryUntilTimeout } from "../../utils/retry";
+import { retryUntilTimeout } from "@e2e/utils/retry";
+import { TIMEOUT } from "@e2e/utils/timeouts";
 
 export default class TopBarSearchPage {
   private readonly topBarSearchButtonId = "topbar-search";
@@ -21,7 +22,7 @@ export default class TopBarSearchPage {
     await retryUntilTimeout(async () => {
       if (await IsIdPresent(this.screenId)) return;
       await tapById(this.topBarSearchButtonId);
-      await waitForElementById(this.screenId, 5000, { checkVisibility: false });
+      await waitForElementById(this.screenId, TIMEOUT.small);
     });
     await waitForElementById(this.defaultSectionsId, undefined, {
       errorElementId: this.defaultsErrorId,
@@ -49,10 +50,10 @@ export default class TopBarSearchPage {
     await tapById(this.stocksSectionHeaderId);
   }
 
-  @Step("Search for $0")
+  @Step("Search for {{{0}}}")
   async searchFor(query: string) {
     await typeTextById(this.searchInputId, query, false);
-    await waitForElementById(this.searchResultsId, 60000, {
+    await waitForElementById(this.searchResultsId, undefined, {
       checkVisibility: false,
     });
   }
@@ -62,10 +63,10 @@ export default class TopBarSearchPage {
     await clearTextByElement(getElementById(this.searchInputId));
   }
 
-  @Step("Expect first search result to be $0")
+  @Step("Expect first search result to be {{{0}}}")
   async expectFirstResult(currencyId: string) {
     const expectedId = this.marketItemId(currencyId);
-    await waitForElementById(expectedId, undefined, { checkVisibility: false });
+    await waitForElementById(expectedId);
     const firstResultId = await getIdByRegexp(this.marketResultRegExp, 0);
     jestExpect(firstResultId).toBe(expectedId);
   }

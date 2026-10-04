@@ -1,6 +1,11 @@
 import { renderHook } from "tests/testSetup";
 import { usePerpsHandlers } from "../usePerpsHandlers";
 import { handlers as perpsHandlers } from "@ledgerhq/live-common/wallet-api/Perps/server";
+import { UserRefusedOnDevice } from "@ledgerhq/ledger-wallet-framework/errors";
+import {
+  getDepositRequestId,
+  settleDepositRequest,
+} from "@ledgerhq/live-common/wallet-api/Perps/depositRequest";
 
 jest.mock("@ledgerhq/live-common/wallet-api/Perps/server", () => ({
   handlers: jest.fn().mockReturnValue({ "custom.perps.signActions": jest.fn() }),
@@ -9,6 +14,11 @@ jest.mock("@ledgerhq/live-common/wallet-api/Perps/server", () => ({
 const mockOpenPerpsSign = jest.fn();
 jest.mock("../../screens/PerpsSign/PerpsSignDialog", () => ({
   openPerpsSign: (...args: unknown[]) => mockOpenPerpsSign(...args),
+}));
+
+const mockOpenPerpsDeposit = jest.fn();
+jest.mock("../../screens/PerpsDeposit/PerpsDepositDialog", () => ({
+  openPerpsDeposit: (...args: unknown[]) => mockOpenPerpsDeposit(...args),
 }));
 
 const mockedPerpsHandlers = jest.mocked(perpsHandlers);
@@ -23,7 +33,10 @@ describe("usePerpsHandlers", () => {
 
     expect(mockedPerpsHandlers).toHaveBeenCalledWith({
       accounts,
-      uiHooks: { "signing.execute": expect.any(Function) },
+      uiHooks: {
+        "signing.execute": expect.any(Function),
+        "deposit.execute": expect.any(Function),
+      },
     });
   });
 
@@ -44,5 +57,34 @@ describe("usePerpsHandlers", () => {
     signingExecute(params);
 
     expect(mockOpenPerpsSign).toHaveBeenCalledWith(params);
+  });
+
+  it("should open the deposit dialog and resolve once the deposit settles", async () => {
+    const accounts = [{ id: "acc-1" }] as never[];
+    const receiverAccount = { id: "receiver-1", name: "HL Account" } as never;
+
+    renderHook(() => usePerpsHandlers(accounts));
+
+    const depositExecute = mockedPerpsHandlers.mock.calls[0][0].uiHooks["deposit.execute"];
+    const params = { receiverAccount };
+
+    const request = depositExecute?.(params);
+    settleDepositRequest(getDepositRequestId(), { swapId: "swap-1" });
+
+    expect(mockOpenPerpsDeposit).toHaveBeenCalledWith(params);
+    await expect(request).resolves.toEqual({ swapId: "swap-1" });
+  });
+
+  it("should reject an in-flight deposit when the live app unmounts", async () => {
+    const accounts = [{ id: "acc-1" }] as never[];
+    const receiverAccount = { id: "receiver-1", name: "HL Account" } as never;
+
+    const { unmount } = renderHook(() => usePerpsHandlers(accounts));
+
+    const depositExecute = mockedPerpsHandlers.mock.calls[0][0].uiHooks["deposit.execute"];
+    const request = depositExecute?.({ receiverAccount });
+    unmount();
+
+    await expect(request).rejects.toBeInstanceOf(UserRefusedOnDevice);
   });
 });

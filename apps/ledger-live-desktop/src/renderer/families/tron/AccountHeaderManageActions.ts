@@ -4,9 +4,10 @@ import { TokenAccount } from "@ledgerhq/types-live";
 import IconCoins from "~/renderer/icons/Coins";
 import { ManageAction } from "../types";
 import { useNavigate } from "react-router";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import { stakeDefaultTrack } from "~/renderer/screens/stake/constants";
 import { useGetStakeLabelLocaleBased } from "~/renderer/hooks/useGetStakeLabelLocaleBased";
+import { getAccountUrl } from "~/renderer/utils";
 
 type Props = {
   account: TronAccount | TokenAccount;
@@ -38,7 +39,7 @@ const AccountHeaderManageActions = ({
       state: {
         yieldId: "tron-trx-native-staking",
         accountId: account.id,
-        returnTo: `/account/${account.id}`,
+        returnTo: getAccountUrl(account.id),
       },
     });
   };

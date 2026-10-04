@@ -1,0 +1,51 @@
+import React from "react";
+import { CardOnboardingWidgetCard } from "../CardOnboardingWidgetCard/CardOnboardingWidgetCard";
+import { CardOnboardingDialog } from "../CardOnboardingDialog/CardOnboardingDialog";
+import { useCardOnboardingViewModel } from "./useCardOnboardingViewModel";
+
+type CardOnboardingWidgetProps = {
+  readonly onTopUp?: () => void;
+  readonly onChooseCardType?: () => void;
+};
+
+export function CardOnboardingWidget({ onTopUp, onChooseCardType }: CardOnboardingWidgetProps) {
+  const {
+    isOpen,
+    steps,
+    completedCount,
+    totalCount,
+    onboardingCompleted,
+    hasCompletedOnboarding,
+    isLoading,
+    isError,
+    handleOpen,
+    handleClose,
+    handleGotIt,
+  } = useCardOnboardingViewModel();
+
+  const choosingCardType = steps.find(step => !step.isDone)?.id === "choose-card-type";
+
+  if (isLoading || isError || (hasCompletedOnboarding && !choosingCardType)) return null;
+
+  return (
+    <>
+      <CardOnboardingWidgetCard
+        completedCount={completedCount}
+        totalCount={totalCount}
+        onOpen={handleOpen}
+        onboardingCompleted={onboardingCompleted}
+      />
+      <CardOnboardingDialog
+        isOpen={isOpen}
+        steps={steps}
+        completedCount={completedCount}
+        totalCount={totalCount}
+        onClose={handleClose}
+        onboardingCompleted={onboardingCompleted}
+        handleGotIt={handleGotIt}
+        onTopUp={onTopUp}
+        onChooseCardType={onChooseCardType}
+      />
+    </>
+  );
+}

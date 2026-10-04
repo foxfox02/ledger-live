@@ -1,6 +1,9 @@
 import React from "react";
+import type { Card as BrazeCard } from "@braze/web-sdk";
 import { fireEvent, render, screen, waitFor } from "tests/testSetup";
-import { track, trackPage } from "~/renderer/analytics/segment";
+import type { State } from "~/renderer/reducers";
+import { INITIAL_STATE as DYNAMIC_CONTENT_INITIAL_STATE } from "~/renderer/reducers/dynamicContent";
+import { track, trackPage } from "@shared/analytics";
 import { closeGenericAwarenessModalDialog } from "LLD/features/GenericAwarenessModal/genericAwarenessModalDialog";
 import GenericAwarenessModalView from "../GenericAwarenessModalView";
 import {
@@ -20,6 +23,20 @@ import {
   createGenericAwarenessModalTestState,
   renderOpenAwarenessModalView,
 } from "../testUtils/modalTestUtils";
+
+jest.mock("@shared/analytics", () => ({
+  ...jest.requireActual("@shared/analytics"),
+  track: jest.fn(),
+  trackPage: jest.fn(),
+}));
+
+const mockLogContentCardImpressions = jest.fn();
+
+jest.mock("@braze/web-sdk", () => ({
+  logContentCardImpressions: (...args: unknown[]) => mockLogContentCardImpressions(...args),
+  logContentCardClick: jest.fn(),
+  logCardDismissal: jest.fn(),
+}));
 
 jest.mock("LLD/features/GenericAwarenessModal/genericAwarenessModalDialog", () => ({
   closeGenericAwarenessModalDialog: jest.fn(() => jest.fn()),
@@ -61,6 +78,26 @@ describe("GenericAwarenessModalView", () => {
     });
   });
 
+  it("should log one Braze impression when the modal opens", () => {
+    renderOpenAwarenessModalView(carouselCampaignCard, {
+      initialState: createGenericAwarenessModalTestState({
+        dynamicContent: {
+          ...DYNAMIC_CONTENT_INITIAL_STATE,
+          desktopCards: [
+            { id: CAROUSEL_CAMPAIGN_ID, title: "Carousel card" } as unknown as BrazeCard,
+          ],
+        },
+        settings: {
+          shareAnalytics: true,
+          sharePersonalizedRecommandations: false,
+          dismissedContentCards: {},
+        } as State["settings"],
+      }),
+    });
+
+    expect(mockLogContentCardImpressions).toHaveBeenCalledTimes(1);
+  });
+
   it("should render feature intro, track the page, and hide carousel controls", () => {
     renderOpenAwarenessModalView(appStartFeatureIntroCard);
 
@@ -71,11 +108,11 @@ describe("GenericAwarenessModalView", () => {
     expect(screen.getByText("Connect a Ledger device")).toBeVisible();
     expect(screen.queryByTestId("generic-awareness-modal-continue-button")).not.toBeInTheDocument();
     expect(trackPage).toHaveBeenCalledWith(
-      PAGE_TRACKING_AWARENESS_MODAL_FEATURE_INTRO,
-      undefined,
-      expect.objectContaining({ contentId: APP_START_CAMPAIGN_ID }),
-      true,
-      false,
+      {
+        category: PAGE_TRACKING_AWARENESS_MODAL_FEATURE_INTRO,
+        props: expect.objectContaining({ contentId: APP_START_CAMPAIGN_ID }),
+      },
+      { updateRoutes: true },
     );
   });
 
@@ -89,16 +126,16 @@ describe("GenericAwarenessModalView", () => {
     expect(screen.getByText("Ledger Flex")).toBeVisible();
     expect(screen.getByTestId("generic-awareness-modal-continue-button")).toBeVisible();
     expect(trackPage).toHaveBeenCalledWith(
-      PAGE_TRACKING_AWARENESS_MODAL_CAROUSEL,
-      undefined,
-      expect.objectContaining({
-        contentId: CAROUSEL_CAMPAIGN_ID,
-        step: 1,
-        stepName: "Ledger Flex",
-        totalSteps: 4,
-      }),
-      true,
-      false,
+      {
+        category: PAGE_TRACKING_AWARENESS_MODAL_CAROUSEL,
+        props: expect.objectContaining({
+          contentId: CAROUSEL_CAMPAIGN_ID,
+          step: 1,
+          stepName: "Ledger Flex",
+          totalSteps: 4,
+        }),
+      },
+      { updateRoutes: true },
     );
   });
 
@@ -112,11 +149,11 @@ describe("GenericAwarenessModalView", () => {
     expect(screen.getByText("Stay in control")).toBeVisible();
     expect(screen.queryByTestId("generic-awareness-modal-continue-button")).not.toBeInTheDocument();
     expect(trackPage).toHaveBeenCalledWith(
-      PAGE_TRACKING_AWARENESS_MODAL_PROMPT,
-      undefined,
-      expect.objectContaining({ contentId: PROMPT_CAMPAIGN_ID }),
-      true,
-      false,
+      {
+        category: PAGE_TRACKING_AWARENESS_MODAL_PROMPT,
+        props: expect.objectContaining({ contentId: PROMPT_CAMPAIGN_ID }),
+      },
+      { updateRoutes: true },
     );
   });
 

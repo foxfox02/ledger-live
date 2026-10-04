@@ -1,13 +1,13 @@
 import React from "react";
 import { render, screen, fireEvent } from "tests/testSetup";
 import { HardwareUpdate } from "./rendering";
-import { track, trackPage } from "~/renderer/analytics/segment";
+import { track, trackPage } from "@shared/analytics";
 import { openURL } from "~/renderer/linking";
 
-jest.mock("~/renderer/analytics/segment", () => ({
+jest.mock("@shared/analytics", () => ({
+  ...jest.requireActual("@shared/analytics"),
   track: jest.fn(),
   trackPage: jest.fn(),
-  useTrack: () => jest.fn(),
 }));
 
 jest.mock("~/renderer/linking", () => ({
@@ -33,19 +33,19 @@ describe("HardwareUpdate - Nano S swap incompatibility analytics", () => {
     );
 
     expect(trackPage).toHaveBeenCalledWith(
-      "Swap Nano S Incompatibility",
-      undefined,
-      expect.objectContaining({
-        flow: "swap",
-        deviceModel: "nanoS",
-        variant: "provider",
-        provider: "thorswap",
-        sourceCurrency: "bitcoin",
-        targetCurrency: "ethereum",
-      }),
-      true,
-      false,
-      false,
+      {
+        category: "Swap Nano S Incompatibility",
+        name: undefined,
+        props: {
+          deviceModel: "nanoS",
+          flow: "swap",
+          provider: "thorswap",
+          sourceCurrency: "bitcoin",
+          targetCurrency: "ethereum",
+          variant: "provider",
+        },
+      },
+      { mandatory: false, refreshSource: false, updateRoutes: true },
     );
   });
 
@@ -114,26 +114,24 @@ describe("HardwareUpdate - Nano S swap incompatibility analytics", () => {
     );
 
     expect(trackPage).toHaveBeenCalledWith(
-      "Swap Nano S Incompatibility",
-      undefined,
-      expect.objectContaining({
-        flow: "swap",
-        deviceModel: "nanoS",
-        variant: "currency",
-        sourceCurrency: "ton",
-        targetCurrency: "bitcoin",
-      }),
-      true,
-      false,
-      false,
+      {
+        category: "Swap Nano S Incompatibility",
+        name: undefined,
+        props: {
+          deviceModel: "nanoS",
+          flow: "swap",
+          sourceCurrency: "ton",
+          targetCurrency: "bitcoin",
+          variant: "currency",
+        },
+      },
+      { mandatory: false, refreshSource: false, updateRoutes: true },
     );
     expect(trackPage).not.toHaveBeenCalledWith(
-      "Swap Nano S Incompatibility",
-      undefined,
-      expect.objectContaining({ provider: expect.anything() }),
-      true,
-      false,
-      false,
+      expect.objectContaining({
+        props: expect.objectContaining({ provider: expect.anything() }),
+      }),
+      expect.anything(),
     );
   });
 });

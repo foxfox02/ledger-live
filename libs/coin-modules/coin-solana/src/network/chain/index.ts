@@ -7,6 +7,9 @@ import {
   getMinimumBalanceForRentExemptAccount,
 } from "@solana/spl-token";
 import {
+  TransactionExpiredBlockheightExceededError,
+  TransactionExpiredTimeoutError,
+  ConfirmedSignatureInfo,
   Connection,
   FetchMiddleware,
   VersionedMessage,
@@ -28,6 +31,7 @@ import {
 } from "@solana/web3.js";
 import ky from "ky";
 import { getTokenAccountProgramId } from "../../helpers/token";
+import { paginatedProgramAccounts } from "./rpc/program-accounts";
 import { Awaited } from "../../logic";
 import { SolanaTokenProgram } from "../../types";
 
@@ -57,10 +61,6 @@ export type ChainAPI = Readonly<{
     address: string,
   ) => ReturnType<Connection["getParsedTokenAccountsByOwner"]>;
 
-  getStakeAccountsByStakeAuth: (
-    authAddr: string,
-  ) => ReturnType<Connection["getParsedProgramAccounts"]>;
-
   getStakeAccountsByWithdrawAuth: (
     authAddr: string,
   ) => ReturnType<Connection["getParsedProgramAccounts"]>;
@@ -73,6 +73,10 @@ export type ChainAPI = Readonly<{
     address: string,
     opts?: SignaturesForAddressOptions,
   ) => ReturnType<Connection["getSignaturesForAddress"]>;
+
+  getSignaturesForAddressBatch: (
+    requests: Array<{ address: string; opts?: SignaturesForAddressOptions }>,
+  ) => Promise<ConfirmedSignatureInfo[][]>;
 
   getParsedTransactions: (signatures: string[]) => ReturnType<Connection["getParsedTransactions"]>;
 
@@ -123,25 +127,38 @@ export type ChainAPI = Readonly<{
 
 // Naive mode, allow us to filter in sentry all this error coming from Sol RPC node
 const remapErrors = (e: unknown) => {
-  if (e instanceof NetworkError) {
+  // An expired confirmation is an outcome, not a transport failure: flattening it would hide it
+  // from `broadcast`, which turns it into `SolanaTxConfirmationTimeout`.
+  if (
+    e instanceof NetworkError ||
+    e instanceof TransactionExpiredTimeoutError ||
+    e instanceof TransactionExpiredBlockheightExceededError
+  ) {
     throw e;
   }
 
-  throw new NetworkError(
-    e instanceof Error ? e.message : "Unknown Solana error",
-    {},
-    e instanceof Error ? { cause: e } : undefined,
-  );
+  throw new NetworkError(e instanceof Error ? e.message : "Unknown Solana error");
 };
 
-const remapErrorsWithRetry = <P extends Promise<T>, T>(callback: () => P, times = 3) => {
+const RETRY_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 500;
+// The proxy answers a rate limit with a JSON-RPC error over HTTP 200, so ky's status-based retry
+// never sees it.
+const RETRYABLE_MESSAGES = [
+  "Failed to query long-term storage; please try again",
+  "Upstream returned 429",
+];
+
+const remapErrorsWithRetry = <P extends Promise<T>, T>(
+  callback: () => P,
+  times = RETRY_ATTEMPTS,
+) => {
   return (e: unknown): T | Promise<T> => {
-    if (
-      times > 0 &&
-      e instanceof Error &&
-      e.message.includes("Failed to query long-term storage; please try again")
-    ) {
-      return callback().catch(remapErrorsWithRetry(callback, times - 1));
+    if (times > 0 && e instanceof Error && RETRYABLE_MESSAGES.some(m => e.message.includes(m))) {
+      const wait = RETRY_BASE_DELAY_MS * 2 ** (RETRY_ATTEMPTS - times);
+      return new Promise<void>(resolve => setTimeout(resolve, wait)).then(() =>
+        callback().catch(remapErrorsWithRetry(callback, times - 1)),
+      );
     }
     return remapErrors(e);
   };
@@ -182,6 +199,13 @@ export function getChainAPI(
     confirmTransactionInitialTimeout: getEnv("SOLANA_TX_CONFIRMATION_TIMEOUT") || 0,
   });
 
+  const programAccounts = paginatedProgramAccounts(
+    connection,
+    config.endpoint,
+    kyNoTimeout,
+    logger,
+  );
+
   return {
     getBalance: (address: string) =>
       connection.getBalance(new PublicKey(address)).catch(remapErrors),
@@ -198,36 +222,25 @@ export function getChainAPI(
     getBalanceAndContext: (address: string) =>
       connection.getBalanceAndContext(new PublicKey(address)).catch(remapErrors),
 
-    getParsedTokenAccountsByOwner: (address: string) =>
-      connection
-        .getParsedTokenAccountsByOwner(new PublicKey(address), {
+    getParsedTokenAccountsByOwner: (address: string) => {
+      const callback = () =>
+        connection.getParsedTokenAccountsByOwner(new PublicKey(address), {
           programId: TOKEN_PROGRAM_ID,
-        })
-        .catch(remapErrors),
+        });
+      return callback().catch(remapErrorsWithRetry(callback));
+    },
 
-    getParsedToken2022AccountsByOwner: (address: string) =>
-      connection
-        .getParsedTokenAccountsByOwner(new PublicKey(address), {
+    getParsedToken2022AccountsByOwner: (address: string) => {
+      const callback = () =>
+        connection.getParsedTokenAccountsByOwner(new PublicKey(address), {
           programId: TOKEN_2022_PROGRAM_ID,
-        })
-        .catch(remapErrors),
+        });
+      return callback().catch(remapErrorsWithRetry(callback));
+    },
 
-    getStakeAccountsByStakeAuth: (authAddr: string) =>
-      connection
-        .getParsedProgramAccounts(StakeProgram.programId, {
-          filters: [
-            {
-              memcmp: {
-                offset: 12,
-                bytes: authAddr,
-              },
-            },
-          ],
-        })
-        .catch(remapErrors),
-    getStakeAccountsByWithdrawAuth: (authAddr: string) =>
-      connection
-        .getParsedProgramAccounts(StakeProgram.programId, {
+    getStakeAccountsByWithdrawAuth: (authAddr: string) => {
+      const callback = () =>
+        programAccounts.getParsedProgramAccounts(StakeProgram.programId, {
           filters: [
             {
               memcmp: {
@@ -236,8 +249,9 @@ export function getChainAPI(
               },
             },
           ],
-        })
-        .catch(remapErrors),
+        });
+      return callback().catch(remapErrorsWithRetry(callback));
+    },
 
     getInflationReward: (addresses: string[]) =>
       connection.getInflationReward(addresses.map(addr => new PublicKey(addr))).catch(remapErrors),
@@ -259,10 +273,56 @@ export function getChainAPI(
       return callback().catch(remapErrorsWithRetry(callback));
     },
 
+    getSignaturesForAddressBatch: (
+      requests: Array<{ address: string; opts?: SignaturesForAddressOptions }>,
+    ) => {
+      if (requests.length === 0) return Promise.resolve([]);
+
+      const callback = async (): Promise<ConfirmedSignatureInfo[][]> => {
+        const body = requests.map(({ address, opts }, index) => ({
+          jsonrpc: "2.0",
+          id: String(index),
+          method: "getSignaturesForAddress",
+          params: [address, { ...opts, commitment: "confirmed" }],
+        }));
+        logger?.(config.endpoint, { method: "POST", body: JSON.stringify(body) });
+
+        const response: unknown = await kyNoTimeout.post(config.endpoint, { json: body }).json();
+        // Anything but an array is a batch-level failure, not a set of empty histories.
+        if (!Array.isArray(response)) {
+          throw new Error(
+            `getSignaturesForAddress batch failed: ${JSON.stringify(response).slice(0, 200)}`,
+          );
+        }
+
+        const byIndex: ConfirmedSignatureInfo[][] = requests.map(() => []);
+        for (const entry of response) {
+          if (!entry || typeof entry !== "object") continue;
+          const { id, result, error } = entry as {
+            id?: string;
+            result?: ConfirmedSignatureInfo[];
+            error?: unknown;
+          };
+          const index = Number(id);
+          if (!Number.isInteger(index) || index < 0 || index >= requests.length) continue;
+          if (error) {
+            const code = (error as { code?: number }).code;
+            if (code === JSON_RPC_SERVER_ERROR_FILTER_TRANSACTION_NOT_FOUND) continue;
+            throw new Error(
+              `getSignaturesForAddress failed for ${requests[index].address}: ${JSON.stringify(error).slice(0, 200)}`,
+            );
+          }
+          if (Array.isArray(result)) byIndex[index] = result;
+        }
+        return byIndex;
+      };
+      return callback().catch(remapErrorsWithRetry(callback));
+    },
+
     getParsedTransactions: (signatures: string[]) =>
       connection
         .getParsedTransactions(signatures, {
-          maxSupportedTransactionVersion: 0,
+          maxSupportedTransactionVersion: 1,
         })
         .catch(remapErrors),
 
@@ -293,7 +353,7 @@ export function getChainAPI(
         } catch (error: unknown) {
           if (error instanceof SendTransactionError) {
             const logs = await error.getLogs(connection);
-            throw new NetworkError(error.message, { logs }, { cause: error });
+            throw new NetworkError(error.message, { logs });
           }
 
           throw error;

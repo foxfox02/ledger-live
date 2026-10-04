@@ -7,7 +7,8 @@ import {
   PartialFeatures,
 } from "@shared/feature-flags";
 import { CountervaluesProvider } from "@ledgerhq/live-countervalues-react";
-import { CounterValuesStateRaw } from "@ledgerhq/live-countervalues/types";
+import { ThemeProvider } from "@ledgerhq/lumen-ui-react";
+import { CounterValuesStateRaw } from "@domain/entity-market-countervalues";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   RenderHookResult,
@@ -18,9 +19,11 @@ import {
 import userEvent from "@testing-library/user-event";
 import React from "react";
 import { I18nextProvider } from "react-i18next";
+import { I18nProvider } from "@shared/i18n";
 import { Provider } from "react-redux";
 import { MemoryRouter } from "react-router";
 import { config } from "react-transition-group";
+import { LinkingProvider } from "@shared/linking";
 import ContextMenuWrapper from "~/renderer/components/ContextMenu/ContextMenuWrapper";
 import { useCountervaluesBridge } from "~/renderer/components/CountervaluesProvider";
 import type { ReduxStore } from "~/state-manager/configureStore";
@@ -47,6 +50,8 @@ interface ExtraOptions {
   userEventOptions?: Parameters<typeof userEvent.setup>[0];
   skipRouter?: boolean;
   withRampCatalog?: boolean;
+  /** Seeds the countervalues state, for a test that asserts on a rate rather than waiting for one. */
+  initialCountervalues?: CounterValuesStateRaw;
 }
 
 interface RenderReturn {
@@ -171,31 +176,40 @@ function Providers({
   );
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <Provider store={store}>
-        {skipRouter ? (
-          routerContent
-        ) : (
-          <MemoryRouter initialEntries={initialRoute ? [initialRoute] : undefined}>
-            {routerContent}
-          </MemoryRouter>
-        )}
-      </Provider>
-    </QueryClientProvider>
+    // Outside the `minimal` branch on purpose: `useI18n` throws rather than falling back, so any
+    // @shared/i18n consumer in a `minimal` tree would crash. (react-i18next itself still resolves
+    // there — `initReactI18next` registers the app instance as its module default.)
+    <I18nextProvider i18n={i18n}>
+      <I18nProvider i18n={i18n}>
+        <QueryClientProvider client={queryClient}>
+          <LinkingProvider config={{ openExternal: () => {} }}>
+            <Provider store={store}>
+              {skipRouter ? (
+                routerContent
+              ) : (
+                <MemoryRouter initialEntries={initialRoute ? [initialRoute] : undefined}>
+                  {routerContent}
+                </MemoryRouter>
+              )}
+            </Provider>
+          </LinkingProvider>
+        </QueryClientProvider>
+      </I18nProvider>
+    </I18nextProvider>
   );
 }
 
 function EnhancedProviders({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <I18nextProvider i18n={i18n}>
-      <DrawerProvider>
+    <DrawerProvider>
+      <ThemeProvider colorScheme="dark">
         <StyleProvider selectedPalette="dark">
           <LiveStyleSheetManager>
             <ContextMenuWrapper>{children}</ContextMenuWrapper>
           </LiveStyleSheetManager>
         </StyleProvider>
-      </DrawerProvider>
-    </I18nextProvider>
+      </ThemeProvider>
+    </DrawerProvider>
   );
 }
 
@@ -260,6 +274,7 @@ function render(ui: React.JSX.Element, options: ExtraOptions = {}): RenderReturn
     skipRouter = false,
     initialRoute,
     withRampCatalog = false,
+    initialCountervalues,
     ...renderOptions
   } = options;
 
@@ -274,6 +289,7 @@ function render(ui: React.JSX.Element, options: ExtraOptions = {}): RenderReturn
           skipRouter={skipRouter}
           initialRoute={initialRoute}
           withRampCatalog={withRampCatalog}
+          initialCountervalues={initialCountervalues}
         >
           {children}
         </Providers>
@@ -368,6 +384,44 @@ function renderHookWithLiveAppProvider<Result, Props>(
     }),
   };
 }
+
+/**
+ * Install fake timers for a suite that drives a component's own `setTimeout`.
+ *
+ * Only `setTimeout`/`clearTimeout` are faked. Faking the rest is not safe here: rxjs'
+ * `asyncScheduler` (behind `throttleTime`, `debounceTime`, …) drives itself off
+ * `setInterval`, and React's `act` yields through `setImmediate` — fake either and a suite
+ * that mounts a real hook spins until the jest worker runs out of memory.
+ *
+ * Caveat, and why this is opt-in per suite rather than global: MSW keeps undici installed
+ * for every suite, and undici's internal fast-clock timer calls `.unref()` on whatever
+ * `setTimeout` returned (its own guard only covers `null`). @sinonjs/fake-timers hands out
+ * bare numeric ids under jsdom, so ticking the fake clock while that timer is pending
+ * throws `fastNowTimeout?.unref is not a function`. Its handle shape is chosen when jest
+ * builds the clock, before any setup file runs, so it cannot be corrected from here. A
+ * suite that ticks the clock across a long `waitFor` budget while the app is doing HTTP
+ * should shorten the delay at its source instead — see the OnboardModal suites.
+ *
+ * Call `jest.useRealTimers()` in `afterEach`.
+ */
+export const useComponentFakeTimers = () =>
+  jest.useFakeTimers({
+    doNotFake: [
+      "Date",
+      "hrtime",
+      "nextTick",
+      "performance",
+      "queueMicrotask",
+      "requestAnimationFrame",
+      "cancelAnimationFrame",
+      "requestIdleCallback",
+      "cancelIdleCallback",
+      "setImmediate",
+      "clearImmediate",
+      "setInterval",
+      "clearInterval",
+    ],
+  });
 
 // Override act to suppress deprecation warnings for synchronous usage
 // eslint-disable-next-line @typescript-eslint/no-deprecated

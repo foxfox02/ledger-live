@@ -1,6 +1,6 @@
-import { step } from "../../misc/reporters/step";
+import { step } from "tests/misc/reporters/step";
 import { Currency } from "@ledgerhq/live-e2e-shared/enum/Currency";
-import { Dialog } from "../../component/dialog.component";
+import { Dialog } from "tests/component/dialog.component";
 import { expect } from "@playwright/test";
 
 export class ModularAssetDialog extends Dialog {
@@ -38,7 +38,11 @@ export class ModularAssetDialog extends Dialog {
   async selectAssetByTicker(currency: Currency) {
     await expect(this.searchInput).toBeVisible();
     await this.searchInput.fill(currency.ticker);
-    await this.assetItemRow(currency.ticker).first().click();
+    const row = this.assetItemRow(currency.ticker).first();
+    await expect(row).toBeVisible();
+    await this.assetListContainer.hover();
+    await this.page.mouse.wheel(0, 1);
+    await row.click();
   }
 
   @step("Check asset $0 amount is masked in discreet mode")

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Modal, Pressable, StyleProp, View, ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
@@ -10,7 +10,7 @@ import Animated, {
 import { scheduleOnRN } from "react-native-worklets";
 import { useTheme } from "styled-components/native";
 import { Flex, Text, BoxedIcon, Icons } from "@ledgerhq/native-ui";
-import { IsInDrawerProvider } from "~/context/IsInDrawerContext";
+import { IsInBottomSheetProvider } from "@shared/ui-queued-bottom-sheet";
 import useQueuedDrawerNative from "./useQueuedDrawerNative";
 import Header from "./Header";
 
@@ -69,7 +69,7 @@ const QueuedDrawerNative = ({
   const insets = useSafeAreaInsets();
 
   const {
-    areDrawersLocked,
+    areBottomSheetsLocked,
     isVisible,
     handleDismiss,
     onBack: hookOnBack,
@@ -88,7 +88,15 @@ const QueuedDrawerNative = ({
   const backdropOpacity = useSharedValue(0);
   const closeAnimTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // useAnimatedStyle only writes its initial value into the shadow tree, so while the drawer is
+  // open the tree still holds translateY 1000. A commit outside Reanimated's commit hook
+  // re-applies it and the sheet snaps off-screen for good, since the open animation is long
+  // finished. Mirroring the resting position here, declared after the animated style, makes
+  // such a commit settle on open instead.
+  const [isOpenDeclared, setIsOpenDeclared] = useState(false);
+
   const openAnim = useCallback(() => {
+    setIsOpenDeclared(true);
     translateY.value = withTiming(0, {
       duration: ANIMATION_DURATION,
       easing: Easing.out(Easing.cubic),
@@ -98,6 +106,8 @@ const QueuedDrawerNative = ({
 
   const closeAnim = useCallback(
     (after?: () => void) => {
+      setIsOpenDeclared(false);
+
       // Cancel any pending callback from a previous closeAnim call
       if (closeAnimTimeoutRef.current) {
         clearTimeout(closeAnimTimeoutRef.current);
@@ -184,8 +194,8 @@ const QueuedDrawerNative = ({
   }, [enablePanDownToClose, closeAnim, handleDismiss, _onBackdropPress]);
 
   const shouldShowHeader = useMemo(
-    () => CustomHeader || title || hasBackButton || (!noCloseButton && !areDrawersLocked),
-    [CustomHeader, title, hasBackButton, noCloseButton, areDrawersLocked],
+    () => CustomHeader || title || hasBackButton || (!noCloseButton && !areBottomSheetsLocked),
+    [CustomHeader, title, hasBackButton, noCloseButton, areBottomSheetsLocked],
   );
 
   const shouldShowModalHeader = useMemo(
@@ -240,12 +250,15 @@ const QueuedDrawerNative = ({
               backgroundColor: colors.constant.overlay,
             }}
           >
-            <Animated.View style={[{ flex: 1 }, backdropAnimatedStyle]} />
+            <Animated.View
+              style={[{ flex: 1 }, backdropAnimatedStyle, { opacity: isOpenDeclared ? 1 : 0 }]}
+            />
           </Pressable>
 
           <Animated.View
             style={[
               containerAnimatedStyle,
+              { transform: [{ translateY: isOpenDeclared ? 0 : 1000 }] },
               {
                 width: "100%",
                 maxHeight: "95%",
@@ -258,7 +271,7 @@ const QueuedDrawerNative = ({
           >
             {shouldShowHeader && CustomHeader ? (
               <CustomHeader>
-                {!noCloseButton && !areDrawersLocked ? (
+                {!noCloseButton && !areBottomSheetsLocked ? (
                   <Pressable
                     testID="modal-close-button"
                     onPress={handleCloseUserEvent}
@@ -301,7 +314,7 @@ const QueuedDrawerNative = ({
                   hasBackButton={hasBackButton}
                   hookOnBack={hookOnBack}
                   noCloseButton={noCloseButton}
-                  areDrawersLocked={areDrawersLocked}
+                  areBottomSheetsLocked={areBottomSheetsLocked}
                   handleCloseUserEvent={handleCloseUserEvent}
                 />
               ) : null}
@@ -324,7 +337,7 @@ const QueuedDrawerNative = ({
 
               {children && (
                 <View style={style || undefined}>
-                  <IsInDrawerProvider>{children}</IsInDrawerProvider>
+                  <IsInBottomSheetProvider>{children}</IsInBottomSheetProvider>
                 </View>
               )}
             </View>

@@ -271,10 +271,9 @@ export default {
       data: properties as Record<string, unknown>,
     });
   },
-  analyticsPage: (category: string, name?: string | null, properties?: object | null) => {
-    const message = name ? `${category} ${name}` : category;
+  analyticsPage: (message: string, properties?: object | null) => {
     if (logAnalytics) {
-      logger.log("info", `△ page ${message}`, {
+      logger.log("info", `△ ${message}`, {
         type: ANALYTICS_TYPE,
         data: properties,
       });
@@ -326,7 +325,11 @@ export default {
       stack: err.stack,
       ...err,
     });
-    datadog.captureException(err);
+    // anything else has no type and no stack of its own: in Datadog it becomes an unsearchable
+    // "null" / "[object Object]" issue merged with every other caller, so we keep it local
+    if (error instanceof Error || typeof error === "string") {
+      datadog.captureException(err);
+    }
   },
   add,
   onLog: (log: LogEntry | string) => {

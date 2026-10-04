@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Linking, Platform } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import type { DeviceConnectionParams, DeviceConnectionResult } from "@ledgerhq/device-intent";
+import type {
+  DeviceConnectionParams,
+  DeviceConnectionResult,
+} from "@features/platform-device-intent";
 import { log } from "@ledgerhq/logs";
 import { useFeature, useWalletFeaturesConfig } from "@features/platform-feature-flags";
 import {
@@ -20,9 +23,10 @@ import { updateKnownBleDevice } from "~/actions/ble";
 import { NavigatorName, ScreenName } from "~/const";
 import type { BaseNavigatorStackParamList } from "~/components/RootNavigator/types/BaseNavigator";
 import { urls } from "~/utils/urls";
-import { dmkToLedgerDeviceIdMap } from "@ledgerhq/live-dmk-shared";
+import { dmkToLedgerDeviceIdMap, getConnectDeviceFailure } from "@ledgerhq/live-dmk-shared";
 import type { AppPlatform } from "@ledgerhq/live-common/platform/types";
 import {
+  getTrackingTransport,
   trackDeviceConnected,
   trackDeviceConnecting,
   trackDevicePrompted,
@@ -54,7 +58,7 @@ export function useDeviceConnectionComponentLWMViewModel({
   const buyDeviceFromLive = useFeature("buyDeviceFromLive");
   const { shouldDisplayMyWallet } = useWalletFeaturesConfig("mobile");
   const knownDevices = useSelector(knownDevicesSelector);
-  const { sourceFlow, analyticsProperties } = useDeviceIntentTracking();
+  const { sourceFlow, analyticsProperties, reportFailure } = useDeviceIntentTracking();
   const [state, setState] = useState<ConnectDeviceUIState>({
     type: ConnectDeviceUIStateTypes.Loading,
   });
@@ -173,15 +177,28 @@ export function useDeviceConnectionComponentLWMViewModel({
   );
 
   useEffect(() => {
+    const handleState = (nextState: ConnectDeviceUIState) => {
+      setState(nextState);
+      reportFailure(getConnectDeviceFailure(nextState, getTrackingTransport));
+    };
+
     const subscription = connectDevice({
       knownDevices,
-      acceptedDeviceModelIds: deviceConnectionParams.acceptedDeviceModelIds,
+      acceptedDeviceModelIds: deviceConnectionParams.acceptedDeviceModelIds.map(
+        deviceModelId => dmkToLedgerDeviceIdMap[deviceModelId],
+      ),
       dmk,
       onConnected: wrappedOnConnected,
-    }).subscribe({ next: setState });
+    }).subscribe({ next: handleState });
 
     return () => subscription.unsubscribe();
-  }, [deviceConnectionParams.acceptedDeviceModelIds, dmk, knownDevices, wrappedOnConnected]);
+  }, [
+    deviceConnectionParams.acceptedDeviceModelIds,
+    dmk,
+    knownDevices,
+    reportFailure,
+    wrappedOnConnected,
+  ]);
 
   return {
     state,

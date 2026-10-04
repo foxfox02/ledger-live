@@ -30,6 +30,10 @@ jest.mock("../context/SendFlowContext", () => ({
   ),
 }));
 
+jest.mock("../context/SendMemoResetContext", () => ({
+  SendMemoResetProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 jest.mock("../context/SendSignatureContext", () => ({
   SendSignatureProvider: ({ children }: { children: React.ReactNode }) => children,
   useSendSignature: jest.fn(),
@@ -61,6 +65,7 @@ function createStepRegistry(): StepRegistry<SendFlowStep> {
     [SEND_FLOW_STEP.COIN_CONTROL]: () => null,
     [SEND_FLOW_STEP.SIGNATURE]: () => null,
     [SEND_FLOW_STEP.CONFIRMATION]: () => null,
+    [SEND_FLOW_STEP.PAY_SUCCESS]: () => null,
   };
 }
 
@@ -75,12 +80,23 @@ function createFlowConfig(overrides?: Partial<SendFlowConfig>): SendFlowConfig {
       SEND_FLOW_STEP.CONFIRMATION,
     ],
     stepConfigs: {
+      [SEND_FLOW_STEP.BALANCE_TYPE]: { id: SEND_FLOW_STEP.BALANCE_TYPE, canGoBack: false },
       [SEND_FLOW_STEP.RECIPIENT]: {
         id: SEND_FLOW_STEP.RECIPIENT,
         canGoBack: false,
         screenName: "RecipientScreen",
       },
+      [SEND_FLOW_STEP.SKIP_MEMO_CONFIRMATION]: {
+        id: SEND_FLOW_STEP.SKIP_MEMO_CONFIRMATION,
+        canGoBack: true,
+      },
       [SEND_FLOW_STEP.RECENT_HISTORY]: { id: SEND_FLOW_STEP.RECENT_HISTORY, canGoBack: true },
+      [SEND_FLOW_STEP.ADD_CONTACT]: { id: SEND_FLOW_STEP.ADD_CONTACT, canGoBack: true },
+      [SEND_FLOW_STEP.ADD_NEW_CONTACT]: { id: SEND_FLOW_STEP.ADD_NEW_CONTACT, canGoBack: true },
+      [SEND_FLOW_STEP.ADD_TO_EXISTING_CONTACT]: {
+        id: SEND_FLOW_STEP.ADD_TO_EXISTING_CONTACT,
+        canGoBack: true,
+      },
       [SEND_FLOW_STEP.AMOUNT]: { id: SEND_FLOW_STEP.AMOUNT, canGoBack: true },
       [SEND_FLOW_STEP.CUSTOM_FEES]: { id: SEND_FLOW_STEP.CUSTOM_FEES, canGoBack: true },
       [SEND_FLOW_STEP.COIN_CONTROL]: { id: SEND_FLOW_STEP.COIN_CONTROL, canGoBack: true },
@@ -91,6 +107,20 @@ function createFlowConfig(overrides?: Partial<SendFlowConfig>): SendFlowConfig {
         screenOptions: { title: "Sign" },
       },
       [SEND_FLOW_STEP.CONFIRMATION]: { id: SEND_FLOW_STEP.CONFIRMATION, canGoBack: true },
+      [SEND_FLOW_STEP.PAY_SUCCESS]: { id: SEND_FLOW_STEP.PAY_SUCCESS, canGoBack: false },
+      [SEND_FLOW_STEP.FEE_PAYMENT]: { id: SEND_FLOW_STEP.FEE_PAYMENT, canGoBack: true },
+      [SEND_FLOW_STEP.SPONSORED_RENT_SIGNATURE]: {
+        id: SEND_FLOW_STEP.SPONSORED_RENT_SIGNATURE,
+        canGoBack: false,
+      },
+      [SEND_FLOW_STEP.SPONSORED_POLLING]: {
+        id: SEND_FLOW_STEP.SPONSORED_POLLING,
+        canGoBack: false,
+      },
+      [SEND_FLOW_STEP.SPONSORED_FAILURE]: {
+        id: SEND_FLOW_STEP.SPONSORED_FAILURE,
+        canGoBack: false,
+      },
     },
     ...overrides,
   };
@@ -98,7 +128,12 @@ function createFlowConfig(overrides?: Partial<SendFlowConfig>): SendFlowConfig {
 
 describe("SendFlowOrchestrator", () => {
   const mockOnClose = jest.fn();
-  const mockBusinessContext = { state: {}, transaction: {}, operation: {} };
+  const mockBusinessContext = {
+    state: {},
+    transaction: {},
+    operation: {},
+    uiConfig: { hasMemo: false },
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -141,6 +176,74 @@ describe("SendFlowOrchestrator", () => {
           initialStep: SEND_FLOW_STEP.RECIPIENT,
           stepOrder: flowConfig.stepOrder,
           stepConfigs: flowConfig.stepConfigs,
+        }),
+      }),
+    );
+  });
+
+  it("should pass flowConfig with initialStep AMOUNT for a direct recipient", () => {
+    render(
+      <SendFlowOrchestrator
+        initParams={{
+          recipient: "0x1ad23b2cf8d2e0591ea417eb82f7cd9746c53034",
+          skipRecipientStep: true,
+        }}
+        onClose={mockOnClose}
+        stepRegistry={createStepRegistry()}
+        flowConfig={createFlowConfig()}
+      />,
+    );
+
+    expect(MockFlowStackNavigator).toHaveBeenCalledWith(
+      expect.objectContaining({
+        flowConfig: expect.objectContaining({
+          initialStep: SEND_FLOW_STEP.AMOUNT,
+        }),
+      }),
+    );
+  });
+
+  it("should keep the recipient step for an empty direct recipient", () => {
+    render(
+      <SendFlowOrchestrator
+        initParams={{ recipient: "   ", skipRecipientStep: true }}
+        onClose={mockOnClose}
+        stepRegistry={createStepRegistry()}
+        flowConfig={createFlowConfig()}
+      />,
+    );
+
+    expect(MockFlowStackNavigator).toHaveBeenCalledWith(
+      expect.objectContaining({
+        flowConfig: expect.objectContaining({
+          initialStep: SEND_FLOW_STEP.RECIPIENT,
+        }),
+      }),
+    );
+  });
+
+  it("should keep the recipient step when the selected currency requires a memo", () => {
+    mockUseSendFlowBusinessLogic.mockReturnValue({
+      ...mockBusinessContext,
+      uiConfig: { hasMemo: true },
+    });
+
+    render(
+      <SendFlowOrchestrator
+        initParams={{
+          recipient: "0x1ad23b2cf8d2e0591ea417eb82f7cd9746c53034",
+          skipRecipientStep: true,
+        }}
+        onClose={mockOnClose}
+        stepRegistry={createStepRegistry()}
+        flowConfig={createFlowConfig()}
+      />,
+    );
+
+    expect(MockFlowStackNavigator).toHaveBeenCalledWith(
+      expect.objectContaining({
+        flowConfig: expect.objectContaining({
+          initialStep: SEND_FLOW_STEP.RECIPIENT,
         }),
       }),
     );

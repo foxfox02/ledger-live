@@ -1,4 +1,7 @@
+import type { Logger } from "@ledgerhq/coin-module-framework/config";
+import type { TronCoinConfig } from "../config";
 import { broadcastHexTron, broadcastTron } from "../network";
+import { TX_LEN_PREFIX_HEX_WIDTH } from "./combine";
 
 type TxObject = {
   txID: string;
@@ -6,26 +9,28 @@ type TxObject = {
   signature: string[];
 };
 
-export async function broadcast(transaction: string | TxObject): Promise<string> {
+export async function broadcast(
+  logger: Logger,
+  config: TronCoinConfig,
+  transaction: string | TxObject,
+): Promise<string> {
   if (typeof transaction === "string") {
     const { rawTx, signature } = extractTxAndSignature(transaction);
     // Broadcast the signed bytes verbatim: a protobuf round-trip of `raw_data` is lossy
     // for TRC10/TRC20 contracts and would invalidate the signature.
-    return broadcastHexTron(buildSignedTransactionHex(rawTx, signature));
+    return broadcastHexTron(logger, config, buildSignedTransactionHex(rawTx, signature));
   } else {
-    return broadcastTron(transaction);
+    return broadcastTron(logger, config, transaction);
   }
 }
 
 const isHex = (value: string): boolean => value.length % 2 === 0 && /^[0-9a-f]+$/i.test(value);
 
-// Parses the `combine` output: a 4-hex-char length prefix, the raw_data hex, then the signature hex.
-// Reject malformed input up front so a bad payload fails deterministically instead of being
-// silently truncated by Buffer.from(hex) and broadcast as garbage.
+// Reject malformed input up front, or Buffer.from(hex) silently truncates it and broadcasts garbage.
 function extractTxAndSignature(transaction: string): { rawTx: string; signature: string } {
-  const txLength = parseInt(transaction.slice(0, 4), 16);
-  const rawTx = transaction.slice(4, txLength + 4);
-  const signature = transaction.slice(4 + txLength);
+  const txLength = Number.parseInt(transaction.slice(0, TX_LEN_PREFIX_HEX_WIDTH), 16);
+  const rawTx = transaction.slice(TX_LEN_PREFIX_HEX_WIDTH, txLength + TX_LEN_PREFIX_HEX_WIDTH);
+  const signature = transaction.slice(TX_LEN_PREFIX_HEX_WIDTH + txLength);
   if (Number.isNaN(txLength) || rawTx.length !== txLength || !isHex(rawTx) || !isHex(signature)) {
     throw new Error("tron: malformed signed transaction payload");
   }

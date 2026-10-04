@@ -4,10 +4,10 @@ import {
   createIntent,
   type DeviceConnectionParams,
   type ExecutorState,
-} from "@ledgerhq/device-intent";
+} from "@features/platform-device-intent";
 import { Text, Flex, Button, SelectableList } from "@ledgerhq/native-ui";
 import { BottomSheetHeader, BottomSheetScrollView } from "@ledgerhq/lumen-ui-rnative";
-import QueuedBottomSheet from "LLM/components/QueuedDrawer/QueuedBottomSheet";
+import { QueuedBottomSheet } from "@shared/ui-queued-bottom-sheet";
 import { DeviceIntentExecutorLWM } from "LLM/components/DeviceIntentExecutor";
 import { initializationEchoIntentLWMDefinition } from "./intents/initializationEchoIntent/intentLWMDefinition";
 import type { InitializationEchoIntentJobState } from "./intents/initializationEchoIntent/types";

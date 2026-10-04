@@ -136,6 +136,8 @@ export interface SwapRoute {
   toCurrency?: string;
   fromCurrency?: string;
   toAccountId?: string;
+  history?: boolean;
+  swapId?: string;
 }
 
 export interface BridgeRoute {
@@ -221,6 +223,21 @@ export interface PerpsRoute {
 
 export interface PayTabRoute {
   type: "paytab";
+  /**
+   * The OAuth authorization code, when the Card login redirect brought one. The provider redirects to
+   * `go.ledger.com`, which sends the browser on to `ledgerlive://paytab?code=…`.
+   */
+  code?: string;
+  /**
+   * The login attempt this code answers, echoed back by the provider. Lets the flow tell a stray
+   * redirect from an abandoned attempt apart from the one it is currently waiting on.
+   */
+  state?: string;
+  /**
+   * The provider app the holder belongs to. The provider runs one app per region, and the Card API
+   * routes on it.
+   */
+  appId?: string;
 }
 
 export interface LedgerSyncRoute {

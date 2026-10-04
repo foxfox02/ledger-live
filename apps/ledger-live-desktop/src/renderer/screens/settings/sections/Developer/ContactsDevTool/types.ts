@@ -1,4 +1,4 @@
-import type { ContactsFeatureParams, ContactsFeatureValue } from "@features/flow-contacts";
+import type { ContactsFeatureParams, ContactsFeatureValue } from "@features/platform-contacts";
 
 export interface ContactsDevToolContentProps {
   readonly expanded: boolean;
@@ -16,7 +16,11 @@ export interface ContactsDevToolViewModel {
   readonly handleSetEligibleAddressFamilies: (families: readonly string[]) => void;
   readonly setCustomFamiliesInput: (value: string) => void;
   readonly handleApplyCustomFamilies: () => void;
+  readonly excludedCurrencyIdsInput: string;
+  readonly setExcludedCurrencyIdsInput: (value: string) => void;
+  readonly handleApplyExcludedCurrencyIds: () => void;
   readonly handleLoadPopulatedContacts: () => void;
+  readonly handleLoadFromSendHistory: () => void;
   readonly handleResetContacts: () => void;
   readonly handleResetOverride: () => void;
 }

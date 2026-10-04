@@ -1,7 +1,7 @@
 import { rejectBalanceOptions } from "@ledgerhq/coin-module-framework/api/getBalance/rejectBalanceOptions";
 import {
   AddressValidationCurrencyParameters,
-  CoinModuleApi,
+  CoinModuleImpl,
   Balance,
   BalanceOptions,
   BroadcastConfig,
@@ -14,7 +14,7 @@ import {
   TransactionIntent,
 } from "@ledgerhq/coin-module-framework/api/index";
 import { craftTransactionData } from "@ledgerhq/coin-module-framework/logic/craftTransactionData";
-import coinConfig, { SolanaCoinConfig } from "../config";
+import { SolanaCoinConfig, SolanaContext } from "../config";
 import { broadcast } from "../logic/broadcast";
 import { combine } from "../logic/combine";
 import { craftRawTransaction } from "../logic/craftRawTransaction";
@@ -28,87 +28,126 @@ import { lastBlock } from "../logic/lastBlock";
 import { listOperations } from "../logic/listOperations";
 import { validateAddress } from "../logic/validateAddress";
 import { validateIntent } from "../logic/validateIntent";
-import { getChainAPI } from "../network";
+import { ChainAPI, getChainAPI } from "../network";
 import { endpointByCurrencyId } from "../utils";
 
-type SolanaCoinModuleApi = CoinModuleApi<StringMemo | MemoNotSupported>;
+type SolanaCoinModuleImpl = CoinModuleImpl<SolanaCoinConfig, StringMemo | MemoNotSupported>;
 
-export function createApi(config: SolanaCoinConfig, currencyId: string): SolanaCoinModuleApi {
-  coinConfig.setCoinConfig(() => ({
-    ...config,
-    status: { type: "active" as const },
-  }));
+/**
+ * Resolves the coin configuration from the {@link SolanaContext} and builds the {@link ChainAPI}
+ * for the context's currency, threading the resolved config into {@link endpointByCurrencyId}
+ * rather than seeding the module-level singleton (ADR-019).
+ */
+async function chainAPIFromContext(
+  context: SolanaContext,
+  currencyId: string,
+): Promise<{
+  api: ChainAPI;
+  config: SolanaCoinConfig;
+}> {
+  const config = await context.config();
+  const api = getChainAPI({ endpoint: endpointByCurrencyId(config, currencyId) });
+  return { api, config };
+}
 
-  const api = getChainAPI({ endpoint: endpointByCurrencyId(currencyId) });
-
+// The `currencyId` selector is captured here; the caller builds the {@link SolanaContext} (config + logger) and passes it to each method (ADR-019).
+// Checked against the authoring type with `satisfies` rather than annotated as it, so the precise
+// shape survives and a caller sees exactly which methods exist.
+//
+// Omitted rather than stubbed: `call`, `register`, `getBlock`, `getBlockInfo` and `getRewards`. The
+// consumer resolver applies `withDefaults`, which answers "not supported" for each.
+export function createApi(currencyId: string) {
   return {
-    broadcast: (tx: string, _broadcastConfig?: BroadcastConfig) => {
+    broadcast: async (
+      context: SolanaContext,
+      tx: string,
+      _options?: { broadcastConfig?: BroadcastConfig },
+    ) => {
+      const { api } = await chainAPIFromContext(context, currencyId);
       return broadcast(api, tx);
     },
-    async call() {
-      throw new Error("call is not supported");
-    },
-    combine: (tx: string, signature: string, _pubkey?: string) => {
+    combine: (
+      _context: SolanaContext,
+      tx: string,
+      signature: string[],
+      _options?: { pubkey?: string },
+    ) => {
       return combine(tx, signature);
     },
-    craftTransaction: (
+    craftTransaction: async (
+      context: SolanaContext,
       intent: TransactionIntent<StringMemo | MemoNotSupported> | StakingTransactionIntent,
-      customFees?: FeeEstimation,
+      options?: { customFees?: FeeEstimation },
     ) => {
-      return craftTransaction(api, intent, customFees);
+      const { api } = await chainAPIFromContext(context, currencyId);
+      return craftTransaction(api, intent, options?.customFees);
     },
-    craftRawTransaction: (tx: string, sender: string, _publicKey: string, _sequence: bigint) => {
+    craftRawTransaction: async (
+      _context: SolanaContext,
+      tx: string,
+      sender: string,
+      _publicKey: string,
+      _sequence: bigint,
+    ) => {
       return craftRawTransaction(tx, sender);
     },
-    estimateFees: (
+    estimateFees: async (
+      context: SolanaContext,
       intent: TransactionIntent<StringMemo | MemoNotSupported>,
-      customFeesParameters?: FeeEstimation["parameters"],
+      options?: { customFeesParameters?: FeeEstimation["parameters"] },
     ) => {
-      return estimateFees(api, intent, customFeesParameters);
+      const { api } = await chainAPIFromContext(context, currencyId);
+      return estimateFees(api, intent, options?.customFeesParameters);
     },
-    getBalance: (address: string, options?: BalanceOptions) =>
-      rejectBalanceOptions(
+    getBalance: async (context: SolanaContext, address: string, options?: BalanceOptions) => {
+      const { api, config } = await chainAPIFromContext(context, currencyId);
+      return rejectBalanceOptions(
         () =>
           getBalance(api, address, {
             token2022Enabled: config.token2022Enabled,
           }),
         options,
-      ),
-    lastBlock: () => {
+      );
+    },
+    lastBlock: async (context: SolanaContext) => {
+      const { api } = await chainAPIFromContext(context, currencyId);
       return lastBlock(api);
     },
-    listOperations: (_address: string, _options: ListOperationsOptions) => {
-      return listOperations(api, _address, _options);
+    listOperations: async (
+      context: SolanaContext,
+      address: string,
+      options: ListOperationsOptions,
+    ) => {
+      const { api } = await chainAPIFromContext(context, currencyId);
+      return listOperations(api, address, options);
     },
-    getBlock: () => {
-      throw new Error("getBlock is not supported");
+    getValidators: async (context: SolanaContext, _options?) => {
+      const { config } = await chainAPIFromContext(context, currencyId);
+      return getValidators(config.validatorsUrl);
     },
-    getBlockInfo: () => {
-      throw new Error("getBlockInfo is not supported");
+    getStakes: async (context: SolanaContext, address: string, options?: { cursor?: Cursor }) => {
+      const { api } = await chainAPIFromContext(context, currencyId);
+      return getStakes(api, address, options?.cursor);
     },
-    getRewards: (_address: string, _cursor?: Cursor) => {
-      throw new Error("getRewards is not supported");
-    },
-    getValidators: () => getValidators(config.validatorsUrl),
-    getStakes: (address: string, cursor?: Cursor) => {
-      return getStakes(api, address, cursor);
-    },
-    validateIntent: (
+    validateIntent: async (
+      context: SolanaContext,
       intent: TransactionIntent<StringMemo | MemoNotSupported>,
       balances: Balance[],
-      customFees?: FeeEstimation,
+      options?: { customFees?: FeeEstimation },
     ) => {
-      return validateIntent(api, intent, balances, customFees);
+      const { api } = await chainAPIFromContext(context, currencyId);
+      return validateIntent(api, intent, balances, options?.customFees);
     },
-    getNextSequence: async (address: string) => {
+    getNextSequence: async (_context: SolanaContext, address: string) => {
       return getNextSequence(address);
     },
     validateAddress: (
+      _context: SolanaContext,
       address: string,
       parameters: Partial<AddressValidationCurrencyParameters>,
     ) => {
       return validateAddress(address, parameters);
     },
-    craftTransactionData,
-  };
+    craftTransactionData: (_context, intent) => craftTransactionData(intent),
+  } satisfies SolanaCoinModuleImpl;
 }

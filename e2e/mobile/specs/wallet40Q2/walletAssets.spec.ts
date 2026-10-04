@@ -1,6 +1,6 @@
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { setTeamOwner } from "helpers/allure/allure-helper";
-import { FF_LWM_WALLET_40_Q2 } from "utils/featureFlagUtils";
+import { setTeamOwner } from "@e2e/helpers/allure/allure-helper";
+import { FF_LWM_WALLET_40_Q2 } from "@e2e/utils/featureFlagUtils";
 
 const TAGS = ["@NanoSP", "@LNS", "@NanoX", "@Stax", "@Flex", "@NanoGen5"];
 
@@ -16,7 +16,7 @@ const FF_WALLET_ASSETS = {
 };
 
 setTeamOwner(Team.WALLET_XP);
-describe("Wallet 4.0 Q2 - Portfolio-Asset/Address - Onboard without accounts", () => {
+describe("Wallet assets", () => {
   const tmsLinks = ["B2CQA-4839", "B2CQA-4840"];
   const currency = Account.INJ_1.currency;
 
@@ -26,7 +26,6 @@ describe("Wallet 4.0 Q2 - Portfolio-Asset/Address - Onboard without accounts", (
       speculosApp: currency.speculosApp,
       featureFlags: FF_WALLET_ASSETS,
     });
-    await app.wallet40Drawers.closeWallet40BlockingDrawersIfVisible(10_000);
     await app.mainNavigation.waitForWallet40Ready();
     await app.wallet40Drawers.closeWallet40BlockingDrawersIfVisible();
   });
@@ -34,14 +33,14 @@ describe("Wallet 4.0 Q2 - Portfolio-Asset/Address - Onboard without accounts", (
   tmsLinks.forEach(link => $TmsLink(link));
   TAGS.forEach(tag => $Tag(tag));
 
-  it("should display 4 cryptos, 2 stablecoins and an Add account CTA", async () => {
-    await app.portfolio.checkCryptosListSectionVisible(true);
-    await app.portfolio.checkStablecoinsListSectionVisible(true);
+  it(`[${currency.testLabel}] - Wallet assets empty state shows placeholders and add account CTA`, async () => {
+    await app.portfolio.checkCryptosListSectionVisible(4, true);
+    await app.portfolio.checkStablecoinsListSectionVisible(2, true);
     await app.portfolio.checkTotalAssetItemCount(6);
     await app.portfolio.checkAddAccountCtaVisible();
   });
 
-  it("should redirect to the correct asset market page when selecting an asset", async () => {
+  it(`[${currency.testLabel}] - Selecting an asset redirects to its market page`, async () => {
     await app.portfolio.tapFirstAssetItemW40();
     await app.market.expectAssetPageVisible();
     await app.market.leaveAssetPage();
@@ -50,7 +49,7 @@ describe("Wallet 4.0 Q2 - Portfolio-Asset/Address - Onboard without accounts", (
 });
 
 setTeamOwner(Team.WALLET_XP);
-describe("Wallet 4.0 Q2 - Portfolio-Asset/Address - With fewer accounts than section minimum (padding)", () => {
+describe("Wallet assets", () => {
   const tmsLinks = ["B2CQA-4841"];
 
   beforeAll(async () => {
@@ -58,7 +57,6 @@ describe("Wallet 4.0 Q2 - Portfolio-Asset/Address - With fewer accounts than sec
       userdata: "wallet40-btc-only",
       featureFlags: FF_WALLET_ASSETS,
     });
-    await app.wallet40Drawers.closeWallet40BlockingDrawersIfVisible(10_000);
     await app.mainNavigation.waitForWallet40Ready();
     await app.wallet40Drawers.closeWallet40BlockingDrawersIfVisible();
   });
@@ -66,16 +64,16 @@ describe("Wallet 4.0 Q2 - Portfolio-Asset/Address - With fewer accounts than sec
   tmsLinks.forEach(link => $TmsLink(link));
   TAGS.forEach(tag => $Tag(tag));
 
-  it("should pad cryptos to 4 and stablecoins to 2 with default assets when user has fewer accounts than minimum", async () => {
-    await app.portfolio.checkCryptosListSectionVisible();
-    await app.portfolio.checkStablecoinsListSectionVisible();
+  it(`[${Currency.BTC.testLabel}] - Wallet assets section with fewer than 6 cryptos and stablecoins`, async () => {
+    await app.portfolio.checkCryptosListSectionVisible(4);
+    await app.portfolio.checkStablecoinsListSectionVisible(2);
     await app.portfolio.checkTotalAssetItemCount(6);
     await app.portfolio.checkAssetVisible("Bitcoin");
   });
 });
 
 setTeamOwner(Team.WALLET_XP);
-describe("Wallet 4.0 Q2 - Portfolio-Asset/Address - Open the app with accounts", () => {
+describe("Wallet assets", () => {
   const tmsLinks = ["B2CQA-4834", "B2CQA-4837", "B2CQA-4838"];
 
   beforeAll(async () => {
@@ -83,7 +81,6 @@ describe("Wallet 4.0 Q2 - Portfolio-Asset/Address - Open the app with accounts",
       userdata: "wallet40-many-stablecoins",
       featureFlags: FF_WALLET_ASSETS,
     });
-    await app.wallet40Drawers.closeWallet40BlockingDrawersIfVisible(10_000);
     await app.mainNavigation.waitForWallet40Ready();
     await app.wallet40Drawers.closeWallet40BlockingDrawersIfVisible();
   });
@@ -91,9 +88,8 @@ describe("Wallet 4.0 Q2 - Portfolio-Asset/Address - Open the app with accounts",
   tmsLinks.forEach(link => $TmsLink(link));
   TAGS.forEach(tag => $Tag(tag));
 
-  it("should cap cryptos at 6, show only cryptos when clicking section title, and list all 6 crypto assets", async () => {
-    await app.portfolio.scrollToTopOfPortfolioPage();
-    await app.portfolio.checkCryptosListSectionVisible();
+  it("Wallet assets section caps cryptos at 6", async () => {
+    await app.portfolio.checkCryptosListSectionVisible(6);
     await app.portfolio.checkCryptosSectionAssetItemCount(6);
     await app.portfolio.checkAssetVisible("Ethereum");
     await app.portfolio.checkAssetVisible("Bitcoin");
@@ -103,9 +99,9 @@ describe("Wallet 4.0 Q2 - Portfolio-Asset/Address - Open the app with accounts",
     await app.mainNavigation.waitForWallet40Ready();
   });
 
-  it("should cap stablecoins at 6, show only stablecoins when clicking section title, and list all stablecoin assets", async () => {
-    await app.portfolio.scrollToTopOfPortfolioPage();
-    await app.portfolio.checkStablecoinsListSectionVisible();
+  it("Wallet assets section caps stablecoins at 6", async () => {
+    await app.portfolio.checkStablecoinsListSectionVisible(6);
+    await app.portfolio.checkStablecoinsSectionAssetItemCount(6);
     await app.portfolio.checkAssetVisible("Tether USD");
     await app.portfolio.checkAssetVisible("USD Coin");
     await app.portfolio.tapStablecoinsSectionTitle();

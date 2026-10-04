@@ -8,7 +8,7 @@ import {
 } from "@ledgerhq/lumen-ui-react";
 import { Plus } from "@ledgerhq/lumen-ui-react/symbols";
 import PageHeader from "LLD/components/PageHeader";
-import TrackPage from "~/renderer/analytics/TrackPage";
+import { TrackPage } from "@shared/analytics-react";
 import { useTranslation } from "react-i18next";
 import LedgerSyncEntryPoint from "LLD/features/LedgerSyncEntryPoints";
 import { EntryPoint } from "LLD/features/LedgerSyncEntryPoints/types";
@@ -23,6 +23,8 @@ export function CryptoAddressesView({
   readonly viewModel: CryptoAddressesViewModel;
 }) {
   const {
+    showBackButton,
+    navigateBack,
     searchValue,
     setSearchValue,
     emptyTableMessage,
@@ -36,7 +38,10 @@ export function CryptoAddressesView({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-24">
       <TrackPage category={CRYPTO_TRACKING_PAGE_NAME} source={CRYPTO_TRACKING_PAGE_NAME} />
-      <PageHeader title={t("cryptoAddresses.title")} />
+      <PageHeader
+        title={t("cryptoAddresses.title")}
+        onBack={showBackButton ? navigateBack : undefined}
+      />
       <div data-testid="crypto-page-content" className="flex min-h-0 flex-1 flex-col gap-16">
         <TableActionBar>
           <TableActionBarLeading className="flex-1 min-w-0">

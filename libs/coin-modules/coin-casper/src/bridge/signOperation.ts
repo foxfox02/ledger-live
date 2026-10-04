@@ -1,10 +1,11 @@
 import { SignerContext } from "@ledgerhq/ledger-wallet-framework/signer";
 import { log } from "@ledgerhq/logs";
 import { Account, AccountBridge } from "@ledgerhq/types-live";
-import { KeyAlgorithm } from "casper-js-sdk";
+import { Transaction as CasperTransaction } from "casper-js-sdk";
 import { Observable } from "rxjs";
-import { getAddress } from "../bridge/bridgeHelpers/addresses";
-import { createNewTransaction } from "../bridge/bridgeHelpers/txn";
+import { craftTransaction } from "../logic/craftTransaction";
+import { getAddress } from "../logic/validateAddress";
+import { tagSignature } from "../signer/deviceResponse";
 import { Transaction } from "../types";
 import { CasperSigner } from "../types";
 import { buildOptimisticOperation } from "./buildOptimisticOperation";
@@ -20,7 +21,22 @@ export const buildSignOperation =
 
         const { recipient, amount, fees, transferId } = transaction;
         const { address, derivationPath } = getAddress(account);
-        const casperTx = await createNewTransaction(address, recipient, amount, fees, transferId);
+
+        const crafted = await craftTransaction(
+          {
+            intentType: "transaction",
+            type: "send",
+            sender: address,
+            recipient,
+            amount: BigInt(amount.toFixed(0)),
+            asset: { type: "native" },
+            ...(transferId !== undefined && {
+              memo: { type: "string" as const, kind: "transferId" as const, value: transferId },
+            }),
+          },
+          fees === null ? undefined : { value: BigInt(fees.toFixed(0)) },
+        );
+        const casperTx = CasperTransaction.fromJSON(crafted.transaction);
 
         // Serialize tx
         const txBytes = casperTx.toBytes();
@@ -41,7 +57,7 @@ export const buildSignOperation =
 
         // signature verification
         const txHash = casperTx.hash.getHash()?.toHex() ?? "";
-        const signature = Buffer.concat([Buffer.from([KeyAlgorithm.SECP256K1]), r.signatureRS]);
+        const signature = tagSignature(r.signatureRS);
 
         const operation = buildOptimisticOperation(account, transaction, txHash);
         const txJson = casperTx.toJSON();
@@ -50,7 +66,7 @@ export const buildSignOperation =
           type: "signed",
           signedOperation: {
             operation,
-            signature: Buffer.from(signature).toString("hex"),
+            signature,
             rawData: {
               tx: JSON.stringify(txJson),
             },

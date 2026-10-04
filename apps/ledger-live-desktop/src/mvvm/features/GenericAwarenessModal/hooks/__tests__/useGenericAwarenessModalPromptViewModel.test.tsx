@@ -1,11 +1,20 @@
 import { act } from "tests/testSetup";
-import { track, trackPage } from "~/renderer/analytics/segment";
+import { track, trackPage } from "@shared/analytics";
 import { openURL } from "~/renderer/linking";
 import { closeGenericAwarenessModalDialog } from "LLD/features/GenericAwarenessModal/genericAwarenessModalDialog";
 import { PAGE_TRACKING_AWARENESS_MODAL_PROMPT } from "../../analytics/const";
 import { carouselCampaignCard, promptCampaignCard } from "../../testUtils/fixtures";
 import useGenericAwarenessModalPromptViewModel from "../useGenericAwarenessModalPromptViewModel";
 import { renderHookWithStore } from "../testHelpers/renderHookWithStore";
+
+jest.mock("@shared/analytics", () => ({
+  ...jest.requireActual("@shared/analytics"),
+  track: jest.fn(),
+  trackPage: jest.fn(),
+}));
+
+const mockLogClick = jest.fn();
+const mockLogDismiss = jest.fn();
 
 jest.mock("~/renderer/linking", () => ({
   openURL: jest.fn(),
@@ -22,7 +31,7 @@ describe("useGenericAwarenessModalPromptViewModel", () => {
 
   it("should return empty content when content card is undefined", () => {
     const { result } = renderHookWithStore(() =>
-      useGenericAwarenessModalPromptViewModel(undefined, false),
+      useGenericAwarenessModalPromptViewModel(undefined, false, mockLogClick, mockLogDismiss),
     );
 
     expect(result.current).toEqual({
@@ -43,7 +52,12 @@ describe("useGenericAwarenessModalPromptViewModel", () => {
 
   it("should return empty content when content card is not prompt", () => {
     const { result } = renderHookWithStore(() =>
-      useGenericAwarenessModalPromptViewModel(carouselCampaignCard, false),
+      useGenericAwarenessModalPromptViewModel(
+        carouselCampaignCard,
+        false,
+        mockLogClick,
+        mockLogDismiss,
+      ),
     );
 
     expect(result.current.title).toBe("");
@@ -52,7 +66,12 @@ describe("useGenericAwarenessModalPromptViewModel", () => {
 
   it("should map prompt content from the content card", () => {
     const { result } = renderHookWithStore(() =>
-      useGenericAwarenessModalPromptViewModel(promptCampaignCard, true),
+      useGenericAwarenessModalPromptViewModel(
+        promptCampaignCard,
+        true,
+        mockLogClick,
+        mockLogDismiss,
+      ),
     );
 
     expect(result.current.title).toBe("Stay in control");
@@ -64,20 +83,32 @@ describe("useGenericAwarenessModalPromptViewModel", () => {
   });
 
   it("should track page view when open with a prompt card", () => {
-    renderHookWithStore(() => useGenericAwarenessModalPromptViewModel(promptCampaignCard, true));
+    renderHookWithStore(() =>
+      useGenericAwarenessModalPromptViewModel(
+        promptCampaignCard,
+        true,
+        mockLogClick,
+        mockLogDismiss,
+      ),
+    );
 
     expect(trackPage).toHaveBeenCalledWith(
-      PAGE_TRACKING_AWARENESS_MODAL_PROMPT,
-      undefined,
-      expect.objectContaining({ contentId: promptCampaignCard.id }),
-      true,
-      false,
+      {
+        category: PAGE_TRACKING_AWARENESS_MODAL_PROMPT,
+        props: expect.objectContaining({ contentId: promptCampaignCard.id }),
+      },
+      { updateRoutes: true },
     );
   });
 
   it("should track primary click, open the link, and close dialog", () => {
     const { result } = renderHookWithStore(() =>
-      useGenericAwarenessModalPromptViewModel(promptCampaignCard, true),
+      useGenericAwarenessModalPromptViewModel(
+        promptCampaignCard,
+        true,
+        mockLogClick,
+        mockLogDismiss,
+      ),
     );
 
     act(() => {
@@ -100,7 +131,12 @@ describe("useGenericAwarenessModalPromptViewModel", () => {
 
   it("should track secondary click, open the link, and dismiss app start when closing", () => {
     const { result } = renderHookWithStore(() =>
-      useGenericAwarenessModalPromptViewModel(promptCampaignCard, true),
+      useGenericAwarenessModalPromptViewModel(
+        promptCampaignCard,
+        true,
+        mockLogClick,
+        mockLogDismiss,
+      ),
     );
 
     act(() => {
@@ -127,7 +163,12 @@ describe("useGenericAwarenessModalPromptViewModel", () => {
       primaryButtonLink: "",
     };
     const { result } = renderHookWithStore(() =>
-      useGenericAwarenessModalPromptViewModel(cardWithEmptyPrimaryLink, true),
+      useGenericAwarenessModalPromptViewModel(
+        cardWithEmptyPrimaryLink,
+        true,
+        mockLogClick,
+        mockLogDismiss,
+      ),
     );
 
     act(() => {
@@ -146,5 +187,28 @@ describe("useGenericAwarenessModalPromptViewModel", () => {
     expect(jest.mocked(closeGenericAwarenessModalDialog)).toHaveBeenCalledWith({
       dismissAppStart: true,
     });
+  });
+
+  it("should log Braze click on primary click and dismiss on header close", () => {
+    const { result } = renderHookWithStore(() =>
+      useGenericAwarenessModalPromptViewModel(
+        promptCampaignCard,
+        true,
+        mockLogClick,
+        mockLogDismiss,
+      ),
+    );
+
+    act(() => {
+      result.current.onPrimaryClick();
+    });
+    expect(mockLogClick).toHaveBeenCalledTimes(1);
+    expect(mockLogDismiss).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.onHeaderClose();
+    });
+    expect(mockLogClick).toHaveBeenCalledTimes(1);
+    expect(mockLogDismiss).toHaveBeenCalledTimes(1);
   });
 });

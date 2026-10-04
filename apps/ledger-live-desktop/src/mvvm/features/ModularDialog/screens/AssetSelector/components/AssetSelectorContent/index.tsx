@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo } from "react";
 import { CryptoOrTokenCurrency } from "@domain/entity-currency";
 import { AssetType } from "../../../../types";
 import { useModularDialogAnalytics } from "../../../../analytics/useModularDialogAnalytics";
+import { MODULAR_DIALOG_PAGE_NAME } from "../../../../analytics/modularDialog.types";
 import SkeletonList from "../../../../components/SkeletonList";
 import { MarketPriceIndicator, MarketPercentIndicator } from "../../../../components/Market";
 import { useAssetConfiguration } from "@ledgerhq/live-common/modularDrawer/modules/createAssetConfiguration";
@@ -21,24 +22,26 @@ export type AssetSelectorContentProps = {
   assetsToDisplay: CryptoOrTokenCurrency[];
   scrollToTop: boolean;
   assetsConfiguration: EnhancedModularDrawerConfiguration["assets"];
+  fillAvailableHeight?: boolean;
   providersLoadingStatus: LoadingStatus;
   onAssetSelected: (asset: CryptoOrTokenCurrency) => void;
   onScrolledToTop?: () => void;
   loadNext?: () => void;
   assetsSorted?: AssetData[];
+  disabledAssetIds?: ReadonlySet<string>;
 };
-
-const CURRENT_PAGE = "Modular Asset Selection";
 
 export const AssetSelectorContent = ({
   assetsToDisplay,
   scrollToTop,
   assetsConfiguration,
+  fillAvailableHeight,
   providersLoadingStatus,
   onAssetSelected,
   onScrolledToTop,
   loadNext,
   assetsSorted,
+  disabledAssetIds,
 }: AssetSelectorContentProps) => {
   const assetsMap = groupCurrenciesByAsset(assetsSorted || []);
 
@@ -59,11 +62,12 @@ export const AssetSelectorContent = ({
 
       return {
         ...asset,
+        disabled: disabledAssetIds?.has(asset.id),
         numberOfNetworks: assetWithNetworks?.networks?.length,
         assetId: assetWithNetworks?.asset.metaCurrencyId,
       };
     });
-  }, [assetsTransformed, assetsSorted]);
+  }, [assetsTransformed, assetsSorted, disabledAssetIds]);
 
   const isLoading = [LoadingStatus.Pending, LoadingStatus.Idle].includes(providersLoadingStatus);
   const shouldDisplayEmptyState =
@@ -72,6 +76,7 @@ export const AssetSelectorContent = ({
 
   const onClick = useCallback(
     (asset: AssetType) => {
+      if (asset.disabled) return;
       const selectedAsset = assetsToDisplay.find(({ id }) => id === asset.id);
       if (!selectedAsset) return;
 
@@ -79,7 +84,7 @@ export const AssetSelectorContent = ({
         "asset_clicked",
         {
           asset: selectedAsset.name,
-          page: CURRENT_PAGE,
+          page: MODULAR_DIALOG_PAGE_NAME.MODULAR_ASSET_SELECTION,
         },
         {
           formatAssetConfig: true,
@@ -90,6 +95,16 @@ export const AssetSelectorContent = ({
       onAssetSelected(selectedAsset);
     },
     [assetsToDisplay, trackModularDialogEvent, assetsConfiguration, onAssetSelected],
+  );
+  const onDisabledClick = useCallback(
+    (asset: AssetType) => {
+      trackModularDialogEvent("button_clicked", {
+        asset: asset.name,
+        button: "disabled network tooltip",
+        page: MODULAR_DIALOG_PAGE_NAME.MODULAR_ASSET_SELECTION,
+      });
+    },
+    [trackModularDialogEvent],
   );
 
   useEffect(() => {
@@ -111,9 +126,11 @@ export const AssetSelectorContent = ({
       scrollToTop={scrollToTop}
       assets={formattedAssets}
       onClick={onClick}
+      onDisabledClick={onDisabledClick}
       onVisibleItemsScrollEnd={loadNext}
       hasNextPage={!!loadNext}
       isDebuggingDuplicates={isDebuggingDuplicates}
+      fillAvailableHeight={fillAvailableHeight}
     />
   );
 };

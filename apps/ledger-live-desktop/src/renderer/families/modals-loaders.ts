@@ -1,6 +1,10 @@
 import React, { use } from "react";
 
 import type { Data as AleoSendData } from "./aleo/modals/send/types";
+import type { Data as AleoBondPublicData } from "./aleo/BondPublicFlowModal/Body";
+import type { Data as AleoManageData } from "./aleo/ManageModal/ManageModal";
+import type { Data as AleoUnbondData } from "./aleo/UnbondFlowModal/Body";
+import type { Data as AleoClaimUnbondData } from "./aleo/ClaimUnbondFlowModal/Body";
 import type { Data as AlgorandOptInData } from "./algorand/OptInFlowModal/Body";
 import type { Data as AlgorandClaimRewardsData } from "./algorand/Rewards/ClaimRewardsFlowModal/Body";
 import type { Props as AlgorandEarnRewardsInfoProps } from "./algorand/Rewards/EarnRewardsInfoModal";
@@ -45,6 +49,9 @@ import type { Data as HederaDelegationData } from "./hedera/DelegationFlowModal/
 import type { Data as HederaUndelegationData } from "./hedera/UndelegationFlowModal/Body";
 import type { Data as HederaRedelegationData } from "./hedera/RedelegationFlowModal/Body";
 import type { Data as HederaClaimRewardsData } from "./hedera/ClaimRewardsFlowModal/Body";
+import type { Props as IcpListNeuronsProps } from "./internet_computer/ManageNeuronFlowModal";
+import type { Props as IcpRefreshVotingPowerProps } from "./internet_computer/RefreshVotingPowerFlowModal";
+import type { Props as MinaStakeData } from "./mina/StakingFlowModal";
 import type { Data as MultiversxDelegateData } from "./multiversx/components/Modals/Delegate/Body";
 import type { Props as MultiversxRewardsInfoProps } from "./multiversx/components/Modals/Delegate/Info";
 import type { Data as MultiversxUndelegateData } from "./multiversx/components/Modals/Undelegate/Body";
@@ -68,6 +75,8 @@ import type { Data as SolanaDelegationDeactivateData } from "./solana/Delegation
 import type { Data as SolanaDelegationReactivateData } from "./solana/DelegationReactivateFlowModal/Body";
 import type { Data as SolanaDelegationWithdrawData } from "./solana/DelegationWithdrawFlowModal/Body";
 import type { Data as StellarAddAssetData } from "./stellar/AddAssetModal/Body";
+import type { Data as StacksStakeData } from "./stacks/StakeFlowModal/Body";
+import type { Data as StacksUnstakeData } from "./stacks/UnstakeFlowModal/Body";
 import type { Data as SuiDelegateData } from "./sui/DelegationFlowModal/Body";
 import type { Data as SuiUnstakeData } from "./sui/UnstakingFlowModal/Body";
 import type { Data as TezosDelegateData } from "./tezos/DelegateFlowModal/Body";
@@ -78,6 +87,10 @@ import type { Data as TezosUnstakeRequiredData } from "./tezos/UnstakeRequiredMo
 
 export type CoinModalsData = {
   MODAL_ALEO_SELF_TRANSFER: AleoSendData;
+  MODAL_ALEO_BOND_PUBLIC: AleoBondPublicData;
+  MODAL_ALEO_MANAGE: AleoManageData;
+  MODAL_ALEO_UNBOND: AleoUnbondData;
+  MODAL_ALEO_CLAIM_UNBOND: AleoClaimUnbondData;
   MODAL_ALGORAND_OPT_IN: AlgorandOptInData;
   MODAL_ALGORAND_CLAIM_REWARDS: AlgorandClaimRewardsData;
   MODAL_ALGORAND_EARN_REWARDS_INFO: AlgorandEarnRewardsInfoProps;
@@ -123,6 +136,9 @@ export type CoinModalsData = {
   MODAL_HEDERA_UNDELEGATION: HederaUndelegationData;
   MODAL_HEDERA_REDELEGATION: HederaRedelegationData;
   MODAL_HEDERA_CLAIM_REWARDS: HederaClaimRewardsData;
+  MODAL_ICP_LIST_NEURONS: IcpListNeuronsProps;
+  MODAL_ICP_REFRESH_VOTING_POWER: IcpRefreshVotingPowerProps;
+  MODAL_MINA_STAKE: MinaStakeData;
   MODAL_MULTIVERSX_DELEGATE: MultiversxDelegateData;
   MODAL_MULTIVERSX_REWARDS_INFO: MultiversxRewardsInfoProps;
   MODAL_MULTIVERSX_UNDELEGATE: MultiversxUndelegateData;
@@ -146,6 +162,8 @@ export type CoinModalsData = {
   MODAL_SOLANA_DELEGATION_REACTIVATE: SolanaDelegationReactivateData;
   MODAL_SOLANA_DELEGATION_WITHDRAW: SolanaDelegationWithdrawData;
   MODAL_STELLAR_ADD_ASSET: StellarAddAssetData;
+  MODAL_STACKS_STAKE: StacksStakeData;
+  MODAL_STACKS_UNSTAKE: StacksUnstakeData;
   MODAL_SUI_DELEGATE: SuiDelegateData;
   MODAL_SUI_UNSTAKE: SuiUnstakeData;
   MODAL_DELEGATE: TezosDelegateData;
@@ -164,6 +182,10 @@ type CoinModalImport = () => Promise<{ default: React.ComponentType<any> }>;
 // preloadCoinModals() (the bundler dedupes, so React.lazy then resolves instantly).
 export const coinModalImports: Record<CoinModalKey, CoinModalImport> = {
   MODAL_ALEO_SELF_TRANSFER: () => import("./aleo/SelfTransferModal"),
+  MODAL_ALEO_BOND_PUBLIC: () => import("./aleo/BondPublicFlowModal"),
+  MODAL_ALEO_MANAGE: () => import("./aleo/ManageModal/ManageModal"),
+  MODAL_ALEO_UNBOND: () => import("./aleo/UnbondFlowModal"),
+  MODAL_ALEO_CLAIM_UNBOND: () => import("./aleo/ClaimUnbondFlowModal"),
   MODAL_ALGORAND_OPT_IN: () => import("./algorand/OptInFlowModal"),
   MODAL_ALGORAND_CLAIM_REWARDS: () => import("./algorand/Rewards/ClaimRewardsFlowModal"),
   MODAL_ALGORAND_EARN_REWARDS_INFO: () => import("./algorand/Rewards/EarnRewardsInfoModal"),
@@ -212,6 +234,9 @@ export const coinModalImports: Record<CoinModalKey, CoinModalImport> = {
   MODAL_HEDERA_UNDELEGATION: () => import("./hedera/UndelegationFlowModal"),
   MODAL_HEDERA_REDELEGATION: () => import("./hedera/RedelegationFlowModal"),
   MODAL_HEDERA_CLAIM_REWARDS: () => import("./hedera/ClaimRewardsFlowModal"),
+  MODAL_ICP_LIST_NEURONS: () => import("./internet_computer/ManageNeuronFlowModal"),
+  MODAL_ICP_REFRESH_VOTING_POWER: () => import("./internet_computer/RefreshVotingPowerFlowModal"),
+  MODAL_MINA_STAKE: () => import("./mina/StakingFlowModal"),
   MODAL_MULTIVERSX_DELEGATE: () => import("./multiversx/components/Modals/Delegate"),
   MODAL_MULTIVERSX_REWARDS_INFO: () => import("./multiversx/components/Modals/Delegate/Info"),
   MODAL_MULTIVERSX_UNDELEGATE: () => import("./multiversx/components/Modals/Undelegate"),
@@ -235,6 +260,8 @@ export const coinModalImports: Record<CoinModalKey, CoinModalImport> = {
   MODAL_SOLANA_DELEGATION_REACTIVATE: () => import("./solana/DelegationReactivateFlowModal"),
   MODAL_SOLANA_DELEGATION_WITHDRAW: () => import("./solana/DelegationWithdrawFlowModal"),
   MODAL_STELLAR_ADD_ASSET: () => import("./stellar/AddAssetModal"),
+  MODAL_STACKS_STAKE: () => import("./stacks/StakeFlowModal"),
+  MODAL_STACKS_UNSTAKE: () => import("./stacks/UnstakeFlowModal"),
   MODAL_SUI_DELEGATE: () => import("./sui/DelegationFlowModal"),
   MODAL_SUI_UNSTAKE: () => import("./sui/UnstakingFlowModal"),
   MODAL_DELEGATE: () => import("./tezos/DelegateFlowModal"),

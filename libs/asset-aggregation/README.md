@@ -17,8 +17,8 @@
 - `assetAggregation` — core logic to merge accounts into a deduplicated asset list
 - `assetCategorization` — classifies assets by type/category
 - `assetDistribution` — computes portfolio share (%) per asset
-- `mocks/` — mock asset data for tests and Storybook
+- `mocks/` — mock asset data for tests
 
 ## Usage context
 
-Used in both `apps/ledger-live-desktop` and `apps/ledger-live-mobile` on the portfolio and asset list screens. Typically consumed alongside `@ledgerhq/live-countervalues` to enrich aggregated assets with fiat values.
+Used in both `apps/ledger-live-desktop` and `apps/ledger-live-mobile` on the portfolio and asset list screens. Typically consumed alongside `@domain/entity-market-countervalues` to enrich aggregated assets with fiat values.

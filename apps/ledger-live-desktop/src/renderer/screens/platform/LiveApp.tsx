@@ -6,7 +6,11 @@ import WebPlatformPlayer from "~/renderer/components/WebPlatformPlayer";
 import { languageSelector } from "~/renderer/reducers/settings";
 import { useSelector } from "LLD/hooks/redux";
 import { useLiveAppManifest } from "@ledgerhq/live-common/wallet-api/useLiveAppManifest";
-import { useTrack } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
+import {
+  hasStakeRedirectParams,
+  useDappLifecycleMonitoring,
+} from "~/renderer/analytics/useDappLifecycleMonitoring";
 import { useGetSwapTrackingProperties } from "../exchange/Swap2/utils";
 
 export type LiveAppProps = {
@@ -17,7 +21,6 @@ export function LiveApp({ appId: propsAppId }: LiveAppProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const routeParams = useParams<{ appId: string }>();
-  const track = useTrack();
   const swapTrackingProperties = useGetSwapTrackingProperties();
   const { search } = location;
   const internalParams =
@@ -26,11 +29,14 @@ export function LiveApp({ appId: propsAppId }: LiveAppProps) {
   const urlParams = location.state as {
     returnTo?: string;
     accountId?: string;
+    yieldId?: string;
     customDappUrl?: string;
     [key: string]: string | undefined;
   } | null;
   const customDappUrl = (location as { customDappUrl?: string }).customDappUrl;
   const appId = propsAppId || routeParams.appId;
+  const isStakeRedirect = hasStakeRedirectParams(urlParams, search, internalParams);
+  useDappLifecycleMonitoring(appId, isStakeRedirect);
   const returnTo = useMemo<string | undefined>(() => {
     const params = new URLSearchParams(search);
     return urlParams?.returnTo || params.get("returnTo") || internalParams?.returnTo;
@@ -58,7 +64,7 @@ export function LiveApp({ appId: propsAppId }: LiveAppProps) {
     }
 
     navigate(returnTo || `/platform`);
-  }, [navigate, returnTo, appId, swapTrackingProperties, track]);
+  }, [navigate, returnTo, appId, swapTrackingProperties]);
   const themeType = useTheme().theme;
   const lang = useSelector(languageSelector);
   const params = {

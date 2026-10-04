@@ -1,21 +1,25 @@
 import { Step } from "jest-allure2-reporter/api";
 import * as fs from "fs/promises";
 import { sanitizeError } from "@ledgerhq/live-e2e-shared/index";
+import { INTERVAL, TIMEOUT } from "@e2e/utils/timeouts";
 
 export class FileUtils {
-  @Step("get app.json size")
+  @Step("get app.json size {{{0}}}")
   static async getAppJsonSize(userdataFile: string) {
     const fileStats = await fs.stat(userdataFile);
     return fileStats.size;
   }
 
-  @Step("Compare 2 app.json files")
+  @Step("Compare 2 app.json files ({{{0}}} vs {{{1}}})")
   static async compareAppJsonSize(appJson1: number, appJson2: number) {
     jestExpect(appJson1).not.toEqual(appJson2);
   }
 
-  @Step("Wait for file to exist after clicking download")
-  static async waitForFileToExist(filePath: string, timeout: number = 5000): Promise<boolean> {
+  @Step("Wait for file to exist after clicking download {{{0}}}")
+  static async waitForFileToExist(
+    filePath: string,
+    timeout: number = TIMEOUT.small,
+  ): Promise<boolean> {
     const startTime = Date.now();
     while (Date.now() - startTime < timeout) {
       try {
@@ -23,14 +27,14 @@ export class FileUtils {
         return true;
       } catch (error) {
         console.error("Error in waitForFileToExist:", sanitizeError(error));
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, INTERVAL.instant));
       }
     }
 
     return false;
   }
 
-  @Step("Read file as string")
+  @Step("Read file as string {{{0}}}")
   static async readFileAsString(filePath: string): Promise<string> {
     try {
       const base64Content = await fs.readFile(filePath, "utf8");

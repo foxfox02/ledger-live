@@ -78,6 +78,7 @@ export const DEVICE_LABELS_CONFIG: DeviceLabelsConfig = {
     receiveConfirm: {
       [AppInfos.COSMOS.name]: DeviceLabels.CAPS_APPROVE,
       [AppInfos.POLKADOT.name]: DeviceLabels.CAPS_APPROVE,
+      [AppInfos.TRON.name]: DeviceLabels.CONFIRM,
       [AppInfos.ZCASH.name]: DeviceLabels.CONFIRM,
       default: DeviceLabels.APPROVE,
     },
@@ -149,6 +150,7 @@ export const DEVICE_LABELS_CONFIG: DeviceLabelsConfig = {
       [AppInfos.POLYGON.name]: DeviceLabels.CONFIRM,
       [AppInfos.RIPPLE.name]: DeviceLabels.CONFIRM,
       [AppInfos.SOLANA.name]: DeviceLabels.CONFIRM,
+      [AppInfos.TRON.name]: DeviceLabels.CONFIRM,
       [AppInfos.ZCASH.name]: DeviceLabels.CONFIRM,
       [AppInfos.SUI.name]: DeviceLabels.CONFIRM,
       default: DeviceLabels.APPROVE,
@@ -157,7 +159,7 @@ export const DEVICE_LABELS_CONFIG: DeviceLabelsConfig = {
       [AppInfos.COSMOS.name]: DeviceLabels.PLEASE_REVIEW,
       [AppInfos.MULTIVERS_X.name]: DeviceLabels.RECEIVER,
       [AppInfos.NEAR.name]: DeviceLabels.VIEW_HEADER,
-      [AppInfos.SOLANA.name]: DeviceLabels.REVIEW_TRANSACTION_TO,
+      [AppInfos.SOLANA.name]: DeviceLabels.REVIEW_TRANSACTION,
       [AppInfos.MINA.name]: DeviceLabels.SIGN_TRANSACTION,
       default: DeviceLabels.REVIEW_OPERATION,
     },
@@ -175,7 +177,9 @@ export const DEVICE_LABELS_CONFIG: DeviceLabelsConfig = {
       default: DeviceLabels.APPROVE,
     },
     sendVerify: {
-      [AppInfos.SOLANA.name]: DeviceLabels.REVIEW_TRANSACTION_TO,
+      [AppInfos.SOLANA.name]: DeviceLabels.REVIEW_TRANSACTION,
+      // The mina app opens a payment on the same screen as a delegation.
+      [AppInfos.MINA.name]: DeviceLabels.SIGN_TRANSACTION,
       default: DeviceLabels.REVIEW_OPERATION,
     },
     sendConfirm: {
@@ -193,6 +197,7 @@ export const DEVICE_LABELS_CONFIG: DeviceLabelsConfig = {
       [AppInfos.BITCOIN_CASH.name]: DeviceLabels.ACCEPT,
       [AppInfos.CONCORDIUM.name]: DeviceLabels.SIGN_TRANSACTION,
       [AppInfos.CONCORDIUM_TESTNET.name]: DeviceLabels.SIGN_TRANSACTION,
+      [AppInfos.ALEO.name]: DeviceLabels.SIGN_TRANSACTION,
       default: DeviceLabels.CAPS_APPROVE,
     },
   },

@@ -1,6 +1,6 @@
 {
   "name": "@ledgerhq/coin-tron",
-  "version": "6.7.0",
+  "version": "9.0.0",
   "description": "Ledger Tron Coin integration",
   "keywords": [
     "Ledger",
@@ -28,26 +28,8 @@
       "lib-es/*": [
         "lib-es/*"
       ],
-      "bridge": [
-        "lib/bridge/index"
-      ],
-      "deviceTransactionConfig": [
-        "lib/bridge/deviceTransactionConfig"
-      ],
       "network": [
         "lib/network/index"
-      ],
-      "specs": [
-        "lib/test/bot-specs"
-      ],
-      "signer": [
-        "lib/signer/index"
-      ],
-      "transaction": [
-        "lib/bridge/transaction"
-      ],
-      "types": [
-        "lib/types/index"
       ],
       "*": [
         "lib/*"
@@ -57,40 +39,10 @@
   "exports": {
     "./lib/*": "./lib/*.js",
     "./lib-es/*": "./lib-es/*.js",
-    "./bridge": {
-      "@ledgerhq/source": "./src/bridge/index.ts",
-      "require": "./lib/bridge/index.js",
-      "default": "./lib-es/bridge/index.js"
-    },
-    "./deviceTransactionConfig": {
-      "@ledgerhq/source": "./src/bridge/deviceTransactionConfig.ts",
-      "require": "./lib/bridge/deviceTransactionConfig.js",
-      "default": "./lib-es/bridge/deviceTransactionConfig.js"
-    },
     "./network": {
       "@ledgerhq/source": "./src/network/index.ts",
       "require": "./lib/network/index.js",
       "default": "./lib-es/network/index.js"
-    },
-    "./signer": {
-      "@ledgerhq/source": "./src/signer/index.ts",
-      "require": "./lib/signer/index.js",
-      "default": "./lib-es/signer/index.js"
-    },
-    "./specs": {
-      "@ledgerhq/source": "./src/test/bot-specs.ts",
-      "require": "./lib/test/bot-specs.js",
-      "default": "./lib-es/test/bot-specs.js"
-    },
-    "./transaction": {
-      "@ledgerhq/source": "./src/bridge/transaction.ts",
-      "require": "./lib/bridge/transaction.js",
-      "default": "./lib-es/bridge/transaction.js"
-    },
-    "./types/*": {
-      "@ledgerhq/source": "./src/types/*.ts",
-      "require": "./lib/types/*.js",
-      "default": "./lib-es/types/*.js"
     },
     "./*": {
       "@ledgerhq/source": "./src/*.ts",
@@ -102,28 +54,22 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@ledgerhq/coin-module-framework": "catalog:",
-    "@ledgerhq/devices": "workspace:*",
-    "@ledgerhq/ledger-wallet-framework": "workspace:^",
-    "@ledgerhq/live-network": "workspace:^",
-    "@ledgerhq/live-promise": "workspace:^",
-    "@ledgerhq/logs": "workspace:^",
-    "@ledgerhq/types-live": "workspace:^",
+    "@ledgerhq/live-network": "catalog:",
+    "axios": "catalog:",
     "bignumber.js": "^9.1.2",
     "bs58check": "catalog:",
-    "invariant": "^2.2.2",
-    "lodash": "^4.17.21",
-    "rxjs": "catalog:",
-    "tronweb": "6.2.0"
+    "lodash": "catalog:",
+    "tronweb": "6.5.1"
   },
   "devDependencies": {
     "@ledgerhq/disable-network-setup": "workspace:^",
+    "@ledgerhq/test-quarantine": "workspace:*",
     "@ledgerhq/wallet-framework-test-setup": "workspace:^",
     "@swc/core": "catalog:",
     "@swc/jest": "catalog:",
     "@types/bs58check": "catalog:",
-    "@types/invariant": "^2.2.2",
     "@types/jest": "catalog:",
-    "@types/lodash": "^4.14.191",
+    "@types/lodash": "catalog:",
     "@types/node": "catalog:",
     "dotenv": "^16.4.5",
     "jest": "catalog:",
@@ -138,7 +84,6 @@
     "prewatch": "pnpm build",
     "watch": "tsc --watch --project tsconfig.build.json",
     "watch:es": "tsc --watch --project tsconfig.build.json -m esnext --moduleResolution bundler --outDir lib-es",
-    "doc": "documentation readme src/** --section=API --pe ts --re ts --re d.ts",
     "lint": "oxlint src",
     "lint:fix": "oxfmt src && oxlint src --fix --quiet",
     "test": "jest",

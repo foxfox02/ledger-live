@@ -1,7 +1,7 @@
 import React from "react";
 import { Observable, Subject } from "rxjs";
 import { act, renderHook } from "@tests/test-renderer";
-import type { DeviceConnectionResult } from "@ledgerhq/device-intent";
+import type { DeviceConnectionResult } from "@features/platform-device-intent";
 import { DeviceId } from "@domain/entity-client-identity";
 import { DeviceModelId } from "@ledgerhq/types-devices";
 import type { DeviceInfo } from "@ledgerhq/types-live";
@@ -9,6 +9,7 @@ import {
   DeviceInteractionRequiredType,
   FinalStateType,
   LoadingStateType,
+  ledgerToDmkDeviceIdMap,
   type EnsureAppReadyState,
 } from "@ledgerhq/live-dmk-shared";
 import { ensureAppReadyUseCase } from "@ledgerhq/live-common/device/use-cases/ensureAppReady/ensureAppReadyUseCase";
@@ -22,14 +23,17 @@ jest.mock("@ledgerhq/live-common/device/use-cases/ensureAppReady/ensureAppReadyU
 }));
 
 const mockedEnsureAppReadyUseCase = jest.mocked(ensureAppReadyUseCase);
+const mockReportFailure = jest.fn();
 
 const connectionResult = {
   dmk: { name: "dmk" },
   sessionId: "session-1",
   compatDeviceId: "device-id",
-  compatDeviceModelId: DeviceModelId.nanoX,
   compatDeviceName: "Ledger Nano X",
   compatDeviceWired: false,
+  connectedDevice: {
+    modelId: ledgerToDmkDeviceIdMap[DeviceModelId.nanoX],
+  },
 } as unknown as DeviceConnectionResult;
 
 const deviceInitializationInput: InitializationInput = {
@@ -62,7 +66,9 @@ function withDeprecationDoNotRemind(deprecationDoNotRemind = ["Ethereum"]) {
       },
     }),
     innerWrapper: ({ children }: { children?: React.ReactNode }) => (
-      <DeviceIntentTrackingProvider value={{ sourceFlow: "my_ledger" }}>
+      <DeviceIntentTrackingProvider
+        value={{ sourceFlow: "my_ledger", reportFailure: mockReportFailure }}
+      >
         {children}
       </DeviceIntentTrackingProvider>
     ),
@@ -183,19 +189,24 @@ describe("useDeviceContextInitializerComponentLWMViewModel", () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
-  it("should dispatch store updates from use case side effects", () => {
+  it("GIVEN use case side effects WHEN they observe device metadata THEN they update mobile stores", () => {
+    // GIVEN
     const { store } = renderViewModel();
     const { sideEffects } = mockedEnsureAppReadyUseCase.mock.calls[0][0];
     const deviceId = DeviceId.fromString("010203");
     const deviceInfo = { version: "2.0.0" } as DeviceInfo;
+    const apps = [{ name: "Bitcoin", version: "2.2.0" }];
 
+    // WHEN
     sideEffects.onDeviceIdObserved(deviceId);
     sideEffects.onLastSeenDeviceInfoObserved({
       modelId: DeviceModelId.nanoX,
       deviceInfo,
+      apps,
       latestFirmware: null,
     });
 
+    // THEN
     const state = store.getState();
     expect(state.identities.deviceIds).toHaveLength(1);
     expect(state.identities.deviceIds[0].equals(deviceId)).toBe(true);
@@ -203,8 +214,29 @@ describe("useDeviceContextInitializerComponentLWMViewModel", () => {
       {
         modelId: DeviceModelId.nanoX,
         deviceInfo,
-        apps: [],
+        apps,
       },
     ]);
+  });
+
+  it("GIVEN the use case fails WHEN the error is displayed THEN it reports a connect app failure with the error tag", () => {
+    // GIVEN
+    const subject = setupObservable();
+    renderViewModel();
+
+    // WHEN
+    act(() => {
+      subject.error({ _tag: "SendApduTimeoutError" });
+    });
+
+    // THEN
+    expect(mockReportFailure).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        failureType: "ConnectAppError",
+        countsAsFailure: true,
+        subError: "SendApduTimeoutError",
+        modelId: DeviceModelId.nanoX,
+      }),
+    );
   });
 });

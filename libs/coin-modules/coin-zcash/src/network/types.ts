@@ -46,6 +46,7 @@ export interface ZCashClient {
     requests: TransactionDetailsRequest[],
     ufvk?: string,
   ): Promise<TransactionDetailsResult[]>;
+  deriveShieldedAddress(ufvk: string): Promise<string>;
 }
 
 /** Common constructor args shared by both ZCash client factories. */
@@ -109,6 +110,9 @@ export type ShieldedTransaction = {
   /**
    * Whether the transaction spends transparent inputs, in which case those
    * inputs — rather than the shielded pools — may be paying `transparentOut`.
+   * Absent for transactions scanned before the scanner reported it (see
+   * `transparentOut`) — treated as unset rather than `false` by every reader
+   * of this field, never coerced.
    */
   hasTransparentInputs?: boolean;
   decryptedData?: DecryptedTransaction;
@@ -123,9 +127,16 @@ export type ZcashPrivateInfo = {
   estimatedTimeRemaining: SyncEstimatedTime;
   ufvk: string | null;
   birthday: string | null;
+  shieldedAddress: string | null;
   lastSyncTimestamp: number | null;
   lastProcessedBlock: number | null;
   transactions: ShieldedTransaction[];
+  /**
+   * Set when the shielded leg degraded to `syncState: "stopped"` because it
+   * failed or timed out, rather than because the user asked it to stop — the
+   * two are otherwise indistinguishable in `syncState` alone.
+   */
+  lastSyncError?: string | null;
 };
 
 export type ZcashPrivateInfoRaw = {
@@ -137,9 +148,11 @@ export type ZcashPrivateInfoRaw = {
   estimatedTimeRemaining: SyncEstimatedTime;
   ufvk: string | null;
   birthday: string | null;
+  shieldedAddress: string | null;
   lastSyncTimestamp: number | null;
   lastProcessedBlock: number | null;
   transactions: ShieldedTransactionRaw[];
+  lastSyncError?: string | null;
 };
 
 export type ShieldedTransactionRaw = {
@@ -216,7 +229,22 @@ export const ZCASH_SHIELDED_TX_TYPES = [
 export type BuildTransactionArgs = {
   requestId: string;
   grpcUrl: string;
-  ufvk: string;
+  /**
+   * Unified full viewing key of the account. Required by every flow carrying a
+   * shielded bundle; absent for a transparent send, which reads no shielded key
+   * material and identifies its account with `transparentAccountPubkey`
+   * instead -- exactly so that spending public funds never needs the UFVK
+   * export flow (a device confirmation) to have been run.
+   */
+  ufvk?: string;
+  /**
+   * 130-char hex (65 bytes: 32-byte chain code + 33-byte compressed pubkey) of
+   * the account-level transparent pubkey at `m/44'/133'/account'` -- the payload
+   * of the account xpub (see `signer/xpub.ts`). The builder derives the internal
+   * change address from it and verifies each transparent input's signing path
+   * against it.
+   */
+  transparentAccountPubkey?: string;
   network?: string;
   seedFingerprint: string;
   accountIndex: number;
@@ -264,12 +292,16 @@ export type FinalizeTransactionArgs = {
   pczt: string;
   /** One 128-hex-char RedPallas spendAuthSig per real Orchard spend, in PCZT-action order. */
   orchardSignatures: string[];
-  /** One DER-hex secp256k1 signature per transparent input (empty for pure Orchard). */
+  /** One DER-hex secp256k1 signature per transparent input (empty for pure Orchard/Ironwood). */
   transparentSignatures: string[];
+  /** One 128-hex-char RedPallas spendAuthSig per real Ironwood spend, in PCZT-action order.
+   *  Absent or empty for V5 (Orchard-only) transactions. */
+  ironwoodSignatures?: string[];
 };
 
 export type FinalizeTransactionResult = {
-  /** Hex-encoded signed V5 transaction bytes (ready for broadcast). */
+  /** Hex-encoded signed transaction bytes, ready for broadcast. V5 for an
+   *  Orchard/transparent send, V6 for an Ironwood (NU6.3) one. */
   txHex: string;
   /** 64-char hex txid, big-endian display order (matches ShieldedTransaction.txid). */
   txid: string;

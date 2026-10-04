@@ -1,18 +1,10 @@
+import { track } from "@shared/analytics";
+import { TrackScreen } from "@shared/analytics-react";
 import React from "react";
 import { render, screen } from "@tests/test-renderer";
-import { TrackScreen, track } from "~/analytics";
 import { DeviceIntentTrackingProvider } from "../../utils/DeviceIntentTrackingContext";
 import { PAGE_CONNECT_DEVICE } from "../../utils/trackDeviceIntent";
 import { NoKnownDeviceState } from "./NoKnownDeviceState";
-
-jest.mock("~/analytics", () => {
-  const actual = jest.requireActual("~/analytics");
-  return {
-    ...actual,
-    TrackScreen: jest.fn(() => null),
-    track: jest.fn(),
-  };
-});
 
 const mockedTrackScreen = jest.mocked(TrackScreen);
 const mockedTrack = jest.mocked(track);
@@ -41,14 +33,14 @@ describe("NoKnownDeviceState", () => {
     renderState();
 
     expect(screen.getByText("Ledger device required")).toBeVisible();
-    expect(screen.getByText("To continue, set up or connect your signer.")).toBeVisible();
+    expect(screen.getByText("To continue, set up or connect your Ledger device.")).toBeVisible();
   });
 
   it("should call the action callbacks when buttons are pressed", async () => {
     const { user, onConnectLedgerDevice, onBuyLedgerDevice } = renderState();
 
     await user.press(screen.getByText("Connect Ledger device"));
-    await user.press(screen.getByText("I don't have a Ledger device"));
+    await user.press(screen.getByText("I don’t have a Ledger device"));
 
     expect(onConnectLedgerDevice).toHaveBeenCalledTimes(1);
     expect(onBuyLedgerDevice).toHaveBeenCalledTimes(1);
@@ -75,7 +67,7 @@ describe("NoKnownDeviceState", () => {
 
     // WHEN
     await user.press(screen.getByText("Connect Ledger device"));
-    await user.press(screen.getByText("I don't have a Ledger device"));
+    await user.press(screen.getByText("I don’t have a Ledger device"));
 
     // THEN
     expect(mockedTrack).toHaveBeenCalledWith("button_clicked", {

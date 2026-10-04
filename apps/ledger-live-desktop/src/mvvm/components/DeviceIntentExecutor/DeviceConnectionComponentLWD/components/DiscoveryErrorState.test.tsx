@@ -7,11 +7,12 @@ import {
 import { screen } from "@testing-library/react";
 import { render } from "tests/testSetup";
 
+import { DeviceIntentTrackingTestWrapper } from "../testUtils";
 import { DiscoveryErrorState } from "./DiscoveryErrorState";
 
 type DiscoveryErrorUIState = Extract<
   ConnectDeviceUIState,
-  { type: ConnectDeviceUIStateTypes.DiscoveryError }
+  { type: typeof ConnectDeviceUIStateTypes.DiscoveryError }
 >;
 
 function renderState(state: Partial<DiscoveryErrorUIState> = {}) {
@@ -27,6 +28,7 @@ function renderState(state: Partial<DiscoveryErrorUIState> = {}) {
         } as DiscoveryErrorUIState
       }
     />,
+    { wrapper: DeviceIntentTrackingTestWrapper },
   );
 }
 

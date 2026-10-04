@@ -8,6 +8,8 @@ describe("Broadcast", () => {
   beforeAll(() => {
     coinConfig.setCoinConfig(() => ({
       status: { type: "active" },
+      name: "Aleo",
+      unit: { name: "Aleo", code: "ALEO", magnitude: 6 },
       networkType: "mainnet",
       apiUrls: {
         node: "https://aleo.coin.ledger.com",
@@ -17,8 +19,11 @@ describe("Broadcast", () => {
       feeSafetyMultiplier: 1.0,
       isFeeSponsored: false,
       enableTokens: false,
+      enableStaking: false,
       useEncryptedProve: true,
       recordPickingStrategy: "manual",
+      liveBlockHeightPollMs: 10_000,
+      maxUnbondingSyncAttempts: 3,
     }));
   });
 

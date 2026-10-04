@@ -1,0 +1,49 @@
+import type { Logger } from "@ledgerhq/coin-module-framework/config";
+import type { TronCoinConfig } from "../../config";
+import { queryPreorderInfo } from "./index";
+
+// The channel name is not committed. Provide it via the integ env to run this suite:
+//   TRONIFY_URL, TRONIFY_SOURCE_FLAG
+// Only queryPreorderInfo is exercised — it is a read-only quote. addTronRentRecord/uploadHash
+// create real, paid orders and must run against a Tronify sandbox (reconciliation Q10).
+const logger: Logger = (..._args: unknown[]) => {};
+const { TRONIFY_URL, TRONIFY_SOURCE_FLAG } = process.env;
+const run = TRONIFY_URL && TRONIFY_SOURCE_FLAG ? describe : describe.skip;
+
+const RECEIVER = "TPswDDCAWhJAZGdHPidFg5nEf8TkNToDX1";
+
+run("tronify queryPreorderInfo [integ]", () => {
+  let config: TronCoinConfig;
+
+  beforeAll(() => {
+    config = {
+      status: { type: "active" },
+      name: "Tron",
+      unit: { name: "TRX", code: "TRX", magnitude: 6 },
+      explorer: { url: "https://tron.coin.ledger.com" },
+      energyRent: {
+        provider: "tronify",
+        tronify: {
+          url: TRONIFY_URL as string,
+          sourceFlag: TRONIFY_SOURCE_FLAG as string,
+        },
+      },
+    } as unknown as TronCoinConfig;
+  });
+
+  it("returns a USDT-priced quote whose pledge also covers the payment transfer", async () => {
+    const quote = await queryPreorderInfo(logger, config, {
+      fromAddress: RECEIVER,
+      pledgeAddress: RECEIVER,
+      pledgeNum: 32000,
+      pledgeDay: "0",
+      pledgeHour: "0",
+      pledgeMinute: "10",
+      extraTrxNum: "0.8",
+    });
+
+    expect(quote.pledgeNum).toBeGreaterThan(32000);
+    expect(Number(quote.payCoinAmt)).toBeGreaterThan(0);
+    expect(quote.payCoinCode).toBe("USDT");
+  });
+});

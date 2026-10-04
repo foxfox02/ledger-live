@@ -1,15 +1,11 @@
 import { createHash } from "crypto";
+import type { AssetInfo, Balance } from "@ledgerhq/coin-module-framework/api/types";
 import BigNumber from "bignumber.js";
 import get from "lodash/get";
 import { TronWeb, providers, utils } from "tronweb";
-import coinConfig from "../config";
 import { TronResources, UnFrozenInfo } from "../types";
 
-export function createTronWeb(trongridUrl?: string): TronWeb {
-  if (!trongridUrl) {
-    trongridUrl = coinConfig.getCoinConfig().explorer.url;
-  }
-
+export function createTronWeb(trongridUrl: string): TronWeb {
   const HttpProvider = providers.HttpProvider;
   const fullNode = new HttpProvider(trongridUrl);
   const solidityNode = new HttpProvider(trongridUrl);
@@ -32,12 +28,16 @@ export async function decodeTransaction(rawTx: string): Promise<{
   const transaction = Transaction.raw.deserializeBinary(Buffer.from(rawTx, "hex"));
 
   return {
-    txID: createHash("sha256")
-      .update(new Uint8Array(Buffer.from(rawTx, "hex")))
-      .digest("hex"),
+    txID: tronTxIdFromRawDataHex(rawTx),
     raw_data: convertTxFromRaw(transaction),
     raw_data_hex: rawTx,
   };
+}
+
+export function tronTxIdFromRawDataHex(rawDataHex: string): string {
+  return createHash("sha256")
+    .update(new Uint8Array(Buffer.from(rawDataHex, "hex")))
+    .digest("hex");
 }
 
 /**
@@ -148,6 +148,9 @@ function convertTransferAssetContractFromRaw(contract: any): Trc10TransferValue 
 type Trc20TransferValue = TransferValue & {
   data: string;
   contract_address: string;
+  call_value?: number;
+  call_token_value?: number;
+  token_id?: number;
 };
 function convertTriggerSmartContractFromRaw(contract: any): Trc20TransferValue {
   const { TriggerSmartContract } = (globalThis as unknown as any).TronWebProto;
@@ -161,6 +164,12 @@ function convertTriggerSmartContractFromRaw(contract: any): Trc20TransferValue {
     data: convertBufferToHex(transferContract.getData()),
     owner_address: convertBufferToHex(transferContract.getOwnerAddress()),
     contract_address: convertBufferToHex(transferContract.getContractAddress()),
+    // Omitted when zero, like fee_limit; a payment verifier must still see value riding on the call.
+    ...(transferContract.getCallValue() ? { call_value: transferContract.getCallValue() } : {}),
+    ...(transferContract.getCallTokenValue()
+      ? { call_token_value: transferContract.getCallTokenValue() }
+      : {}),
+    ...(transferContract.getTokenId() ? { token_id: transferContract.getTokenId() } : {}),
   };
 }
 
@@ -370,6 +379,20 @@ export function getTronResources(
     tronPower,
     lastWithdrawnRewardDate,
   };
+}
+
+/**
+ * Matches on asset type first so a TRC10 balance can never satisfy a TRC20 lookup even if their
+ * references collide.
+ */
+export function findBalance(asset: AssetInfo, balances: Balance[]): Balance | undefined {
+  if (!("assetReference" in asset)) return undefined;
+  return balances.find(
+    b =>
+      b.asset.type === asset.type &&
+      "assetReference" in b.asset &&
+      b.asset.assetReference === asset.assetReference,
+  );
 }
 
 export function feesToNumber(customFees?: bigint): number | undefined {

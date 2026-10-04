@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from "react";
+import React from "react";
 import styled from "styled-components";
 import { Trans, useTranslation } from "react-i18next";
 import { formatCurrencyUnit } from "@ledgerhq/live-common/currencies/index";
@@ -11,6 +11,7 @@ import Discreet, { useDiscreetMode } from "~/renderer/components/Discreet";
 import Box from "~/renderer/components/Box/Box";
 import Text from "~/renderer/components/Text";
 import InfoCircle from "~/renderer/icons/InfoCircle";
+import TriangleWarning from "~/renderer/icons/TriangleWarning";
 import ToolTip from "~/renderer/components/Tooltip";
 import ButtonV3 from "~/renderer/components/ButtonV3";
 import Spinner from "~/renderer/components/Spinner";
@@ -19,30 +20,58 @@ import { openModal } from "~/renderer/actions/modals";
 import type { Currency } from "@ledgerhq/wallet-btc/index";
 import type { ZcashAccount } from "@ledgerhq/live-common/families/bitcoin/types";
 import type { TokenAccount } from "@ledgerhq/types-live";
-import type { ZcashSyncState } from "@ledgerhq/coin-bitcoin/chain-adapters/zcash/types";
+import type { ZcashSyncState } from "@ledgerhq/coin-zcash/network/types";
 import {
-  ZCASH_CHECK_OUTDATED_SYNC_INTERVAL,
-  ZCASH_OUTDATED_SYNC_INTERVAL_MINUTES,
-} from "@ledgerhq/coin-bitcoin/chain-adapters/zcash/constants";
-import { selectShieldedSubscriptions } from "~/renderer/reducers/shieldedSyncSubscriptions";
+  getPrivateBalance,
+  getTransparentBalance,
+} from "@ledgerhq/coin-zcash/logic/account/balance";
+import {
+  getMaturingIronwoodBalance,
+  getSpendableIronwoodBalance,
+  hasMaturingIronwoodNotes,
+} from "@ledgerhq/coin-zcash/logic/account/spendability";
+import { getReservedNullifiers } from "@ledgerhq/coin-zcash/bridge/note-reservation";
 import { useZcashShieldedSync } from "./useZcashShieldedSync";
 
-const Wrapper = styled(Box).attrs(() => ({
-  horizontal: true,
+const Container = styled(Box).attrs(() => ({
   mt: 4,
   p: 5,
   pb: 0,
-  scroll: true,
 }))`
   border-top: 1px solid ${p => p.theme.colors.neutral.c30};
+`;
+
+const Wrapper = styled(Box).attrs(() => ({
+  horizontal: true,
+  scroll: true,
+}))`
   justify-content: flex-start;
 `;
+
+const Separator = styled(Box).attrs(() => ({
+  mt: 4,
+}))`
+  border-top: 1px solid ${p => p.theme.colors.neutral.c30};
+`;
+
+const WarningWrapper = styled(Box).attrs(() => ({
+  horizontal: true,
+  alignItems: "center",
+  color: "warning.c70",
+  mt: 3,
+}))``;
 
 const BalanceDetail = styled(Box).attrs(() => ({
   flex: "0 0 auto",
   alignItems: "start",
   paddingRight: 50,
 }))``;
+
+const TooltipWrapper = styled(Box)`
+  display: flex;
+  flex-direction: column;
+  gap: ${p => p.theme.space[1]}px;
+`;
 
 export const TitleWrapper = styled(Box).attrs(() => ({
   horizontal: true,
@@ -66,6 +95,13 @@ const AmountValue = styled(Text).attrs(() => ({
 }))<{ paddingRight?: number }>`
   ${p => p.paddingRight && `padding-right: ${p.paddingRight}px`};
 `;
+
+const WarningBannerText = styled(Text).attrs(() => ({
+  fontSize: 3,
+  ff: "Inter|Medium",
+  color: "warning.c70",
+  ml: 2,
+}))``;
 
 const ActionButton = ({
   t,
@@ -106,7 +142,7 @@ const ActionButton = ({
       );
     case "complete":
       return (
-        <ActionButtonElement buttonTestId="up-to-date-button" disabled>
+        <ActionButtonElement buttonTestId="up-to-date-button">
           <Text>{t("zcash.shielded.state.upToDate")}</Text>
         </ActionButtonElement>
       );
@@ -185,13 +221,6 @@ const EstimatedTimeRemaining = ({
   );
 };
 
-function usePrevious<T>(val: T): T {
-  const ref = useRef<T>(val);
-  const prevVal = ref.current;
-  ref.current = val;
-  return prevVal;
-}
-
 type Props = {
   account: ZcashAccount | TokenAccount;
 };
@@ -201,17 +230,10 @@ const AccountBalanceSummaryFooter = ({ account }: Props) => {
   const showPrivateBalanceComponent = useFeature("zcashShielded")?.enabled;
 
   const privateInfo = "privateInfo" in account ? account.privateInfo : null;
-  const { orchardBalance, saplingBalance } = privateInfo ?? {
-    orchardBalance: BigNumber(0),
-    saplingBalance: BigNumber(0),
-  };
   const syncState = privateInfo?.syncState ?? "disabled";
-  const previousSyncState = usePrevious(syncState);
   const lastSync = privateInfo?.lastSyncTimestamp ? new Date(privateInfo.lastSyncTimestamp) : null;
   const progress = privateInfo?.progress ?? 0;
   const estimatedTimeRemaining = privateInfo?.estimatedTimeRemaining ?? { hours: 0, minutes: 0 };
-
-  const shieldedSubscriptions = useSelector(selectShieldedSubscriptions);
 
   const discreet = useDiscreetMode();
   const locale = useSelector(localeSelector);
@@ -219,9 +241,7 @@ const AccountBalanceSummaryFooter = ({ account }: Props) => {
   const dispatch = useDispatch();
   const { t } = useTranslation();
 
-  const { saveSyncState, startShieldedSync, stopShieldedSync } = useZcashShieldedSync(
-    account as ZcashAccount,
-  );
+  const { startShieldedSync, stopShieldedSync } = useZcashShieldedSync(account as ZcashAccount);
 
   const updateSyncState = () => {
     if (account.type !== "Account" || (account.currency.id as Currency) !== "zcash") {
@@ -249,49 +269,11 @@ const AccountBalanceSummaryFooter = ({ account }: Props) => {
         // Start sync from the last known block
         startShieldedSync();
         break;
+      case "complete":
+        startShieldedSync();
+        break;
     }
   };
-
-  // Check if sync is outdated
-  const outdatedSyncCheck = useCallback(() => {
-    const now = new Date().getTime();
-    if (
-      privateInfo?.lastSyncTimestamp &&
-      now - privateInfo.lastSyncTimestamp > 1000 * 60 * ZCASH_OUTDATED_SYNC_INTERVAL_MINUTES
-    ) {
-      saveSyncState({
-        syncState: "outdated",
-      });
-    }
-  }, [privateInfo?.lastSyncTimestamp, saveSyncState]);
-
-  // Check if private balance has been activated
-  useEffect(() => {
-    if (previousSyncState === "disabled" && syncState === "running") {
-      startShieldedSync();
-    }
-  }, [previousSyncState, syncState, startShieldedSync]);
-
-  // Check if sync is outdated (every 5 seconds)
-  useEffect(() => {
-    if (syncState === "complete") {
-      outdatedSyncCheck();
-      const interval = setInterval(() => outdatedSyncCheck(), ZCASH_CHECK_OUTDATED_SYNC_INTERVAL);
-      return () => {
-        if (interval) clearInterval(interval);
-      };
-    }
-  }, [syncState, outdatedSyncCheck]);
-
-  // Check on mount if there is a subscription for this account, if not update the sync state to "stopped"
-  useEffect(() => {
-    const hasShieldedSubscription = shieldedSubscriptions.some(s => s.accountId === account.id);
-    const justEnteredRunning = syncState === "running" && previousSyncState !== "running";
-
-    if (syncState === "running" && !hasShieldedSubscription && !justEnteredRunning) {
-      stopShieldedSync();
-    }
-  }, [account.id, previousSyncState, shieldedSubscriptions, syncState, stopShieldedSync]);
 
   if (
     account.type !== "Account" ||
@@ -308,71 +290,133 @@ const AccountBalanceSummaryFooter = ({ account }: Props) => {
     locale,
   };
 
+  // Each label is derived from its own source rather than one from another, so
+  // they stay correct regardless of which module (coin-bitcoin flag-off adapter
+  // vs coin-zcash) last wrote `account.balance` — a toggle or a pre-first-sync
+  // flag-ON no longer yields an under-reported or negative transparent balance.
+  const bitcoinResources = "bitcoinResources" in account ? account.bitcoinResources : undefined;
+  const _transparentBalance = getTransparentBalance(bitcoinResources?.utxos);
+  // The account page reports holdings, so this stays the account's total
+  // private balance -- funds held by an immature note remain part of it and
+  // stay visible, never made to look like they vanished.
+  const _privateBalance = getPrivateBalance(privateInfo);
   const _availableBalance = balance ?? BigNumber(0);
-  const _privateBalance = orchardBalance.plus(saplingBalance);
-  const _transparentBalance = _availableBalance.minus(_privateBalance);
+
+  const zcashAccount = account as ZcashAccount;
+  const hasMaturingFunds = hasMaturingIronwoodNotes(zcashAccount);
+  // Spending one note returns its whole remainder as a single fresh note, so
+  // right after a send nearly the entire private balance is maturing. Leading
+  // with what is still spendable is what keeps that from reading as "all your
+  // funds are locked", and it is the figure the send flow will actually offer.
+  const _spendableBalance = getSpendableIronwoodBalance(
+    zcashAccount,
+    getReservedNullifiers(zcashAccount),
+  );
+  // Counted from immaturity alone, not as `total - spendable`: that difference
+  // also swallows the notes an in-flight spend has reserved, which would label
+  // a pending transaction of the user's own as "maturing".
+  const _maturingAmount = getMaturingIronwoodBalance(zcashAccount);
 
   const transparentBalanceLabel = formatCurrencyUnit(unit, _transparentBalance, formatConfig);
   const privateBalanceLabel = formatCurrencyUnit(unit, _privateBalance, formatConfig);
   const availableBalanceLabel = formatCurrencyUnit(unit, _availableBalance, formatConfig);
+  const maturingAmountLabel = formatCurrencyUnit(unit, _maturingAmount, formatConfig);
+  const spendableBalanceLabel = formatCurrencyUnit(unit, _spendableBalance, formatConfig);
 
   return (
-    <Wrapper>
-      <BalanceDetail>
-        <ToolTip content={<Trans i18nKey="zcash.account.availableBalanceTooltip" />}>
-          <TitleWrapper>
-            <Title>
-              <Trans i18nKey="zcash.account.availableBalance" />
-            </Title>
-            <InfoCircle size={13} />
-          </TitleWrapper>
-        </ToolTip>
-        <AmountValue>
-          <Discreet>{availableBalanceLabel}</Discreet>
-        </AmountValue>
-      </BalanceDetail>
-      <BalanceDetail>
-        <ToolTip content={<Trans i18nKey="zcash.account.transparentBalanceTooltip" />}>
-          <TitleWrapper>
-            <Title>
-              <Trans i18nKey="zcash.account.transparentBalance" />
-            </Title>
-            <InfoCircle size={13} />
-          </TitleWrapper>
-        </ToolTip>
-        <AmountValue>
-          <Discreet>{transparentBalanceLabel}</Discreet>
-        </AmountValue>
-      </BalanceDetail>
-      <BalanceDetail>
-        <ToolTip content={<Trans i18nKey="zcash.account.privateBalanceTooltip" />}>
-          <TitleWrapper>
-            <Title>
-              <Trans i18nKey="zcash.account.privateBalance" />
-            </Title>
-            <InfoCircle size={13} />
-          </TitleWrapper>
-        </ToolTip>
-        <AmountValue>
-          <Discreet>{privateBalanceLabel}</Discreet>
-        </AmountValue>
-      </BalanceDetail>
-      <BalanceDetail>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: syncState === "running" || syncState === "stopped" ? "row" : "column",
-          }}
-        >
-          <ActionButton t={t} syncState={syncState} updateSyncState={updateSyncState} />
-          <SyncProgress syncState={syncState} progress={progress} lastSync={lastSync} />
-        </div>
-        <EstimatedTimeRemaining
-          syncState={syncState}
-          estimatedTimeRemaining={estimatedTimeRemaining}
-        />
-      </BalanceDetail>
-    </Wrapper>
+    <Container>
+      <Wrapper>
+        <BalanceDetail>
+          <ToolTip content={<Trans i18nKey="zcash.account.availableBalanceTooltip" />}>
+            <TitleWrapper>
+              <Title>
+                <Trans i18nKey="zcash.account.availableBalance" />
+              </Title>
+              <InfoCircle size={13} />
+            </TitleWrapper>
+          </ToolTip>
+          <AmountValue>
+            <Discreet>{availableBalanceLabel}</Discreet>
+          </AmountValue>
+        </BalanceDetail>
+        <BalanceDetail>
+          <ToolTip content={<Trans i18nKey="zcash.account.transparentBalanceTooltip" />}>
+            <TitleWrapper>
+              <Title>
+                <Trans i18nKey="zcash.account.transparentBalance" />
+              </Title>
+              <InfoCircle size={13} />
+            </TitleWrapper>
+          </ToolTip>
+          <AmountValue>
+            <Discreet>{transparentBalanceLabel}</Discreet>
+          </AmountValue>
+        </BalanceDetail>
+        <BalanceDetail>
+          <ToolTip
+            content={
+              <TooltipWrapper>
+                <div>
+                  <Trans i18nKey="zcash.account.privateBalanceTooltip" />
+                </div>
+                <div>
+                  <Trans i18nKey="zcash.account.privateBalanceWarning" />
+                </div>
+              </TooltipWrapper>
+            }
+          >
+            <TitleWrapper>
+              <Title>
+                <Trans i18nKey="zcash.account.privateBalance" />
+              </Title>
+              <InfoCircle size={13} />
+            </TitleWrapper>
+          </ToolTip>
+          <AmountValue>
+            <Discreet>{privateBalanceLabel}</Discreet>
+          </AmountValue>
+        </BalanceDetail>
+        <BalanceDetail>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: syncState === "running" || syncState === "stopped" ? "row" : "column",
+            }}
+          >
+            <ActionButton t={t} syncState={syncState} updateSyncState={updateSyncState} />
+            <SyncProgress syncState={syncState} progress={progress} lastSync={lastSync} />
+          </div>
+          <EstimatedTimeRemaining
+            syncState={syncState}
+            estimatedTimeRemaining={estimatedTimeRemaining}
+          />
+        </BalanceDetail>
+      </Wrapper>
+      <Separator />
+
+      {hasMaturingFunds ? (
+        <WarningWrapper>
+          <TriangleWarning size={16} />
+          <WarningBannerText data-testid="zcash-private-maturing-amount">
+            <Discreet>
+              <Trans
+                i18nKey="zcash.account.privateBalanceMaturing"
+                values={{ spendable: spendableBalanceLabel, maturing: maturingAmountLabel }}
+              />
+            </Discreet>
+          </WarningBannerText>
+        </WarningWrapper>
+      ) : null}
+
+      {syncState === "stopped" && privateInfo?.lastSyncError ? (
+        <WarningWrapper>
+          <TriangleWarning size={16} />
+          <WarningBannerText data-testid="zcash-sync-failed-warning">
+            <Trans i18nKey="zcash.shielded.state.syncFailed" />
+          </WarningBannerText>
+        </WarningWrapper>
+      ) : null}
+    </Container>
   );
 };
 

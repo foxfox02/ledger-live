@@ -2,7 +2,18 @@ import type { ParsedInstruction, PartiallyDecodedInstruction } from "@solana/web
 import { PublicKey } from "@solana/web3.js";
 import { http, HttpResponse } from "msw";
 import { listOperations } from "../listOperations";
-import { server, rpcHandler, createTestChainApi, TEST_ENDPOINT } from "./helpers/msw-rpc.mock";
+import {
+  server,
+  rpcHandler as baseRpcHandler,
+  createTestChainApi,
+  TEST_ENDPOINT,
+} from "./helpers/msw-rpc.mock";
+
+const rpcHandler: typeof baseRpcHandler = handlers =>
+  baseRpcHandler({
+    getTokenAccountsByOwner: () => ({ context: { slot: 0 }, value: [] }),
+    ...handlers,
+  });
 
 const TEST_ADDRESS = "HxCvgjSbF8HMt3fj8P3j49jmajNCMwKAqBu79HUDPtkM";
 const TEST_RECIPIENT = "AjmMiagw33Ad4WdPR3y2QWsDXaLxmsiSZEpMfpT1Q9uZ";
@@ -56,6 +67,16 @@ function makeParsedTx({
   };
 }
 
+/** A real node returns the transaction carrying the requested signature; echo it back. */
+function withSignature<T extends { transaction: { signatures: string[] } }>(
+  tx: T | null,
+  signature: string,
+): T | null {
+  return tx === null
+    ? null
+    : { ...tx, transaction: { ...tx.transaction, signatures: [signature] } };
+}
+
 describe("listOperations (MSW integration)", () => {
   it("should return empty page when no signatures found", async () => {
     server.use(
@@ -74,18 +95,20 @@ describe("listOperations (MSW integration)", () => {
     server.use(
       http.post(TEST_ENDPOINT, async ({ request }) => {
         const body: unknown = await request.clone().json();
-        if (
-          typeof body === "object" &&
-          body !== null &&
-          "method" in body &&
-          body.method === "getSignaturesForAddress"
-        ) {
-          return HttpResponse.json({
-            jsonrpc: "2.0",
-            error: { code: -32020, message: "Invalid param: until" },
-            id: "1",
-          });
+        if (Array.isArray(body)) {
+          return HttpResponse.json(
+            body.map((req: { id: string }) => ({
+              jsonrpc: "2.0",
+              error: { code: -32020, message: "Invalid param: until" },
+              id: req.id,
+            })),
+          );
         }
+        return HttpResponse.json({
+          jsonrpc: "2.0",
+          result: { context: { slot: 0 }, value: [] },
+          id: "1",
+        });
       }),
     );
 
@@ -108,17 +131,20 @@ describe("listOperations (MSW integration)", () => {
             confirmationStatus: "finalized",
           },
         ],
-        getTransaction: () =>
-          makeParsedTx({
-            accountKeys: [
-              { pubkey: TEST_ADDRESS, signer: true, writable: true },
-              { pubkey: TEST_RECIPIENT, signer: false, writable: true },
-            ],
-            preBalances: [1_000_000_000, 0],
-            postBalances: [899_995_000, 100_000_000],
-            slot: 100,
-            blockTime,
-          }),
+        getTransaction: params =>
+          withSignature(
+            makeParsedTx({
+              accountKeys: [
+                { pubkey: TEST_ADDRESS, signer: true, writable: true },
+                { pubkey: TEST_RECIPIENT, signer: false, writable: true },
+              ],
+              preBalances: [1_000_000_000, 0],
+              postBalances: [899_995_000, 100_000_000],
+              slot: 100,
+              blockTime,
+            }),
+            String(params[0]),
+          ),
       }),
     );
 
@@ -158,13 +184,16 @@ describe("listOperations (MSW integration)", () => {
             confirmationStatus: "finalized",
           },
         ],
-        getTransaction: () =>
-          makeParsedTx({
-            accountKeys: [{ pubkey: TEST_ADDRESS, signer: true, writable: true }],
-            preBalances: [1_000_000],
-            postBalances: [995_000],
-            blockTime,
-          }),
+        getTransaction: params =>
+          withSignature(
+            makeParsedTx({
+              accountKeys: [{ pubkey: TEST_ADDRESS, signer: true, writable: true }],
+              preBalances: [1_000_000],
+              postBalances: [995_000],
+              blockTime,
+            }),
+            String(params[0]),
+          ),
       }),
     );
 
@@ -172,6 +201,102 @@ describe("listOperations (MSW integration)", () => {
 
     expect(result.items).toHaveLength(1);
     expect(result.items[0].tx.block.height).toBe(200);
+  });
+
+  it("should pair operations with their own transaction when the RPC batch is reordered", async () => {
+    const blockTime = 1700000000;
+    const txBySignature: Record<string, ReturnType<typeof makeParsedTx>> = {
+      sig1: makeParsedTx({
+        accountKeys: [
+          { pubkey: TEST_ADDRESS, signer: true, writable: true },
+          { pubkey: TEST_RECIPIENT, signer: false, writable: true },
+        ],
+        preBalances: [1_000_000_000, 0],
+        postBalances: [899_995_000, 100_000_000],
+        blockTime,
+      }),
+      sig2: makeParsedTx({
+        accountKeys: [{ pubkey: TEST_ADDRESS, signer: true, writable: true }],
+        preBalances: [1_000_000_000],
+        postBalances: [1_672_400_000],
+        blockTime,
+      }),
+    };
+
+    server.use(
+      http.post(TEST_ENDPOINT, async ({ request }) => {
+        const body = (await request.json()) as
+          | { method: string; params: unknown[]; id: unknown }
+          | { method: string; params: unknown[]; id: unknown }[];
+
+        if (!Array.isArray(body) && body.method === "getTokenAccountsByOwner") {
+          return HttpResponse.json({
+            jsonrpc: "2.0",
+            result: { context: { slot: 0 }, value: [] },
+            id: body.id,
+          });
+        }
+
+        if (!Array.isArray(body)) {
+          return HttpResponse.json({
+            jsonrpc: "2.0",
+            result: Object.keys(txBySignature).map(signature => ({
+              signature,
+              slot: 100,
+              blockTime,
+              err: null,
+              memo: null,
+              confirmationStatus: "finalized",
+            })),
+            id: body.id,
+          });
+        }
+
+        if (body[0]?.method === "getSignaturesForAddress") {
+          return HttpResponse.json(
+            body
+              .map(req => ({
+                jsonrpc: "2.0",
+                result: Object.keys(txBySignature).map(signature => ({
+                  signature,
+                  slot: 100,
+                  blockTime,
+                  err: null,
+                  memo: null,
+                  confirmationStatus: "finalized",
+                })),
+                id: req.id,
+              }))
+              .reverse(),
+          );
+        }
+
+        // Answer the getTransaction batch in reverse order, as a node is free to do.
+        const responses = body.map(req => {
+          const signature = String(req.params[0]);
+          return {
+            jsonrpc: "2.0",
+            result: withSignature(txBySignature[signature] ?? null, signature),
+            id: req.id,
+          };
+        });
+        return HttpResponse.json(responses.reverse());
+      }),
+    );
+
+    const result = await listOperations(api, TEST_ADDRESS, { minHeight: 0, order: "desc" });
+
+    expect(result.items).toHaveLength(2);
+    expect(result.items[0]).toMatchObject({
+      tx: expect.objectContaining({ hash: "sig1" }),
+      type: "OUT",
+      value: 100_000_000n,
+    });
+    expect(result.items[1]).toMatchObject({
+      tx: expect.objectContaining({ hash: "sig2" }),
+      type: "IN",
+      value: 672_405_000n,
+    });
   });
 
   it("should throw when order is asc", async () => {
@@ -198,48 +323,64 @@ describe("listOperations (MSW integration)", () => {
               confirmationStatus: "finalized",
             },
           ],
-          getTransaction: () => ({
-            ...makeParsedTx({
-              accountKeys: [
-                { pubkey: TEST_ADDRESS, signer: true, writable: true },
-                { pubkey: TEST_RECIPIENT, signer: false, writable: true },
-              ],
-              preBalances: [1_000_000_000, 2039280],
-              postBalances: [999_995_000, 2039280],
-              blockTime,
-            }),
-            meta: {
-              fee: 5000,
-              preBalances: [1_000_000_000, 2039280],
-              postBalances: [999_995_000, 2039280],
-              err: null,
-              preTokenBalances: [
-                {
-                  accountIndex: 0,
-                  mint: USDC_MINT,
-                  owner: TEST_ADDRESS,
-                  programId: TOKEN_PROGRAM_ID,
-                  uiTokenAmount: { amount: "5000000", decimals: 6, uiAmount: 5.0 },
+          getTransaction: params =>
+            withSignature(
+              {
+                ...makeParsedTx({
+                  accountKeys: [
+                    { pubkey: TEST_ADDRESS, signer: true, writable: true },
+                    { pubkey: TEST_RECIPIENT, signer: false, writable: true },
+                  ],
+                  preBalances: [1_000_000_000, 2039280],
+                  postBalances: [999_995_000, 2039280],
+                  blockTime,
+                }),
+                meta: {
+                  fee: 5000,
+                  preBalances: [1_000_000_000, 2039280],
+                  postBalances: [999_995_000, 2039280],
+                  err: null,
+                  preTokenBalances: [
+                    {
+                      accountIndex: 0,
+                      mint: USDC_MINT,
+                      owner: TEST_ADDRESS,
+                      programId: TOKEN_PROGRAM_ID,
+                      uiTokenAmount: {
+                        amount: "5000000",
+                        decimals: 6,
+                        uiAmount: 5.0,
+                      },
+                    },
+                  ],
+                  postTokenBalances: [
+                    {
+                      accountIndex: 0,
+                      mint: USDC_MINT,
+                      owner: TEST_ADDRESS,
+                      programId: TOKEN_PROGRAM_ID,
+                      uiTokenAmount: {
+                        amount: "3000000",
+                        decimals: 6,
+                        uiAmount: 3.0,
+                      },
+                    },
+                    {
+                      accountIndex: 1,
+                      mint: USDC_MINT,
+                      owner: TEST_RECIPIENT,
+                      programId: TOKEN_PROGRAM_ID,
+                      uiTokenAmount: {
+                        amount: "2000000",
+                        decimals: 6,
+                        uiAmount: 2.0,
+                      },
+                    },
+                  ],
                 },
-              ],
-              postTokenBalances: [
-                {
-                  accountIndex: 0,
-                  mint: USDC_MINT,
-                  owner: TEST_ADDRESS,
-                  programId: TOKEN_PROGRAM_ID,
-                  uiTokenAmount: { amount: "3000000", decimals: 6, uiAmount: 3.0 },
-                },
-                {
-                  accountIndex: 1,
-                  mint: USDC_MINT,
-                  owner: TEST_RECIPIENT,
-                  programId: TOKEN_PROGRAM_ID,
-                  uiTokenAmount: { amount: "2000000", decimals: 6, uiAmount: 2.0 },
-                },
-              ],
-            },
-          }),
+              },
+              String(params[0]),
+            ),
         }),
       );
 
@@ -282,48 +423,75 @@ describe("listOperations (MSW integration)", () => {
               confirmationStatus: "finalized",
             },
           ],
-          getTransaction: () => ({
-            ...makeParsedTx({
-              accountKeys: [
-                { pubkey: TEST_RECIPIENT, signer: true, writable: true },
-                { pubkey: TEST_ADDRESS, signer: false, writable: true },
-              ],
-              preBalances: [1_000_000_000, 500_000_000],
-              postBalances: [999_995_000, 500_000_000],
-              blockTime,
-            }),
-            meta: {
-              fee: 5000,
-              preBalances: [1_000_000_000, 500_000_000],
-              postBalances: [999_995_000, 500_000_000],
-              err: null,
-              preTokenBalances: [
-                {
-                  accountIndex: 1,
-                  mint: USDC_MINT,
-                  owner: TEST_ADDRESS,
-                  programId: TOKEN_PROGRAM_ID,
-                  uiTokenAmount: { amount: "1000000", decimals: 6, uiAmount: 1.0 },
+          getTransaction: params =>
+            withSignature(
+              {
+                ...makeParsedTx({
+                  accountKeys: [
+                    { pubkey: TEST_RECIPIENT, signer: true, writable: true },
+                    { pubkey: TEST_ADDRESS, signer: false, writable: true },
+                  ],
+                  preBalances: [1_000_000_000, 500_000_000],
+                  postBalances: [999_995_000, 500_000_000],
+                  blockTime,
+                }),
+                meta: {
+                  fee: 5000,
+                  preBalances: [1_000_000_000, 500_000_000],
+                  postBalances: [999_995_000, 500_000_000],
+                  err: null,
+                  preTokenBalances: [
+                    {
+                      accountIndex: 1,
+                      mint: USDC_MINT,
+                      owner: TEST_ADDRESS,
+                      programId: TOKEN_PROGRAM_ID,
+                      uiTokenAmount: {
+                        amount: "1000000",
+                        decimals: 6,
+                        uiAmount: 1.0,
+                      },
+                    },
+                    {
+                      accountIndex: 0,
+                      mint: USDC_MINT,
+                      owner: TEST_RECIPIENT,
+                      programId: TOKEN_PROGRAM_ID,
+                      uiTokenAmount: {
+                        amount: "9000000",
+                        decimals: 6,
+                        uiAmount: 9.0,
+                      },
+                    },
+                  ],
+                  postTokenBalances: [
+                    {
+                      accountIndex: 1,
+                      mint: USDC_MINT,
+                      owner: TEST_ADDRESS,
+                      programId: TOKEN_PROGRAM_ID,
+                      uiTokenAmount: {
+                        amount: "4000000",
+                        decimals: 6,
+                        uiAmount: 4.0,
+                      },
+                    },
+                    {
+                      accountIndex: 0,
+                      mint: USDC_MINT,
+                      owner: TEST_RECIPIENT,
+                      programId: TOKEN_PROGRAM_ID,
+                      uiTokenAmount: {
+                        amount: "6000000",
+                        decimals: 6,
+                        uiAmount: 6.0,
+                      },
+                    },
+                  ],
                 },
-              ],
-              postTokenBalances: [
-                {
-                  accountIndex: 1,
-                  mint: USDC_MINT,
-                  owner: TEST_ADDRESS,
-                  programId: TOKEN_PROGRAM_ID,
-                  uiTokenAmount: { amount: "4000000", decimals: 6, uiAmount: 4.0 },
-                },
-                {
-                  accountIndex: 0,
-                  mint: USDC_MINT,
-                  owner: TEST_RECIPIENT,
-                  programId: TOKEN_PROGRAM_ID,
-                  uiTokenAmount: { amount: "6000000", decimals: 6, uiAmount: 6.0 },
-                },
-              ],
-            },
-          }),
+              },
+              String(params[0]),
+            ),
         }),
       );
 
@@ -433,7 +601,10 @@ describe("listOperations (MSW integration)", () => {
         preBalances: [5_000_000_000],
         postBalances: [7_999_995_000],
         instructions: [
-          ix("stake", "withdraw", { stakeAccount: STAKE_ACCOUNT, lamports: 3_000_000_000 }),
+          ix("stake", "withdraw", {
+            stakeAccount: STAKE_ACCOUNT,
+            lamports: 3_000_000_000,
+          }),
         ],
       }),
     };
@@ -444,7 +615,8 @@ describe("listOperations (MSW integration)", () => {
       server.use(
         rpcHandler({
           getSignaturesForAddress: () => Object.keys(txMap).map(s => makeSig(s)),
-          getTransaction: (params: unknown[]) => txMap[String(params[0])] ?? null,
+          getTransaction: (params: unknown[]) =>
+            withSignature(txMap[String(params[0])] ?? null, String(params[0])),
         }),
       );
 
@@ -540,48 +712,64 @@ describe("listOperations (MSW integration)", () => {
               confirmationStatus: "finalized",
             },
           ],
-          getTransaction: () => ({
-            ...makeParsedTx({
-              accountKeys: [
-                { pubkey: TEST_ADDRESS, signer: true, writable: true },
-                { pubkey: TEST_RECIPIENT, signer: false, writable: true },
-              ],
-              preBalances: [1_000_000_000, 2039280],
-              postBalances: [999_995_000, 2039280],
-              blockTime,
-            }),
-            meta: {
-              fee: 5000,
-              preBalances: [1_000_000_000, 2039280],
-              postBalances: [999_995_000, 2039280],
-              err: null,
-              preTokenBalances: [
-                {
-                  accountIndex: 0,
-                  mint: PYUSD_MINT,
-                  owner: TEST_ADDRESS,
-                  programId: TOKEN_2022_PROGRAM_ID,
-                  uiTokenAmount: { amount: "10000000", decimals: 6, uiAmount: 10.0 },
+          getTransaction: params =>
+            withSignature(
+              {
+                ...makeParsedTx({
+                  accountKeys: [
+                    { pubkey: TEST_ADDRESS, signer: true, writable: true },
+                    { pubkey: TEST_RECIPIENT, signer: false, writable: true },
+                  ],
+                  preBalances: [1_000_000_000, 2039280],
+                  postBalances: [999_995_000, 2039280],
+                  blockTime,
+                }),
+                meta: {
+                  fee: 5000,
+                  preBalances: [1_000_000_000, 2039280],
+                  postBalances: [999_995_000, 2039280],
+                  err: null,
+                  preTokenBalances: [
+                    {
+                      accountIndex: 0,
+                      mint: PYUSD_MINT,
+                      owner: TEST_ADDRESS,
+                      programId: TOKEN_2022_PROGRAM_ID,
+                      uiTokenAmount: {
+                        amount: "10000000",
+                        decimals: 6,
+                        uiAmount: 10.0,
+                      },
+                    },
+                  ],
+                  postTokenBalances: [
+                    {
+                      accountIndex: 0,
+                      mint: PYUSD_MINT,
+                      owner: TEST_ADDRESS,
+                      programId: TOKEN_2022_PROGRAM_ID,
+                      uiTokenAmount: {
+                        amount: "5000000",
+                        decimals: 6,
+                        uiAmount: 5.0,
+                      },
+                    },
+                    {
+                      accountIndex: 1,
+                      mint: PYUSD_MINT,
+                      owner: TEST_RECIPIENT,
+                      programId: TOKEN_2022_PROGRAM_ID,
+                      uiTokenAmount: {
+                        amount: "5000000",
+                        decimals: 6,
+                        uiAmount: 5.0,
+                      },
+                    },
+                  ],
                 },
-              ],
-              postTokenBalances: [
-                {
-                  accountIndex: 0,
-                  mint: PYUSD_MINT,
-                  owner: TEST_ADDRESS,
-                  programId: TOKEN_2022_PROGRAM_ID,
-                  uiTokenAmount: { amount: "5000000", decimals: 6, uiAmount: 5.0 },
-                },
-                {
-                  accountIndex: 1,
-                  mint: PYUSD_MINT,
-                  owner: TEST_RECIPIENT,
-                  programId: TOKEN_2022_PROGRAM_ID,
-                  uiTokenAmount: { amount: "5000000", decimals: 6, uiAmount: 5.0 },
-                },
-              ],
-            },
-          }),
+              },
+              String(params[0]),
+            ),
         }),
       );
 
@@ -614,33 +802,41 @@ describe("listOperations (MSW integration)", () => {
               confirmationStatus: "finalized",
             },
           ],
-          getTransaction: () => ({
-            ...makeParsedTx({
-              accountKeys: [
-                { pubkey: TEST_RECIPIENT, signer: true, writable: true },
-                { pubkey: TEST_ADDRESS, signer: false, writable: true },
-              ],
-              preBalances: [1_000_000_000, 500_000_000],
-              postBalances: [999_995_000, 500_000_000],
-              blockTime,
-            }),
-            meta: {
-              fee: 5000,
-              preBalances: [1_000_000_000, 500_000_000],
-              postBalances: [999_995_000, 500_000_000],
-              err: null,
-              preTokenBalances: [],
-              postTokenBalances: [
-                {
-                  accountIndex: 1,
-                  mint: PYUSD_MINT,
-                  owner: TEST_ADDRESS,
-                  programId: TOKEN_2022_PROGRAM_ID,
-                  uiTokenAmount: { amount: "8000000", decimals: 6, uiAmount: 8.0 },
+          getTransaction: params =>
+            withSignature(
+              {
+                ...makeParsedTx({
+                  accountKeys: [
+                    { pubkey: TEST_RECIPIENT, signer: true, writable: true },
+                    { pubkey: TEST_ADDRESS, signer: false, writable: true },
+                  ],
+                  preBalances: [1_000_000_000, 500_000_000],
+                  postBalances: [999_995_000, 500_000_000],
+                  blockTime,
+                }),
+                meta: {
+                  fee: 5000,
+                  preBalances: [1_000_000_000, 500_000_000],
+                  postBalances: [999_995_000, 500_000_000],
+                  err: null,
+                  preTokenBalances: [],
+                  postTokenBalances: [
+                    {
+                      accountIndex: 1,
+                      mint: PYUSD_MINT,
+                      owner: TEST_ADDRESS,
+                      programId: TOKEN_2022_PROGRAM_ID,
+                      uiTokenAmount: {
+                        amount: "8000000",
+                        decimals: 6,
+                        uiAmount: 8.0,
+                      },
+                    },
+                  ],
                 },
-              ],
-            },
-          }),
+              },
+              String(params[0]),
+            ),
         }),
       );
 

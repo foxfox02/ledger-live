@@ -1,7 +1,5 @@
 import { test } from "tests/fixtures/common";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { addTmsLink } from "tests/utils/allureUtils";
-import { getDescription } from "tests/utils/customJsonReporter";
 import { Account } from "@ledgerhq/live-e2e-shared/enum/Account";
 import { DEVICE_TAGS } from "tests/utils/tagsUtils";
 
@@ -12,7 +10,7 @@ test.describe("Market", () => {
   });
 
   test(
-    "Filters behavior",
+    `[${Account.BTC_NATIVE_SEGWIT_1.currency.testLabel}-${Account.ETH_1.currency.testLabel}] - Market filters behavior`,
     {
       tag: [...DEVICE_TAGS],
       annotation: {
@@ -21,8 +19,6 @@ test.describe("Market", () => {
       },
     },
     async ({ app }) => {
-      await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
       await app.marketBanner.clickExploreMarketHeader();
       await app.market.validateMarketList();
 

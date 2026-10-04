@@ -1,56 +1,41 @@
-import React, { useCallback, useEffect, useRef } from "react";
+import React from "react";
 import { Platform } from "react-native";
 import {
   ContactsFeatureIntroductionContent,
   type ContactsFeatureIntroduction,
-} from "@features/flow-contacts";
+  useContactsFeatureIntroductionActions,
+} from "@features/flow-contacts-introduction";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import QueuedBottomSheet from "LLM/components/QueuedDrawer/QueuedBottomSheet";
-import { useSingleFireDismiss } from "../../../../hooks/useSingleFireDismiss";
+import { QueuedBottomSheet } from "@shared/ui-queued-bottom-sheet";
 
 export type ContactsFeatureIntroductionSheetProps = ContactsFeatureIntroduction;
 
 export function ContactsFeatureIntroductionSheet({
   isOpen,
   onComplete,
-  onDefer,
+  onClose: onCloseCallback,
   ...contentProps
 }: ContactsFeatureIntroductionSheetProps): React.JSX.Element {
-  const { bottom: bottomInset } = useSafeAreaInsets();
-  const hasCompleted = useRef(false);
-  const defer = useSingleFireDismiss(onDefer, isOpen);
-  const complete = useSingleFireDismiss(() => {
-    hasCompleted.current = true;
-    onComplete();
-  }, isOpen);
-
-  useEffect(() => {
-    if (isOpen) {
-      hasCompleted.current = false;
-    }
-  }, [isOpen]);
-
-  const handleDrawerClose = useCallback(() => {
-    if (!hasCompleted.current) {
-      defer();
-    }
-  }, [defer]);
+  const { bottom } = useSafeAreaInsets();
+  const bottomInset = Platform.OS === "ios" ? bottom : 0;
+  const { complete, onClose } = useContactsFeatureIntroductionActions({
+    isOpen,
+    onComplete,
+    onClose: onCloseCallback,
+  });
 
   return (
     <QueuedBottomSheet
       isRequestingToBeOpened={isOpen}
-      onClose={handleDrawerClose}
-      onHeaderClosePressed={defer}
-      onBackdropPress={defer}
+      onClose={onClose}
+      onHeaderClosePressed={onClose}
+      onBackdropPress={onClose}
       testID="contacts-feature-introduction-drawer"
-      enableDynamicSizing
-      // iOS: allow the sheet to grow with content; uncapped on Android to avoid excess empty space.
-      maxDynamicContentSize={Platform.OS === "ios" ? "fullWithOffset" : undefined}
+      snapPoints="fullWithOffset"
     >
       <ContactsFeatureIntroductionContent
         isOpen={isOpen}
         onComplete={complete}
-        onDefer={defer}
         bottomInset={bottomInset}
         {...contentProps}
       />

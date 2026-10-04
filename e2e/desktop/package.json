@@ -1,6 +1,6 @@
 {
   "name": "ledger-live-desktop-e2e-tests",
-  "version": "0.34.1",
+  "version": "0.42.0",
   "private": true,
   "scripts": {
     "lint": "oxlint .",
@@ -18,13 +18,13 @@
     "allure": "pnpm run allure:generate && pnpm run allure:open"
   },
   "dependencies": {
-    "@ledgerhq/ledger-key-ring-protocol": "workspace:^",
+    "@ledgerhq/device-mockserver-client": "catalog:",
+    "@ledgerhq/baanx-test-client": "workspace:^",
     "@ledgerhq/live-cli": "workspace:^",
     "@ledgerhq/live-common": "workspace:^",
     "@ledgerhq/live-dmk-speculos": "workspace:^",
     "@ledgerhq/live-e2e-shared": "workspace:^",
-    "@ledgerhq/live-wallet": "workspace:^",
-    "@ledgerhq/logs": "workspace:^",
+    "@ledgerhq/logs": "catalog:",
     "@ledgerhq/types-devices": "workspace:^",
     "@playwright/test": "catalog:",
     "@shared/feature-flags": "workspace:*",
@@ -36,22 +36,16 @@
     "bignumber.js": "9.1.2",
     "dotenv": "^16.4.7",
     "invariant": "^2.2.4",
-    "lodash": "^4.17.21",
+    "lodash": "catalog:",
     "rxjs": "catalog:"
   },
   "devDependencies": {
     "@types/invariant": "2.2.37",
-    "@types/lodash": "4.17.16",
+    "@types/lodash": "catalog:",
     "electron": "catalog:",
     "oxfmt": "catalog:",
     "oxlint": "catalog:",
     "playwright": "catalog:",
     "tsx": "^4.19.3"
-  },
-  "optionalDependencies": {
-    "@oxlint/binding-darwin-arm64": "1.51.0",
-    "@oxlint/binding-darwin-x64": "1.51.0",
-    "@oxlint/binding-linux-x64-gnu": "1.51.0",
-    "@oxlint/binding-win32-x64-msvc": "1.51.0"
   }
 }

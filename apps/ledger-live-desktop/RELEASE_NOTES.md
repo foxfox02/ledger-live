@@ -1,3 +1,27 @@
+# 4.21.1
+
+This release includes small security improvements.
+
+# 4.21.0
+
+This release includes small security improvements, UI tweaks, and minor bug fixes.
+
+# 4.19.0
+
+This release includes small security improvements, UI tweaks, and minor bug fixes.
+
+# 4.17.1
+
+This release includes small security improvements.
+
+# 4.17.0
+
+This release includes small security improvements, UI tweaks, and minor bug fixes.
+
+# 4.15.0
+
+This release includes small security improvements, UI tweaks, and minor bug fixes.
+
 # 4.13.1
 
 This release includes a bug fix for Solana.

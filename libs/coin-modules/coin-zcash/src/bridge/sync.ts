@@ -1,6 +1,6 @@
 import { BigNumber } from "bignumber.js";
 import { log } from "@ledgerhq/logs";
-import { defer, from, map, merge, mergeMap, Observable, scan } from "rxjs";
+import { catchError, defer, from, map, merge, mergeMap, Observable, of, scan, timeout } from "rxjs";
 import type {
   AccountShapeInfo,
   GetAccountShapeStream,
@@ -30,9 +30,15 @@ import {
   isNativeSegwitDerivationMode,
   isTaprootDerivationMode,
 } from "@ledgerhq/ledger-wallet-framework/derivation";
-import type { BitcoinOutput, BtcOperation, ZcashAccount } from "../types/bridge";
-import type { BitcoinXPub, SignerContext } from "../types/signer";
+import type {
+  BitcoinOutput,
+  BtcOperation,
+  ZcashAccount,
+  ZcashOperationExtra,
+} from "../types/bridge";
+import type { SignerContext } from "../types/signer";
 import type { ShieldedSyncResult, ShieldedTransaction, ZcashPrivateInfo } from "../network/types";
+import { ZCASH_SHIELDED_TX_TYPES } from "../network/types";
 import { toWalletBtcCurrency } from "../walletBtcCurrency";
 import { computeZcashBalance, getTransparentBalance } from "../logic/account/balance";
 import { explorerFee, spentOutpoints, txDate } from "../logic/history/transparentTx";
@@ -40,11 +46,23 @@ import {
   computeBalanceFromNotes,
   computeIronwoodBalanceFromNotes,
   convertShieldedTransactionsToOperations,
+  getTxType,
 } from "./operations";
-import { DEFAULT_ZCASH_PRIVATE_INFO, getZainoEndpoint, ZCASH_LOG_TYPE } from "../constants";
+import {
+  DEFAULT_ZCASH_PRIVATE_INFO,
+  ZCASH_LOG_TYPE,
+  ZCASH_XPUB_VERSION,
+  ZCASH_SHIELDED_BATCH_SIZE,
+  ZCASH_SHIELDED_CHUNK_TIMEOUT_MS,
+  zainoEndpoint,
+  type ZainoEndpoint,
+} from "../constants";
+import type { ZcashContext } from "../config";
+import { bindExplorer } from "./explorer";
 import { getZCashClient } from "../logic/engineClient";
 import { resolveTransactionDetails, type ResolvedTransactions } from "./transaction-details";
 import { composeXpub } from "../signer/xpub";
+import { releaseConfirmedNullifiers, releaseRetiredReservations } from "./note-reservation";
 
 export { removeReplaced } from "@ledgerhq/wallet-btc/operations";
 
@@ -89,13 +107,20 @@ export const fromWalletUtxo = (
  * recoverable; only the payees are not, since they are encrypted to it.
  */
 async function recoverTransactionDetails(
+  endpoint: ZainoEndpoint,
   transactions: TX[],
   account: ZcashAccount | undefined,
 ): Promise<ResolvedTransactions> {
-  const client = await getZCashClient(getZainoEndpoint());
+  const client = await getZCashClient(endpoint);
 
   const transactionDetails = client.transactionDetails;
-  if (!transactionDetails) return { transactions, payeesByTxId: new Map<string, string[]>() };
+  if (!transactionDetails) {
+    return {
+      transactions,
+      payeesByTxId: new Map<string, string[]>(),
+      shieldingTxIds: new Set<string>(),
+    };
+  }
 
   const ufvk = account?.privateInfo?.ufvk ?? undefined;
 
@@ -106,15 +131,73 @@ async function recoverTransactionDetails(
   );
 }
 
+type ShieldedDestinations = {
+  /** The shielded addresses the chain reported each transaction paid. */
+  payeesByTxId: Map<string, string[]> | undefined;
+  /** Transactions whose transparent value entered a shielded pool. */
+  shieldingTxIds: Set<string>;
+  /** The transactions the shielded leg recorded as crediting this account. */
+  credited: Set<string>;
+  /** This account's own shielded address, once it knows it. */
+  own: string | null;
+};
+
+/**
+ * The transactions whose shielded value came back to this account, as the
+ * shielded leg already recorded them — typed by the very rule that leg types
+ * its own operations by, so the two agree on which transactions credited a
+ * pool.
+ *
+ * This reads the account as the tick found it, so a shielding send is named
+ * from the sync that follows the scan which found its note. Until then the
+ * account that signed it reads its own optimistic operation instead (see
+ * `reconcileConfirmedPendingOperations`).
+ *
+ * Known gap: `hasTransparentInputs` is only reported by scanners recent enough
+ * to have carried it (see its doc in `network/types.ts`). A `SHIELDED_TX_INTERNAL`
+ * transaction recorded before then reads it as `undefined`, so it is silently
+ * left out of `credited` -- an account restored from that older scan keeps
+ * naming the change address for a shielding send it already made, until a
+ * fresh shielded scan re-reports the transaction with the field set.
+ */
+function shieldedCredits(account: ZcashAccount | undefined): Set<string> {
+  const credited = new Set<string>();
+  for (const tx of account?.privateInfo?.transactions ?? []) {
+    const type = getTxType(tx);
+    if (type.endsWith("_IN") || (type === "SHIELDED_TX_INTERNAL" && tx.hasTransparentInputs)) {
+      credited.add(tx.id);
+    }
+  }
+  return credited;
+}
+
+/**
+ * The shielded addresses a transaction paid.
+ *
+ * A viewing key recovers the addresses a transaction paid *someone else*, which
+ * a shielding send has none of: it pays the account that signs it, and nobody
+ * else. What names it instead is the shielded leg having credited the account
+ * for the same transaction, and its destination is then the account's own
+ * shielded address — the address such a send is addressed to in the first place
+ * (see the desktop `ZcashSelfTransferToggle`).
+ */
+function shieldedDestinationsOf(hash: string, destinations: ShieldedDestinations): string[] {
+  const payees = destinations.payeesByTxId?.get(hash);
+  if (payees?.length) return payees;
+  if (!destinations.own || !destinations.credited.has(hash)) return [];
+  return [destinations.own];
+}
+
 /**
  * Replaces the recipients of an operation whose real destination the explorer
  * could not see.
  *
- * A transaction paying only into a shielded pool has no transparent output but
- * its own change, which `mapTxToOperations` lists as the recipient for want of
- * anything better. Once the chain has recovered who was actually paid, that
- * fallback is no longer the best answer available and gives way — while any
- * genuine transparent recipient of the same transaction is kept.
+ * A transaction paying into a shielded pool has no transparent output but its
+ * own change, which `mapTxToOperations` lists as the recipient for want of
+ * anything better. Once the destination is known, that fallback is no longer
+ * the best answer available and gives way, along with every other output the
+ * send only paid back to itself — while any genuine transparent recipient of
+ * the same transaction is kept.
  *
  * Only the outgoing leg is concerned. A transaction can also credit the account
  * it debits, and the recipient of that incoming leg is an address of ours, not
@@ -122,16 +205,184 @@ async function recoverTransactionDetails(
  */
 function withRecoveredRecipients(
   op: BtcOperation,
-  payeesByTxId: Map<string, string[]> | undefined,
-  changeAddresses: Set<string>,
+  accountAddresses: Set<string>,
+  destinations: ShieldedDestinations,
 ): BtcOperation {
   if (op.type !== "OUT") return op;
 
-  const payees = payeesByTxId?.get(op.hash);
-  if (!payees?.length) return op;
+  const shielded = shieldedDestinationsOf(op.hash, destinations);
+  const recipients = shielded.length
+    ? [...op.recipients.filter(recipient => !accountAddresses.has(recipient)), ...shielded]
+    : op.recipients;
+  const extra = destinations.shieldingTxIds.has(op.hash)
+    ? { ...op.extra, zcashPrivate: true }
+    : op.extra;
 
-  const transparentRecipients = op.recipients.filter(recipient => !changeAddresses.has(recipient));
-  return { ...op, recipients: [...transparentRecipients, ...payees] };
+  return recipients === op.recipients && extra === op.extra ? op : { ...op, recipients, extra };
+}
+
+/**
+ * `mergeOps` keeps a stored operation when `sameOp` agrees, and `sameOp` does
+ * not compare `extra`. Stamp `zcashPrivate` onto the matching stored id so a
+ * fee-corrected OUT whose recipients already match still receives the marker.
+ */
+function withPrivateMarker(fetched: BtcOperation[], operations: BtcOperation[]): BtcOperation[] {
+  const privateIds = new Set<string>();
+  for (const op of fetched) {
+    if ((op.extra as ZcashOperationExtra | undefined)?.zcashPrivate) privateIds.add(op.id);
+  }
+  if (privateIds.size === 0) return operations;
+
+  return operations.map(op => {
+    if (!privateIds.has(op.id) || (op.extra as ZcashOperationExtra | undefined)?.zcashPrivate) {
+      return op;
+    }
+    return { ...op, extra: { ...op.extra, zcashPrivate: true } };
+  });
+}
+
+type AccountInputs = {
+  /** Every address the transaction spends from, ours or not. */
+  senders: Set<string>;
+  accountInputs: WalletInput[];
+  /** What the account's own inputs put in, before its change comes back. */
+  spent: BigNumber;
+};
+
+function collectAccountInputs(tx: TX, accountAddresses: Set<string>): AccountInputs {
+  const senders = new Set<string>();
+  const accountInputs: WalletInput[] = [];
+  let spent = new BigNumber(0);
+
+  for (const input of tx.inputs) {
+    if (!input.address) continue;
+    senders.add(input.address);
+    if (input.value && accountAddresses.has(input.address)) {
+      spent = spent.plus(input.value);
+      accountInputs.push(input);
+    }
+  }
+
+  return { senders, accountInputs, spent };
+}
+
+/**
+ * Minimum nSequence among the account's own inputs -- the conservative
+ * RBF/locktime signal. An input that omits it counts as 0xfffffffe, the
+ * Bitcoin Core default; no own input at all reads as 0.
+ */
+function minAccountSequence(accountInputs: WalletInput[]): BigNumber {
+  if (accountInputs.length === 0) return new BigNumber(0);
+  return new BigNumber(Math.min(...accountInputs.map(input => input.sequence ?? 0xfffffffe)));
+}
+
+/** Where a sender's own change sits: the last output of the transaction. */
+function changeOutputIndexOf(tx: TX): number {
+  return tx.outputs.reduce((highest, output) => Math.max(highest, output.output_index), 0);
+}
+
+type OutputContext = {
+  fundedByAccount: boolean;
+  singleOutput: boolean;
+  changeOutputIndex: number;
+  spentNothing: boolean;
+};
+
+/** An output the explorer could not attribute carries a placeholder address. */
+function isAttributed(output: WalletOutput): boolean {
+  return !!output.address && !output.address.includes("unknown");
+}
+
+/**
+ * A foreign address is a payee only when the account funded the transaction,
+ * and only among the outputs preceding the change.
+ */
+function isForeignPayee(output: WalletOutput, context: OutputContext): boolean {
+  if (!context.fundedByAccount) return false;
+  return context.singleOutput || output.output_index < context.changeOutputIndex;
+}
+
+/**
+ * One of the account's own addresses is a payee unless it is change -- which
+ * still counts when nothing else was paid, or when the account spent nothing
+ * and is therefore being paid rather than paying.
+ */
+function isOwnPayee(
+  output: WalletOutput,
+  changeAddresses: Set<string>,
+  recipientsSoFar: number,
+  context: OutputContext,
+): boolean {
+  if (!changeAddresses.has(output.address)) return true;
+  return (
+    (recipientsSoFar === 0 && output.output_index >= context.changeOutputIndex) ||
+    context.spentNothing
+  );
+}
+
+type OutputRoles = {
+  recipients: string[];
+  accountOutputs: WalletOutput[];
+};
+
+function assignOutputRoles(
+  tx: TX,
+  accountAddresses: Set<string>,
+  changeAddresses: Set<string>,
+  context: OutputContext,
+): OutputRoles {
+  const recipients: string[] = [];
+  const accountOutputs: WalletOutput[] = [];
+
+  for (const output of tx.outputs) {
+    if (!isAttributed(output)) continue;
+
+    const isOwn = accountAddresses.has(output.address);
+    if (isOwn) accountOutputs.push(output);
+
+    const isPayee = isOwn
+      ? isOwnPayee(output, changeAddresses, recipients.length, context)
+      : isForeignPayee(output, context);
+    if (isPayee) recipients.push(output.address);
+  }
+
+  return { recipients, accountOutputs };
+}
+
+function sumValues(outputs: WalletOutput[]): BigNumber {
+  return outputs.reduce((total, output) => total.plus(output.value), new BigNumber(0));
+}
+
+type OperationDraft = {
+  tx: TX;
+  accountId: string;
+  senders: Set<string>;
+  recipients: string[];
+  transactionSequenceNumber: BigNumber;
+};
+
+function buildOperation(
+  draft: OperationDraft,
+  type: OperationType,
+  value: BigNumber,
+): BtcOperation {
+  const { tx, accountId, senders, recipients, transactionSequenceNumber } = draft;
+  return {
+    id: encodeOperationId(accountId, tx.id, type),
+    hash: tx.id,
+    type,
+    value,
+    fee: explorerFee(tx),
+    senders: Array.from(senders),
+    recipients,
+    blockHeight: tx.block?.height,
+    blockHash: tx.block?.hash,
+    accountId,
+    date: txDate(tx),
+    hasFailed: false,
+    transactionSequenceNumber,
+    extra: { inputs: Array.from(new Set(spentOutpoints(tx))) },
+  } as BtcOperation;
 }
 
 /**
@@ -145,127 +396,38 @@ function mapTxToOperations(
   accountAddresses: Set<string>,
   changeAddresses: Set<string>,
 ): BtcOperation[] {
+  const { senders, accountInputs, spent } = collectAccountInputs(tx, accountAddresses);
+  const fundedByAccount = accountInputs.length > 0;
+
+  const { recipients, accountOutputs } = assignOutputRoles(tx, accountAddresses, changeAddresses, {
+    fundedByAccount,
+    singleOutput: tx.outputs.length === 1,
+    changeOutputIndex: changeOutputIndexOf(tx),
+    spentNothing: spent.eq(0),
+  });
+
+  const draft: OperationDraft = {
+    tx,
+    accountId,
+    senders,
+    recipients,
+    transactionSequenceNumber: minAccountSequence(accountInputs),
+  };
+
   const operations: BtcOperation[] = [];
-  const txId = tx.id;
-  const fee = explorerFee(tx);
-  const blockHeight = tx.block?.height;
-  const blockHash = tx.block?.hash;
-  const date = txDate(tx);
-  const senders = new Set<string>();
-  const recipients: string[] = [];
-  let type: OperationType = "OUT";
-  let value = new BigNumber(0);
-  const hasFailed = false;
-  const accountInputs: WalletInput[] = [];
-  const accountOutputs: WalletOutput[] = [];
-  const inputs = new Set(spentOutpoints(tx));
 
-  for (const input of tx.inputs) {
-    if (input.address) {
-      senders.add(input.address);
-      if (input.value && accountAddresses.has(input.address)) {
-        value = value.plus(input.value);
-        accountInputs.push(input);
-      }
-    }
+  if (fundedByAccount) {
+    const change = accountOutputs.filter(output => changeAddresses.has(output.address));
+    operations.push(buildOperation(draft, "OUT", spent.minus(sumValues(change))));
   }
 
-  // Minimum nSequence among the account's own inputs -- the conservative
-  // RBF/locktime signal. An input that omits it counts as 0xfffffffe, the
-  // Bitcoin Core default; no own input at all reads as 0.
-  const transactionSequenceNumber = new BigNumber(
-    accountInputs.length === 0
-      ? 0
-      : Math.min(...accountInputs.map(input => input.sequence ?? 0xfffffffe)),
-  );
-
-  const hasSpentNothing = value.eq(0);
-  const changeOutputIndex =
-    tx.outputs.length === 0
-      ? 0
-      : tx.outputs.map(o => o.output_index).reduce((p, c) => (p > c ? p : c));
-
-  for (const output of tx.outputs) {
-    if (output.address && !output.address.includes("unknown")) {
-      if (!accountAddresses.has(output.address)) {
-        if (
-          accountInputs.length > 0 &&
-          (tx.outputs.length === 1 || output.output_index < changeOutputIndex)
-        ) {
-          recipients.push(output.address);
-        }
-      } else {
-        accountOutputs.push(output);
-        if (!changeAddresses.has(output.address)) {
-          recipients.push(output.address);
-        } else if (
-          (recipients.length === 0 && output.output_index >= changeOutputIndex) ||
-          hasSpentNothing
-        ) {
-          recipients.push(output.address);
-        }
-      }
-    }
-  }
-
-  if (accountInputs.length > 0) {
-    for (const output of accountOutputs) {
-      if (changeAddresses.has(output.address)) {
-        value = value.minus(output.value);
-      }
-    }
-
-    type = "OUT";
-    operations.push({
-      id: encodeOperationId(accountId, txId, type),
-      hash: txId,
-      type,
-      value,
-      fee,
-      senders: Array.from(senders),
-      recipients,
-      blockHeight,
-      blockHash,
-      accountId,
-      date,
-      hasFailed,
-      transactionSequenceNumber,
-      extra: { inputs: Array.from(inputs) },
-    } as BtcOperation);
-  }
-
-  if (accountOutputs.length > 0) {
-    const filterChangeAddresses = !!accountInputs.length;
-    let accountOutputCount = 0;
-    let finalAmount = new BigNumber(0);
-
-    for (const output of accountOutputs) {
-      if (!filterChangeAddresses || !changeAddresses.has(output.address)) {
-        finalAmount = finalAmount.plus(output.value);
-        accountOutputCount += 1;
-      }
-    }
-
-    if (accountOutputCount > 0) {
-      value = finalAmount;
-      type = "IN";
-      operations.push({
-        id: encodeOperationId(accountId, txId, type),
-        hash: txId,
-        type,
-        value,
-        fee,
-        senders: Array.from(senders),
-        recipients,
-        blockHeight,
-        blockHash,
-        accountId,
-        date,
-        hasFailed,
-        transactionSequenceNumber,
-        extra: { inputs: Array.from(inputs) },
-      } as BtcOperation);
-    }
+  // Change coming back to the account is not income, so a send only credits
+  // what it pays to an address of ours that is not change.
+  const credited = fundedByAccount
+    ? accountOutputs.filter(output => !changeAddresses.has(output.address))
+    : accountOutputs;
+  if (credited.length > 0) {
+    operations.push(buildOperation(draft, "IN", sumValues(credited)));
   }
 
   return operations;
@@ -274,8 +436,10 @@ function mapTxToOperations(
 export async function performTransparentSync(
   info: AccountShapeInfo<ZcashAccount>,
   signerContext: SignerContext,
+  context: ZcashContext,
 ): Promise<Partial<ZcashAccount>> {
   const { currency, index, derivationPath, derivationMode, initialAccount, deviceId } = info;
+  const config = await context.config(currency.id);
 
   const rootPath = derivationPath.split("/", 2).join("/");
   const accountPath = `${rootPath}/${index}'`;
@@ -300,19 +464,25 @@ export async function performTransparentSync(
   const walletNetwork = toWalletNetwork(currency.id);
   const walletDerivationMode = toWalletDerivationMode(derivationMode);
 
-  const walletAccount =
-    initialAccount?.bitcoinResources?.walletAccount ||
-    (await wallet.generateAccount(
-      {
-        xpub,
-        path: rootPath,
-        index,
-        currency: <Currency>currency.id,
-        network: walletNetwork,
-        derivationMode: walletDerivationMode,
-      },
-      toWalletBtcCurrency(currency),
-    ));
+  // Bound in both cases: wallet-btc caches one explorer per currency id, first set wins, and
+  // deserialization seeds that cache unbound, so a freshly generated account can come back
+  // with a stale explorer too.
+  const walletAccount = bindExplorer(
+    initialAccount?.bitcoinResources?.walletAccount ??
+      (await wallet.generateAccount(
+        {
+          xpub,
+          path: rootPath,
+          index,
+          currency: <Currency>currency.id,
+          network: walletNetwork,
+          derivationMode: walletDerivationMode,
+        },
+        toWalletBtcCurrency(currency, config),
+      )),
+    currency,
+    config,
+  );
 
   const oldOperations = (initialAccount?.operations || []) as BtcOperation[];
   const currentBlock = await walletAccount.xpub.explorer.getCurrentBlock();
@@ -337,18 +507,31 @@ export async function performTransparentSync(
   // the explorer's answer must not be lost because that reach failed.
   let resolved: ResolvedTransactions | undefined;
   try {
-    resolved = await recoverTransactionDetails(transactions, initialAccount);
+    resolved = await recoverTransactionDetails(
+      zainoEndpoint(config.zaino.url),
+      transactions,
+      initialAccount,
+    );
   } catch (error) {
     log(ZCASH_LOG_TYPE, "keeping the explorer's view of the transactions", { error });
   }
 
+  const destinations: ShieldedDestinations = {
+    payeesByTxId: resolved?.payeesByTxId,
+    shieldingTxIds: resolved?.shieldingTxIds ?? new Set<string>(),
+    credited: shieldedCredits(initialAccount),
+    own: initialAccount?.privateInfo?.shieldedAddress ?? null,
+  };
+
   const newOperations = (resolved?.transactions ?? transactions)
-    ?.map(tx => mapTxToOperations(tx, accountId, accountAddresses, changeAddresses))
-    .flat()
-    .map(op => withRecoveredRecipients(op, resolved?.payeesByTxId, changeAddresses));
+    ?.flatMap(tx => mapTxToOperations(tx, accountId, accountAddresses, changeAddresses))
+    .map(op => withRecoveredRecipients(op, accountAddresses, destinations));
 
   const newUniqueOperations = deduplicateOperations(newOperations);
-  const _operations = mergeOps(oldOperations, newUniqueOperations);
+  const _operations = withPrivateMarker(
+    newUniqueOperations,
+    mergeOps(oldOperations, newUniqueOperations) as BtcOperation[],
+  );
   const operations = removeReplaced(_operations as BtcOperation[]);
   const balanceOperations = removeReplaced(_operations as BtcOperation[], Date.now(), true);
   const keptOperationHashes = new Set(balanceOperations.map(op => op.hash));
@@ -371,7 +554,13 @@ export async function performTransparentSync(
   const getInputsKey = (op: BtcOperation): string | null => {
     const inputs = op.extra?.inputs;
     if (!Array.isArray(inputs) || inputs.length === 0) return null;
-    return [...inputs].sort().join("|");
+    return [...inputs]
+      .sort((a, b) => {
+        if (a < b) return -1;
+        if (a > b) return 1;
+        return 0;
+      })
+      .join("|");
   };
 
   const isBetterCandidate = (candidate: BtcOperation, existing: BtcOperation): boolean => {
@@ -434,9 +623,10 @@ export async function performTransparentSync(
 function createTransparentSyncObservable(
   info: AccountShapeInfo<ZcashAccount>,
   signerContext: SignerContext,
+  context: ZcashContext,
 ): Observable<Partial<ZcashAccount>> {
   return new Observable<Partial<ZcashAccount>>(subscriber => {
-    performTransparentSync(info, signerContext)
+    performTransparentSync(info, signerContext, context)
       .then(result => {
         subscriber.next(result);
         subscriber.complete();
@@ -455,16 +645,13 @@ type XpubGenerateParameter = {
 async function generateXpubIfNeeded(
   providedXpub: string | undefined,
   params: XpubGenerateParameter,
-): Promise<BitcoinXPub> {
+): Promise<string> {
   if (providedXpub) return providedXpub;
 
-  const { deviceId, currency, signerContext, accountPath } = params;
+  const { deviceId, signerContext, accountPath } = params;
   if (deviceId === undefined || deviceId === null) {
     throw new Error("deviceId required to generate the xpub");
   }
-  const { bitcoinLikeInfo } = currency;
-  const { XPUBVersion: xpubVersion } = bitcoinLikeInfo as { XPUBVersion: number };
-
   // coin-zcash always composes the xpub locally (see signer/xpub.ts) -- the
   // DMK Zcash signer kit only exposes getAddress, not a native xpub command.
   const accountPathElements = pathStringToArray(accountPath);
@@ -483,7 +670,7 @@ async function generateXpubIfNeeded(
   });
 
   return composeXpub({
-    xpubVersion,
+    xpubVersion: ZCASH_XPUB_VERSION,
     depth: accountPathElements.length,
     childNumber,
     parentPublicKeyHex: parent.publicKey,
@@ -493,8 +680,6 @@ async function generateXpubIfNeeded(
 }
 
 // ── Shielded sync ────────────────────────────────────────────────────────
-
-const ZCASH_NATIVE_CHUNK_SIZE = 5_000;
 
 async function resolveStartBlockHeight(
   lastProcessedBlock: number | null | undefined,
@@ -514,6 +699,8 @@ async function resolveStartBlockHeight(
 export const zcashSyncShielded = (
   acc: AccountShapeInfo<ZcashAccount>,
   _syncConfig: SyncConfig,
+  endpoint: ZainoEndpoint,
+  maxBatchSize: number,
 ): Observable<ShieldedSyncResult> =>
   defer(() => {
     const viewingKey = acc.initialAccount?.privateInfo?.ufvk;
@@ -548,7 +735,7 @@ export const zcashSyncShielded = (
       ]),
     ];
 
-    return from(getZCashClient(getZainoEndpoint())).pipe(
+    return from(getZCashClient(endpoint)).pipe(
       mergeMap(client => {
         return from(
           resolveStartBlockHeight(lastProcessedBlock, birthday, ts => client.findBlockHeight(ts)),
@@ -557,7 +744,7 @@ export const zcashSyncShielded = (
             client.syncShielded({
               startBlockHeight,
               viewingKey,
-              maxBatchSize: ZCASH_NATIVE_CHUNK_SIZE,
+              maxBatchSize,
               ...(knownNullifiers.length > 0 && { knownNullifiers }),
             }),
           ),
@@ -616,6 +803,79 @@ function markSpentNotes(tx: ShieldedTransaction, spentSet: Set<string>): Shielde
   };
 }
 
+/** How far the scan got, as persisted on the account. */
+function scanProgress(
+  result: ShieldedSyncResult,
+): Pick<ZcashPrivateInfo, "syncState" | "progress"> {
+  const totalBlocks = result.processedBlocks + result.remainingBlocks;
+  return {
+    syncState: result.remainingBlocks > 0 ? "running" : "complete",
+    progress: totalBlocks > 0 ? Math.round((result.processedBlocks / totalBlocks) * 100) : 100,
+  };
+}
+
+/**
+ * Fold a chunk that carries no transaction the account does not already hold.
+ *
+ * Only the scan cursor and the spent flags can move here: a note already known
+ * may have been spent elsewhere, which the chunk reports through its
+ * nullifiers. Operations are left untouched.
+ */
+function reduceUnchangedShieldedChunk(
+  accumulated: ShieldedScanAccumulated,
+  result: ShieldedSyncResult,
+  context: {
+    existingPrivateInfo: ZcashPrivateInfo;
+    transparentBalance: BigNumber;
+    lastProcessedBlock: number | null;
+    accountId: string;
+  },
+): ShieldedScanAccumulated {
+  const { existingPrivateInfo, transparentBalance, lastProcessedBlock, accountId } = context;
+  // The NAPI uses a unified spentKnownNullifiers list for all pools.
+  const spentNfs = result.spentKnownNullifiers ?? [];
+  const hasNewlySpentNotes = spentNfs.length > 0;
+  const spentSet = new Set(spentNfs);
+
+  const updatedTransactions = hasNewlySpentNotes
+    ? existingPrivateInfo.transactions.map(tx => markSpentNotes(tx, spentSet))
+    : existingPrivateInfo.transactions;
+  const orchardBalance = hasNewlySpentNotes
+    ? computeBalanceFromNotes(updatedTransactions)
+    : existingPrivateInfo.orchardBalance;
+  const ironwoodBalance = hasNewlySpentNotes
+    ? computeIronwoodBalanceFromNotes(updatedTransactions)
+    : existingPrivateInfo.ironwoodBalance;
+
+  const balance = computeZcashBalance(transparentBalance, {
+    orchardBalance,
+    saplingBalance: existingPrivateInfo.saplingBalance,
+    ironwoodBalance,
+  });
+
+  releaseConfirmedNullifiers(accountId, spentNfs);
+
+  return {
+    ...accumulated,
+    accountUpdate: {
+      ...accumulated.accountUpdate,
+      balance,
+      spendableBalance: balance,
+      blockHeight: lastProcessedBlock ?? accumulated.accountUpdate.blockHeight ?? 0,
+      privateInfo: {
+        ...existingPrivateInfo,
+        ...scanProgress(result),
+        lastProcessedBlock,
+        lastSyncTimestamp: Date.now(),
+        transactions: updatedTransactions,
+        orchardBalance,
+        ironwoodBalance,
+        lastSyncError: null,
+      },
+    },
+  };
+}
+
 export function reduceShieldedSyncResult(
   accumulated: ShieldedScanAccumulated,
   result: ShieldedSyncResult,
@@ -637,49 +897,12 @@ export function reduceShieldedSyncResult(
   );
 
   if (newTransactions.length === 0) {
-    const totalBlocks = result.processedBlocks + result.remainingBlocks;
-    // The NAPI uses a unified spentKnownNullifiers list for all pools.
-    const spentNfs = result.spentKnownNullifiers ?? [];
-    let updatedTransactions = existingPrivateInfo.transactions;
-    if (spentNfs.length > 0) {
-      const spentSet = new Set(spentNfs);
-      updatedTransactions = updatedTransactions.map(tx => markSpentNotes(tx, spentSet));
-    }
-    const orchardBalance =
-      spentNfs.length > 0
-        ? computeBalanceFromNotes(updatedTransactions)
-        : existingPrivateInfo.orchardBalance;
-    const ironwoodBalance =
-      spentNfs.length > 0
-        ? computeIronwoodBalanceFromNotes(updatedTransactions)
-        : existingPrivateInfo.ironwoodBalance;
-
-    const balance = computeZcashBalance(transparentBalance, {
-      orchardBalance,
-      saplingBalance: existingPrivateInfo.saplingBalance,
-      ironwoodBalance,
+    return reduceUnchangedShieldedChunk(accumulated, result, {
+      existingPrivateInfo,
+      transparentBalance,
+      lastProcessedBlock,
+      accountId,
     });
-
-    return {
-      ...accumulated,
-      accountUpdate: {
-        ...accumulated.accountUpdate,
-        balance,
-        spendableBalance: balance,
-        blockHeight: lastProcessedBlock ?? accumulated.accountUpdate.blockHeight ?? 0,
-        privateInfo: {
-          ...existingPrivateInfo,
-          syncState: result.remainingBlocks > 0 ? ("running" as const) : ("complete" as const),
-          progress:
-            totalBlocks > 0 ? Math.round((result.processedBlocks / totalBlocks) * 100) : 100,
-          lastProcessedBlock,
-          lastSyncTimestamp: Date.now(),
-          transactions: updatedTransactions,
-          orchardBalance,
-          ironwoodBalance,
-        },
-      },
-    };
   }
 
   const newOperations = convertShieldedTransactionsToOperations(newTransactions, accountId);
@@ -707,19 +930,19 @@ export function reduceShieldedSyncResult(
   const ironwoodBalance = computeIronwoodBalanceFromNotes(allShieldedTx);
   const saplingBalance = accumulated.accountUpdate.privateInfo?.saplingBalance ?? new BigNumber(0);
 
-  const totalBlocks = result.processedBlocks + result.remainingBlocks;
   const privateInfo: ZcashPrivateInfo = {
     saplingBalance,
     orchardBalance,
     ironwoodBalance,
-    syncState: result.remainingBlocks > 0 ? ("running" as const) : ("complete" as const),
-    progress: totalBlocks > 0 ? Math.round((result.processedBlocks / totalBlocks) * 100) : 100,
+    ...scanProgress(result),
     estimatedTimeRemaining: existingPrivateInfo.estimatedTimeRemaining ?? { hours: 0, minutes: 0 },
     ufvk: existingPrivateInfo?.ufvk ?? null,
     birthday: existingPrivateInfo?.birthday ?? null,
+    shieldedAddress: existingPrivateInfo?.shieldedAddress ?? null,
     lastSyncTimestamp: Date.now(),
     lastProcessedBlock,
     transactions: allShieldedTx,
+    lastSyncError: null,
   };
 
   const balance = computeZcashBalance(transparentBalance, {
@@ -741,6 +964,8 @@ export function reduceShieldedSyncResult(
     0,
     (info.initialAccount?.operationsCount ?? 0) - (info.initialAccount?.operations?.length ?? 0),
   );
+
+  releaseConfirmedNullifiers(accountId, spentNfs);
 
   return {
     processedOperations: [...result.transactions],
@@ -801,6 +1026,7 @@ function createShieldedSyncObservable(
 export function buildExtraSyncObservable(
   info: AccountShapeInfo<ZcashAccount>,
   syncConfig: SyncConfig,
+  context: ZcashContext,
 ): Observable<Partial<ZcashAccount>> | undefined {
   const syncType = syncConfig.syncType ?? 0;
   const includesShielded = (syncType & SYNC_TYPE_SHIELDED) !== 0;
@@ -813,17 +1039,53 @@ export function buildExtraSyncObservable(
     !!zcashInitialAccount.privateInfo?.ufvk &&
     zcashInitialAccount.privateInfo.ufvk.length > 0;
 
+  // "stopped" is overloaded: the leg sets it on its own after an error/timeout (see the
+  // catchError below, which also sets lastSyncError) so the next automatic tick can retry,
+  // but useZcashShieldedSync's manual stop sets the same value to mean "leave it alone until
+  // the user restarts it" -- without checking lastSyncError, the automatic wallet sync (which
+  // always requests the shielded leg for zcash, see BridgeSync.tsx) would rebuild it on its
+  // next tick and flip syncState back to "running", making a manual stop never stick.
   const syncStateIsEnabled =
     !!zcashInitialAccount &&
     (zcashInitialAccount.privateInfo?.syncState === "ready" ||
       zcashInitialAccount.privateInfo?.syncState === "running" ||
-      zcashInitialAccount.privateInfo?.syncState === "stopped" ||
-      zcashInitialAccount.privateInfo?.syncState === "outdated");
+      (zcashInitialAccount.privateInfo?.syncState === "stopped" &&
+        !!zcashInitialAccount.privateInfo?.lastSyncError) ||
+      zcashInitialAccount.privateInfo?.syncState === "outdated" ||
+      zcashInitialAccount.privateInfo?.syncState === "complete");
 
   if (!ufvkIsPresent || !syncStateIsEnabled) return undefined;
 
-  const shieldedSyncRaw = zcashSyncShielded(info, syncConfig);
-  return createShieldedSyncObservable(info, shieldedSyncRaw);
+  return from(context.config(info.currency.id)).pipe(
+    mergeMap(config =>
+      createShieldedSyncObservable(
+        info,
+        zcashSyncShielded(
+          info,
+          syncConfig,
+          zainoEndpoint(config.zaino.url),
+          config.zaino.batchSize ?? ZCASH_SHIELDED_BATCH_SIZE,
+        ),
+      ).pipe(timeout(config.zaino.timeoutMs ?? ZCASH_SHIELDED_CHUNK_TIMEOUT_MS)),
+    ),
+    catchError(error => {
+      log(ZCASH_LOG_TYPE, `shielded sync failed/timed out: ${String(error)}`);
+      // This bridge is registered with shouldMergeOps: false (bridge/index.ts),
+      // so whatever `operations` this emission carries REPLACES the account's
+      // operations wholesale -- omitting it here would wipe the account's
+      // entire transaction history down to `[]` on every timeout/error. Carry
+      // the pre-sync operations forward unchanged, the same way a successful
+      // emission always seeds from `info.initialAccount?.operations` too.
+      return of<Partial<ZcashAccount>>({
+        operations: (zcashInitialAccount?.operations ?? []) as BtcOperation[],
+        privateInfo: {
+          ...(zcashInitialAccount?.privateInfo ?? DEFAULT_ZCASH_PRIVATE_INFO),
+          syncState: "stopped",
+          lastSyncError: String(error),
+        },
+      });
+    }),
+  );
 }
 
 // ── Merged getAccountShape (transparent + shielded) ─────────────────────
@@ -831,30 +1093,118 @@ export function buildExtraSyncObservable(
 // coin-zcash owns both halves itself (no coin-bitcoin fallback): every sync
 // always runs the transparent leg, and adds the shielded leg when eligible.
 
+const isShieldedOperation = (op: BtcOperation): boolean =>
+  (ZCASH_SHIELDED_TX_TYPES as readonly string[]).includes(op.type);
+
+/**
+ * Identifies one leg of one transaction: the hash plus the direction the value
+ * moved in. Every operation type either ends in `IN` (`IN`, `SHIELDED_TX_*_IN`)
+ * or is outgoing; `SHIELDED_TX_INTERNAL` never reaches here, since it is typed
+ * `NONE` and so belongs to neither bucket.
+ */
+const legKey = (op: BtcOperation): string => `${op.hash}-${op.type.endsWith("IN") ? "IN" : "OUT"}`;
+
+/**
+ * Both legs anchor to the same pre-tick `initialAccount.operations` snapshot and each
+ * re-emits it merged with only its own new finds (see `performTransparentSync` and
+ * `reduceShieldedSyncResult`), so every emission from either leg carries a mix of fresh
+ * data for its own domain plus a stale, frozen-at-tick-start copy of the other's. This
+ * is where they're combined, tracking each leg's latest domain separately so a stale
+ * copy from one leg's emission can never wholesale-replace the other leg's same-tick
+ * progress once it reaches `makeSync`'s `shouldMergeOps: false` merge (bridge/index.ts).
+ */
+export function reconcileLegOperations(
+  latest: { transparent: BtcOperation[]; shielded: BtcOperation[] },
+  leg: "transparent" | "shielded",
+  result: Partial<ZcashAccount>,
+): Partial<ZcashAccount> {
+  if (!result.operations) return result;
+
+  latest[leg] = (result.operations as BtcOperation[]).filter(op =>
+    leg === "shielded" ? isShieldedOperation(op) : !isShieldedOperation(op),
+  );
+
+  // A cross-pool transaction is synced by both legs, each recording its own
+  // operation for the same `hash`. Whether those two records are one event seen
+  // twice or two real events is decided by their DIRECTION, not by the hash:
+  //
+  //  - same direction (a t→z shield paying someone else: the transparent leg
+  //    debits the UTXOs, the shielded leg sees the note it created through the
+  //    outgoing viewing key) -- one payment, and the transparent record already
+  //    carries the full value moved (see `mapTxToOperations`), so the shielded
+  //    twin is a duplicate and is dropped here, the only place both legs'
+  //    buckets are available together;
+  //  - opposite directions (a self-transfer: de-shielding to one's own
+  //    transparent address is an `IN` transparently and a `_OUT` in the pool it
+  //    drained, shielding to one's own shielded address the reverse) -- two real
+  //    legs of one movement, both kept, the way a self-send is reported
+  //    everywhere else. Collapsing them by hash is what left a Zcash self-transfer
+  //    showing only the leg that received (LIVE-37172).
+  //
+  // The shielded record is the only one carrying a memo
+  // (`convertShieldedTransactionsToOperations`; the transparent leg's `extra`
+  // only ever has UTXO inputs), so a dropped twin's memo is copied onto the
+  // transparent operation that supersedes it -- otherwise a memo attached to a
+  // shielding send would silently vanish. A twin that survives keeps its own
+  // memo, and copying it over would print it on both rows.
+  const transparentLegKeys = new Set(latest.transparent.map(legKey));
+  const supersededByHash = new Map(
+    latest.shielded.filter(op => transparentLegKeys.has(legKey(op))).map(op => [op.hash, op]),
+  );
+  const transparent = latest.transparent.map(op => {
+    const twinMemo = (supersededByHash.get(op.hash)?.extra as ZcashOperationExtra | undefined)
+      ?.memo;
+    if (!twinMemo || (op.extra as ZcashOperationExtra | undefined)?.memo) return op;
+    return { ...op, extra: { ...(op.extra as ZcashOperationExtra | undefined), memo: twinMemo } };
+  });
+  const shielded = latest.shielded.filter(op => !transparentLegKeys.has(legKey(op)));
+
+  return {
+    ...result,
+    operations: [...transparent, ...shielded].sort(
+      (a, b) => b.date.valueOf() - a.date.valueOf(),
+    ) as BtcOperation[],
+  };
+}
+
 export function buildSyncObservables(
   info: AccountShapeInfo<ZcashAccount>,
   syncConfig: SyncConfig,
   signerContext: SignerContext,
+  context: ZcashContext,
 ): { syncs: Observable<Partial<ZcashAccount>>[]; syncType: number } {
   const syncType = syncConfig.syncType ?? SYNC_TYPE_TRANSPARENT;
   const syncs: Observable<Partial<ZcashAccount>>[] = [];
 
+  const initialOps = (info.initialAccount?.operations || []) as BtcOperation[];
+  const latest = {
+    transparent: initialOps.filter(op => !isShieldedOperation(op)),
+    shielded: initialOps.filter(isShieldedOperation),
+  };
+
   if (syncType & SYNC_TYPE_TRANSPARENT) {
-    syncs.push(createTransparentSyncObservable(info, signerContext));
+    syncs.push(
+      createTransparentSyncObservable(info, signerContext, context).pipe(
+        map(result => reconcileLegOperations(latest, "transparent", result)),
+      ),
+    );
   }
 
-  const extraSync = buildExtraSyncObservable(info, syncConfig);
-  if (extraSync) syncs.push(extraSync);
+  const extraSync = buildExtraSyncObservable(info, syncConfig, context);
+  if (extraSync) {
+    syncs.push(extraSync.pipe(map(result => reconcileLegOperations(latest, "shielded", result))));
+  }
 
   return { syncs, syncType };
 }
 
 export function makeGetAccountShape(
   signerContext: SignerContext,
+  context: ZcashContext,
 ): GetAccountShapeStream<ZcashAccount> {
   return (info: AccountShapeInfo<ZcashAccount>, syncConfig: SyncConfig) =>
     new Observable(o => {
-      const { syncs } = buildSyncObservables(info, syncConfig, signerContext);
+      const { syncs } = buildSyncObservables(info, syncConfig, signerContext, context);
 
       if (syncs.length === 0) {
         o.complete();
@@ -894,8 +1244,24 @@ function reconcileConfirmedPendingOperations(account: ZcashAccount): ZcashAccoun
     const optimistic = pendingByHash.get(op.hash);
     // An incoming operation shares its hash with the send that produced it, but
     // it is not the operation that paid the entered address.
-    if (!optimistic?.recipients.length || op.type.endsWith("IN")) return op;
-    return { ...op, recipients: optimistic.recipients };
+    if (!optimistic || op.type.endsWith("IN")) return op;
+    const patch: Partial<BtcOperation> = {};
+    if (optimistic.recipients.length) patch.recipients = optimistic.recipients;
+    const optimisticMemo = (optimistic.extra as ZcashOperationExtra | undefined)?.memo;
+    const optimisticPrivate = (optimistic.extra as ZcashOperationExtra | undefined)?.zcashPrivate;
+    const currentExtra = op.extra as ZcashOperationExtra | undefined;
+    if (
+      (optimisticMemo && !currentExtra?.memo) ||
+      (optimisticPrivate && !currentExtra?.zcashPrivate)
+    ) {
+      const newExtra: ZcashOperationExtra = {
+        ...currentExtra,
+        ...(optimisticMemo && !currentExtra?.memo ? { memo: optimisticMemo } : {}),
+        ...(optimisticPrivate && !currentExtra?.zcashPrivate ? { zcashPrivate: true } : {}),
+      };
+      patch.extra = newExtra;
+    }
+    return Object.keys(patch).length ? { ...op, ...patch } : op;
   });
 
   // Only the optimistic operations that now have a confirmed counterpart are
@@ -906,5 +1272,13 @@ function reconcileConfirmedPendingOperations(account: ZcashAccount): ZcashAccoun
   return { ...account, operations, pendingOperations };
 }
 
-export const postSync = (_initial: ZcashAccount, synced: ZcashAccount): ZcashAccount =>
-  reconcileConfirmedPendingOperations(synced);
+/**
+ * Note reservations hang off the same lifecycle: the notes a shielded send spends
+ * stay reserved until the operation spending them is retired, matched on the very
+ * hashes `reconcileConfirmedPendingOperations` resolves the optimistic operation
+ * by.
+ */
+export const postSync = (_initial: ZcashAccount, synced: ZcashAccount): ZcashAccount => {
+  releaseRetiredReservations(synced.id, new Set(synced.operations.map(op => op.hash)));
+  return reconcileConfirmedPendingOperations(synced);
+};

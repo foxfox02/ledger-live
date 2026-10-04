@@ -1,5 +1,5 @@
 import { SwapProvider } from "@ledgerhq/live-e2e-shared/enum/Provider";
-import { runSwapCrossAccountTest } from "./swap.crossAccount";
+import { runSwapCrossAccountTest } from "@e2e/specs/swap/otherTestCases/swap.crossAccount";
 
 const dexProviders = [
   SwapProvider.ONE_INCH,
@@ -14,7 +14,7 @@ const swapCrossAccountTestConfig = {
   fromAccount,
   toAccount,
   dexProviders,
-  tmsLinks: ["LIVE-19543"],
+  tmsLinks: ["B2CQA-4013"],
   tags: ["@NanoSP", "@LNS", "@NanoX", "@Stax", "@Flex", "@NanoGen5", "@ethereum", "@family-evm"],
 };
 

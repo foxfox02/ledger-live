@@ -1,0 +1,864 @@
+import { createActor, waitFor, type Actor } from "xstate";
+import { cardLoginMachine } from "../machine";
+import type { CardLoginOauthConfig, CardLoginPorts, PayCardAuthCallback } from "../types";
+
+// Two different values on purpose: the provider gets the `https` redirect, and the browser session
+// ends on the app's deep link. A test that spelled them the same could not catch a swap.
+const oauthConfig: CardLoginOauthConfig = {
+  apiUrl: "https://card.test",
+  clientId: "client-key",
+  hostedUiUrl: "https://hosted.test",
+  redirectUri: "https://go.test/ledger/card",
+  deepLink: "ledgerlive://paytab",
+};
+
+const attempt = { codeVerifier: "verifier-value" };
+const callback: PayCardAuthCallback = { code: "auth-code", state: "state-value" };
+
+const session = {
+  accessToken: "at_token",
+  expiresIn: 21600,
+  refreshToken: "rt_token",
+};
+
+const user = {
+  id: "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+  verificationState: "VERIFIED",
+} as const;
+
+type Ports = { [K in keyof CardLoginPorts]: jest.Mock };
+
+/** A store that answers "nothing stored" and an API that answers the happy path. */
+function stubPorts(overrides: Partial<Ports> = {}): Ports {
+  return {
+    createAttempt: jest.fn(async () => ({
+      ...attempt,
+      codeChallenge: "challenge-value",
+      state: "state-value",
+    })),
+    saveAttempt: jest.fn(async () => undefined),
+    loadAttempt: jest.fn(async () => null),
+    clearAttempt: jest.fn(async () => undefined),
+    hasSession: jest.fn(async () => false),
+    persistSession: jest.fn(async () => undefined),
+    clearSession: jest.fn(async () => undefined),
+    forgetUser: jest.fn(),
+    exchangeAuthorizationCode: jest.fn(async () => session),
+    getUser: jest.fn(async () => user),
+    setSignedIn: jest.fn(),
+    markIntroSeen: jest.fn(),
+    setProviderAppId: jest.fn(),
+    openHostedLogin: jest.fn(async () => ({
+      type: "success",
+      url: "ledgerlive://paytab?code=auth-code&app_id=app-value",
+    })),
+    ...overrides,
+  };
+}
+
+function start(
+  ports: Ports,
+  initialCallback: PayCardAuthCallback | null = null,
+  config: CardLoginOauthConfig = oauthConfig,
+) {
+  const actor = createActor(cardLoginMachine, {
+    input: {
+      ports: ports as unknown as CardLoginPorts,
+      oauthConfig: config,
+      callback: initialCallback,
+    },
+  });
+  actor.start();
+  return actor;
+}
+
+type CardLoginActor = Actor<typeof cardLoginMachine>;
+
+function settledAt(actor: CardLoginActor, value: string) {
+  return waitFor(actor, snapshot => snapshot.value === value, {
+    timeout: 1000,
+  });
+}
+
+describe("cardLoginMachine cold start", () => {
+  it("offers the login action when nothing is stored", async () => {
+    const actor = start(stubPorts());
+
+    await settledAt(actor, "idle");
+    expect(actor.getSnapshot().value).toBe("idle");
+  });
+
+  it("fetches the user when a session is already stored", async () => {
+    const ports = stubPorts({ hasSession: jest.fn(async () => true) });
+
+    const actor = start(ports);
+
+    await settledAt(actor, "ready");
+    expect(ports.getUser).toHaveBeenCalledTimes(1);
+  });
+
+  it("sells the intro again to a holder whose stored session it only resumed", async () => {
+    const ports = stubPorts({ hasSession: jest.fn(async () => true) });
+
+    const actor = start(ports);
+
+    await settledAt(actor, "ready");
+    expect(ports.markIntroSeen).not.toHaveBeenCalled();
+  });
+
+  it("wipes a leftover attempt before it carries on signed in", async () => {
+    const ports = stubPorts({
+      hasSession: jest.fn(async () => true),
+      loadAttempt: jest.fn(async () => attempt),
+    });
+
+    const actor = start(ports);
+
+    await settledAt(actor, "ready");
+    expect(ports.clearAttempt).toHaveBeenCalledTimes(1);
+    expect(ports.clearSession).not.toHaveBeenCalled();
+  });
+
+  it("wipes a stale attempt and offers the login action again", async () => {
+    const ports = stubPorts({ loadAttempt: jest.fn(async () => attempt) });
+
+    const actor = start(ports);
+
+    await settledAt(actor, "idle");
+    expect(ports.clearAttempt).toHaveBeenCalledTimes(1);
+  });
+
+  it("completes a redirect the app already held", async () => {
+    const ports = stubPorts({ loadAttempt: jest.fn(async () => attempt) });
+
+    const actor = start(ports, callback);
+
+    await settledAt(actor, "ready");
+    expect(ports.exchangeAuthorizationCode).toHaveBeenCalledWith({
+      code: "auth-code",
+      codeVerifier: "verifier-value",
+    });
+    expect(ports.openHostedLogin).not.toHaveBeenCalled();
+  });
+
+  it("reports a redirect that has no attempt behind it", async () => {
+    const actor = start(stubPorts(), callback);
+
+    await settledAt(actor, "authError");
+    expect(actor.getSnapshot().context.errorKind).toBe("missing_attempt");
+  });
+
+  it("offers the login action when the store cannot be read", async () => {
+    const ports = stubPorts({
+      loadAttempt: jest.fn(async () => {
+        throw new Error("keychain unavailable");
+      }),
+    });
+
+    const actor = start(ports);
+
+    await settledAt(actor, "idle");
+    expect(actor.getSnapshot().value).toBe("idle");
+  });
+});
+
+describe("cardLoginMachine login", () => {
+  it("carries one attempt from the PKCE mint to the stored session", async () => {
+    const ports = stubPorts({ loadAttempt: jest.fn(async () => attempt) });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+
+    actor.send({ type: "LOGIN" });
+
+    await settledAt(actor, "ready");
+    expect(ports.saveAttempt).toHaveBeenCalledWith(attempt);
+
+    // The authorize page is opened straight away, with the challenge in the query and no call first.
+    const [loginUrl, deepLink] = ports.openHostedLogin.mock.calls[0];
+    const { origin, pathname, searchParams } = new URL(loginUrl);
+    expect(origin + pathname).toBe("https://card.test/v1/auth/oauth2/authorize");
+    expect(Object.fromEntries(searchParams)).toEqual({
+      client_id: "client-key",
+      response_type: "code",
+      scope: "openid profile email offline_access",
+      redirect_uri: "https://go.test/ledger/card",
+      code_challenge: "challenge-value",
+      code_challenge_method: "S256",
+      state: "state-value",
+      prompt: "consent",
+    });
+    // The provider gets the redirect URI; the browser session ends on the deep link.
+    expect(deepLink).toBe("ledgerlive://paytab");
+    expect(ports.persistSession).toHaveBeenCalledWith(session);
+    // The attempt is wiped once the session is on disk.
+    expect(ports.clearAttempt).toHaveBeenCalled();
+  });
+
+  it("reports a failure when the provider's API URL cannot build a URL", async () => {
+    const ports = stubPorts();
+    const actor = start(ports, null, { ...oauthConfig, apiUrl: "" });
+    await settledAt(actor, "idle");
+
+    actor.send({ type: "LOGIN" });
+
+    // The URL is built in the actor, so a bad `apiUrl` reports a failure instead of stopping the
+    // machine. The attempt reached the store before that, so it is wiped again.
+    await settledAt(actor, "authError");
+    expect(actor.getSnapshot().context.errorKind).toBe("pkce_failed");
+    expect(ports.clearAttempt).toHaveBeenCalled();
+    expect(ports.openHostedLogin).not.toHaveBeenCalled();
+  });
+
+  it("accepts the deep link when it arrives before the browser answers", async () => {
+    const ports = stubPorts({
+      loadAttempt: jest.fn(async () => attempt),
+      openHostedLogin: jest.fn(() => new Promise(() => undefined)),
+    });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+    actor.send({ type: "LOGIN" });
+    await waitFor(actor, snapshot => snapshot.value === "awaitingHostedLogin");
+
+    actor.send({ type: "CALLBACK_RECEIVED", ...callback });
+
+    await settledAt(actor, "ready");
+    expect(ports.exchangeAuthorizationCode).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a second redirect for the same attempt", async () => {
+    const ports = stubPorts({ loadAttempt: jest.fn(async () => attempt) });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+    actor.send({ type: "LOGIN" });
+    await settledAt(actor, "ready");
+
+    actor.send({ type: "CALLBACK_RECEIVED", code: "another-code" });
+
+    expect(actor.getSnapshot().value).toBe("ready");
+    expect(ports.exchangeAuthorizationCode).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the attempt and waits when the page reports nothing back", async () => {
+    // Desktop: the window answers `pending`, and `ledgerlive://paytab` brings the code later.
+    const ports = stubPorts({
+      openHostedLogin: jest.fn(async () => ({ type: "pending" })),
+    });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+
+    actor.send({ type: "LOGIN" });
+
+    await settledAt(actor, "awaitingCallback");
+    expect(ports.clearAttempt).not.toHaveBeenCalled();
+  });
+
+  it("completes the login when the deep link brings the code after the page opened", async () => {
+    const ports = stubPorts({
+      loadAttempt: jest.fn(async () => attempt),
+      openHostedLogin: jest.fn(async () => ({ type: "pending" })),
+    });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+    actor.send({ type: "LOGIN" });
+    await settledAt(actor, "awaitingCallback");
+
+    actor.send({ type: "CALLBACK_RECEIVED", ...callback });
+
+    await settledAt(actor, "ready");
+    expect(ports.exchangeAuthorizationCode).toHaveBeenCalledWith({
+      code: callback.code,
+      codeVerifier: attempt.codeVerifier,
+    });
+  });
+
+  it("completes the login when the deep link brings the code back without a state", async () => {
+    const ports = stubPorts({
+      loadAttempt: jest.fn(async () => attempt),
+      openHostedLogin: jest.fn(async () => ({ type: "pending" })),
+    });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+    actor.send({ type: "LOGIN" });
+    await settledAt(actor, "awaitingCallback");
+
+    actor.send({ type: "CALLBACK_RECEIVED", code: callback.code });
+
+    await settledAt(actor, "ready");
+    expect(ports.exchangeAuthorizationCode).toHaveBeenCalledWith({
+      code: callback.code,
+      codeVerifier: attempt.codeVerifier,
+    });
+  });
+
+  it("records the provider app before the token exchange leaves", async () => {
+    // The exchange is the first request that has to reach the holder's own tenant, so the app id
+    // must be stored before it, not after.
+    const ports = stubPorts({
+      loadAttempt: jest.fn(async () => attempt),
+      openHostedLogin: jest.fn(async () => ({ type: "pending" })),
+    });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+    actor.send({ type: "LOGIN" });
+    await settledAt(actor, "awaitingCallback");
+
+    actor.send({ type: "CALLBACK_RECEIVED", ...callback, appId: "ledger-us" });
+
+    await settledAt(actor, "ready");
+    expect(ports.setProviderAppId).toHaveBeenCalledWith("ledger-us");
+    expect(ports.setProviderAppId.mock.invocationCallOrder[0]).toBeLessThan(
+      ports.exchangeAuthorizationCode.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("forgets the provider app when the redirect named none", async () => {
+    const ports = stubPorts({
+      loadAttempt: jest.fn(async () => attempt),
+      openHostedLogin: jest.fn(async () => ({ type: "pending" })),
+    });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+    actor.send({ type: "LOGIN" });
+    await settledAt(actor, "awaitingCallback");
+
+    actor.send({ type: "CALLBACK_RECEIVED", ...callback });
+
+    await settledAt(actor, "ready");
+    expect(ports.setProviderAppId).toHaveBeenCalledWith(null);
+  });
+
+  it("starts a fresh attempt when the login is pressed again while it waits", async () => {
+    // The redirect may never arrive. A second press must not leave the login with no way forward.
+    const ports = stubPorts({
+      openHostedLogin: jest.fn(async () => ({ type: "pending" })),
+    });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+    actor.send({ type: "LOGIN" });
+    await settledAt(actor, "awaitingCallback");
+
+    actor.send({ type: "LOGIN" });
+
+    await settledAt(actor, "awaitingCallback");
+    expect(ports.createAttempt).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores a stray redirect from an attempt already abandoned", async () => {
+    // The first attempt's redirect straggles in late, after a retry started a second one. It must
+    // not be exchanged against the second attempt's verifier, and it must not wipe that attempt.
+    const ports = stubPorts({
+      // Nothing on disk yet at cold start; the exchange later reads back what `saveAttempt` wrote.
+      loadAttempt: jest.fn().mockResolvedValueOnce(null).mockResolvedValue(attempt),
+      openHostedLogin: jest.fn(async () => ({ type: "pending" })),
+      createAttempt: jest
+        .fn()
+        .mockResolvedValueOnce({ ...attempt, codeChallenge: "challenge-value", state: "state-a" })
+        .mockResolvedValueOnce({ ...attempt, codeChallenge: "challenge-value", state: "state-b" }),
+    });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+    actor.send({ type: "LOGIN" });
+    await settledAt(actor, "awaitingCallback");
+
+    actor.send({ type: "LOGIN" });
+    await settledAt(actor, "awaitingCallback");
+
+    actor.send({ type: "CALLBACK_RECEIVED", code: "stale-code", state: "state-a" });
+
+    expect(actor.getSnapshot().value).toBe("awaitingCallback");
+    expect(ports.exchangeAuthorizationCode).not.toHaveBeenCalled();
+    expect(ports.clearAttempt).not.toHaveBeenCalled();
+
+    actor.send({ type: "CALLBACK_RECEIVED", code: callback.code, state: "state-b" });
+
+    await settledAt(actor, "ready");
+    expect(ports.exchangeAuthorizationCode).toHaveBeenCalledWith({
+      code: callback.code,
+      codeVerifier: attempt.codeVerifier,
+    });
+  });
+
+  it("completes the login when the browser reports the redirect for the current attempt", async () => {
+    const ports = stubPorts({
+      loadAttempt: jest.fn(async () => attempt),
+      openHostedLogin: jest.fn(async () => ({
+        type: "success",
+        url: "ledgerlive://paytab?code=auth-code&state=state-value",
+      })),
+    });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+
+    actor.send({ type: "LOGIN" });
+
+    await settledAt(actor, "ready");
+    expect(ports.exchangeAuthorizationCode).toHaveBeenCalledWith({
+      code: "auth-code",
+      codeVerifier: "verifier-value",
+    });
+  });
+
+  it("ignores the redirect the browser reports for an attempt already abandoned", async () => {
+    const ports = stubPorts({
+      loadAttempt: jest.fn(async () => attempt),
+      openHostedLogin: jest.fn(async () => ({
+        type: "success",
+        url: "ledgerlive://paytab?code=stale-code&state=state-a",
+      })),
+    });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+
+    actor.send({ type: "LOGIN" });
+
+    // The browser closed on a redirect for another attempt, so there is nothing left to wait on:
+    // the attempt is wiped, and the stale code is never exchanged.
+    await settledAt(actor, "idle");
+    expect(ports.exchangeAuthorizationCode).not.toHaveBeenCalled();
+    expect(actor.getSnapshot().context.errorKind).toBeNull();
+  });
+
+  it("completes the login when the browser reports a redirect with no state", async () => {
+    // A source that cannot echo `state` back, so the code alone has to be enough.
+    const ports = stubPorts({
+      loadAttempt: jest.fn(async () => attempt),
+      openHostedLogin: jest.fn(async () => ({
+        type: "success",
+        url: "ledgerlive://paytab?code=auth-code&app_id=app-value",
+      })),
+    });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+
+    actor.send({ type: "LOGIN" });
+
+    await settledAt(actor, "ready");
+    expect(ports.exchangeAuthorizationCode).toHaveBeenCalledWith({
+      code: "auth-code",
+      codeVerifier: "verifier-value",
+    });
+  });
+
+  it("goes back to the login action without a message when the browser is dismissed", async () => {
+    const ports = stubPorts({
+      loadAttempt: jest.fn(async () => attempt),
+      openHostedLogin: jest.fn(async () => ({ type: "dismissed" })),
+    });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+
+    actor.send({ type: "LOGIN" });
+
+    await settledAt(actor, "idle");
+    expect(actor.getSnapshot().context.errorKind).toBeNull();
+    expect(ports.clearAttempt).toHaveBeenCalled();
+  });
+
+  it("treats a redirect without a code as a dismissal", async () => {
+    const ports = stubPorts({
+      loadAttempt: jest.fn(async () => attempt),
+      openHostedLogin: jest.fn(async () => ({
+        type: "success",
+        url: "ledgerlive://paytab",
+      })),
+    });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+
+    actor.send({ type: "LOGIN" });
+
+    await settledAt(actor, "idle");
+    expect(actor.getSnapshot().context.errorKind).toBeNull();
+  });
+
+  it("puts the login back on offer when the user retries, and starts nothing", async () => {
+    const ports = stubPorts({
+      loadAttempt: jest.fn(async () => attempt),
+      openHostedLogin: jest.fn(async () => {
+        throw new Error("no browser");
+      }),
+    });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+    actor.send({ type: "LOGIN" });
+    await settledAt(actor, "authError");
+
+    actor.send({ type: "RETRY" });
+
+    await settledAt(actor, "idle");
+    expect(actor.getSnapshot().context.errorKind).toBeNull();
+    expect(ports.createAttempt).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts the login back on offer when the user dismisses the panel, and starts nothing", async () => {
+    const ports = stubPorts({
+      loadAttempt: jest.fn(async () => attempt),
+      openHostedLogin: jest.fn(async () => {
+        throw new Error("no browser");
+      }),
+    });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+    actor.send({ type: "LOGIN" });
+    await settledAt(actor, "authError");
+
+    actor.send({ type: "DISMISS" });
+
+    await settledAt(actor, "idle");
+    expect(actor.getSnapshot().context.errorKind).toBeNull();
+    expect(ports.createAttempt).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("cardLoginMachine intro flag", () => {
+  it("marks the intro seen once the exchanged code becomes a session", async () => {
+    const ports = stubPorts({ loadAttempt: jest.fn(async () => attempt) });
+
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+    actor.send({ type: "LOGIN" });
+
+    await settledAt(actor, "ready");
+    expect(ports.markIntroSeen).toHaveBeenCalledTimes(1);
+  });
+
+  // The flag is raised in the transition, not in an effect of the screen. `ready` signs the holder
+  // in, which unmounts CardLogin in the same render, so an effect there never runs.
+  it("marks the intro seen before it publishes the sign-in", async () => {
+    const calls: string[] = [];
+    const ports = stubPorts({
+      loadAttempt: jest.fn(async () => attempt),
+      markIntroSeen: jest.fn(() => calls.push("markIntroSeen")),
+      setSignedIn: jest.fn((value: boolean) => calls.push(`setSignedIn:${value}`)),
+    });
+
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+    actor.send({ type: "LOGIN" });
+
+    await settledAt(actor, "ready");
+    expect(calls.indexOf("markIntroSeen")).toBeLessThan(calls.indexOf("setSignedIn:true"));
+  });
+
+  it("marks the intro seen for a redirect the app already held", async () => {
+    const ports = stubPorts({ loadAttempt: jest.fn(async () => attempt) });
+
+    const actor = start(ports, callback);
+
+    await settledAt(actor, "ready");
+    expect(ports.markIntroSeen).toHaveBeenCalledTimes(1);
+  });
+
+  // The code exchange already proved the holder has an account, so a store that refuses the session
+  // must not put them back in front of the sales pitch when they retry.
+  it("keeps the intro seen when the session cannot be stored", async () => {
+    const ports = stubPorts({
+      loadAttempt: jest.fn(async () => attempt),
+      persistSession: jest.fn(async () => {
+        throw new Error("disk full");
+      }),
+    });
+
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+    actor.send({ type: "LOGIN" });
+
+    await settledAt(actor, "authError");
+    expect(ports.markIntroSeen).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("cardLoginMachine failures", () => {
+  it.each([
+    [
+      "pkce_failed",
+      {
+        saveAttempt: jest.fn(async () => Promise.reject(new Error("no store"))),
+      },
+    ],
+    [
+      "browser_open_failed",
+      { openHostedLogin: jest.fn(async () => Promise.reject(new Error("x"))) },
+    ],
+    [
+      "exchange_failed",
+      {
+        exchangeAuthorizationCode: jest.fn(async () => Promise.reject(new Error("400"))),
+      },
+    ],
+    [
+      "persist_failed",
+      {
+        persistSession: jest.fn(async () => Promise.reject(new Error("no disk"))),
+      },
+    ],
+  ])("reports %s", async (errorKind, overrides) => {
+    const ports = stubPorts({
+      loadAttempt: jest.fn(async () => attempt),
+      ...overrides,
+    });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+
+    actor.send({ type: "LOGIN" });
+
+    await settledAt(actor, "authError");
+    expect(actor.getSnapshot().context.errorKind).toBe(errorKind);
+  });
+
+  it("reports a login that succeeded even when the attempt cannot be wiped", async () => {
+    const ports = stubPorts({
+      loadAttempt: jest.fn(async () => attempt),
+      clearAttempt: jest.fn(async () => Promise.reject(new Error("keychain locked"))),
+    });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+
+    actor.send({ type: "LOGIN" });
+
+    // The session reached the disk, so a failed wipe is hygiene, not a failed login.
+    await settledAt(actor, "ready");
+    expect(ports.persistSession).toHaveBeenCalledWith(session);
+  });
+
+  it("reports a redirect whose attempt is gone before the exchange", async () => {
+    // Nothing is compared on this device any more. The verifier has to be there, and PKCE makes the
+    // provider refuse a code that was not issued against this attempt's challenge.
+    const ports = stubPorts({ loadAttempt: jest.fn(async () => null) });
+
+    const actor = start(ports, callback);
+
+    await settledAt(actor, "authError");
+    expect(actor.getSnapshot().context.errorKind).toBe("missing_attempt");
+    expect(ports.exchangeAuthorizationCode).not.toHaveBeenCalled();
+  });
+
+  it("ends the session when the user endpoint answers 401", async () => {
+    const ports = stubPorts({
+      hasSession: jest.fn(async () => true),
+      getUser: jest.fn(async () => Promise.reject({ status: 401 })),
+    });
+
+    const actor = start(ports);
+
+    await settledAt(actor, "idle");
+    expect(ports.clearSession).toHaveBeenCalledTimes(1);
+    expect(actor.getSnapshot().context.errorKind).toBeNull();
+  });
+
+  it("says nothing when a request outlived the session it was sent with", async () => {
+    const ports = stubPorts({
+      hasSession: jest.fn(async () => true),
+      getUser: jest.fn(async () =>
+        Promise.reject({ status: "CUSTOM_ERROR", error: "card_stale_request" }),
+      ),
+    });
+
+    const actor = start(ports);
+
+    await settledAt(actor, "idle");
+    expect(actor.getSnapshot().context.errorKind).toBeNull();
+    expect(ports.clearSession).not.toHaveBeenCalled();
+    expect(ports.setSignedIn).toHaveBeenLastCalledWith(false);
+  });
+
+  it("forgets the cached user when a 401 ends the session", async () => {
+    const ports = stubPorts({
+      hasSession: jest.fn(async () => true),
+      getUser: jest.fn(async () => Promise.reject({ status: 401 })),
+    });
+
+    const actor = start(ports);
+
+    await settledAt(actor, "idle");
+    expect(ports.forgetUser).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the cached user when the attempt is cleared without ending the session", async () => {
+    const ports = stubPorts();
+
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+
+    expect(ports.clearSession).not.toHaveBeenCalled();
+    expect(ports.forgetUser).not.toHaveBeenCalled();
+  });
+
+  it("does not bounce back to authenticated after a 401 on a resumed session", async () => {
+    // hydrate finds a session and a leftover attempt, so it resumes through `clearingAttempt`. If the
+    // resume outlived that hop, the 401 below would return here and the two states would loop.
+    const ports = stubPorts({
+      hasSession: jest.fn(async () => true),
+      loadAttempt: jest.fn(async () => attempt),
+      getUser: jest.fn(async () => Promise.reject({ status: 401 })),
+    });
+
+    const actor = start(ports);
+
+    await settledAt(actor, "idle");
+    expect(ports.getUser).toHaveBeenCalledTimes(1);
+    expect(ports.clearSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the session when the user endpoint cannot be reached", async () => {
+    const ports = stubPorts({
+      hasSession: jest.fn(async () => true),
+      getUser: jest.fn(async () => Promise.reject({ status: "FETCH_ERROR" })),
+    });
+
+    const actor = start(ports);
+
+    await settledAt(actor, "userFetchError");
+    expect(actor.getSnapshot().context.errorKind).toBe("fetch_user_failed");
+    expect(ports.clearSession).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a 401 whose body does not parse", { status: "PARSING_ERROR", originalStatus: 401 }],
+    [
+      "a renewal the port could not start",
+      { status: "CUSTOM_ERROR", error: "Card session renew failed" },
+    ],
+  ])("ends the session on %s", async (_label, error) => {
+    const ports = stubPorts({
+      hasSession: jest.fn(async () => true),
+      getUser: jest.fn(async () => Promise.reject(error)),
+    });
+
+    const actor = start(ports);
+
+    await settledAt(actor, "idle");
+    expect(ports.clearSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks for the card again without a new login", async () => {
+    const getUser = jest
+      .fn()
+      .mockRejectedValueOnce({ status: "FETCH_ERROR" })
+      .mockResolvedValueOnce({ id: "user-1" });
+    const ports = stubPorts({ hasSession: jest.fn(async () => true), getUser });
+
+    const actor = start(ports);
+    await settledAt(actor, "userFetchError");
+
+    actor.send({ type: "RETRY" });
+
+    await settledAt(actor, "ready");
+    expect(getUser).toHaveBeenCalledTimes(2);
+    expect(ports.createAttempt).not.toHaveBeenCalled();
+    expect(ports.clearSession).not.toHaveBeenCalled();
+  });
+
+  it("drops the error kind while the card is fetched again", async () => {
+    const ports = stubPorts({
+      hasSession: jest.fn(async () => true),
+      getUser: jest.fn(async () => Promise.reject({ status: "FETCH_ERROR" })),
+    });
+    const actor = start(ports);
+    await settledAt(actor, "userFetchError");
+
+    actor.send({ type: "RETRY" });
+
+    expect(actor.getSnapshot().context.errorKind).toBeNull();
+  });
+
+  it("clears the stored session when the user dismisses the panel", async () => {
+    const getUser = jest.fn(async () => Promise.reject({ status: "FETCH_ERROR" }));
+    const ports = stubPorts({ hasSession: jest.fn(async () => true), getUser });
+
+    const actor = start(ports);
+    await settledAt(actor, "userFetchError");
+
+    actor.send({ type: "DISMISS" });
+
+    await settledAt(actor, "idle");
+    expect(actor.getSnapshot().context.errorKind).toBeNull();
+    expect(ports.clearSession).toHaveBeenCalledTimes(1);
+    expect(ports.forgetUser).toHaveBeenCalledTimes(1);
+    expect(getUser).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the signed-out flag unpublished while the card fails to load", async () => {
+    const ports = stubPorts({
+      hasSession: jest.fn(async () => true),
+      getUser: jest.fn(async () => Promise.reject({ status: "FETCH_ERROR" })),
+    });
+
+    const actor = start(ports);
+
+    await settledAt(actor, "userFetchError");
+    expect(ports.setSignedIn).not.toHaveBeenCalledWith(false);
+  });
+});
+
+describe("cardLoginMachine signed-in flag", () => {
+  async function signedIn(overrides: Partial<Ports> = {}) {
+    const ports = stubPorts({
+      hasSession: jest.fn(async () => true),
+      ...overrides,
+    });
+    const actor = start(ports);
+    await settledAt(actor, "ready");
+    return { ports, actor };
+  }
+
+  it("publishes the signed-in flag when it reaches ready", async () => {
+    const { ports } = await signedIn();
+
+    // `More` has no machine of its own, so this flag is the only thing that puts it on screen.
+    expect(ports.setSignedIn).toHaveBeenLastCalledWith(true);
+  });
+
+  it("publishes the signed-out flag when it settles in idle", async () => {
+    const ports = stubPorts();
+    const actor = start(ports);
+
+    await settledAt(actor, "idle");
+
+    expect(ports.setSignedIn).toHaveBeenLastCalledWith(false);
+  });
+
+  it("publishes the signed-out flag when it settles in authError", async () => {
+    const ports = stubPorts({
+      createAttempt: jest.fn(async () => Promise.reject(new Error("no csprng"))),
+    });
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+
+    actor.send({ type: "LOGIN" });
+
+    await settledAt(actor, "authError");
+    expect(ports.setSignedIn).toHaveBeenLastCalledWith(false);
+  });
+
+  it("puts the login back on offer when a session ends elsewhere", async () => {
+    // `More` owns that journey and has already ended the session, so nothing is undone here.
+    const { ports, actor } = await signedIn();
+
+    actor.send({ type: "SESSION_ENDED" });
+
+    expect(actor.getSnapshot().value).toBe("idle");
+    expect(ports.clearSession).not.toHaveBeenCalled();
+    expect(ports.setSignedIn).toHaveBeenLastCalledWith(false);
+  });
+
+  it("offers a new login after a session ended elsewhere", async () => {
+    const { ports, actor } = await signedIn();
+    actor.send({ type: "SESSION_ENDED" });
+
+    actor.send({ type: "LOGIN" });
+
+    await waitFor(actor, snapshot => snapshot.value === "awaitingHostedLogin");
+    expect(ports.createAttempt).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a session end that arrives before anybody is signed in", async () => {
+    const ports = stubPorts();
+    const actor = start(ports);
+    await settledAt(actor, "idle");
+
+    actor.send({ type: "SESSION_ENDED" });
+
+    expect(actor.getSnapshot().value).toBe("idle");
+  });
+});

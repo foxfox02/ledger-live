@@ -1,21 +1,13 @@
+import { track } from "@shared/analytics";
+import { TrackScreen } from "@shared/analytics-react";
 import React from "react";
 import { render, screen } from "@tests/test-renderer";
 import { DeviceModelId } from "@ledgerhq/types-devices";
 import { RetryableStateType } from "@ledgerhq/live-dmk-shared";
-import { TrackScreen, track } from "~/analytics";
 import { DeviceIntentTrackingProvider } from "../../utils/DeviceIntentTrackingContext";
 import { PAGE_CONNECT_APP } from "../../utils/trackDeviceIntent";
 import { RetryableDeviceLockedState } from "./RetryableDeviceLockedState";
 import type { InitializerDevice } from "../types";
-
-jest.mock("~/analytics", () => {
-  const actual = jest.requireActual("~/analytics");
-  return {
-    ...actual,
-    TrackScreen: jest.fn(() => null),
-    track: jest.fn(),
-  };
-});
 
 const mockedTrackScreen = jest.mocked(TrackScreen);
 const mockedTrack = jest.mocked(track);
@@ -55,7 +47,7 @@ describe("RetryableDeviceLockedState", () => {
   it("GIVEN the retryable device locked state WHEN rendering THEN it renders the locked title and retry CTA", () => {
     renderState();
 
-    expect(screen.getByText("Device is locked")).toBeVisible();
+    expect(screen.getByText("Unlock your Ledger device and then select Retry below")).toBeVisible();
     expect(screen.getByText("Retry")).toBeVisible();
   });
 

@@ -10,6 +10,7 @@ const testPathIgnorePatterns = [
   ".yalc",
   "cli/",
   "src/__tests__/(test-helpers/|handlers/|server\\.ts)",
+  "src/portfolio/__tests__/currencies\\.ts$",
 ];
 
 // Dependencies shipped as ESM that jest has to transform. Matched against pnpm's store directory
@@ -68,10 +69,23 @@ const reporters = [
       reportedFilePath: "absolute",
     },
   ],
+  "@ledgerhq/test-quarantine/jest",
 ];
 if (process.env.CI) {
   reporters.push("github-actions");
 }
+
+// portfolio tests use local-time Date constructors (new Date(year, month, date)) and their
+// snapshots were generated in America/New_York. Setting TZ here propagates to all workers via
+// process inheritance (the only reliable mechanism — setting it inside a worker or setupFiles
+// does not flush the C library's tzset cache reliably on macOS).
+process.env.TZ = "America/New_York";
+
+// Since jest 30.5 the `^buffer$` moduleNameMapper below also captures `node:buffer`, so
+// jest.buffer-shim.js cannot reach the builtin itself. Capture what it needs here, in
+// real Node, and pass it through the environment.
+const { constants, kStringMaxLength } = require("node:buffer");
+process.env.__NODE_BUFFER_EXTRAS = JSON.stringify({ constants, kStringMaxLength });
 
 const defaultConfig = {
   globals: {
@@ -83,6 +97,7 @@ const defaultConfig = {
   setupFilesAfterEnv: [
     "@ledgerhq/wallet-framework-test-setup",
     "<rootDir>/src/__tests__/test-helpers/setup-registry.ts",
+    "@ledgerhq/test-quarantine/jest-retries",
   ],
   coveragePathIgnorePatterns: ["src/__tests__/test-helpers", "src/wallet-api/SmartWebsocket.ts"], // Type issue with event in SmartWebsocket.ts breaking coverage report
   modulePathIgnorePatterns: [

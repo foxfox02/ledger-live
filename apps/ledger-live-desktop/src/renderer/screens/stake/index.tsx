@@ -2,9 +2,9 @@ import { useCallback, useMemo } from "react";
 import { setDrawer } from "~/renderer/drawers/Provider";
 import { useNavigate, useLocation } from "react-router";
 import { stakeDefaultTrack } from "./constants";
-import { track, trackPage } from "~/renderer/analytics/segment";
+import { track, trackPage } from "@shared/analytics";
 import { useDispatch } from "LLD/hooks/redux";
-import { getDefaultAccountName } from "@ledgerhq/live-wallet/accountName";
+import { getDefaultAccountName } from "@domain/entity-account-name";
 import { useStake } from "LLD/hooks/useStake";
 import { useNavigateToStakeForAccount } from "LLD/hooks/useNavigateToStakeForAccount";
 import { Account, AccountLike } from "@ledgerhq/types-live";
@@ -13,6 +13,7 @@ import { HOOKS_TRACKING_LOCATIONS } from "~/renderer/analytics/hooks/variables";
 import { setOriginFlow } from "~/renderer/analytics/originFlow";
 import { useFeature } from "@features/platform-feature-flags";
 import { useOpenAssetAndAccount } from "LLD/features/ModularDialog/Web3AppWebview/AssetAndAccountDrawer";
+import { getAccountUrl } from "~/renderer/utils";
 
 const DRAWER_FLOW = "stake";
 
@@ -76,7 +77,7 @@ const useStakeFlow = () => {
       }
 
       if (shouldRedirect && outcome.outcome === "native_stake") {
-        navigate(returnTo ?? `/account/${account.id}`);
+        navigate(returnTo ?? getAccountUrl(account.id));
       }
     },
     [navigate, location, navigateToStakeForAccount],
@@ -108,10 +109,14 @@ const useStakeFlow = () => {
 
       const cryptoCurrencies = currencies || list;
 
-      trackPage("Stake", "Drawer - Choose Asset", {
-        ...stakeDefaultTrack,
-        page: location.pathname,
-        type: "drawer",
+      trackPage({
+        category: "Stake",
+        name: "Drawer - Choose Asset",
+        props: {
+          ...stakeDefaultTrack,
+          page: location.pathname,
+          type: "drawer",
+        },
       });
 
       const onSuccess = (account: AccountLike, parentAccount?: Account) => {

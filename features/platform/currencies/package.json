@@ -1,6 +1,6 @@
 {
   "name": "@features/platform-currencies",
-  "version": "0.4.0",
+  "version": "0.9.0",
   "private": true,
   "description": "App-facing currency runtime: crypto-assets store builder, currency/token hooks, supported-set feature-flag gating",
   "main": "src/index.ts",
@@ -25,13 +25,15 @@
     "@domain/entity-currency-crypto": "workspace:^",
     "@domain/entity-currency-token": "workspace:^",
     "@features/platform-feature-flags": "workspace:^",
-    "@reduxjs/toolkit": "catalog:"
+    "@reduxjs/toolkit": "catalog:",
+    "@shared/api-services": "workspace:^"
   },
   "peerDependencies": {
     "react": ">=19.0.0",
     "react-redux": ">=9.0.0"
   },
   "devDependencies": {
+    "@ledgerhq/test-quarantine": "workspace:*",
     "@shared/feature-flags": "workspace:^",
     "@swc/core": "catalog:",
     "@swc/jest": "catalog:",

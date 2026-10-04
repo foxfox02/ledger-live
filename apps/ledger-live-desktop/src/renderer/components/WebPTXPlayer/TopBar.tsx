@@ -14,7 +14,7 @@ import { enablePlatformDevToolsSelector } from "~/renderer/reducers/settings";
 import { WebviewState, WebviewAPI } from "../Web3AppWebview/types";
 import Spinner from "../Spinner";
 import { safeGetRefValue } from "@ledgerhq/live-common/wallet-api/react";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import { INTERNAL_APP_IDS } from "@ledgerhq/live-common/wallet-api/constants";
 import { useInternalAppIds } from "@ledgerhq/live-common/hooks/useInternalAppIds";
 import { safeUrl } from "@ledgerhq/live-common/wallet-api/helpers";
@@ -26,6 +26,7 @@ import { MobileView } from "~/renderer/hooks/useMobileView";
 /** When Back fails (refs not ready), redirect to this path if location.state has the key set. */
 const BACK_FALLBACK_ROUTES: Record<string, string> = {
   fromCardLanding: "/card-new-wallet",
+  fromPayTab: "/paytab",
 };
 
 function isRecord(obj: unknown): obj is Record<string, unknown> {
@@ -242,11 +243,11 @@ export const TopBar = ({
 
         if (goToURL) {
           localStorage.setItem("manifest-id", manifestId);
-          localStorage.setItem("flow-name", url.searchParams.get("flowName") || "buy");
-          localStorage.setItem(
-            "last-screen",
-            url.searchParams.get("lastScreen") || url.searchParams.get("flowName") || "",
-          );
+          const flowName = url.searchParams.get("flowName");
+          if (flowName) {
+            localStorage.setItem("flow-name", flowName);
+          }
+          localStorage.setItem("last-screen", url.searchParams.get("lastScreen") || flowName || "");
 
           navigate(`${basePath}/${manifestId}?goToURL=${goToURL}`);
         }

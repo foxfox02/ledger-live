@@ -6,7 +6,7 @@ inputs:
     required: false
     default: "testing"
   enable_broadcast:
-    description: "Enable transaction broadcast"
+    description: "Enable transaction broadcast. Callers own the decision, including which scheduled runs broadcast."
     required: false
     default: "false"
 
@@ -17,7 +17,7 @@ runs:
       id: set-broadcast
       shell: bash
       run: |
-        if [[ "${INPUTS_ENABLE_BROADCAST}" == "true" || ("${{ github.event_name }}" == "schedule" && "$(date +%u)" == "1") ]]; then
+        if [[ "${INPUTS_ENABLE_BROADCAST}" == "true" ]]; then
           echo "DISABLE_TRANSACTION_BROADCAST=0" >> $GITHUB_ENV
         else
           echo "DISABLE_TRANSACTION_BROADCAST=1" >> $GITHUB_ENV
@@ -30,10 +30,10 @@ runs:
       shell: bash
       run: |
         if [[ "${INPUTS_BUILD_TYPE}" == "js" ]]; then
-          echo "SWAP_API_BASE=https://swap.ledger.com/v5" >> $GITHUB_ENV
+          echo "SWAP_API_BASE=https://global.api.prd.ledger.com/swap/v5" >> $GITHUB_ENV
           echo "LEDGER_SYNC_ENVIRONMENT=PROD" >> $GITHUB_ENV
         else
-          echo "SWAP_API_BASE=https://swap-stg.ledger-test.com/v5" >> $GITHUB_ENV
+          echo "SWAP_API_BASE=https://global.api.stg.ledger-test.com/swap/v5" >> $GITHUB_ENV
           echo "LEDGER_SYNC_ENVIRONMENT=STAGING" >> $GITHUB_ENV
         fi
       env:

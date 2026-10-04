@@ -1,6 +1,9 @@
 import { z } from "zod";
-import { TokenCurrencyIdSchema, CryptoCurrencyIdSchema } from "@shared/schema-primitives";
+import { CryptoCurrencyIdSchema } from "@domain/entity-currency-crypto";
 import { UnitSchema } from "@domain/entity-currency-unit";
+
+/** Opaque identifier for a token (e.g. `"ethereum/erc20/usd-tether"`). Non-empty string. */
+export const TokenCurrencyIdSchema = z.string().min(1).brand<"TokenCurrencyId">();
 
 /**
  * Canonical Zod-first schema for a token currency entity.
@@ -36,7 +39,11 @@ export const TokenCurrencySchema = z.object({
   disableCountervalue: z.boolean().optional(),
   /** Ledger's cryptographic signature for the token listing. */
   ledgerSignature: z.string().optional(),
+  /** Token-family-specific identifier (e.g. FA2 token-id for Tezos, ESDT ticker for MultiversX). */
+  tokenIdentifier: z.string().optional(),
 });
 
+/** A token currency id, inferred from {@link TokenCurrencyIdSchema}. */
+export type TokenCurrencyId = z.infer<typeof TokenCurrencyIdSchema>;
 /** A token currency entity, inferred from {@link TokenCurrencySchema}. */
 export type TokenCurrency = z.infer<typeof TokenCurrencySchema>;

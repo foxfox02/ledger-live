@@ -6,7 +6,9 @@ import { ContactsAddContactHeaderButton } from "@features/flow-contacts";
 
 export function useContactsPageNavigationViewModel(
   addContactLabel: string,
+  showAddContact: boolean,
   onAddContact: () => void,
+  title?: string,
 ) {
   const navigation =
     useNavigation<NativeStackNavigationProp<{ [key: string]: object | undefined }>>();
@@ -19,12 +21,13 @@ export function useContactsPageNavigationViewModel(
   );
 
   useLayoutEffect(() => {
-    const opts: Partial<LumenNativeStackNavigationOptions> = {
+    const options: Partial<LumenNativeStackNavigationOptions> = {
       lumenNavBar: {
-        renderTrailing,
+        renderTrailing: showAddContact ? renderTrailing : undefined,
       },
+      ...(title !== undefined && { title }),
     };
 
-    navigation.setOptions(opts);
-  }, [navigation, renderTrailing]);
+    navigation.setOptions(options);
+  }, [navigation, renderTrailing, showAddContact, title]);
 }

@@ -2,7 +2,6 @@ import { BigNumber } from "bignumber.js";
 import { Scenario, ScenarioTransaction } from "@ledgerhq/coin-tester/main";
 import type { Account } from "@ledgerhq/types-live";
 import type { GenericTransaction } from "@ledgerhq/live-common/bridge/generic-coin-framework/types";
-import coinConfig from "@ledgerhq/coin-tezos/config";
 import { LiveConfig } from "@ledgerhq/live-config/LiveConfig";
 import { setCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
 import { makeAccount, ALICE_BAKER_ADDRESS, RECIPIENT, TEZOS, TZKT_MOCK_URL } from "../fixtures";
@@ -145,6 +144,8 @@ export const scenarioTezosTz1: Scenario<GenericTransaction, Account> = {
     // Configure the coin module to talk to our local node and mock TzKT.
     const localConfig = {
       status: { type: "active" as const },
+      name: "Tezos",
+      unit: { name: "XTZ", code: "XTZ", magnitude: 6 },
       baker: { url: getEnv("API_TEZOS_BAKER") },
       explorer: { url: TZKT_MOCK_URL, maxTxQuery: 100 },
       node: { url: TEZOS_RPC },
@@ -157,7 +158,6 @@ export const scenarioTezosTz1: Scenario<GenericTransaction, Account> = {
       },
     };
 
-    coinConfig.setCoinConfig(() => localConfig);
     LiveConfig.setConfig({
       config_currency_tezos: {
         type: "object",
@@ -195,7 +195,9 @@ export const scenarioTezosTz1: Scenario<GenericTransaction, Account> = {
     const undelegateOps = account.operations.filter(op => op.type === "UNDELEGATE");
     expect(undelegateOps.length).toBeGreaterThanOrEqual(1);
 
-    expect(account.balance.toNumber()).toBeLessThanOrEqual(300);
+    // Send-max leaves the dust margin behind (DUST_MARGIN_MUTEZ, less the fee-per-gas/op-size
+    // increment), independently of how the `minFees` floor compares to the suggested fee.
+    expect(account.balance.toNumber()).toBeLessThanOrEqual(500);
   },
 
   teardown: async () => {
@@ -234,6 +236,8 @@ export const scenarioTezosTz2: Scenario<GenericTransaction, Account> = {
 
     const localConfig = {
       status: { type: "active" as const },
+      name: "Tezos",
+      unit: { name: "XTZ", code: "XTZ", magnitude: 6 },
       baker: { url: getEnv("API_TEZOS_BAKER") },
       explorer: { url: TZKT_MOCK_URL, maxTxQuery: 100 },
       node: { url: TEZOS_RPC },
@@ -246,7 +250,6 @@ export const scenarioTezosTz2: Scenario<GenericTransaction, Account> = {
       },
     };
 
-    coinConfig.setCoinConfig(() => localConfig);
     LiveConfig.setConfig({
       config_currency_tezos: {
         type: "object",
@@ -284,7 +287,9 @@ export const scenarioTezosTz2: Scenario<GenericTransaction, Account> = {
     const undelegateOps = account.operations.filter(op => op.type === "UNDELEGATE");
     expect(undelegateOps.length).toBe(1);
 
-    expect(account.balance.toNumber()).toBeLessThanOrEqual(300);
+    // Send-max leaves the dust margin behind (DUST_MARGIN_MUTEZ, less the fee-per-gas/op-size
+    // increment), independently of how the `minFees` floor compares to the suggested fee.
+    expect(account.balance.toNumber()).toBeLessThanOrEqual(500);
   },
 
   teardown: async () => {

@@ -5,16 +5,14 @@ import type { FlattenAccountsOptions } from "@ledgerhq/live-common/account/index
 import { isAccountDelegating } from "@ledgerhq/live-common/families/tezos/staking";
 import { useFeature } from "@features/platform-feature-flags";
 import { LiveConfig } from "@ledgerhq/live-config/LiveConfig";
-import {
-  useCalculateCountervalueCallback as useCalculateCountervalueCallbackCommon,
-  useTrackingPairForAccounts,
-} from "@ledgerhq/live-countervalues-react";
-import { resolveTrackingPairs } from "@ledgerhq/live-countervalues/logic";
+import { useCalculateCountervalueCallback as useCalculateCountervalueCallbackCommon } from "@ledgerhq/live-countervalues-react";
+import { useTrackingPairForAccounts } from "@ledgerhq/live-common/portfolio/useTrackingPairForAccounts";
+import { resolveTrackingPairs } from "@domain/entity-market-countervalues";
 import {
   flattenSortAccounts,
   sortAccountsComparatorFromOrder,
-} from "@ledgerhq/live-wallet/ordering";
-import { useDistribution as useLegacyDistribution } from "@ledgerhq/live-countervalues-react/portfolio";
+} from "@ledgerhq/live-common/account/ordering";
+import { useDistribution as useLegacyDistribution } from "@ledgerhq/live-common/portfolio/portfolioReact";
 import {
   useAssetDistribution,
   type DistributionOpts,
@@ -63,7 +61,7 @@ export function useSortAccountsComparator() {
   const orderAccounts = useSelector(getOrderAccounts);
   const calc = useCalculateCountervalueCallback();
   const walletState = useSelector(walletSelector);
-  return sortAccountsComparatorFromOrder(orderAccounts, walletState, calc);
+  return sortAccountsComparatorFromOrder(orderAccounts, walletState.accountNames, calc);
 }
 export function useFlattenSortAccounts(options?: FlattenAccountsOptions) {
   const accounts = useSelector(accountsSelector);

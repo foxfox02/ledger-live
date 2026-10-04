@@ -4,12 +4,15 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { render, screen, waitFor, withFlagOverrides } from "@tests/test-renderer";
 import { ScreenName } from "~/const";
 import { ContactsScreen } from "LLM/features/Contacts";
+import { useContactsLedgerSyncStatus } from "LLM/features/Contacts/hooks/useContactsLedgerSyncStatus";
 import MyWalletNavigator from "LLM/features/MyWallet/Navigator";
 import { useMyWalletHeaderViewModel } from "LLM/features/MyWallet/views/Header/useMyWalletHeaderViewModel";
 
 jest.mock("LLM/features/MyWallet/views/Header/useMyWalletHeaderViewModel");
+jest.mock("LLM/features/Contacts/hooks/useContactsLedgerSyncStatus");
 
 const mockedViewModel = jest.mocked(useMyWalletHeaderViewModel);
+const mockedContactsLedgerSyncStatus = jest.mocked(useContactsLedgerSyncStatus);
 
 const Stack = createNativeStackNavigator();
 
@@ -35,6 +38,7 @@ function ContactsFeatureIntroductionTestApp() {
 
 describe("Contacts feature introduction integration", () => {
   beforeEach(() => {
+    mockedContactsLedgerSyncStatus.mockReturnValue("ready");
     mockedViewModel.mockReturnValue({
       onBackPress: jest.fn(),
       onNotificationsPress: jest.fn(),
@@ -60,10 +64,10 @@ describe("Contacts feature introduction integration", () => {
       expect(screen.getByText("Introducing Contacts")).toBeVisible();
       expect(screen.getByTestId("contacts-feature-introduction-primary")).toBeVisible();
     });
-    expect(screen.queryByText("Turn on Ledger Sync to save contacts")).toBeNull();
+    expect(screen.queryByText("Sync your wallet to add a contact")).toBeNull();
   });
 
-  it("should persist dismissal from Try contacts and keep the Contacts page available", async () => {
+  it("should persist dismissal from Explore now and keep the Contacts page available", async () => {
     const { user, store } = render(<ContactsFeatureIntroductionTestApp />, {
       navigationInitialState: contactsNavigationState,
       overrideInitialState: withFlagOverrides(
@@ -84,7 +88,7 @@ describe("Contacts feature introduction integration", () => {
     });
   });
 
-  it("should defer the introduction from Maybe later without persisting dismissal", async () => {
+  it("should persist dismissal from the sheet header and keep the Contacts page open", async () => {
     const { user, store } = render(<ContactsFeatureIntroductionTestApp />, {
       navigationInitialState: contactsNavigationState,
       overrideInitialState: withFlagOverrides(
@@ -96,12 +100,14 @@ describe("Contacts feature introduction integration", () => {
       ),
     });
 
-    await user.press(screen.getByTestId("contacts-feature-introduction-secondary"));
+    await user.press(screen.getByTestId("bottom-sheet-header-close-button"));
 
     await waitFor(() => {
-      expect(store.getState().settings.hasDismissedContactsFeatureIntroduction).toBe(false);
-      expect(screen.getByTestId("my-wallet-home")).toBeVisible();
+      expect(store.getState().settings.hasDismissedContactsFeatureIntroduction).toBe(true);
+      expect(screen.queryByTestId("contacts-feature-introduction-primary")).toBeNull();
+      expect(screen.getByTestId("contacts-screen")).toBeVisible();
     });
+    expect(screen.queryByTestId("my-wallet-home")).toBeNull();
   });
 
   it("should navigate to the introduction from My Wallet when the feature flag is enabled", async () => {

@@ -17,13 +17,16 @@ import {
   sync,
   makeAccountBridgeReceive,
 } from "../../../bridge/mockHelpers";
-import { getEstimatedFees } from "@ledgerhq/coin-casper/bridge/bridgeHelpers/fee";
+import {
+  getAddress,
+  getEstimatedFees,
+  isAddressValid,
+  validateMemo,
+} from "@ledgerhq/coin-casper/logic";
 import {
   getSerializedAddressParameters,
   updateTransaction,
 } from "@ledgerhq/ledger-wallet-framework/bridge/jsHelpers";
-import { getAddress, isAddressValid } from "@ledgerhq/coin-casper/bridge/bridgeHelpers/addresses";
-import { validateMemo } from "@ledgerhq/coin-casper/logic/validateMemo";
 import {
   CasperInvalidTransferId,
   InvalidMinimumAmount,
@@ -75,7 +78,7 @@ const getTransactionStatus = async (a: Account, t: Transaction): Promise<Transac
     });
   }
 
-  const estimatedFees = t.fees;
+  const estimatedFees = t.fees ?? getEstimatedFees();
 
   let totalSpent = BigNumber(0);
 
@@ -123,7 +126,7 @@ const prepareTransaction = async (a: Account, t: Transaction): Promise<Transacti
 
   if (recipient && address) {
     if (t.useAllAmount) {
-      const amount = a.spendableBalance.minus(t.fees);
+      const amount = a.spendableBalance.minus(t.fees ?? getEstimatedFees());
       return { ...t, amount };
     }
   }

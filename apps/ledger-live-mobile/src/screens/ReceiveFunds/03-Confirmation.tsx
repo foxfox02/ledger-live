@@ -1,9 +1,11 @@
+import { TrackScreen } from "@shared/analytics-react";
+import { track } from "@shared/analytics";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Dimensions, Linking, Platform, Share, View } from "react-native";
 import { useSelector, useDispatch } from "~/context/hooks";
 import QRCode from "react-native-qrcode-svg";
 import { useTranslation } from "~/context/Locale";
-import ReactNativeHapticFeedback from "react-native-haptic-feedback";
+import * as Haptics from "expo-haptics";
 import type { Account, TokenAccount } from "@ledgerhq/types-live";
 import type { CryptoOrTokenCurrency } from "@domain/entity-currency";
 import type { TokenCurrency } from "@domain/entity-currency-token";
@@ -24,7 +26,6 @@ import NavigationScrollView from "~/components/NavigationScrollView";
 import ReceiveSecurityModal from "./ReceiveSecurityModal";
 import { addOneAccount } from "~/actions/accounts";
 import { ScreenName } from "~/const";
-import { track, TrackScreen } from "~/analytics";
 import byFamily from "../../generated/Confirmation";
 import byFamilyPostAlert from "../../generated/ReceiveConfirmationPostAlert";
 import byFamilyTokenAlert from "../../generated/ReceiveConfirmationTokenAlert";
@@ -50,6 +51,7 @@ import SanctionedAccountModal from "./SanctionedAccountModal";
 import { useToastsActions } from "~/actions/toast";
 import { getFreshAccountAddress } from "~/utils/address";
 import { useOpenReceiveDrawer } from "LLM/features/Receive";
+import { leaveAppFor } from "LLM/features/AppLock/adapters/appVisibility";
 
 type ScreenProps = BaseComposite<
   StackNavigatorProps<ReceiveFundsStackParamList, ScreenName.ReceiveConfirmation>
@@ -203,7 +205,7 @@ function ReceiveConfirmationInner({ navigation, route, account, parentAccount }:
       page: "Receive Account Qr Code",
     });
     if (freshAccountAddress) {
-      Share.share({ message: freshAccountAddress });
+      leaveAppFor(() => Share.share({ message: freshAccountAddress }));
     }
   }, [freshAccountAddress]);
 
@@ -216,16 +218,11 @@ function ReceiveConfirmationInner({ navigation, route, account, parentAccount }:
         button: eventName,
         page: "Receive Account Qr Code",
       });
-      const options = {
-        enableVibrateFallback: false,
-        ignoreAndroidSystemSettings: false,
-      };
-
       setTimeout(() => {
         setCopied(false);
       }, 3000);
 
-      ReactNativeHapticFeedback.trigger("soft", options);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
       pushToast({
         id: `copy-receive`,
         type: "success",
@@ -360,6 +357,9 @@ function ReceiveConfirmationInner({ navigation, route, account, parentAccount }:
                 borderColor="neutral.c40"
                 alignItems="center"
                 justifyContent="center"
+                accessible
+                accessibilityRole="image"
+                accessibilityLabel={t("transfer.receive.receiveConfirmation.qrCode")}
                 testID={"receive-qr-code-container-" + mainAccountName}
               >
                 <QRCode size={QRSize} value={freshAccountAddress} ecl="H" />

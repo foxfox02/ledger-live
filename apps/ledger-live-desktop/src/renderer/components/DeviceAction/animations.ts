@@ -2,69 +2,143 @@
 /* eslint-disable camelcase */
 import { DeviceModelId } from "@ledgerhq/types-devices";
 import { Theme } from "@ledgerhq/react-ui";
+import {
+  getDeviceActionAnimation,
+  type DeviceActionAnimationTheme,
+  type DeviceActionContentAction,
+  type DeviceActionModelId,
+} from "@features/platform-device-action-content";
+import type { AnimationSource } from "~/renderer/animations";
 
-import NANO_S_LIGHT_plugAndPinCode from "~/renderer/animations/nanoS/1PlugAndPinCode/light.json";
-import NANO_S_DARK_plugAndPinCode from "~/renderer/animations/nanoS/1PlugAndPinCode/dark.json";
-import NANO_S_LIGHT_enterPinCode from "~/renderer/animations/nanoS/3EnterPinCode/light.json";
-import NANO_S_DARK_enterPinCode from "~/renderer/animations/nanoS/3EnterPinCode/dark.json";
-import NANO_S_LIGHT_quitApp from "~/renderer/animations/nanoS/4QuitApp/light.json";
-import NANO_S_DARK_quitApp from "~/renderer/animations/nanoS/4QuitApp/dark.json";
-import NANO_S_LIGHT_openApp from "~/renderer/animations/nanoS/6OpenApp/light.json";
-import NANO_S_DARK_openApp from "~/renderer/animations/nanoS/6OpenApp/dark.json";
-import NANO_S_LIGHT_validate from "~/renderer/animations/nanoS/7Validate/light.json";
-import NANO_S_DARK_validate from "~/renderer/animations/nanoS/7Validate/dark.json";
-import NANO_S_LIGHT_firmwareUpdating from "~/renderer/animations/nanoS/2FirmwareUpdating/light.json";
-import NANO_S_DARK_firmwareUpdating from "~/renderer/animations/nanoS/2FirmwareUpdating/dark.json";
-import NANO_S_LIGHT_installLoading from "~/renderer/animations/nanoS/8InstallLoading/light.json";
-import NANO_S_DARK_installLoading from "~/renderer/animations/nanoS/8InstallLoading/dark.json";
+const NANO_S_LIGHT_plugAndPinCode = () =>
+  import(
+    /* webpackChunkName: "anim-nanoS" */ "~/renderer/animations/nanoS/1PlugAndPinCode/light.json"
+  );
+const NANO_S_DARK_plugAndPinCode = () =>
+  import(
+    /* webpackChunkName: "anim-nanoS" */ "~/renderer/animations/nanoS/1PlugAndPinCode/dark.json"
+  );
+const NANO_S_LIGHT_enterPinCode = () =>
+  import(
+    /* webpackChunkName: "anim-nanoS" */ "~/renderer/animations/nanoS/3EnterPinCode/light.json"
+  );
+const NANO_S_DARK_enterPinCode = () =>
+  import(
+    /* webpackChunkName: "anim-nanoS" */ "~/renderer/animations/nanoS/3EnterPinCode/dark.json"
+  );
+const NANO_S_LIGHT_quitApp = () =>
+  import(/* webpackChunkName: "anim-nanoS" */ "~/renderer/animations/nanoS/4QuitApp/light.json");
+const NANO_S_DARK_quitApp = () =>
+  import(/* webpackChunkName: "anim-nanoS" */ "~/renderer/animations/nanoS/4QuitApp/dark.json");
+const NANO_S_LIGHT_openApp = () =>
+  import(/* webpackChunkName: "anim-nanoS" */ "~/renderer/animations/nanoS/6OpenApp/light.json");
+const NANO_S_DARK_openApp = () =>
+  import(/* webpackChunkName: "anim-nanoS" */ "~/renderer/animations/nanoS/6OpenApp/dark.json");
+const NANO_S_LIGHT_validate = () =>
+  import(/* webpackChunkName: "anim-nanoS" */ "~/renderer/animations/nanoS/7Validate/light.json");
+const NANO_S_DARK_validate = () =>
+  import(/* webpackChunkName: "anim-nanoS" */ "~/renderer/animations/nanoS/7Validate/dark.json");
+const NANO_S_LIGHT_firmwareUpdating = () =>
+  import(
+    /* webpackChunkName: "anim-nanoS" */ "~/renderer/animations/nanoS/2FirmwareUpdating/light.json"
+  );
+const NANO_S_DARK_firmwareUpdating = () =>
+  import(
+    /* webpackChunkName: "anim-nanoS" */ "~/renderer/animations/nanoS/2FirmwareUpdating/dark.json"
+  );
+const NANO_S_LIGHT_installLoading = () =>
+  import(
+    /* webpackChunkName: "anim-nanoS" */ "~/renderer/animations/nanoS/8InstallLoading/light.json"
+  );
+const NANO_S_DARK_installLoading = () =>
+  import(
+    /* webpackChunkName: "anim-nanoS" */ "~/renderer/animations/nanoS/8InstallLoading/dark.json"
+  );
 
-import NANO_X_LIGHT_recoverWithProtect from "~/renderer/animations/nanoX/RecoverWithProtect/light.json";
-import NANO_X_DARK_recoverWithProtect from "~/renderer/animations/nanoX/RecoverWithProtect/dark.json";
+const NANO_X_LIGHT_recoverWithProtect = () =>
+  import(
+    /* webpackChunkName: "anim-nanoX" */ "~/renderer/animations/nanoX/RecoverWithProtect/light.json"
+  );
+const NANO_X_DARK_recoverWithProtect = () =>
+  import(
+    /* webpackChunkName: "anim-nanoX" */ "~/renderer/animations/nanoX/RecoverWithProtect/dark.json"
+  );
 
-import BLUE_LIGHT_plugAndPinCode from "~/renderer/animations/blue/1PlugAndPinCode/data.json";
-import BLUE_LIGHT_enterPinCode from "~/renderer/animations/blue/3EnterPinCode/data.json";
-import BLUE_LIGHT_quitApp from "~/renderer/animations/blue/4QuitApp/data.json";
-import BLUE_LIGHT_allowManager from "~/renderer/animations/blue/5AllowManager/data.json";
-import BLUE_LIGHT_openApp from "~/renderer/animations/blue/6OpenApp/data.json";
-import BLUE_LIGHT_validate from "~/renderer/animations/blue/7Validate/data.json";
+const BLUE_LIGHT_plugAndPinCode = () =>
+  import(
+    /* webpackChunkName: "anim-blue" */ "~/renderer/animations/blue/1PlugAndPinCode/data.json"
+  );
+const BLUE_LIGHT_enterPinCode = () =>
+  import(/* webpackChunkName: "anim-blue" */ "~/renderer/animations/blue/3EnterPinCode/data.json");
+const BLUE_LIGHT_quitApp = () =>
+  import(/* webpackChunkName: "anim-blue" */ "~/renderer/animations/blue/4QuitApp/data.json");
+const BLUE_LIGHT_allowManager = () =>
+  import(/* webpackChunkName: "anim-blue" */ "~/renderer/animations/blue/5AllowManager/data.json");
+const BLUE_LIGHT_openApp = () =>
+  import(/* webpackChunkName: "anim-blue" */ "~/renderer/animations/blue/6OpenApp/data.json");
+const BLUE_LIGHT_validate = () =>
+  import(/* webpackChunkName: "anim-blue" */ "~/renderer/animations/blue/7Validate/data.json");
 
-import STAX_USB_connection_success from "~/renderer/animations/stax/USBConnectionSuccess.json";
-import STAX_confirmLockscreen from "~/renderer/animations/stax/confirmLockscreen.json";
+const STAX_USB_connection_success = () =>
+  import(
+    /* webpackChunkName: "anim-stax" */ "~/renderer/animations/stax/USBConnectionSuccess.json"
+  );
+const STAX_confirmLockscreen = () =>
+  import(/* webpackChunkName: "anim-stax" */ "~/renderer/animations/stax/confirmLockscreen.json");
 
 /* ⬆️ The imports above are old assets used somewhere and no new assets to replace them ⬆️ */
 
-import NANOX_DARK_PIN from "~/renderer/animations/nanoX/dark/pin.json";
-import NANOX_DARK_PAIRED from "~/renderer/animations/nanoX/dark/paired.json";
-import NANOX_DARK_CONTINUE from "~/renderer/animations/nanoX/dark/continue.json";
-import NANOX_LIGHT_PIN from "~/renderer/animations/nanoX/light/pin.json";
-import NANOX_LIGHT_PAIRED from "~/renderer/animations/nanoX/light/paired.json";
-import NANOX_LIGHT_CONTINUE from "~/renderer/animations/nanoX/light/continue.json";
+const NANOX_DARK_PAIRED = () =>
+  import(/* webpackChunkName: "anim-nanoX" */ "~/renderer/animations/nanoX/dark/paired.json");
+const NANOX_LIGHT_PAIRED = () =>
+  import(/* webpackChunkName: "anim-nanoX" */ "~/renderer/animations/nanoX/light/paired.json");
 
-import NANOSP_DARK_PIN from "~/renderer/animations/nanoSP/dark/pin.json";
-import NANOSP_DARK_CONTINUE from "~/renderer/animations/nanoSP/dark/continue.json";
-import NANOSP_LIGHT_PIN from "~/renderer/animations/nanoSP/light/pin.json";
-import NANOSP_LIGHT_CONTINUE from "~/renderer/animations/nanoSP/light/continue.json";
+const FLEX_LIGHT_ONBOARDING_SUCCESS = () =>
+  import(
+    /* webpackChunkName: "anim-flex" */ "~/renderer/animations/flex/light/onboardingSuccess.json"
+  );
+const FLEX_DARK_ONBOARDING_SUCCESS = () =>
+  import(
+    /* webpackChunkName: "anim-flex" */ "~/renderer/animations/flex/dark/onboardingSuccess.json"
+  );
+
+/**
+ * The pin and continue assets below are owned by `@features/platform-device-action-content`,
+ * which ships them for both platforms. Keeping app-local copies bundled the same bytes twice.
+ */
+const asset = (
+  modelId: DeviceActionModelId,
+  action: DeviceActionContentAction,
+  theme: DeviceActionAnimationTheme,
+) => getDeviceActionAnimation({ modelId, action, theme });
+
+const NANOX_DARK_PIN = asset("nanoX", "power-and-unlock", "dark");
+const NANOX_DARK_CONTINUE = asset("nanoX", "continue", "dark");
+const NANOX_LIGHT_PIN = asset("nanoX", "power-and-unlock", "light");
+const NANOX_LIGHT_CONTINUE = asset("nanoX", "continue", "light");
+
+const NANOSP_DARK_PIN = asset("nanoSP", "power-and-unlock", "dark");
+const NANOSP_DARK_CONTINUE = asset("nanoSP", "continue", "dark");
+const NANOSP_LIGHT_PIN = asset("nanoSP", "power-and-unlock", "light");
+const NANOSP_LIGHT_CONTINUE = asset("nanoSP", "continue", "light");
 
 /* Lottie animations for devices with touchscreen */
-import STAX_DARK_PIN from "~/renderer/animations/stax/dark/pin.json";
-import STAX_DARK_CONTINUE from "~/renderer/animations/stax/dark/continue.json";
-import STAX_LIGHT_PIN from "~/renderer/animations/stax/light/pin.json";
-import STAX_LIGHT_CONTINUE from "~/renderer/animations/stax/light/continue.json";
+const STAX_DARK_PIN = asset("stax", "power-and-unlock", "dark");
+const STAX_DARK_CONTINUE = asset("stax", "continue", "dark");
+const STAX_LIGHT_PIN = asset("stax", "power-and-unlock", "light");
+const STAX_LIGHT_CONTINUE = asset("stax", "continue", "light");
 
-import FLEX_DARK_PIN from "~/renderer/animations/flex/dark/pin.json";
-import FLEX_DARK_CONTINUE from "~/renderer/animations/flex/dark/continue.json";
-import FLEX_LIGHT_PIN from "~/renderer/animations/flex/light/pin.json";
-import FLEX_LIGHT_CONTINUE from "~/renderer/animations/flex/light/continue.json";
+const FLEX_DARK_PIN = asset("europa", "power-and-unlock", "dark");
+const FLEX_DARK_CONTINUE = asset("europa", "continue", "dark");
+const FLEX_LIGHT_PIN = asset("europa", "power-and-unlock", "light");
+const FLEX_LIGHT_CONTINUE = asset("europa", "continue", "light");
 
-import APEX_DARK_PIN from "~/renderer/animations/apex/dark/pin.json";
-import APEX_DARK_CONTINUE from "~/renderer/animations/apex/dark/continue.json";
-import APEX_LIGHT_PIN from "~/renderer/animations/apex/light/pin.json";
-import APEX_LIGHT_CONTINUE from "~/renderer/animations/apex/light/continue.json";
+const APEX_DARK_PIN = asset("apex", "power-and-unlock", "dark");
+const APEX_DARK_CONTINUE = asset("apex", "continue", "dark");
+const APEX_LIGHT_PIN = asset("apex", "power-and-unlock", "light");
+const APEX_LIGHT_CONTINUE = asset("apex", "continue", "light");
 
-import FLEX_LIGHT_ONBOARDING_SUCCESS from "~/renderer/animations/flex/light/onboardingSuccess.json";
-import FLEX_DARK_ONBOARDING_SUCCESS from "~/renderer/animations/flex/dark/onboardingSuccess.json";
-
-type ThemedAnimation = Record<Theme["theme"], Record<string, unknown>>;
+type ThemedAnimation = Record<Theme["theme"], AnimationSource>;
 
 export type AnimationKey =
   | "plugAndPinCode"

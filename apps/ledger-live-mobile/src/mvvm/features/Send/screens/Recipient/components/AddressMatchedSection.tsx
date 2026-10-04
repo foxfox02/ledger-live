@@ -1,6 +1,3 @@
-import type { AddressSearchResult } from "@ledgerhq/live-common/flows/send/recipient/types";
-import { formatAddress } from "@ledgerhq/live-common/utils/addressUtils";
-import { SEND_ADDRESS_FORMAT_OPTIONS } from "@ledgerhq/live-common/flows/send/utils";
 import {
   Banner,
   BottomSheet,
@@ -17,161 +14,94 @@ import {
 import React, { useCallback } from "react";
 import { Keyboard } from "react-native";
 import { useTranslation } from "~/context/Locale";
+import type { AddressMatchedSectionViewModel } from "../hooks/useAddressMatchedSectionViewModel";
 import { AccountRowWithBalance } from "./AccountRowWithBalance";
 import { AddressListItem } from "./AddressListItem";
-import { useFormatRelativeDate } from "../hooks/useFormatRelativeDate";
+import { RecipientCard } from "./RecipientCard";
 
 type AddressMatchedSectionProps = Readonly<{
-  searchResult: AddressSearchResult;
-  searchValue: string;
-  onSelect: (address: string, ensName?: string) => void;
-  isSanctioned?: boolean;
-  isAddressComplete?: boolean;
-  hasBridgeError?: boolean;
+  viewModel: AddressMatchedSectionViewModel;
 }>;
 
-export function AddressMatchedSection({
-  searchResult,
-  searchValue,
-  onSelect,
-  isSanctioned = false,
-  isAddressComplete = false,
-  hasBridgeError = false,
-}: AddressMatchedSectionProps) {
+export function AddressMatchedSection({ viewModel }: AddressMatchedSectionProps) {
   const { t } = useTranslation();
-  const formatRelativeDate = useFormatRelativeDate();
   const helpSheetRef = useBottomSheetRef();
   const openHelpSheet = useCallback(() => {
     Keyboard.dismiss();
     helpSheetRef.current?.present();
   }, [helpSheetRef]);
 
-  const { matchedAccounts, ensName, matchedRecentAddress, status, resolvedAddress } = searchResult;
-
-  const hasMatchedAccounts = matchedAccounts && matchedAccounts.length > 0;
-  const hasENS = !!ensName;
-  const hasRecentMatch = !!matchedRecentAddress;
-  const hasMatch = hasMatchedAccounts || hasENS || hasRecentMatch;
-
-  const isValidAddressWithoutMatch =
-    isAddressComplete && !hasMatch && !isSanctioned && !hasBridgeError && status === "valid";
-
-  const shouldShowDisabledAddress = (isSanctioned || hasBridgeError) && isAddressComplete;
-
-  if (!hasMatch && !shouldShowDisabledAddress && !isValidAddressWithoutMatch) {
+  if (!viewModel.isVisible || !viewModel.suggestion) {
     return null;
   }
 
-  const formattedAddress = formatAddress(
-    resolvedAddress ?? searchValue,
-    SEND_ADDRESS_FORMAT_OPTIONS,
-  );
-
-  const getENSDisplayTitle = (): string => {
-    return `${ensName} (${formattedAddress})`;
-  };
-
-  const getRecentDescription = (): string => {
-    if (matchedRecentAddress) {
-      return t("send.newSendFlow.alreadyUsed", {
-        date: formatRelativeDate(matchedRecentAddress.lastUsedAt),
-      });
-    }
-    return formattedAddress;
-  };
+  const { suggestion } = viewModel;
 
   return (
     <Box lx={{ flexDirection: "column" }}>
-      <Subheader lx={{ marginBottom: "s12", marginHorizontal: "s8" }}>
-        <SubheaderRow>
-          <SubheaderTitle>{t("send.newSendFlow.addressMatched")}</SubheaderTitle>
-        </SubheaderRow>
-      </Subheader>
+      {viewModel.showHeader && (
+        <Subheader lx={{ marginBottom: "s12", marginHorizontal: "s8" }}>
+          <SubheaderRow>
+            <SubheaderTitle>{viewModel.addressMatchedLabel}</SubheaderTitle>
+          </SubheaderRow>
+        </Subheader>
+      )}
       <Box lx={{ flexDirection: "column" }}>
-        {/* Show all matched Ledger accounts */}
-        {hasMatchedAccounts &&
-          matchedAccounts?.map(({ account }) => (
+        {suggestion.kind === "recipient-card" ? (
+          <RecipientCard
+            recipient={suggestion.recipient}
+            description={suggestion.description}
+            contact={suggestion.contact}
+            isReady={suggestion.isReady}
+            showActions={suggestion.showActions}
+            hasAddressBook={suggestion.hasAddressBook}
+            addressBookUnsupportedTitle={suggestion.addressBookUnsupportedTitle}
+            addressBookUnsupportedDescription={suggestion.addressBookUnsupportedDescription}
+            addContactLabel={suggestion.addContactLabel}
+            sendLabel={suggestion.sendLabel}
+            onAddContact={suggestion.onAddContact}
+            onSend={suggestion.onSend}
+            onUnsupportedNetwork={suggestion.onUnsupportedNetwork}
+            onDismissUnsupportedNetwork={suggestion.onDismissUnsupportedNetwork}
+          />
+        ) : suggestion.kind === "matched-ledger-accounts" ? (
+          suggestion.matchedAccounts.map(({ account }) => (
             <AccountRowWithBalance
               key={account.id}
               account={account}
-              onSelect={() => onSelect(account.freshAddress)}
+              onSelect={() => suggestion.onSelect(account.freshAddress)}
               showSendTo
-              disabled={isSanctioned || hasBridgeError}
+              disabled={suggestion.isDisabled}
               testID="new-send-flow-address-confirm"
             />
-          ))}
-
-        {/* Show ENS result if available and no matched accounts */}
-        {hasENS && !hasMatchedAccounts && (
+          ))
+        ) : (
           <AddressListItem
-            address={resolvedAddress ?? searchValue}
-            name={getENSDisplayTitle()}
-            description={formattedAddress}
-            onSelect={() => onSelect(resolvedAddress ?? searchValue, ensName)}
+            address={suggestion.address}
+            name={suggestion.name}
+            description={suggestion.description}
+            onSelect={suggestion.onSelect}
             showSendTo
-            disabled={isSanctioned || hasBridgeError}
+            isLedgerAccount={suggestion.isLedgerAccount}
+            disabled={suggestion.disabled}
+            hideDescription={suggestion.hideDescription}
             testID="new-send-flow-address-confirm"
           />
         )}
-
-        {/* Show recent match if available and no matched accounts or ENS */}
-        {hasRecentMatch && !hasMatchedAccounts && !hasENS && (
-          <AddressListItem
-            address={matchedRecentAddress?.address ?? searchValue}
-            name={formatAddress(
-              matchedRecentAddress?.address ?? searchValue,
-              SEND_ADDRESS_FORMAT_OPTIONS,
-            )}
-            description={getRecentDescription()}
-            onSelect={() =>
-              onSelect(matchedRecentAddress?.address ?? searchValue, matchedRecentAddress?.ensName)
+      </Box>
+      {viewModel.showFirstInteractionWarning && (
+        <Box lx={{ flexDirection: "column", marginVertical: "s16", marginHorizontal: "s8" }}>
+          <Banner
+            appearance="info"
+            description={t("send.newSendFlow.firstInteraction.description")}
+            primaryAction={
+              <Button appearance="gray" size="sm" onPress={openHelpSheet}>
+                {t("send.newSendFlow.firstInteraction.learnMore")}
+              </Button>
             }
-            showSendTo
-            disabled={isSanctioned || hasBridgeError}
-            testID="new-send-flow-address-confirm"
           />
-        )}
-
-        {/* Show valid address without match (new address) */}
-        {isValidAddressWithoutMatch && (
-          <AddressListItem
-            address={searchValue}
-            name={formattedAddress}
-            description={t("send.newSendFlow.notInRecentHistory")}
-            onSelect={() => onSelect(searchValue)}
-            showSendTo
-            disabled={false}
-            testID="new-send-flow-address-confirm"
-          />
-        )}
-
-        {/* Show disabled address if sanctioned or has bridge error (even if no match) */}
-        {shouldShowDisabledAddress && !hasMatch && (
-          <AddressListItem
-            address={searchValue}
-            name={formattedAddress}
-            description={formattedAddress}
-            showSendTo
-            disabled={true}
-          />
-        )}
-      </Box>
-      <Box lx={{ flexDirection: "column", marginVertical: "s16", marginHorizontal: "s8" }}>
-        {searchResult.isFirstInteraction &&
-          !isSanctioned &&
-          !hasBridgeError &&
-          isAddressComplete && (
-            <Banner
-              appearance="info"
-              description={t("send.newSendFlow.firstInteraction.description")}
-              primaryAction={
-                <Button appearance="gray" size="sm" onPress={openHelpSheet}>
-                  {t("send.newSendFlow.firstInteraction.learnMore")}
-                </Button>
-              }
-            />
-          )}
-      </Box>
+        </Box>
+      )}
       <BottomSheet ref={helpSheetRef} enableDynamicSizing snapPoints={null}>
         <BottomSheetView>
           <BottomSheetHeader />

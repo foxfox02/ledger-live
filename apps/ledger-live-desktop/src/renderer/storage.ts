@@ -9,7 +9,7 @@ import debounce from "lodash/debounce";
 
 import { Account, AccountRaw, AccountUserData } from "@ledgerhq/types-live";
 import { DataModel } from "@ledgerhq/live-common/DataModel";
-import { CounterValuesStatus, RateMapRaw } from "@ledgerhq/live-countervalues/types";
+import { CounterValuesStatus, RateMapRaw } from "@domain/entity-market-countervalues";
 import { hubStateSelector } from "@ledgerhq/live-common/postOnboarding/reducer";
 import { settingsStoreSelector } from "./reducers/settings";
 import logger from "./logger";
@@ -17,11 +17,16 @@ import { trustchainStoreSelector } from "@ledgerhq/ledger-key-ring-protocol/stor
 import { marketStoreSelector } from "./reducers/market";
 import { marketBannerStoreSelector } from "./reducers/marketBanner";
 import { knownDevicesStoreSelector } from "./reducers/knownDevices";
-import { ExportedWalletState } from "@ledgerhq/live-wallet/store";
+import { ExportedWalletState } from "~/renderer/reducers/wallet";
 import type { PersistedCAL } from "@domain/api-currency-token";
 import type { PersistedIdentities } from "@domain/entity-client-identity";
 import type { FeatureFlagsState } from "@shared/feature-flags";
-import type { RestorableLargeScreenUpsellModalState } from "@domain/entity-large-screen-upsell-modal";
+import type { RestorableLargeScreenUpsellModalState } from "@features/flow-large-screen-upsell";
+import type { PayCardBalanceState } from "@features/flow-pay-balance/state";
+import type { PayCardFeatureTourState } from "@features/flow-pay-feature-tour/state";
+import type { PayRequestVerifyHintState } from "@features/flow-pay-request/state";
+import type { PayCardLoginIntroState } from "@features/flow-pay-card-auth/state";
+import type { PayCardOnboardingWidgetPersistedState } from "@features/flow-pay-card-widget/state";
 
 /*
   This file serve as an interface for the RPC binding to the main thread that now manage the config file.
@@ -42,6 +47,11 @@ export type Settings = ReturnType<typeof settingsStoreSelector>;
 export type Market = ReturnType<typeof marketStoreSelector>;
 export type MarketBanner = ReturnType<typeof marketBannerStoreSelector>;
 export type KnownDevices = ReturnType<typeof knownDevicesStoreSelector>;
+export type PayCard = PayCardFeatureTourState &
+  PayRequestVerifyHintState &
+  PayCardBalanceState &
+  PayCardLoginIntroState &
+  PayCardOnboardingWidgetPersistedState;
 
 export type TrustchainStore = ReturnType<typeof trustchainStoreSelector>;
 
@@ -70,6 +80,7 @@ type DatabaseValues = {
     lastScreen: string;
   };
   largeScreenUpsellModal: RestorableLargeScreenUpsellModalState;
+  payCard: PayCard;
 };
 
 // Infers the type seen from the user side (non-raw).

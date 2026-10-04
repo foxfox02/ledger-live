@@ -37,11 +37,12 @@ const testPathIgnorePatterns = [
 
 const moduleNameMapper = {
   ".*\\.lottie$": "<rootDir>/fileMock.js",
-  "^@ledgerhq/ledger-key-ring-protocol/__mocks__/(.*)$":
-    "<rootDir>/../../libs/ledger-key-ring-protocol/src/__mocks__/$1",
   ...pathsToModuleNameMapper(compilerOptions.paths),
   "~/(.*)": "<rootDir>/src/$1",
-  "^@ledgerhq/(lumen-ui-react|lumen-design-core)$": "<rootDir>/node_modules/@ledgerhq/$1",
+  "^@ledgerhq/lumen-ui-react$": "<rootDir>/node_modules/@ledgerhq/lumen-ui-react",
+  "^@ledgerhq/lumen-ui-react/symbols$":
+    "<rootDir>/node_modules/@ledgerhq/lumen-ui-react/dist/lib/Components/symbols/index.js",
+  "^@ledgerhq/lumen-design-core$": "<rootDir>/node_modules/@ledgerhq/lumen-design-core",
   "\\.(jpg|ico|jpeg|png|gif|eot|otf|webp|svg|ttf|woff|woff2|mp4|webm|wav|mp3|m4a|aac|oga|lottie)$":
     "<rootDir>/fileMock.js",
   "@lottiefiles/dotlottie-react": "<rootDir>/tests/mocks/dotlottie-react.tsx",
@@ -59,7 +60,18 @@ const transformIncludePatterns = [
   "ky",
   "@ledgerhq\\+lumen-ui-react",
   "@ledgerhq\\+lumen-design-core",
+  "@ledgerhq\\+lumen-utils-shared",
   "@ledgerhq\\+crypto-icons",
+  "d3-array@",
+  "d3-color@",
+  "d3-format@",
+  "d3-interpolate@",
+  "d3-path@",
+  "d3-scale@",
+  "d3-shape@",
+  "d3-time@",
+  "d3-time-format@",
+  "internmap@",
   "@mysten\\+",
   "@scure\\+",
   "@noble\\+",
@@ -85,11 +97,15 @@ const commonConfig = {
     __DATADOG_ENV__: null,
     __PRERELEASE__: "null",
     __CHANNEL__: "null",
+    __BUILD_ENVS__: {},
   },
   moduleNameMapper,
   testPathIgnorePatterns,
+
+  moduleFileExtensions: ["web.tsx", "web.ts", "tsx", "ts", "js", "jsx", "json", "node"],
   setupFiles: ["jest-canvas-mock", "./jest.polyfills.js"],
   setupFilesAfterEnv: ["<rootDir>/tests/jestSetup.js"],
+  moduleFileExtensions: ["web.tsx", "web.ts", "tsx", "ts", "js", "jsx", "json", "node"],
   extensionsToTreatAsEsm: [".ts", ".tsx", ".jsx"],
   transform: {
     "^.+\\.m?(t|j)sx?$": [
@@ -130,6 +146,7 @@ module.exports = {
     "default",
     ...(process.env.CI ? ["github-actions"] : []),
     ["jest-sonar", { outputName: "sonar-executionTests-report.xml", reportedFilePath: "absolute" }],
+    "@ledgerhq/test-quarantine/jest",
   ],
   silent: false,
   verbose: true,
@@ -142,11 +159,19 @@ module.exports = {
         "(/__tests__/.*|(\\.|/)react\\.test|spec)\\.tsx",
       ],
       testMatch: ["**/src/**/*.test.(ts|tsx)"],
+      setupFilesAfterEnv: [
+        ...commonConfig.setupFilesAfterEnv,
+        "@ledgerhq/test-quarantine/jest-retries",
+      ],
     },
     {
       ...commonConfig,
       displayName: "dom",
       testRegex: "(/__tests__/.*|(\\.|/)react\\.test|spec)\\.tsx",
+      setupFilesAfterEnv: [
+        ...commonConfig.setupFilesAfterEnv,
+        "@ledgerhq/test-quarantine/jest-retries",
+      ],
     },
   ],
 };

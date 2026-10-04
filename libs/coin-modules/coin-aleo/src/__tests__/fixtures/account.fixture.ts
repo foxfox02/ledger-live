@@ -11,7 +11,7 @@ import type {
   AleoUnspentRecord,
 } from "../../types";
 import { getMockedCurrency, getMockedTokenCurrency } from "./currency.fixture";
-import { getMockedRecord } from "./api.fixture";
+import { getMockedDecryptedRecord, getMockedRecord } from "./api.fixture";
 
 const defaultMockedCurrency = getMockedCurrency();
 const defaultBalance = new BigNumber(100000);
@@ -30,6 +30,10 @@ export const mockAleoResources = {
   privateBalance: new BigNumber(1),
   unspentPrivateRecords: [],
   lastPrivateSyncDate: new Date(),
+  bondedBalance: new BigNumber(0),
+  bondedValidator: null,
+  unbondingBalance: new BigNumber(0),
+  unbondingHeight: null,
 } satisfies AleoResources;
 
 export const mockAleoResourcesRaw: AleoResourcesRaw = {
@@ -38,30 +42,26 @@ export const mockAleoResourcesRaw: AleoResourcesRaw = {
   privateBalance: mockAleoResources.privateBalance?.toString() ?? null,
   unspentPrivateRecords: JSON.stringify(mockAleoResources.unspentPrivateRecords),
   lastPrivateSyncDate: mockAleoResources.lastPrivateSyncDate?.toISOString() ?? null,
+  bondedBalance: mockAleoResources.bondedBalance.toString(),
+  bondedValidator: mockAleoResources.bondedValidator ?? null,
+  unbondingBalance: mockAleoResources.unbondingBalance.toString(),
+  unbondingHeight: mockAleoResources.unbondingHeight ?? null,
 };
 
 export const mockUnspentRecord1: AleoUnspentRecord = {
   ...getMockedRecord(),
   commitment: "record-1-commitment",
   microcredits: "800000",
-  decryptedData: {
-    owner: "aleo1zcwqycj02lccfuu57dzjhva7w5dpzc7pngl0sxjhp58t6vlnnqxs6lnp6f.private",
-    data: { microcredits: "800000u64.private" },
-    nonce: "7349790946519678882609199286010273702044020144797298963772495833343454197352group",
-    version: 1,
-  },
+  decryptedData: getMockedDecryptedRecord(),
 };
 
 export const mockUnspentRecord2: AleoUnspentRecord = {
   ...getMockedRecord(),
   commitment: "record-2-commitment",
   microcredits: "600000",
-  decryptedData: {
-    owner: "aleo1zcwqycj02lccfuu57dzjhva7w5dpzc7pngl0sxjhp58t6vlnnqxs6lnp6f.private",
+  decryptedData: getMockedDecryptedRecord({
     data: { microcredits: "600000u64.private" },
-    nonce: "7349790946519678882609199286010273702044020144797298963772495833343454197352group",
-    version: 1,
-  },
+  }),
 };
 
 export const mockUnspentTokenRecord1: AleoUnspentRecord = {

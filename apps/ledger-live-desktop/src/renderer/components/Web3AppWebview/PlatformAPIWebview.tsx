@@ -29,7 +29,7 @@ import useEnv from "@features/platform-env";
 import { openModal } from "../../actions/modals";
 import { flattenAccountsSelector } from "~/renderer/reducers/accounts";
 import BigSpinner from "../BigSpinner";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import {
   requestAccountLogic,
   broadcastTransactionLogic,
@@ -38,7 +38,7 @@ import {
 import { Loader } from "./styled";
 import { WebviewAPI, WebviewProps } from "./types";
 import { useWebviewState } from "./helpers";
-import { currentRouteNameRef } from "~/renderer/analytics/screenRefs";
+import { NetworkErrorScreen } from "./NetworkError";
 import { mevProtectionSelector } from "~/renderer/reducers/settings";
 import { walletSelector } from "~/renderer/reducers/wallet";
 import { HOOKS_TRACKING_LOCATIONS } from "~/renderer/analytics/hooks/variables";
@@ -46,19 +46,26 @@ import { setFlowValue, setSourceValue } from "~/renderer/reducers/modularDialog"
 import { useOpenAssetAndAccount } from "LLD/features/ModularDialog/Web3AppWebview/AssetAndAccountDrawer";
 import { useFeature } from "@features/platform-feature-flags";
 import { setOriginFlow } from "~/renderer/analytics/originFlow";
+import { getTrackingRouteLiveAppSource } from "./analytics";
 
 export const PlatformAPIWebview = forwardRef<WebviewAPI, WebviewProps>(
   ({ manifest, inputs = {}, onStateChange }, ref) => {
     const manifestDomainCheckEnabled = useFeature("lldWebviewManifestDomainCheck")?.enabled;
-    const { webviewState, webviewRef, setWebviewRef, webviewProps, webviewPartition } =
-      useWebviewState(
-        {
-          manifest,
-          inputs,
-          manifestDomainCheckEnabled,
-        },
-        ref,
-      );
+    const {
+      webviewState,
+      webviewRef,
+      setWebviewRef,
+      webviewProps,
+      webviewPartition,
+      handleRefresh,
+    } = useWebviewState(
+      {
+        manifest,
+        inputs,
+        manifestDomainCheckEnabled,
+      },
+      ref,
+    );
 
     const tracking = useMemo(
       () =>
@@ -72,12 +79,9 @@ export const PlatformAPIWebview = forwardRef<WebviewAPI, WebviewProps>(
               eventName,
               {
                 ...properties,
-                flowInitiatedFrom:
-                  currentRouteNameRef.current === "Platform Catalog"
-                    ? "Discover"
-                    : currentRouteNameRef.current,
+                flowInitiatedFrom: getTrackingRouteLiveAppSource(),
               },
-              mandatory,
+              { mandatory: !!mandatory },
             ),
         ),
       [],
@@ -98,7 +102,7 @@ export const PlatformAPIWebview = forwardRef<WebviewAPI, WebviewProps>(
     const [widgetLoaded, setWidgetLoaded] = useState(false);
 
     const walletState = useSelector(walletSelector);
-    const listAccounts = useListPlatformAccounts(walletState, accounts);
+    const listAccounts = useListPlatformAccounts(walletState.accountNames, accounts);
     const { deactivatedCurrencyIds: _deactivatedCurrencyIds } = useFeatureFlaggedCurrencies(
       !!useEnv("MOCK"),
     );
@@ -121,10 +125,7 @@ export const PlatformAPIWebview = forwardRef<WebviewAPI, WebviewProps>(
 
     const requestAccount = useCallback(
       (request: RequestAccountParams) => {
-        const source =
-          currentRouteNameRef.current === "Platform Catalog"
-            ? "Discover"
-            : (currentRouteNameRef.current ?? "Unknown");
+        const source = getTrackingRouteLiveAppSource();
 
         const flow = manifest.name;
 
@@ -133,20 +134,26 @@ export const PlatformAPIWebview = forwardRef<WebviewAPI, WebviewProps>(
         dispatch(setSourceValue(source));
 
         return requestAccountLogic(
-          walletState,
+          walletState.accountNames,
           { manifest },
           request,
           deactivatedCurrencyIds,
           openAssetAndAccountSelector,
         );
       },
-      [manifest, dispatch, walletState, deactivatedCurrencyIds, openAssetAndAccountSelector],
+      [
+        manifest,
+        dispatch,
+        walletState.accountNames,
+        deactivatedCurrencyIds,
+        openAssetAndAccountSelector,
+      ],
     );
 
     const receiveOnAccount = useCallback(
       ({ accountId }: { accountId: string }) =>
         receiveOnAccountLogic(
-          walletState,
+          walletState.accountNames,
           { manifest, accounts, tracking },
           accountId,
           (account, parentAccount, accountAddress) => {
@@ -174,7 +181,7 @@ export const PlatformAPIWebview = forwardRef<WebviewAPI, WebviewProps>(
             );
           },
         ),
-      [walletState, manifest, accounts, dispatch, tracking],
+      [walletState.accountNames, manifest, accounts, dispatch, tracking],
     );
 
     const signTransaction = useCallback(
@@ -437,6 +444,8 @@ export const PlatformAPIWebview = forwardRef<WebviewAPI, WebviewProps>(
       // oxlint-disable-next-line react-hooks/exhaustive-deps
     }, [handleLoad, handleDomReady]);
 
+    const isNetworkErrorVisible = !webviewState.loading && webviewState.isAppUnavailable;
+
     const webviewStyle = useMemo(() => {
       return {
         opacity: widgetLoaded ? 1 : 0,
@@ -444,11 +453,13 @@ export const PlatformAPIWebview = forwardRef<WebviewAPI, WebviewProps>(
         width: "100%",
         flex: 1,
         transition: "opacity 200ms ease-out",
+        ...(isNetworkErrorVisible ? { display: "none" } : {}),
       };
-    }, [widgetLoaded]);
+    }, [widgetLoaded, isNetworkErrorVisible]);
 
     return (
       <>
+        {isNetworkErrorVisible && <NetworkErrorScreen refresh={handleRefresh} />}
         <webview
           ref={setWebviewRef}
           /**
@@ -472,7 +483,7 @@ export const PlatformAPIWebview = forwardRef<WebviewAPI, WebviewProps>(
           {...webviewProps}
           {...webviewPartition}
         />
-        {!widgetLoaded ? (
+        {!widgetLoaded && !isNetworkErrorVisible ? (
           <Loader>
             <BigSpinner size={50} />
           </Loader>

@@ -7,27 +7,38 @@ run-name: >
 # NB: test_filter is intentionally reduced to a bounded "filtered"/"all" token rather than embedded verbatim.
 # It is free-text and can be very long; the concurrency group name must stay under 400 characters.
 concurrency:
-  # Broadcast runs (enable_broadcast) share ONE group regardless of tests_type, so separate
-  # iOS-Only / Android-Only dispatches QUEUE instead of overlapping —
-  # they would otherwise race on the same on-chain accounts across machines, which no per-run
-  # mechanism can prevent. Non-broadcast runs keep the original per-ref/tests_type group.
+  # Broadcast runs (enable_broadcast, and the Wednesday/Friday broadcast nightlies) share ONE group
+  # regardless of tests_type, so separate iOS-Only / Android-Only dispatches QUEUE instead of
+  # overlapping — they would otherwise race on the same on-chain accounts across machines, which no
+  # per-run mechanism can prevent. Non-broadcast runs keep the original per-ref/tests_type group.
   group: >-
-    ${{ (inputs.enable_broadcast || (github.event_name == 'schedule' && github.event.schedule == '0 3 * * 1,3,5')) && 'mobile-e2e-broadcast' || format('mobile-e2e-{0}-{1}-{2}-{3}', github.ref_name, inputs.ref || github.sha, github.event_name == 'schedule' && github.event.schedule || inputs.tests_type, inputs.test_filter && 'filtered' || 'all') }}
+    ${{ (inputs.enable_broadcast || github.event.schedule == '0 0 * * 3' || github.event.schedule == '0 0 * * 5') && 'mobile-e2e-broadcast' || format('mobile-e2e-{0}-{1}-{2}-{3}', github.ref_name, inputs.ref || github.sha, github.event_name == 'schedule' && github.event.schedule || inputs.tests_type, (inputs.test_filter || (inputs.team && inputs.team != 'all')) && 'filtered' || 'all') }}
   cancel-in-progress: false
 
 on:
   schedule:
-    - cron: "0 3 * * 1,3,5"
-    - cron: "0 3 * * 2,4"
+    # One broadcast nightly per platform: iOS on Wednesday, Android on Friday. Both platforms still
+    # run every weekday, only broadcast rotates — a single broadcasting platform per run keeps the
+    # shared QAA on-chain accounts free of allowance/nonce races (desktop broadcasts on Monday).
+    # These cron expressions are matched verbatim in the env block below — keep both in sync.
+    - cron: "0 0 * * 3"
+    - cron: "0 0 * * 5"
+    - cron: "0 0 * * 1,2,4"
   workflow_dispatch:
     inputs:
       ref:
         description: "Specify branch to checkout and test or leave blank to use the workflow branch"
         required: false
       test_filter:
-        description: Filter pattern(s) to execute only selected test suites by test name, file path or tag, separated by ',' or '|' (e.g. "Accounts @smoke", "@generic-coin-framework,@solana", "@bitcoin,@family-evm" or "addAccount deeplinks")
+        description: Filter pattern(s) to select spec files by file path or declared @-tag (mobile matches whole spec files, not test names), separated by ',' or '|' (e.g. "@smoke", "@generic-coin-framework,@solana", "@bitcoin,@family-evm" or "addAccount deeplinks")
         required: false
         type: string
+      team:
+        description: "Run only one team's tests. ANDed with test_filter, Smoke and the device."
+        required: false
+        type: choice
+        options: [all, bst, buy-and-sell, coin-integration, earn, engagement, swap, wallet-xp]
+        default: all
       tests_type:
         description: "Which tests to run"
         required: true
@@ -64,19 +75,6 @@ on:
         required: false
         type: boolean
         default: false
-      export_to_xray:
-        description: "Send results to Xray"
-        required: false
-        type: boolean
-        default: false
-      test_execution_android:
-        description: "Xray execution key for Android (optional)"
-        required: false
-        type: string
-      test_execution_ios:
-        description: "Xray execution key for iOS (optional)"
-        required: false
-        type: string
       smoke_tests:
         description: "Run smoke tests"
         required: false
@@ -84,6 +82,11 @@ on:
         default: false
       generate_ai_artifacts:
         description: "Generate AI analysis artifacts"
+        required: false
+        type: boolean
+        default: false
+      emulator_diagnostics:
+        description: "Capture host diagnostics and crash backtraces when an emulator dies"
         required: false
         type: boolean
         default: false
@@ -108,9 +111,14 @@ on:
         required: false
         type: string
       test_filter:
-        description: Filter pattern(s) to execute only selected test suites by test name, file path or tag, separated by ',' or '|' (e.g. "Accounts @smoke", "@generic-coin-framework,@solana", "@bitcoin,@family-evm" or "addAccount deeplinks")
+        description: Filter pattern(s) to select spec files by file path or declared @-tag (mobile matches whole spec files, not test names), separated by ',' or '|' (e.g. "@smoke", "@generic-coin-framework,@solana", "@bitcoin,@family-evm" or "addAccount deeplinks")
         required: false
         type: string
+      team:
+        description: "Team slug whose specs to run. One of: all, bst, buy-and-sell, coin-integration, earn, engagement, swap, wallet-xp."
+        required: false
+        type: string
+        default: all
       tests_type:
         description: "Which tests to run"
         required: false
@@ -157,7 +165,7 @@ on:
         default: ""
     secrets:
       SPECULINHO_URL:
-        description: Base URL for the Speculinho operator (remote Speculos on iOS E2E). Repository secret; pass via secrets inherit when reusing this workflow.
+        description: Base URL for the Speculinho operator (remote Speculos, both platforms). Repository secret; pass via secrets inherit when reusing this workflow.
         required: false
       ALLURE_LEDGER_LIVE_PASSWORD:
         required: false
@@ -174,6 +182,14 @@ on:
       AWS_CACHE_REGION:
         required: false
       AWS_CACHE_ROLE_NAME:
+        required: false
+      CARD_BAANX_API_URL:
+        required: false
+      CARD_BAANX_CLIENT_KEY:
+        required: false
+      CARD_BAANX_HOSTED_UI:
+        required: false
+      CARD_OAUTH_REDIRECT_URI:
         required: false
       GH_BOT_CLIENT_ID:
         required: false
@@ -193,11 +209,17 @@ on:
         required: false
       SEED_QAA_B2C:
         required: false
+      BAANX_TEST_CLIENT_KEY:
+        required: false
+      BAANX_TEST_USER_EMAIL:
+        required: false
+      BAANX_TEST_USER_PASSWORD:
+        required: false
+      BAANX_TEST_USER_TOTP_SECRET:
+        required: false
+      BAANX_TEST_API_URL:
+        required: false
       SLACK_BOT_USER_OAUTH_ACCESS_TOKEN:
-        required: false
-      XRAY_CLIENT_ID:
-        required: false
-      XRAY_CLIENT_SECRET:
         required: false
 
 permissions:
@@ -207,22 +229,24 @@ env:
   cache-bucket: ll-nx-cache
   ANDROID_APK_PATH: apps/ledger-live-mobile/android/app/build/outputs/apk/detox${{ inputs.production_firebase == true && 'PreRelease' || '' }}/app-x86_64-detox${{ inputs.production_firebase == true && 'PreRelease' || '' }}.apk
   ANDROID_JSBUNDLE_PATH: apps/ledger-live-mobile/main.jsbundle
-  ANDROID_TESTBINARY_PATH: apps/ledger-live-mobile/android/app/build/outputs/apk/androidTest/detox${{ inputs.production_firebase == true && 'PreRelease' || '' }}/app-detox${{ inputs.production_firebase == true && 'PreRelease' || '' }}-androidTest.apk
   IOS_JSBUNDLE_PATH: apps/ledger-live-mobile/ios/build/Build/Products/Release-iphonesimulator/ledgerlivemobile.app/main.jsbundle
   IOS_NATIVE_PATH: apps/ledger-live-mobile/ios/build/Build/Products/Release-iphonesimulator
   SPECULOS_IMAGE_TAG_ANDROID: ghcr.io/ledgerhq/speculos:${{ inputs.speculos_device == 'nanoS' && '1be65b91a8e0691866f880fd437ac05fce78af9d' || 'latest' }}
   SPECULOS_IMAGE_TAG_IOS: ghcr.io/ledgerhq/speculos:${{ inputs.speculos_device == 'nanoS' && 'speculos-38ccc68068db-coinapps-83978f0' || 'latest' }}
-  COINAPPS: ${{ github.workspace }}/coin-apps
-  SPECULOS_DEVICE: ${{ inputs.speculos_device || 'nanoX' }}
   ANDROID_FEATURE_FLAGS: ${{ inputs.feature_flags || 'defaults' }}
   IOS_FEATURE_FLAGS: ${{ inputs.feature_flags || 'defaults' }}
   E2E_FEATURE_FLAGS_JSON: ${{ inputs.feature_flags_json || '' }}
   USERDATA_CACHE_ENABLED: ${{ !inputs.production_firebase }}
   E2E_GENERATED_USERDATA_DIR: ${{ !inputs.production_firebase && format('{0}/e2e/userdata/generated', github.workspace) || '' }}
-  # True only when a single run covers BOTH platforms (tests_type = "iOS & Android").
-  # broadcastRotation.ts uses it to pin each broadcast swap flow to one platform per run,
-  # avoiding the shared-EOA nonce race; single-platform runs keep full coverage. (QAA-1411)
-  E2E_BOTH_PLATFORMS: ${{ inputs.tests_type != 'iOS Only' && inputs.tests_type != 'Android Only' }}
+  # Broadcast on explicit request, or on the platform's own broadcast nightly (see the schedule above).
+  IOS_BROADCAST_ENABLED: ${{ inputs.enable_broadcast || github.event.schedule == '0 0 * * 3' }}
+  ANDROID_BROADCAST_ENABLED: ${{ inputs.enable_broadcast || github.event.schedule == '0 0 * * 5' }}
+  # True only when BOTH platforms broadcast in the same run, which the nightlies never do: only an
+  # explicit enable_broadcast dispatch covering both platforms. Equivalent to
+  # IOS_BROADCAST_ENABLED && ANDROID_BROADCAST_ENABLED, which the env context cannot express here.
+  # broadcastRotation.ts then pins each broadcast swap flow to one platform per run, avoiding the
+  # shared-EOA nonce race. (QAA-1411)
+  E2E_BROADCAST_BOTH_MOBILE_PLATFORMS: ${{ inputs.enable_broadcast == true && inputs.tests_type != 'iOS Only' && inputs.tests_type != 'Android Only' }}
   # iOS Simulator configuration
   IOS_SIMULATOR_DEVICE: iPhone 15
   # Android AVD configuration
@@ -275,8 +299,8 @@ jobs:
           client-id: ${{ secrets.GH_BOT_CLIENT_ID }}
           private-key: ${{ secrets.GH_BOT_PRIVATE_KEY }}
           repositories: |
-            coin-apps
             ledger-live
+          permission-contents: read
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref || github.sha }}
@@ -288,6 +312,7 @@ jobs:
             e2e/tooling/filter
             libs/ledger-live-common/src/bridge/generic-coin-framework/genericCoinFrameworkFamilies.json
             .pnpmfile.cjs
+            pnpm-workspace.yaml
             tools
             .mise/tasks
           token: ${{ steps.generate-token.outputs.token }}
@@ -337,10 +362,7 @@ jobs:
           IOS_DEVICE: ${{ steps.devices.outputs.ios_device }}
           ANDROID_DEVICE: ${{ steps.devices.outputs.android_device }}
           BUILD_TYPE: ${{ inputs.production_firebase && 'production' || 'testing' }}
-          BROADCAST_ENABLED: ${{ inputs.enable_broadcast }}
           SMOKE_TESTS: ${{ inputs.smoke_tests }}
-          TEST_EXECUTION_ANDROID: ${{ inputs.test_execution_android || '(not provided)' }}
-          TEST_EXECUTION_IOS: ${{ inputs.test_execution_ios || '(not provided)' }}
           WORKFLOW_REF: ${{ github.ref_name }}
           TRIGGERED_BRANCH: ${{ inputs.ref || github.ref_name }}
           COMMIT_SHA: ${{ github.sha }}
@@ -366,10 +388,9 @@ jobs:
           echo "- **Android device:** $ANDROID_DEVICE"
           echo "$FILTER_SUMMARY"
           echo "- **Smoke tests:** $SMOKE_TESTS"
-          echo "- **Test Execution ticket ID (Android):** $TEST_EXECUTION_ANDROID"
-          echo "- **Test Execution ticket ID (iOS):** $TEST_EXECUTION_IOS"
           echo "- **Firebase env to target:** $BUILD_TYPE"
-          echo "- **Broadcast enabled:** $BROADCAST_ENABLED"
+          echo "- **Broadcast enabled (iOS):** $IOS_BROADCAST_ENABLED"
+          echo "- **Broadcast enabled (Android):** $ANDROID_BROADCAST_ENABLED"
           echo "- **Slack notification:** $SLACK_NOTIF_STATUS"
           echo "- **Android Feature Flags:** $ANDROID_FEATURE_FLAGS"
           echo "- **iOS Feature Flags:** $IOS_FEATURE_FLAGS"
@@ -402,43 +423,53 @@ jobs:
           if [ "$REF_NAME" = "develop" ]; then
             PREFIX="develop/"
           fi
-          echo "ios_native_key=${PREFIX}longterm-${{ hashFiles('apps/ledger-live-mobile/ios') }}-detox-native-ios-${{ inputs.production_firebase == true && 'prod-2' || '3' }}" >> $GITHUB_OUTPUT
-          echo "android_native_key=${PREFIX}longterm-${{ hashFiles('apps/ledger-live-mobile/android', 'apps/ledger-live-mobile/package.json') }}-detox-native-android-${{ inputs.production_firebase == true && 'prod-2' || '3' }}" >> $GITHUB_OUTPUT
+          echo "ios_native_key=${PREFIX}longterm-${{ hashFiles('apps/ledger-live-mobile/ios', 'apps/ledger-live-mobile/package.json', 'pnpm-workspace.yaml', 'e2e/mobile/detox.config.js', 'e2e/mobile/scripts/syncAppVersion.js') }}-detox-native-ios-${{ inputs.production_firebase == true && 'prod-2' || '3' }}" >> $GITHUB_OUTPUT
+          echo "android_native_key=${PREFIX}longterm-${{ hashFiles('apps/ledger-live-mobile/android', 'apps/ledger-live-mobile/package.json', 'pnpm-workspace.yaml', 'e2e/mobile/detox.config.js', 'e2e/mobile/scripts/syncAppVersion.js') }}-detox-native-android-${{ inputs.production_firebase == true && 'prod-2' || '3' }}" >> $GITHUB_OUTPUT
           HEAD_SHA=$(git rev-parse HEAD)
           echo "ios_js_key=${PREFIX}${HEAD_SHA}-detox-js-ios" >> $GITHUB_OUTPUT
           echo "android_js_key=${PREFIX}${HEAD_SHA}-detox-js-android" >> $GITHUB_OUTPUT
           echo "android_timing_cache_key=${PREFIX}android-e2e-timing-${{ hashFiles('e2e/mobile/specs') }}-2" >> $GITHUB_OUTPUT
           echo "ios_timing_cache_key=${PREFIX}ios-e2e-timing-${{ hashFiles('e2e/mobile/specs') }}-2" >> $GITHUB_OUTPUT
-          echo "avd_cache_key=${{ runner.os }}-detox-avd-${{ env.AVD_NAME }}_5-${{ env.AVD_PROFILE }}-${{ env.AVD_TARGET }}-${{ env.AVD_API }}-${{ env.AVD_ARCH }}-${{ env.AVD_CORES }}-${{ env.AVD_RAM_SIZE }}-${{ env.AVD_HEAP_SIZE }}-r2-v8" >> $GITHUB_OUTPUT
+          # QAA-1509: this cache carries /usr/local/lib/android/sdk/emulator/, so the
+          # emulator binary every shard runs is whichever one sdkmanager installed the
+          # last time this key changed -- the setup job is skipped while the object
+          # exists. Bump the trailing version to force a rebuild onto a current
+          # emulator; the one pinned since AVD_API went to 36 segfaults mid-run.
+          echo "avd_cache_key=${{ runner.os }}-detox-avd-${{ env.AVD_NAME }}_5-${{ env.AVD_PROFILE }}-${{ env.AVD_TARGET }}-${{ env.AVD_API }}-${{ env.AVD_ARCH }}-${{ env.AVD_CORES }}-${{ env.AVD_RAM_SIZE }}-${{ env.AVD_HEAP_SIZE }}-r2-v9" >> $GITHUB_OUTPUT
 
       - name: Prepare test filter
         id: test-filter
         run: |
-          RESOLVED_FILTER="$(node e2e/tooling/filter/resolve.mjs \
+          node e2e/tooling/filter/resolve.mjs \
             --input "$TEST_FILTER_INPUT" \
             --smoke-tests "$SMOKE_TESTS_INPUT" \
-            --check-dir "e2e/mobile/specs")"
-          echo "filter=$RESOLVED_FILTER" >> $GITHUB_OUTPUT
+            --team "$TEAM_INPUT" \
+            --check-dir "e2e/mobile/specs" \
+            --runner detox \
+            --github-output >> "$GITHUB_OUTPUT"
         shell: bash
         env:
           TEST_FILTER_INPUT: ${{ inputs.test_filter }}
           SMOKE_TESTS_INPUT: ${{ inputs.smoke_tests }}
+          TEAM_INPUT: ${{ inputs.team || 'all' }}
 
       - name: Write resolved filter to GitHub Summary
         run: |
-          FILTER_PATTERN="${{ steps.test-filter.outputs.filter }}"
-          if [ -z "$FILTER_PATTERN" ]; then
-            FILTER_PATTERN="(none)"
-          fi
-          echo "- **Resolved filtered pattern:** $FILTER_PATTERN" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "- **Team:** ${TEAM_INPUT}"
+            node e2e/tooling/filter/format-summary.mjs "${FILTER_PATTERN:-}" "- **Resolved filtered pattern:**"
+          } >> "$GITHUB_STEP_SUMMARY"
         shell: bash
+        env:
+          FILTER_PATTERN: ${{ steps.test-filter.outputs.filter }}
+          TEAM_INPUT: ${{ inputs.team || 'all' }}
 
       - name: Generate shards matrix and test files
         id: generate-shards
         uses: LedgerHQ/ledger-live/tools/actions/composites/generate-shards-matrix@develop
         with:
           test_directory: e2e/mobile
-          test_filter: ${{ steps.test-filter.outputs.filter }}
+          test_filter: ${{ steps.test-filter.outputs.runner_filter }}
           event_name: ${{ github.event_name }}
           ref: ${{ inputs.ref || github.ref_name }}
           ios_timing_cache_key: ${{ steps.cache-keys.outputs.ios_timing_cache_key }}
@@ -534,7 +565,18 @@ jobs:
       ios-native-cache-key: ${{ needs.determine-builds.outputs.ios_native_key }}
       ios-js-cache-key: ${{ needs.determine-builds.outputs.ios_js_key }}
       production_firebase: ${{ inputs.production_firebase || false }}
-    secrets: inherit
+    secrets:
+      AWS_ACCOUNT_ID_PROD: ${{ secrets.AWS_ACCOUNT_ID_PROD }}
+      AWS_CACHE_OIDC_ROLE_ARN_BRANCH: ${{ secrets.AWS_CACHE_OIDC_ROLE_ARN_BRANCH }}
+      AWS_CACHE_OIDC_ROLE_ARN_DEVELOP: ${{ secrets.AWS_CACHE_OIDC_ROLE_ARN_DEVELOP }}
+      AWS_CACHE_REGION: ${{ secrets.AWS_CACHE_REGION }}
+      AWS_CACHE_ROLE_NAME: ${{ secrets.AWS_CACHE_ROLE_NAME }}
+      CARD_BAANX_API_URL: ${{ secrets.CARD_BAANX_API_URL }}
+      CARD_BAANX_CLIENT_KEY: ${{ secrets.CARD_BAANX_CLIENT_KEY }}
+      CARD_BAANX_HOSTED_UI: ${{ secrets.CARD_BAANX_HOSTED_UI }}
+      CARD_OAUTH_REDIRECT_URI: ${{ secrets.CARD_OAUTH_REDIRECT_URI }}
+      NX_KEY: ${{ secrets.NX_KEY }}
+      S3_DIRECTCONNECT_ENDPOINT: ${{ secrets.S3_DIRECTCONNECT_ENDPOINT }}
 
   build-android:
     name: "Android Build"
@@ -552,7 +594,17 @@ jobs:
       android-native-cache-key: ${{ needs.determine-builds.outputs.android_native_key }}
       android-js-cache-key: ${{ needs.determine-builds.outputs.android_js_key }}
       production_firebase: ${{ inputs.production_firebase || false }}
-    secrets: inherit
+    secrets:
+      AWS_ACCOUNT_ID_PROD: ${{ secrets.AWS_ACCOUNT_ID_PROD }}
+      AWS_CACHE_OIDC_ROLE_ARN_BRANCH: ${{ secrets.AWS_CACHE_OIDC_ROLE_ARN_BRANCH }}
+      AWS_CACHE_OIDC_ROLE_ARN_DEVELOP: ${{ secrets.AWS_CACHE_OIDC_ROLE_ARN_DEVELOP }}
+      AWS_CACHE_REGION: ${{ secrets.AWS_CACHE_REGION }}
+      AWS_CACHE_ROLE_NAME: ${{ secrets.AWS_CACHE_ROLE_NAME }}
+      CARD_BAANX_API_URL: ${{ secrets.CARD_BAANX_API_URL }}
+      CARD_BAANX_CLIENT_KEY: ${{ secrets.CARD_BAANX_CLIENT_KEY }}
+      CARD_BAANX_HOSTED_UI: ${{ secrets.CARD_BAANX_HOSTED_UI }}
+      CARD_OAUTH_REDIRECT_URI: ${{ secrets.CARD_OAUTH_REDIRECT_URI }}
+      NX_KEY: ${{ secrets.NX_KEY }}
 
   setup-android-avd:
     name: "Setup Android AVD"
@@ -651,8 +703,8 @@ jobs:
         with:
           max_attempts: 2
           timeout_minutes: 15
-          command: pnpm i --filter="live-mobile..."  --filter="@ledgerhq/dummy-*-app..." --filter="ledger-live" --filter="ledger-live-mobile-e2e-tests" --filter="live-cli*..." --no-frozen-lockfile --unsafe-perm --ignore-scripts
-          new_command_on_retry: rm -rf ~/.cocoapods/ && pnpm clean && pnpm i --filter="live-mobile..." --filter="@ledgerhq/dummy-*-app..." --filter="ledger-live" --filter="ledger-live-mobile-e2e-tests" --filter="live-cli*..." --no-frozen-lockfile --unsafe-perm --ignore-scripts
+          command: pnpm i --filter="live-mobile..."  --filter="@ledgerhq/dummy-*-app..." --filter="ledger-live" --filter="ledger-live-mobile-e2e-tests..." --filter="live-cli*..." --frozen-lockfile --unsafe-perm --ignore-scripts
+          new_command_on_retry: rm -rf ~/.cocoapods/ && pnpm clean && pnpm i --filter="live-mobile..." --filter="@ledgerhq/dummy-*-app..." --filter="ledger-live" --filter="ledger-live-mobile-e2e-tests..." --filter="live-cli*..." --frozen-lockfile --unsafe-perm --ignore-scripts
 
       - name: Boot iOS Simulator in Background
         uses: LedgerHQ/ledger-live/tools/actions/composites/boot-ios-simulators-background@develop
@@ -700,7 +752,7 @@ jobs:
       - name: Set DISABLE_TRANSACTION_BROADCAST
         uses: LedgerHQ/ledger-live/tools/actions/composites/setup-e2e-env@develop
         with:
-          enable_broadcast: ${{ inputs.enable_broadcast }}
+          enable_broadcast: ${{ env.IOS_BROADCAST_ENABLED }}
           build_type: ${{ inputs.production_firebase == true && 'js' || 'testing' }}
 
       - name: Get iOS device info
@@ -736,6 +788,11 @@ jobs:
         timeout-minutes: ${{ fromJSON(needs.determine-builds.outputs.ios_timeout) }}
         env:
           SEED: ${{ secrets.SEED_QAA_B2C }}
+          BAANX_TEST_CLIENT_KEY: ${{ secrets.BAANX_TEST_CLIENT_KEY }}
+          BAANX_TEST_USER_EMAIL: ${{ secrets.BAANX_TEST_USER_EMAIL }}
+          BAANX_TEST_USER_PASSWORD: ${{ secrets.BAANX_TEST_USER_PASSWORD }}
+          BAANX_TEST_USER_TOTP_SECRET: ${{ secrets.BAANX_TEST_USER_TOTP_SECRET }}
+          BAANX_TEST_API_URL: ${{ secrets.BAANX_TEST_API_URL }}
           SPECULINHO_URL: ${{ secrets.SPECULINHO_URL }}
           INPUT_E2E: "true"
           REMOTE_SPECULOS: "true"
@@ -760,7 +817,7 @@ jobs:
           retention-days: 7
 
       - name: Setup iOS Shard timing artifacts
-        if: (!cancelled() || steps.run-ios.outcome == 'cancelled')
+        if: (!cancelled() || steps.run-ios.outcome == 'cancelled') && steps.run-ios.outcome != 'skipped'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           path: ${{ env.MOBILE_ARTIFACTS_ROOT }}/${{ env.E2E_TEST_RESULTS_PREFIX_IOS }}-${{ matrix.shard }}.json
@@ -832,22 +889,10 @@ jobs:
           roleName: ${{ secrets.AWS_CACHE_ROLE_NAME }}
           region: ${{ secrets.AWS_CACHE_REGION }}
 
-      - name: Install scrcpy 3.x and dependencies
+      - name: Install scrcpy
         timeout-minutes: 10
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg xvfb libsdl2-2.0-0 libusb-1.0-0
-
-          # Download scrcpy 3.3.4 from GitHub releases (apt/snap versions are obsolete)
-          # See: https://github.com/Genymobile/scrcpy/blob/master/doc/linux.md
-          SCRCPY_VERSION="3.3.4"
-          curl -L "https://github.com/Genymobile/scrcpy/releases/download/v${SCRCPY_VERSION}/scrcpy-linux-x86_64-v${SCRCPY_VERSION}.tar.gz" -o /tmp/scrcpy.tar.gz
-          tar -xzf /tmp/scrcpy.tar.gz -C /tmp
-          sudo cp /tmp/scrcpy-linux-x86_64-v${SCRCPY_VERSION}/scrcpy /usr/local/bin/
-          sudo cp /tmp/scrcpy-linux-x86_64-v${SCRCPY_VERSION}/scrcpy-server /usr/local/bin/
-
-          scrcpy --version
-          ls -la /usr/local/bin/scrcpy*
+        continue-on-error: true
+        uses: LedgerHQ/ledger-live/tools/actions/composites/install-scrcpy@develop
 
       - name: Set shard test files from pre-computed matrix
         run: |
@@ -882,7 +927,7 @@ jobs:
       - name: Prepare APK
         run: |
           mkdir -p /tmp/apk/assets
-          mkdir /home/runner/.android/
+          mkdir -p /home/runner/.android/
           mv ${{ env.ANDROID_JSBUNDLE_PATH }} /tmp/apk/assets/index.android.bundle
           mv ${{ env.ANDROID_APK_PATH }} /tmp/apk/tmp.apk
           (cd /tmp/apk/; zip -r tmp.apk assets/index.android.bundle)
@@ -896,7 +941,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pnpm i --filter="live-mobile..." --filter="@ledgerhq/dummy-*-app..." --filter="ledger-live" --filter="ledger-live-mobile-e2e-tests" --filter="live-cli*..." --no-frozen-lockfile --unsafe-perm --ignore-scripts
+          pnpm i --filter="live-mobile..." --filter="@ledgerhq/dummy-*-app..." --filter="ledger-live" --filter="ledger-live-mobile-e2e-tests..." --filter="live-cli*..." --frozen-lockfile --unsafe-perm --ignore-scripts
 
       - name: Detox Post Install
         run: node node_modules/detox/scripts/postinstall.js
@@ -935,14 +980,22 @@ jobs:
           echo "ℹ️ Android emulators boot started in background."
         shell: bash
 
-      - name: Setup Speculos image and Coin Apps
-        id: setup-speculos
-        uses: LedgerHQ/ledger-live/tools/actions/composites/setup-speculos_image@develop
-        timeout-minutes: 20
-        with:
-          coinapps_path: ${{ env.COINAPPS }}
-          bot_id: ${{ secrets.GH_BOT_CLIENT_ID }}
-          bot_key: ${{ secrets.GH_BOT_PRIVATE_KEY }}
+      # QAA-1497: an emulator can vanish mid-run, after which every later spec fails with
+      # a misleading assertion error. Record the moment it happens plus the host-side
+      # evidence our artifacts cannot otherwise show.
+      - name: Watch Android emulator liveness (background)
+        run: |
+          export ARTIFACTS_DIR="${{ env.MOBILE_ARTIFACTS_ROOT }}"
+          export WATCH_STOP_FILE="${{ env.MOBILE_ARTIFACTS_ROOT }}/.watchdog-stop"
+          # Detecting the loss is always on: it is one adb call per poll and it stops a
+          # dead device masquerading as four unrelated assertion timeouts. The host
+          # forensics behind it are opt-in, because their questions are answered.
+          export WATCH_DIAGNOSTICS="${{ inputs.emulator_diagnostics && '1' || '' }}"
+          rm -f "$WATCH_STOP_FILE"
+          nohup bash tools/scripts/watch-android-emulators-ci.sh \
+            >> "${{ env.MOBILE_ARTIFACTS_ROOT }}/emulator-watchdog.log" 2>&1 &
+          echo "ℹ️ Emulator liveness watchdog started."
+        shell: bash
 
       - name: Build e2e dependencies (CLI + libs)
         uses: LedgerHQ/ledger-live/tools/actions/composites/nx-step@develop
@@ -953,7 +1006,7 @@ jobs:
       - name: Set DISABLE_TRANSACTION_BROADCAST
         uses: LedgerHQ/ledger-live/tools/actions/composites/setup-e2e-env@develop
         with:
-          enable_broadcast: ${{ inputs.enable_broadcast }}
+          enable_broadcast: ${{ env.ANDROID_BROADCAST_ENABLED }}
           build_type: ${{ inputs.production_firebase == true && 'js' || 'testing' }}
 
       - name: Get Android device info
@@ -989,6 +1042,11 @@ jobs:
         env:
           DETOX_INSTALL_TIMEOUT: 120000
           SEED: ${{ secrets.SEED_QAA_B2C }}
+          BAANX_TEST_CLIENT_KEY: ${{ secrets.BAANX_TEST_CLIENT_KEY }}
+          BAANX_TEST_USER_EMAIL: ${{ secrets.BAANX_TEST_USER_EMAIL }}
+          BAANX_TEST_USER_PASSWORD: ${{ secrets.BAANX_TEST_USER_PASSWORD }}
+          BAANX_TEST_USER_TOTP_SECRET: ${{ secrets.BAANX_TEST_USER_TOTP_SECRET }}
+          BAANX_TEST_API_URL: ${{ secrets.BAANX_TEST_API_URL }}
           INPUT_E2E: "true"
           PRODUCTION: ${{ inputs.production_firebase }}
           INPUTS_TEST_FILTER: ${{ needs.determine-builds.outputs.test_filter }}
@@ -997,9 +1055,134 @@ jobs:
           ADB: /usr/local/lib/android/sdk/platform-tools/adb # Needed for scrcpy
           DEVICE_INFO: ${{ env.DEVICE_INFO }}
           SPECULOS_IMAGE_TAG: ${{ env.SPECULOS_IMAGE_TAG_ANDROID }}
+          SPECULINHO_URL: ${{ secrets.SPECULINHO_URL }}
+          REMOTE_SPECULOS: "true"
           E2E_FEATURE_FLAGS_JSON: ${{ env.E2E_FEATURE_FLAGS_JSON }}
           E2E_MOBILE_FEATURE_FLAGS: ${{ env.ANDROID_FEATURE_FLAGS }}
         run: pnpm run mobile e2e:ci -p android -t --e2e $([[ "$PRODUCTION" == "true" ]] && printf %s '--production') $SHARD_TEST_FILES --outputFile=artifacts/${{ env.E2E_TEST_RESULTS_PREFIX_ANDROID }}-${{ matrix.shard }}.json
+
+      - name: Stop emulator watchdog
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          # Everything after this point is teardown; a serial going away now is expected.
+          touch "${{ env.MOBILE_ARTIFACTS_ROOT }}/.watchdog-stop"
+
+      - name: Report emulator wedges and deaths
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          WEDGES="${{ env.MOBILE_ARTIFACTS_ROOT }}/emulator-wedges.log"
+          if [ -s "$WEDGES" ]; then
+            {
+              echo "### ⚠️ An emulator wedged during this shard"
+              echo "Frozen RSS + idle process state: the device was lost before any test noticed."
+              echo '```'
+              cat "$WEDGES"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          DEATHS="${{ env.MOBILE_ARTIFACTS_ROOT }}/emulator-deaths.log"
+          WATCHLOG="${{ env.MOBILE_ARTIFACTS_ROOT }}/emulator-watchdog.log"
+          CORES="${{ env.MOBILE_ARTIFACTS_ROOT }}/crash-backtraces/coredumpctl-list.txt"
+          if [ -s "$DEATHS" ]; then
+            LOST="$(awk '{print $2}' "$DEATHS" | sort -u | tr '\n' ' ')"
+            # Same default as the boot/watch scripts, which is what actually ran.
+            TOTAL="$(wc -w <<<"${EMULATOR_SERIALS:-emulator-5554 emulator-5556 emulator-5558}" | tr -d ' ')"
+            {
+              echo "### ❌ Emulator died during this shard"
+              echo "**Lost:** \`${LOST}\`  |  **Devices affected:** $(awk '{print $2}' "$DEATHS" | sort -u | wc -l | tr -d ' ') of ${TOTAL}"
+              echo
+              echo '```'
+              cat "$DEATHS"
+              echo '```'
+              # The watchdog only writes here after a loss survives several polls with no
+              # stop file, so this is a real mid-run death and not the shard's teardown.
+              if [ -s "$CORES" ] && grep -qi SIGSEGV "$CORES"; then
+                echo "**Coredumps:** SIGSEGV recorded - qemu crashed (QAA-1509)."
+              elif [ -s "$CORES" ]; then
+                echo "**Coredumps:** none recorded, so the device was lost without a qemu crash."
+              else
+                echo "_Re-run with \`emulator_diagnostics: true\` for coredumps and host forensics._"
+              fi
+              echo
+              echo "Test failures after this point are not meaningful - see QAA-1497."
+              if [ -s "$WATCHLOG" ]; then
+                echo
+                echo "<details><summary>Watchdog log (last 20 lines)</summary>"
+                echo
+                echo '```'
+                tail -20 "$WATCHLOG"
+                echo '```'
+                echo
+                echo "</details>"
+              fi
+            } >> "$GITHUB_STEP_SUMMARY"
+            while read -r line; do
+              echo "::error title=Emulator died (QAA-1497)::$line"
+            done < "$DEATHS"
+          else
+            echo "✅ No emulator disappeared during this shard." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Backtraces for the qemu SIGSEGVs; must run after the tests because the ~1 GB
+      # dump is still being written when the device drops off adb.
+      # See: https://ledgerhq.atlassian.net/browse/QAA-1497
+      - name: Extract emulator crash backtraces
+        if: always() && inputs.emulator_diagnostics
+        continue-on-error: true
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          OUT="${{ env.MOBILE_ARTIFACTS_ROOT }}/crash-backtraces"
+          mkdir -p "$OUT"
+          command -v coredumpctl >/dev/null || { echo "coredumpctl unavailable"; exit 0; }
+
+          coredumpctl list --no-pager >"${OUT}/coredumpctl-list.txt" 2>&1 || true
+          # The TIME column spans four fields ("Wed 2026-08-19 15:01:53 UTC"), so the PID
+          # is not $2. Anchor on the signal name instead of a fixed column, and take only
+          # the rows whose core is still present - a "missing" one has nothing to read.
+          PIDS="$(awk '/qemu-system/ && /present/ {
+                         for (i = 1; i <= NF; i++) if ($i ~ /^SIG/) { print $(i-3); break }
+                       }' "${OUT}/coredumpctl-list.txt" | tail -4)"
+          if [ -z "$PIDS" ]; then
+            echo "No qemu core dumps with a present COREFILE; falling back to newest by name."
+            coredumpctl info qemu-system-x86_64-headless >"${OUT}/core-newest-info.txt" 2>&1 || true
+            sed -n '1,80p' "${OUT}/core-newest-info.txt" 2>/dev/null || true
+            exit 0
+          fi
+          echo "qemu cores to inspect: $PIDS"
+
+          for pid in $PIDS; do
+            echo "::group::backtrace for qemu pid ${pid}"
+            # `info` already prints a stack trace when symbols resolve, and is far
+            # cheaper than loading a 1 GB core into gdb.
+            coredumpctl info "$pid" >"${OUT}/core-${pid}-info.txt" 2>&1 || true
+            # coredumpctl's own trace resolves to "n/a (n/a + 0x0)": the emulator ships
+            # stripped .so files with no build-id, so it cannot even map the fault
+            # address to a module. gdb loads the core against the real objects and will
+            # at least name the library and offset, which is what identifies the path.
+            if command -v gdb >/dev/null; then
+              timeout 300 coredumpctl debug "$pid" \
+                --debugger=gdb \
+                --debugger-arguments="-batch -ex 'bt' -ex 'info sharedlibrary' -ex quit" \
+                >"${OUT}/core-${pid}-gdb.txt" 2>&1 || true
+              sed -n '1,40p' "${OUT}/core-${pid}-gdb.txt" 2>/dev/null || true
+            fi
+            sed -n '1,80p' "${OUT}/core-${pid}-info.txt" 2>/dev/null || true
+            echo "::endgroup::"
+          done
+
+          {
+            echo "### 💥 qemu crash backtraces"
+            echo "Signal and faulting frame per core, if symbols resolved:"
+            echo '```'
+            grep -hE 'Signal:|Command Line:|^ *#[0-9]' "${OUT}"/core-*-info.txt 2>/dev/null | head -40
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Stop resource usage sampler
         if: always()
@@ -1020,7 +1203,7 @@ jobs:
           retention-days: 7
 
       - name: Setup Android Shard timing artifacts
-        if: (!cancelled() || steps.run-android.outcome == 'cancelled')
+        if: (!cancelled() || steps.run-android.outcome == 'cancelled') && steps.run-android.outcome != 'skipped'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           path: ${{ env.MOBILE_ARTIFACTS_ROOT }}/${{ env.E2E_TEST_RESULTS_PREFIX_ANDROID }}-${{ matrix.shard }}.json
@@ -1200,6 +1383,8 @@ jobs:
     continue-on-error: true
     needs: [detox-tests-ios]
     timeout-minutes: 15
+    outputs:
+      report_url: ${{ steps.qaa-allure-upload.outputs.report_url }}
     steps:
       - name: Download Allure Results
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -1208,6 +1393,7 @@ jobs:
           pattern: ios-test-artifacts*
           merge-multiple: true
       - name: Upload to qaa-allure (sandbox)
+        id: qaa-allure-upload
         uses: LedgerHQ/ledger-live/tools/actions/composites/upload-allure-report-qaa@develop
         with:
           api_key: ${{ secrets.QAA_ALLURE_API_KEY }}
@@ -1223,6 +1409,8 @@ jobs:
     continue-on-error: true
     needs: [detox-tests-android]
     timeout-minutes: 15
+    outputs:
+      report_url: ${{ steps.qaa-allure-upload.outputs.report_url }}
     steps:
       - name: Download Allure Results
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -1237,6 +1425,7 @@ jobs:
           path: report-attachments
           pattern: usage-metrics-android-*
       - name: Upload to qaa-allure (sandbox)
+        id: qaa-allure-upload
         uses: LedgerHQ/ledger-live/tools/actions/composites/upload-allure-report-qaa@develop
         with:
           api_key: ${{ secrets.QAA_ALLURE_API_KEY }}
@@ -1246,230 +1435,55 @@ jobs:
           branch: ${{ inputs.ref || github.ref_name }}
           report_attachments: report-attachments
 
-  upload-to-xray:
-    name: "Test Mobile E2E > XRAY Report"
-    runs-on: [ledger-live-medium]
-    strategy:
-      matrix:
-        platform:
-          - android
-          - ios
-        exclude:
-          - platform: ${{ github.event.inputs.tests_type == 'Android Only' && 'ios' }}
-
-      fail-fast: false
-    env:
-      XRAY_CLIENT_ID: ${{ secrets.XRAY_CLIENT_ID }}
-      XRAY_CLIENT_SECRET: ${{ secrets.XRAY_CLIENT_SECRET }}
-      XRAY_API_URL: https://xray.cloud.getxray.app/api/v2
-      JIRA_URL: https://ledgerhq.atlassian.net/browse
-      TEST_EXECUTION: ${{ matrix.platform == 'android' && inputs.test_execution_android || inputs.test_execution_ios }}
-    needs: [detox-tests-android, detox-tests-ios]
-    if: ${{ !cancelled() && inputs.export_to_xray }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ inputs.ref || github.sha }}
-          repository: LedgerHQ/ledger-live
-
-      - name: Download Allure Results
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          path: "artifacts-${{ matrix.platform }}"
-          pattern: ${{ matrix.platform }}-test-artifacts-*
-          merge-multiple: true
-
-      - name: Format Xray results
-        run: e2e/mobile/xray.formater.sh artifacts-${{ matrix.platform }} ${{ matrix.platform }} ${{ env.TEST_EXECUTION}}
-
-      - name: Upload aggregated xray results
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          retention-days: 1
-          name: xray-reports-${{ matrix.platform }}
-          path: "artifacts-${{ matrix.platform }}/xray_report.json"
-
-      - name: Authenticate to Xray
-        id: authenticate
-        run: |
-          response=$(curl -H "Content-Type: application/json" -X POST \
-                    --data '{"client_id": "${{ env.XRAY_CLIENT_ID }}", "client_secret": "${{ env.XRAY_CLIENT_SECRET }}"}' \
-                    ${{ env.XRAY_API_URL }}/authenticate)
-          echo "Xray Authentication Response: $response"
-          echo "xray_token=$response" >> $GITHUB_OUTPUT
-      - name: Publish report on Xray
-        id: publish-xray
-        run: |
-          response=$(curl -H "Content-Type: application/json" \
-                    -H "Authorization: Bearer ${{ steps.authenticate.outputs.xray_token }}" \
-                    -X POST \
-                    --data @artifacts-${{ matrix.platform }}/xray_report.json \
-                    ${{ env.XRAY_API_URL }}/import/execution)
-          echo "Xray Report Response: $response"
-          key=$(echo $response | jq -r '.key')
-          echo "xray_key=$key" >> $GITHUB_OUTPUT
-      - name: Write Xray report link in summary
-        shell: bash
-        env:
-          XRAY_URL: ${{ env.JIRA_URL }}/${{ steps.publish-xray.outputs.xray_key }}
-        run: echo "[Open report](${XRAY_URL})" >> "$GITHUB_STEP_SUMMARY"
-
   report-on-slack:
     name: "Test Mobile E2E > Slack Report"
     runs-on: ubuntu-22.04
-    needs: [determine-builds, allure-report-android, allure-report-ios]
+    needs: [determine-builds, allure-report-android, allure-report-ios, qaa-allure-upload-ios, qaa-allure-upload-android]
     if: ${{ !cancelled() && (needs.allure-report-ios.outputs.finalStatus || needs.allure-report-android.outputs.finalStatus) }}
     env:
-      IOS_STATUS: ${{ needs.allure-report-ios.outputs.finalStatus }}
-      IOS_REPORT_URL: ${{ needs.allure-report-ios.outputs.report-url }}
-      IOS_MISSING_SHARDS: ${{ needs.allure-report-ios.outputs.missingShards }}
-      ANDROID_STATUS: ${{ needs.allure-report-android.outputs.finalStatus }}
-      ANDROID_REPORT_URL: ${{ needs.allure-report-android.outputs.report-url }}
-      ANDROID_MISSING_SHARDS: ${{ needs.allure-report-android.outputs.missingShards }}
-      TESTS_TYPE: ${{ inputs.tests_type }}
+      REF: ${{ inputs.ref || github.ref_name }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      HEADER_DEVICES: >-
+        ${{ inputs.tests_type == 'Android Only'
+          && format('Android:{0}', needs.determine-builds.outputs.android_device)
+          || (inputs.tests_type == 'iOS Only'
+            && format('iOS:{0}', needs.determine-builds.outputs.ios_device)
+            || format('iOS:{0} / Android:{1}', needs.determine-builds.outputs.ios_device, needs.determine-builds.outputs.android_device)) }}
+      # A platform's label is blanked out when tests_type excludes it; the e2e-slack-report
+      # composite then drops that row entirely (and its status stops driving the color).
+      IOS_LABEL: ${{ inputs.tests_type != 'Android Only' && 'iOS' || '' }}
+      ANDROID_LABEL: ${{ inputs.tests_type != 'iOS Only' && 'Android' || '' }}
     steps:
-      - name: format message
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        id: message
-        env:
-          REF_NAME: ${{ inputs.ref || github.ref_name }}
-          IOS_DEVICE: ${{ needs.determine-builds.outputs.ios_device }}
-          ANDROID_DEVICE: ${{ needs.determine-builds.outputs.android_device }}
-          SMOKE_TESTS_SUFFIX: ${{ inputs.smoke_tests && ' (Smoke Tests)' || '' }}
-          IOS_SUMMARY: ${{ needs.allure-report-ios.outputs.summary_message || 'No test results' }}
-          ANDROID_SUMMARY: ${{ needs.allure-report-android.outputs.summary_message || 'No test results' }}
-          SERVER_URL: ${{ github.server_url }}
-          REPOSITORY: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
+      - name: Report e2e results to Slack
+        uses: LedgerHQ/ledger-live/tools/actions/composites/e2e-slack-report@develop
         with:
-          script: |
-            const fs = require("fs");
-            const text = "Ledger Live Mobile E2E tests finished";
-            const header = [
-              {
-                "type": "header",
-                "text": {
-                  "type": "plain_text",
-                  "text": `:ledger-logo: Ledger Live Mobile E2E tests results on ${process.env.REF_NAME} - iOS:${process.env.IOS_DEVICE} / Android:${process.env.ANDROID_DEVICE}${process.env.SMOKE_TESTS_SUFFIX}`,
-                  "emoji": true
-                }
-              },
-              {
-                "type": "divider"
-              }
-            ];
-
-            const iOSResult = [
-              {
-                "type": "section",
-                "text": {
-                  "type": "mrkdwn",
-                  "text": `🍏 iOS · FF '${process.env.IOS_FEATURE_FLAGS}' · ${process.env.IOS_DEVICE} : ${process.env.IOS_SUMMARY}`
-                }
-              }
-            ];
-
-            const androidResult = [
-              {
-                "type": "section",
-                "text": {
-                  "type": "mrkdwn",
-                  "text": `🤖 Android · FF '${process.env.ANDROID_FEATURE_FLAGS}' · ${process.env.ANDROID_DEVICE} : ${process.env.ANDROID_SUMMARY}`
-                }
-              }
-            ];
-
-            const iOSInfo = [
-              {
-                "type": "mrkdwn",
-                "text": process.env.IOS_REPORT_URL ? `*Allure Report iOS*\n<${process.env.IOS_REPORT_URL}|Allure Report iOS>` : '*Allure Report iOS*\nNo Allure Report'
-              }
-            ];
-
-            const androidInfo = [
-              {
-                "type": "mrkdwn",
-                "text": process.env.ANDROID_REPORT_URL ? `*Allure Report Android*\n<${process.env.ANDROID_REPORT_URL}|Allure Report Android>` : '*Allure Report Android*\nNo Allure Report'
-              }
-            ];
-
-            const infoFields = []
-              .concat(process.env.TESTS_TYPE === 'Android Only' ? [] : iOSInfo)
-              .concat(process.env.TESTS_TYPE === 'iOS Only' ? [] : androidInfo)
-              .concat([
-              {
-                "type": "mrkdwn",
-                "text": `*Workflow*\n<${process.env.SERVER_URL}/${process.env.REPOSITORY}/actions/runs/${process.env.RUN_ID}|Workflow run>`
-              }
-            ]);
-
-            const infoBlock = [
-              {
-                "type": "divider"
-              },
-              {
-                "type": "section",
-                "fields": infoFields
-              }
-            ];
-
-            // Warning block for failed shards
-            const warningBlocks = [];
-            if (process.env.IOS_MISSING_SHARDS) {
-              warningBlocks.push({
-                "type": "section",
-                "text": {
-                  "type": "mrkdwn",
-                  "text": `⚠️ *Warning*: iOS - Missing results for shard(s): ${process.env.IOS_MISSING_SHARDS}.`
-                }
-              });
-            }
-            if (process.env.ANDROID_MISSING_SHARDS) {
-              warningBlocks.push({
-                "type": "section",
-                "text": {
-                  "type": "mrkdwn",
-                  "text": `⚠️ *Warning*: Android - Missing results for shard(s): ${process.env.ANDROID_MISSING_SHARDS}.`
-                }
-              });
-            }
-
-            const blocks = []
-              .concat(header)
-              .concat(process.env.TESTS_TYPE === 'Android Only' ? [] : iOSResult)
-              .concat(process.env.TESTS_TYPE === 'iOS Only' ? [] : androidResult)
-              .concat(warningBlocks.length > 0 ? warningBlocks : [])
-              .concat(infoBlock);
-
-            const result = {
-                text: " ",
-                attachments: [
-                  {
-                    color: process.env.ANDROID_STATUS !== 'success' || (process.env.IOS_STATUS !== 'success' && process.env.ANDROID_ONLY == 'false')
-                      ? "#FF333C"
-                      : "#33FF39",
-                    fallback: text,
-                    blocks,
-                  },
-                ],
-              };
-
-            fs.writeFileSync(`./payload-slack-content.json`, JSON.stringify({ ...result, channel: "CTMQ0S5SB" }, null, 2));
-            fs.writeFileSync(`./payload-slack-content-alt.json`, JSON.stringify({ ...result, channel: "C05FKJ7DFAP" }, null, 2));
-      - name: post to a Slack channel
-        id: slack
-        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
-        with:
-          method: chat.postMessage
           token: ${{ secrets.SLACK_BOT_USER_OAUTH_ACCESS_TOKEN }}
-          payload-file-path: "./payload-slack-content.json"
-      - name: post to a Slack channel
-        if: ${{ inputs.slack_notif || github.event_name == 'schedule' }}
-        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
-        with:
-          method: chat.postMessage
-          token: ${{ secrets.SLACK_BOT_USER_OAUTH_ACCESS_TOKEN }}
-          payload-file-path: "./payload-slack-content-alt.json"
+          channel: CTMQ0S5SB
+          # Second channel only on scheduled runs / opt-in.
+          secondary_channel: ${{ (inputs.slack_notif || github.event_name == 'schedule') && 'C05FKJ7DFAP' || '' }}
+          product: "Ledger Live Mobile E2E"
+          ref: ${{ env.REF }}
+          smoke_tests: ${{ inputs.smoke_tests }}
+          header_devices: ${{ env.HEADER_DEVICES }}
+          run_url: ${{ env.RUN_URL }}
+          row1_emoji: "🍏"
+          row1_label: ${{ env.IOS_LABEL }}
+          row1_flags: ${{ env.IOS_FEATURE_FLAGS }}
+          row1_device: ${{ needs.determine-builds.outputs.ios_device }}
+          row1_summary: ${{ needs.allure-report-ios.outputs.summary_message }}
+          row1_report_url: ${{ needs.allure-report-ios.outputs.report-url }}
+          row1_status: ${{ needs.allure-report-ios.outputs.finalStatus }}
+          row1_missing_shards: ${{ needs.allure-report-ios.outputs.missingShards }}
+          row1_qaa_url: ${{ needs.qaa-allure-upload-ios.outputs.report_url }}
+          row2_emoji: "🤖"
+          row2_label: ${{ env.ANDROID_LABEL }}
+          row2_flags: ${{ env.ANDROID_FEATURE_FLAGS }}
+          row2_device: ${{ needs.determine-builds.outputs.android_device }}
+          row2_summary: ${{ needs.allure-report-android.outputs.summary_message }}
+          row2_report_url: ${{ needs.allure-report-android.outputs.report-url }}
+          row2_status: ${{ needs.allure-report-android.outputs.finalStatus }}
+          row2_missing_shards: ${{ needs.allure-report-android.outputs.missingShards }}
+          row2_qaa_url: ${{ needs.qaa-allure-upload-android.outputs.report_url }}
 
   merge-ios-timings:
     name: Merge iOS Timing Files

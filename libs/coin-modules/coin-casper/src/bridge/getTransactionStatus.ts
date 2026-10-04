@@ -8,14 +8,16 @@ import {
 import { AccountBridge } from "@ledgerhq/types-live";
 import BigNumber from "bignumber.js";
 import {
+  CASPER_MAX_TRANSFER_ID,
   CASPER_MINIMUM_VALID_AMOUNT_MOTES,
   MayBlockAccountError,
   InvalidMinimumAmountError,
-} from "../consts";
+} from "../constants";
 import { CasperInvalidTransferId } from "../errors";
-import { CASPER_MAX_TRANSFER_ID, validateMemo } from "../logic/validateMemo";
+import { getEstimatedFees } from "../logic/estimateFees";
+import { validateMemo } from "../logic/validateMemo";
 import { CasperAccount, Transaction, TransactionStatus } from "../types";
-import { getAddress, isAddressValid } from "./bridgeHelpers/addresses";
+import { getAddress, isAddressValid } from "../logic/validateAddress";
 
 export const getTransactionStatus: AccountBridge<
   Transaction,
@@ -54,7 +56,7 @@ export const getTransactionStatus: AccountBridge<
     });
   }
 
-  const estimatedFees = transaction.fees;
+  const estimatedFees = transaction.fees ?? getEstimatedFees();
 
   let totalSpent = new BigNumber(0);
 

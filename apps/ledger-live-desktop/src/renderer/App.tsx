@@ -24,15 +24,19 @@ import { ToastProvider } from "@ledgerhq/live-common/notifications/ToastProvider
 import { themeSelector } from "./actions/general";
 import { ConnectEnvsToDatadog } from "~/renderer/components/ConnectEnvsToDatadog";
 import PostOnboardingProviderWrapped from "~/renderer/components/PostOnboardingHub/logic/PostOnboardingProviderWrapped";
-import { useBraze } from "./hooks/useBraze";
+import { BrazeProvider } from "LLD/features/DynamicContent/components/BrazeProvider";
 import { useResetTimeRangeOnGraphRework } from "LLD/hooks/useResetTimeRangeOnGraphRework";
-import { CounterValuesStateRaw } from "@ledgerhq/live-countervalues/types";
+import { CounterValuesStateRaw } from "@domain/entity-market-countervalues";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { AppDataStorageProvider } from "~/renderer/hooks/storage-provider/useAppDataStorage";
 import { allowDebugReactQuerySelector } from "./reducers/settings";
 import { ThemeProvider } from "@ledgerhq/lumen-ui-react";
+import { I18nextProvider } from "react-i18next";
+import { I18nProvider } from "@shared/i18n";
+import i18n from "~/renderer/i18n/init";
 import { setZcashShieldedEnabled } from "@ledgerhq/live-common/families/zcash/setup";
+import { LinkingProviderWrapper } from "~/renderer/components/LinkingProviderWrapper";
 
 const reloadApp = (event: KeyboardEvent) => {
   if ((event.ctrlKey || event.metaKey) && event.key === "r") {
@@ -50,7 +54,6 @@ const queryClient = new QueryClient();
 const InnerApp = ({ initialCountervalues }: { initialCountervalues: CounterValuesStateRaw }) => {
   const [reloadEnabled, setReloadEnabled] = useState(true);
 
-  useBraze();
   useResetTimeRangeOnGraphRework();
 
   useEffect(() => {
@@ -78,52 +81,62 @@ const InnerApp = ({ initialCountervalues }: { initialCountervalues: CounterValue
   }, [zcashShielded?.enabled]);
 
   return (
-    <StyleProvider selectedPalette={selectedPalette}>
-      <ThemeProvider colorScheme={selectedPalette}>
-        <ThrowBlock
-          onError={() => {
-            if (!__DEV__) {
-              setReloadEnabled(false);
-            }
-          }}
-        >
-          <ConnectEnvsToDatadog />
-          <UpdaterProvider>
-            <AppDataStorageProvider>
-              <DeviceManagementKitProvider ldmkTransportEnabled={ldmkTransport?.enabled ?? false}>
-                <CountervaluesBridgedProvider initialState={initialCountervalues}>
-                  <ToastProvider>
-                    <ServiceStatusProviderWrapper>
-                      <Router>
-                        <PostOnboardingProviderWrapped>
-                          <PlatformAppProviderWrapper>
-                            <DrawerProvider>
-                              <QueryClientProvider client={queryClient}>
-                                <Default />
-                                <ReactQueryDevtoolsProvider />
-                              </QueryClientProvider>
-                            </DrawerProvider>
-                          </PlatformAppProviderWrapper>
-                        </PostOnboardingProviderWrapped>
-                      </Router>
-                    </ServiceStatusProviderWrapper>
-                  </ToastProvider>
-                </CountervaluesBridgedProvider>
-              </DeviceManagementKitProvider>
-            </AppDataStorageProvider>
-          </UpdaterProvider>
-        </ThrowBlock>
-      </ThemeProvider>
-    </StyleProvider>
+    <BrazeProvider>
+      <StyleProvider selectedPalette={selectedPalette}>
+        <ThemeProvider colorScheme={selectedPalette}>
+          <ThrowBlock
+            onError={() => {
+              if (!__DEV__) {
+                setReloadEnabled(false);
+              }
+            }}
+          >
+            <ConnectEnvsToDatadog />
+            <UpdaterProvider>
+              <AppDataStorageProvider>
+                <DeviceManagementKitProvider ldmkTransportEnabled={ldmkTransport?.enabled ?? false}>
+                  <CountervaluesBridgedProvider initialState={initialCountervalues}>
+                    <ToastProvider>
+                      <ServiceStatusProviderWrapper>
+                        <Router>
+                          <PostOnboardingProviderWrapped>
+                            <PlatformAppProviderWrapper>
+                              <DrawerProvider>
+                                <QueryClientProvider client={queryClient}>
+                                  <Default />
+                                  <ReactQueryDevtoolsProvider />
+                                </QueryClientProvider>
+                              </DrawerProvider>
+                            </PlatformAppProviderWrapper>
+                          </PostOnboardingProviderWrapped>
+                        </Router>
+                      </ServiceStatusProviderWrapper>
+                    </ToastProvider>
+                  </CountervaluesBridgedProvider>
+                </DeviceManagementKitProvider>
+              </AppDataStorageProvider>
+            </UpdaterProvider>
+          </ThrowBlock>
+        </ThemeProvider>
+      </StyleProvider>
+    </BrazeProvider>
   );
 };
 
 const App = ({ store, initialCountervalues }: Props) => {
   return (
     <LiveStyleSheetManager>
-      <Provider store={store}>
-        <InnerApp initialCountervalues={initialCountervalues} />
-      </Provider>
+      {/* Two providers, one instance: `I18nextProvider` serves the app's own react-i18next call
+          sites, `I18nProvider` serves `features/*` and `domain/*` through `@shared/i18n`. */}
+      <I18nextProvider i18n={i18n}>
+        <I18nProvider i18n={i18n}>
+          <Provider store={store}>
+            <LinkingProviderWrapper>
+              <InnerApp initialCountervalues={initialCountervalues} />
+            </LinkingProviderWrapper>
+          </Provider>
+        </I18nProvider>
+      </I18nextProvider>
     </LiveStyleSheetManager>
   );
 };

@@ -1,25 +1,13 @@
 import { rejectBalanceOptions } from "@ledgerhq/coin-module-framework/api/getBalance/rejectBalanceOptions";
 import {
-  AddressValidationCurrencyParameters,
-  Balance,
-  BalanceOptions,
-  Block,
-  BlockInfo,
-  BroadcastConfig,
-  CoinModuleApi,
-  CraftedTransaction,
-  Cursor,
-  FeeEstimation,
-  ListOperationsOptions,
+  CoinModuleImpl,
   MemoNotSupported,
-  Page,
-  Reward,
   StakingTransactionIntent,
   StringMemo,
   TransactionIntent,
 } from "@ledgerhq/coin-module-framework/api/index";
 import { craftTransactionData } from "@ledgerhq/coin-module-framework/logic/craftTransactionData";
-import coinConfig, { CosmosCoinConfig } from "../config";
+import { CosmosCoinConfig, CosmosContext } from "../config";
 import { getBalance } from "../logic/account/getBalance";
 import { getNextSequence } from "../logic/account/getNextSequence";
 import { lastBlock } from "../logic/history/lastBlock";
@@ -34,75 +22,94 @@ import { getValidators } from "../logic/staking/getValidators";
 import { validateAddress } from "../logic/validateAddress";
 import { CosmosAPI } from "../network/Cosmos";
 
-type CosmosCoinModuleApi = CoinModuleApi<StringMemo | MemoNotSupported>;
+type CosmosCoinModuleImpl = CoinModuleImpl<CosmosCoinConfig, StringMemo | MemoNotSupported>;
 
 /**
- * CoinModuleApi ("Alpaca") entry point for Cosmos-SDK chains. `currencyId` selects
- * the chain; endpoint and chain parameters resolve per currency via {@link CosmosAPI},
- * so a single factory serves every Cosmos-family currency.
+ * Resolves the coin configuration from the {@link CosmosContext} and builds the per-chain
+ * {@link CosmosAPI}, threading the resolved config down explicitly (ADR-019) rather than seeding
+ * the module-level singleton.
  */
-const configs: Record<string, CosmosCoinConfig> = {};
+async function resolve(
+  context: CosmosContext,
+  currencyId: string,
+): Promise<{ api: CosmosAPI; currencyId: string; config: CosmosCoinConfig }> {
+  const config = await context.config(currencyId);
+  const api = new CosmosAPI(currencyId, undefined, config);
+  return { api, currencyId, config };
+}
 
-export function createApi(config: CosmosCoinConfig, currencyId: string): CosmosCoinModuleApi {
-  configs[currencyId] = config;
-  coinConfig.setCoinConfig(
-    (id?: string) =>
-      ({ ...((id && configs[id]) || config), status: { type: "active" } }) as CosmosCoinConfig,
-  );
-
-  const api = new CosmosAPI(currencyId);
-
+/**
+ * CoinModuleApi ("Alpaca") entry point for Cosmos-SDK chains. The `currencyId` selector is captured
+ * here; endpoint and chain parameters resolve per currency via {@link CosmosAPI}, so a single
+ * factory serves every Cosmos-family currency (ADR-019).
+ *
+ * Checked against {@link CosmosCoinModuleImpl} with `satisfies` rather than annotated as it, so the
+ * precise shape survives and a caller sees exactly which methods exist.
+ *
+ * Staking is published à la carte: `getStakes` and `getValidators` are implemented, `getRewards` is
+ * not. Omitted rather than stubbed:
+ *   - `call`, `register` — the module implements neither.
+ *   - `craftRawTransaction` — the module takes no externally-built transaction.
+ *   - `getRewards` — no reward-distribution listing is implemented; the accrued amount is reported
+ *     by `getStakes` instead.
+ *   - `getBlock`, `getBlockInfo` — no per-height block lookup is implemented (`lastBlock` is).
+ * The consumer resolver applies `withDefaults`, which answers "not supported" for each of them.
+ */
+export function createApi(currencyId: string) {
   return {
-    async call() {
-      throw new Error("call is not supported");
+    getBalance: async (context, address, options?) => {
+      const { api } = await resolve(context, currencyId);
+      return rejectBalanceOptions(() => getBalance(api, address), options);
     },
-    getBalance: (address: string, options?: BalanceOptions) =>
-      rejectBalanceOptions(() => getBalance(api, address), options),
-    getNextSequence: (address: string) => getNextSequence(api, address),
-    lastBlock: () => lastBlock(api),
-    validateAddress: (address: string, parameters: Partial<AddressValidationCurrencyParameters>) =>
-      validateAddress(address, { ...parameters, currencyId }),
-    craftTransactionData,
+    getNextSequence: async (context, address) => {
+      const { api } = await resolve(context, currencyId);
+      return getNextSequence(api, address);
+    },
+    lastBlock: async context => {
+      const { api } = await resolve(context, currencyId);
+      return lastBlock(api);
+    },
+    validateAddress: async (_context, address, parameters) => {
+      return validateAddress(address, { ...parameters, currencyId });
+    },
+    craftTransactionData: (_context, intent) => craftTransactionData(intent),
 
-    craftTransaction: (
-      intent: TransactionIntent<StringMemo | MemoNotSupported> | StakingTransactionIntent,
-      customFees?: FeeEstimation,
-    ) => craftTransaction(api, currencyId, intent, customFees),
-    estimateFees: (
-      intent: TransactionIntent<StringMemo | MemoNotSupported>,
-      customFeesParameters?: FeeEstimation["parameters"],
-    ) => estimateFees(api, intent, customFeesParameters),
-    combine: (tx: string, signature: string, pubkey?: string) => combine(tx, signature, pubkey),
-    broadcast: (tx: string, _broadcastConfig?: BroadcastConfig) => broadcast(api, tx),
+    craftTransaction: async (context, intent, options?) => {
+      const { api, config } = await resolve(context, currencyId);
+      return craftTransaction(
+        api,
+        currencyId,
+        intent as TransactionIntent<StringMemo | MemoNotSupported> | StakingTransactionIntent,
+        options?.customFees,
+        config,
+      );
+    },
+    estimateFees: async (context, intent, options?) => {
+      const { api } = await resolve(context, currencyId);
+      return estimateFees(api, intent, options?.customFeesParameters);
+    },
+    combine: (_context, tx, signature, options?) => combine(tx, signature, options?.pubkey),
+    broadcast: async (context, tx, _options?) => {
+      const { api } = await resolve(context, currencyId);
+      return broadcast(api, tx);
+    },
 
-    listOperations: (address: string, options: ListOperationsOptions) =>
-      listOperations(api, address, options),
-    validateIntent: (
-      intent: TransactionIntent<StringMemo | MemoNotSupported>,
-      balances: Balance[],
-      customFees?: FeeEstimation,
-    ) => validateIntent(currencyId, intent, balances, customFees),
+    listOperations: async (context, address, options) => {
+      const { api } = await resolve(context, currencyId);
+      return listOperations(api, address, options);
+    },
+    validateIntent: async (context, intent, balances, options?) => {
+      const config = await context.config(currencyId);
+      return validateIntent(currencyId, intent, balances, options?.customFees, config);
+    },
 
-    getStakes: (address: string, cursor?: Cursor) => getStakes(api, address, cursor),
-    getValidators: (cursor?: Cursor) => getValidators(api, cursor),
-
-    // --- not supported by the Cosmos coin module ---
-    craftRawTransaction: (
-      _transaction: string,
-      _sender: string,
-      _publicKey: string,
-      _sequence: bigint,
-    ): Promise<CraftedTransaction> => {
-      throw new Error("craftRawTransaction is not supported");
+    getStakes: async (context, address, options?) => {
+      const { api } = await resolve(context, currencyId);
+      return getStakes(api, address, options?.cursor);
     },
-    getRewards: (_address: string, _cursor?: Cursor): Promise<Page<Reward>> => {
-      throw new Error("getRewards is not supported");
+    getValidators: async (context, options?) => {
+      const { api } = await resolve(context, currencyId);
+      return getValidators(api, options?.cursor);
     },
-    getBlock: (_height: number): Promise<Block> => {
-      throw new Error("getBlock is not supported");
-    },
-    getBlockInfo: (_height: number): Promise<BlockInfo> => {
-      throw new Error("getBlockInfo is not supported");
-    },
-  };
+  } satisfies CosmosCoinModuleImpl;
 }

@@ -40,6 +40,7 @@ import {
 import { shouldRetainPendingOperation } from "../account/pending";
 import { shouldShowNewAccount } from "../account/support";
 import getAddressWrapper, { GetAddressFn } from "./getAddressWrapper";
+import type { AddressLookup } from "../api/types";
 import type { GetAddressResult } from "../derivation";
 import type { CryptoCurrency } from "../types";
 import type {
@@ -56,22 +57,19 @@ import type {
   TransactionStatusCommon,
 } from "@ledgerhq/types-live";
 
-// Customize the way to iterate on the keychain derivation
-type IterateResult = ({
-  index,
-  derivationsCache,
-  derivationScheme,
-  derivationMode,
-  currency,
-  deviceId,
-}: {
+type IterateParams = {
   index: number;
   derivationsCache: Record<string, GetAddressResult>;
   derivationScheme: string;
   derivationMode: DerivationMode;
   currency: CryptoCurrency;
   deviceId: string;
-}) => Promise<GetAddressResult | null>;
+};
+
+// Customize the way to iterate on the keychain derivation
+type IterateResult = ((params: IterateParams) => Promise<GetAddressResult | null>) & {
+  keyHasMoreAddresses?: () => boolean;
+};
 
 export type IterateResultBuilder = ({
   result, // derivation on the "root" of the derivation
@@ -122,7 +120,17 @@ function normalizeToObservable<T>(value: Promise<T> | Observable<T>): Observable
 // compare that two dates are roughly the same date in order to update the case it would have drastically changed
 const sameDate = (a: Date, b: Date) => Math.abs(a.getTime() - b.getTime()) < 1000 * 60 * 30;
 
+// a later sync can report a sequence number the stored operation is missing, but a fetch that
+// reports none must never erase one: `mergeOps` replaces `stored` by `fetched` when they differ
+const sameSequenceNumber = (stored: Operation, fetched: Operation) => {
+  const next = fetched.transactionSequenceNumber;
+  if (next === undefined) return true;
+  const current = stored.transactionSequenceNumber;
+  return current !== undefined && current.isEqualTo(next);
+};
+
 // an operation is relatively immutable, however we saw that sometimes it can temporarily change due to reorg,..
+// NOTE not symmetrical: `a` is the stored operation, `b` the freshly fetched one
 export const sameOp = (a: Operation, b: Operation): boolean =>
   a === b ||
   (a.id === b.id && // hash, accountId, type are in id
@@ -131,6 +139,7 @@ export const sameOp = (a: Operation, b: Operation): boolean =>
     a.nftOperations?.length === b.nftOperations?.length &&
     sameDate(a.date, b.date) &&
     a.blockHeight === b.blockHeight &&
+    sameSequenceNumber(a, b) &&
     isEqual(a.senders, b.senders) &&
     isEqual(a.recipients, b.recipients));
 
@@ -241,7 +250,7 @@ export const makeSync =
   }: {
     getAccountShape: GetAccountShape<A> | GetAccountShapeStream<A>;
     postSync?: (initial: A, synced: A) => A;
-    shouldMergeOps?: boolean;
+    shouldMergeOps?: boolean | ((account: A) => Promise<boolean>);
   }): AccountBridge<T, A, U, O, R>["sync"] =>
   (initial: A, syncConfig: SyncConfig): Observable<AccountUpdater<A>> =>
     new Observable((o: Observer<AccountUpdater<A>>) => {
@@ -270,6 +279,11 @@ export const makeSync =
             initial.derivationMode as DerivationMode,
           );
 
+          // Awaited before `getAccountShape` starts: its promise has no handler until `shape$` is
+          // subscribed, so a rejection during this await would go unhandled.
+          const mergesOps =
+            typeof shouldMergeOps === "function" ? await shouldMergeOps(initial) : shouldMergeOps;
+
           const shapeResult = getAccountShape(
             {
               currency: initial.currency,
@@ -294,7 +308,7 @@ export const makeSync =
               }
 
               // FIXME reconsider doing mergeOps here. work is redundant for impl like eth
-              const operations = shouldMergeOps
+              const operations = mergesOps
                 ? mergeOps(a.operations, shape.operations || [])
                 : shape.operations || [];
 
@@ -351,58 +365,72 @@ export const makeSync =
       };
     });
 
-const defaultIterateResultBuilder = (getAddressFn: GetAddressFn) => () =>
-  Promise.resolve(
-    async ({
-      index,
-      derivationsCache,
-      derivationScheme,
-      derivationMode,
+const deriveAtIndex = async (
+  getAddressFn: GetAddressFn,
+  { index, derivationsCache, derivationScheme, derivationMode, currency, deviceId }: IterateParams,
+): Promise<GetAddressResult> => {
+  const freshAddressPath = runDerivationScheme(derivationScheme, currency, {
+    account: index,
+  });
+  const cacheKey = `${freshAddressPath}:${derivationMode}`;
+  let res = derivationsCache[cacheKey];
+  if (!res) {
+    res = await getAddressWrapper(getAddressFn)(deviceId, {
       currency,
-      deviceId,
-    }: {
-      index: number | string;
-      derivationsCache: Record<string, GetAddressResult>;
-      derivationScheme: string;
-      derivationMode: DerivationMode;
-      currency: CryptoCurrency;
-      deviceId: string;
-    }): Promise<GetAddressResult | null> => {
-      const freshAddressPath = runDerivationScheme(derivationScheme, currency, {
-        account: index,
-      });
-      const cacheKey = `${freshAddressPath}:${derivationMode}`;
-      let res = derivationsCache[cacheKey];
-      if (!res) {
-        res = await getAddressWrapper(getAddressFn)(deviceId, {
-          currency,
-          path: freshAddressPath,
-          derivationMode,
-        });
-        derivationsCache[cacheKey] = res;
+      path: freshAddressPath,
+      derivationMode,
+    });
+    derivationsCache[cacheKey] = res;
+  }
+  return res;
+};
+
+const defaultIterateResultBuilder =
+  (getAddressFn: GetAddressFn): IterateResultBuilder =>
+  async () => {
+    return params => deriveAtIndex(getAddressFn, params);
+  };
+
+const lookupIterateResultBuilder =
+  (getAddressFn: GetAddressFn, addressLookup: AddressLookup): IterateResultBuilder =>
+  async () => {
+    let keyIndex: number | undefined;
+    let previousPath: string | undefined;
+    let queue: GetAddressResult[] = [];
+
+    const iterate = async (params: IterateParams) => {
+      if (queue.length === 0) {
+        keyIndex ??= params.index;
+        const derived = await deriveAtIndex(getAddressFn, { ...params, index: keyIndex++ });
+        if (derived.path === previousPath) return null;
+
+        previousPath = derived.path;
+        const addresses = await addressLookup.getAddresses(derived);
+        queue = addresses.map(address => ({ ...derived, address }));
       }
-      return res as GetAddressResult;
-    },
-  );
+
+      return queue.shift() ?? null;
+    };
+
+    return Object.assign(iterate, { keyHasMoreAddresses: () => queue.length > 0 });
+  };
 
 export const makeScanAccounts =
   <A extends Account = Account>({
     getAccountShape,
     buildIterateResult,
+    getAddressLookup,
     getAddressFn,
     postSync = (_, a) => a,
   }: {
     getAccountShape: GetAccountShape<A> | GetAccountShapeStream<A>;
     buildIterateResult?: IterateResultBuilder;
+    getAddressLookup?: (currency: CryptoCurrency) => Promise<AddressLookup | undefined>;
     getAddressFn: GetAddressFn;
     postSync?: (initial: A, synced: A) => A;
   }): CurrencyBridge["scanAccounts"] =>
   ({ currency, deviceId, syncConfig, scheme }): Observable<ScanAccountEvent> =>
     new Observable((outerObs: Observer<{ type: "discovered"; account: Account }>) => {
-      if (buildIterateResult === undefined) {
-        buildIterateResult = defaultIterateResultBuilder(getAddressFn);
-      }
-
       let finished = false;
       const teardown$ = new Subject<void>();
 
@@ -511,6 +539,13 @@ export const makeScanAccounts =
 
       async function main() {
         try {
+          const addressLookup = await getAddressLookup?.(currency);
+          const iterateResultBuilder =
+            buildIterateResult ??
+            (addressLookup
+              ? lookupIterateResultBuilder(getAddressFn, addressLookup)
+              : defaultIterateResultBuilder(getAddressFn));
+
           let derivationModes: DerivationMode[] = [];
           if (scheme === null || scheme === undefined) {
             derivationModes = getDerivationModesForCurrency(currency);
@@ -547,6 +582,10 @@ export const makeScanAccounts =
 
             const seedIdentifier = result.publicKey;
             let emptyCount = 0;
+            // We only ever propose ONE new (empty) account: the first empty index
+            // available. Intermediate empty accounts sitting inside a gap before a
+            // later used account must not be offered as creatable.
+            let firstEmptyAccountEmitted = false;
             const mandatoryEmptyAccountSkip = getMandatoryEmptyAccountSkip(derivationMode);
             const derivationScheme = getDerivationScheme({
               derivationMode,
@@ -561,7 +600,7 @@ export const makeScanAccounts =
               `start scanning account process. MandatoryEmptyAccountSkip ${mandatoryEmptyAccountSkip} / StartsAt: ${startsAt} - StopAt: ${stopAt}`,
             );
 
-            const iterateResult = await buildIterateResult!({
+            const iterateResult = await iterateResultBuilder({
               result,
               derivationMode,
               derivationScheme,
@@ -598,20 +637,34 @@ export const makeScanAccounts =
               if (account) {
                 const showNewAccount = shouldShowNewAccount(currency, derivationMode);
 
-                if (account.used || showNewAccount) {
-                  log(
-                    "debug",
-                    `Emit 'discovered' event for a new account found. AccountUsed: ${account.used} - showNewAccount: ${showNewAccount}`,
-                  );
+                if (account.used) {
+                  log("debug", `Emit 'discovered' event for a used account. Index: ${index}`);
                   outerObs.next({
                     type: "discovered",
                     account,
                   });
-                }
+                  // A used account closes the current run of empty accounts: the
+                  // gap limit counts *consecutive* empty accounts, so reset here.
+                  // This lets discovery cross empty gaps between used accounts as
+                  // long as no gap is longer than `mandatoryEmptyAccountSkip`.
+                  emptyCount = 0;
+                } else {
+                  // Offer only the first empty account (lowest index) as creatable.
+                  if (!firstEmptyAccountEmitted && showNewAccount) {
+                    log(
+                      "debug",
+                      `Emit 'discovered' event for the first empty account. Index: ${index}`,
+                    );
+                    outerObs.next({
+                      type: "discovered",
+                      account,
+                    });
+                    firstEmptyAccountEmitted = true;
+                  }
 
-                if (!account.used) {
+                  if (iterateResult.keyHasMoreAddresses?.()) continue;
                   if (emptyCount >= mandatoryEmptyAccountSkip) {
-                    break; // stop scanning indices for this derivation mode only
+                    break; // reached the gap limit of consecutive empty accounts
                   }
                   emptyCount++;
                 }
@@ -635,8 +688,10 @@ export function makeAccountBridgeReceive<A extends Account = Account>(
   getAddressFn: GetAddressFn,
   {
     injectGetAddressParams,
+    getAddressLookup,
   }: {
     injectGetAddressParams?: (account: A) => any;
+    getAddressLookup?: (currency: CryptoCurrency) => Promise<AddressLookup | undefined>;
   } = {},
 ) {
   return (
@@ -660,8 +715,18 @@ export function makeAccountBridgeReceive<A extends Account = Account>(
       ...(injectGetAddressParams && injectGetAddressParams(account)),
     };
     return from(
-      getAddressFn(deviceId, arg).then(r => {
+      getAddressFn(deviceId, arg).then(async r => {
         const accountAddress = account.freshAddress;
+        const addressLookup = await getAddressLookup?.(account.currency);
+
+        if (addressLookup) {
+          if (verify && !addressLookup.keyControlsAccount(r.publicKey, account)) {
+            throw new WrongDeviceForAccount();
+          }
+
+          // The device cannot derive this address, so `r.address` is meaningless.
+          return { ...r, address: accountAddress };
+        }
 
         if (verify && r.address !== accountAddress) {
           throw new WrongDeviceForAccount();

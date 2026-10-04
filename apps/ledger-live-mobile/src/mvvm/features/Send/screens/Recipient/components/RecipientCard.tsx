@@ -1,0 +1,121 @@
+import { ContactIdSchema } from "@domain/entity-contact";
+import { ContactAvatar, useContactDisplayName } from "@features/platform-contacts";
+import type { MatchedContact } from "@ledgerhq/live-common/flows/send/recipient/types";
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CardContentDescription,
+  CardContentTitle,
+  CardFooter,
+  CardFooterActions,
+  CardHeader,
+  CardLeading,
+  Spot,
+} from "@ledgerhq/lumen-ui-rnative";
+import { Wallet } from "@ledgerhq/lumen-ui-rnative/symbols";
+import React from "react";
+import { AddContactAction } from "./AddContactAction";
+import { equalCardActionWidth } from "./equalCardActionWidth";
+
+type RecipientCardProps = Readonly<{
+  recipient: string;
+  description?: string;
+  contact?: MatchedContact;
+  isReady: boolean;
+  showActions: boolean;
+  hasAddressBook: boolean;
+  addressBookUnsupportedTitle: string;
+  addressBookUnsupportedDescription: string;
+  addContactLabel: string;
+  sendLabel: string;
+  onAddContact: () => void;
+  onSend: () => void;
+  onUnsupportedNetwork: () => void;
+  onDismissUnsupportedNetwork: () => void;
+}>;
+
+export function RecipientCard({
+  recipient,
+  description,
+  contact,
+  isReady,
+  showActions,
+  hasAddressBook,
+  addressBookUnsupportedTitle,
+  addressBookUnsupportedDescription,
+  addContactLabel,
+  sendLabel,
+  onAddContact,
+  onSend,
+  onUnsupportedNetwork,
+  onDismissUnsupportedNetwork,
+}: RecipientCardProps) {
+  const getDisplayName = useContactDisplayName();
+  return (
+    <Card type="info" testID="send-recipient-card" lx={{ marginHorizontal: "s8" }}>
+      <CardHeader lx={showActions ? undefined : { paddingBottom: "s16" }}>
+        <CardLeading>
+          {contact ? (
+            <ContactAvatar
+              contactId={ContactIdSchema.parse(contact.contactId)}
+              name={contact.contactName}
+              isMe={contact.isMe}
+              size="md"
+              testId="send-recipient-card-avatar"
+            />
+          ) : (
+            <Spot appearance="icon" icon={Wallet} />
+          )}
+          <CardContent>
+            <CardContentTitle
+              testID="send-recipient-card-title"
+              typography="body2SemiBold"
+              numberOfLines={contact ? 1 : undefined}
+            >
+              {contact
+                ? getDisplayName({ name: contact.contactName, isMe: contact.isMe })
+                : recipient}
+            </CardContentTitle>
+            {(contact?.addressLabel ?? description) && (
+              <CardContentDescription typography="body3">
+                {contact?.addressLabel ?? description}
+              </CardContentDescription>
+            )}
+          </CardContent>
+        </CardLeading>
+      </CardHeader>
+
+      {showActions && (
+        <CardFooter appearance="no-background">
+          <CardFooterActions lx={{ width: "full" }}>
+            {!contact && (
+              <AddContactAction
+                hasAddressBook={hasAddressBook}
+                label={addContactLabel}
+                unsupportedTitle={addressBookUnsupportedTitle}
+                unsupportedDescription={addressBookUnsupportedDescription}
+                onAddContact={onAddContact}
+                onUnsupportedNetwork={onUnsupportedNetwork}
+                onDismissUnsupportedNetwork={onDismissUnsupportedNetwork}
+              />
+            )}
+            <Box lx={{ flex: 1 }} style={equalCardActionWidth}>
+              <Button
+                appearance="base"
+                size="sm"
+                onPress={onSend}
+                disabled={!isReady}
+                testID="send-recipient-card-send"
+                isFull
+              >
+                {sendLabel}
+              </Button>
+            </Box>
+          </CardFooterActions>
+        </CardFooter>
+      )}
+    </Card>
+  );
+}

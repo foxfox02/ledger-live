@@ -1,3 +1,4 @@
+import { track } from "@shared/analytics";
 import { useCallback, useMemo } from "react";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import {
@@ -9,12 +10,12 @@ import {
   ExchangeFill,
   CreditCard,
   CreditCardFill,
-  DollarConvert,
+  Dollar,
+  DollarFill,
 } from "@ledgerhq/lumen-ui-rnative/symbols";
 import { NavigatorName } from "~/const";
 import type { TabItemConfig, MainTabBarViewProps } from "./types";
 import { useTranslation } from "~/context/Locale";
-import { track } from "~/analytics";
 import { getLabelKey, TRACKING_LABEL_MAP, TRACKING_MENUENTRY_EVENT } from "./constants";
 import { scrollToTopEvent } from "./scrollToTopEvent";
 
@@ -32,7 +33,7 @@ const TAB_ICONS: Partial<Record<string, TabIconConfig>> = {
   [NavigatorName.Swap]: { icon: Exchange, activeIcon: ExchangeFill },
   [NavigatorName.Earn]: { icon: Chart5, activeIcon: Chart5Fill },
   [NavigatorName.CardTab]: { icon: CreditCard, activeIcon: CreditCardFill },
-  [NavigatorName.PayTab]: { icon: DollarConvert, activeIcon: DollarConvert },
+  [NavigatorName.PayTab]: { icon: Dollar, activeIcon: DollarFill },
 };
 
 const TAB_TEST_IDS: Partial<Record<string, string>> = {

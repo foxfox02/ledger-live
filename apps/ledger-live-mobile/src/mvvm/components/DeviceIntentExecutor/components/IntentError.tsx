@@ -1,9 +1,9 @@
 import React from "react";
-import type { ErrorComponent } from "@ledgerhq/device-intent";
+import type { ErrorComponent } from "@features/platform-device-intent";
 import { isDmkError } from "@ledgerhq/live-dmk-mobile/errors";
 import { Trans } from "~/context/Locale";
 import TranslatedError from "~/components/TranslatedError";
-import { InfoState } from "LLM/components/InfoState";
+import { InfoState } from "@shared/ui-info-state";
 import { TrackDIEScreen } from "./TrackDIEScreen";
 import { useDeviceIntentTracking } from "../utils/DeviceIntentTrackingContext";
 import {

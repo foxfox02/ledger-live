@@ -1,6 +1,6 @@
 {
   "name": "@ledgerhq/coin-polkadot",
-  "version": "6.31.0",
+  "version": "7.3.0",
   "description": "Ledger Polkadot Coin integration",
   "keywords": [
     "Ledger",
@@ -76,10 +76,10 @@
       "require": "./lib/logic/index.js",
       "default": "./lib-es/logic/index.js"
     },
-    "./preload": {
-      "@ledgerhq/source": "./src/bridge/preload.ts",
-      "require": "./lib/bridge/preload.js",
-      "default": "./lib-es/bridge/preload.js"
+    "./network": {
+      "@ledgerhq/source": "./src/network/index.ts",
+      "require": "./lib/network/index.js",
+      "default": "./lib-es/network/index.js"
     },
     "./serialization": {
       "@ledgerhq/source": "./src/bridge/serialization.ts",
@@ -126,7 +126,6 @@
     "prewatch": "pnpm build",
     "watch": "tsc --watch --project tsconfig.build.json",
     "watch:es": "tsc --watch --project tsconfig.build.json -m esnext --moduleResolution bundler --outDir lib-es",
-    "doc": "documentation readme src/** --section=API --pe ts --re ts --re d.ts",
     "lint": "oxlint src",
     "lint:fix": "oxfmt src && oxlint src --fix --quiet",
     "test": "jest",
@@ -140,8 +139,8 @@
   "dependencies": {
     "@ledgerhq/coin-module-framework": "catalog:",
     "@ledgerhq/ledger-wallet-framework": "workspace:^",
-    "@ledgerhq/live-network": "workspace:^",
-    "@ledgerhq/logs": "workspace:^",
+    "@ledgerhq/live-network": "catalog:",
+    "@ledgerhq/logs": "catalog:",
     "@ledgerhq/types-live": "workspace:^",
     "@polkadot/api": "catalog:",
     "@polkadot/api-augment": "catalog:",
@@ -150,6 +149,7 @@
     "@polkadot/types-known": "catalog:",
     "@polkadot/util": "catalog:",
     "@polkadot/util-crypto": "catalog:",
+    "axios": "catalog:",
     "bignumber.js": "^9.1.2",
     "invariant": "^2.2.2",
     "rxjs": "catalog:"
@@ -157,13 +157,14 @@
   "devDependencies": {
     "@ledgerhq/disable-network-setup": "workspace:^",
     "@ledgerhq/hw-app-polkadot": "workspace:^",
+    "@ledgerhq/test-quarantine": "workspace:*",
     "@ledgerhq/wallet-framework-test-setup": "workspace:^",
     "@polkadot/rpc-provider": "catalog:",
     "@swc/core": "catalog:",
     "@swc/jest": "catalog:",
     "@types/invariant": "^2.2.2",
     "@types/jest": "catalog:",
-    "@types/lodash": "^4.14.191",
+    "@types/lodash": "catalog:",
     "@types/node": "catalog:",
     "dotenv": "^16.4.5",
     "jest": "catalog:",

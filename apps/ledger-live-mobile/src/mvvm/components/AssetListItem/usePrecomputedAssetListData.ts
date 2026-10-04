@@ -2,11 +2,11 @@ import { useMemo, useRef } from "react";
 import { formatCurrencyUnit } from "@ledgerhq/live-common/currencies/index";
 import { formatPrice } from "@ledgerhq/live-currency-format";
 import { useCountervaluesState } from "@ledgerhq/live-countervalues-react";
-import { calculate } from "@ledgerhq/live-countervalues/logic";
+import { calculate } from "@domain/entity-market-countervalues";
 import {
   getCurrencyPortfolio,
   getCurrentBalanceCountervalueChange,
-} from "@ledgerhq/live-countervalues/portfolio";
+} from "@ledgerhq/live-common/portfolio/portfolio";
 import { useThrottledValue } from "@ledgerhq/live-hooks/useThrottledFunction";
 import { ValueChange } from "@ledgerhq/types-live";
 import BigNumber from "bignumber.js";

@@ -155,6 +155,10 @@ export type CardBuilderValues = {
   campaignId: string;
   /** Category shell title when it differs from the child card title (e.g. "Touchscreen offers"). */
   categoryTitle: string;
+  /** Category shell description (section header only; empty = no header description). */
+  categoryDescription: string;
+  /** Category shell CTA (section header only; empty = no header CTA). */
+  categoryCta: string;
   title: string;
   description: string;
   mediaUrl: string;
@@ -214,6 +218,10 @@ export const DEBUG_CARD_PREFIX = "debug-local-content-card";
 export const DEBUG_CATEGORY_PREFIX = "debug-local-category";
 const DEBUG_GAM_PREFIX = "debug-local-gam";
 const TOP_WALLET_CATEGORY_ID = "alwayson";
+const TOP_WALLET_HARDWARE_CATEGORY_ID = `${DEBUG_CATEGORY_PREFIX}-top-wallet-hardware`;
+const TOP_WALLET_HERO_CAROUSEL_CATEGORY_ID = `${DEBUG_CATEGORY_PREFIX}-top-wallet-hero-carousel`;
+const TOP_WALLET_HERO_CATEGORY_ID = `${DEBUG_CATEGORY_PREFIX}-top-wallet-hero`;
+const TOP_WALLET_HARDWARE_ORDER = "1";
 const DEBUG_PRESET_LINK = "ledgerlive://market";
 const LEDGER_IMAGE_URLS = [
   "https://ledger-wp-website-s3-prd.ledger.com/uploads/2026/04/card1.webp",
@@ -254,6 +262,8 @@ export function buildDefaultCardBuilderValues(timestamp = Date.now()): CardBuild
     categoryId: TOP_WALLET_CATEGORY_ID,
     campaignId: `${DEBUG_GAM_PREFIX}-${timestamp}`,
     categoryTitle: "",
+    categoryDescription: "",
+    categoryCta: "",
     title: "QA debug card",
     description: "Local payload generated from the Content Cards QA console.",
     mediaUrl: buildRandomLedgerImageUrl(),
@@ -304,8 +314,9 @@ export function buildPresetCardBuilderValues(
         type: ContentCardsType.smallSquare,
         layout: ContentCardsLayout.carousel,
         id: `${DEBUG_CARD_PREFIX}-top-wallet-hardware-${timestamp}`,
-        categoryId: TOP_WALLET_CATEGORY_ID,
-        categoryTitle: "Touchscreen offers",
+        categoryId: TOP_WALLET_HARDWARE_CATEGORY_ID,
+        order: TOP_WALLET_HARDWARE_ORDER,
+        categoryTitle: "",
         title: HARDWARE_CAROUSEL_PRODUCTS[0],
         description: "",
         cta: "",
@@ -318,7 +329,8 @@ export function buildPresetCardBuilderValues(
         type: ContentCardsType.hero,
         layout: ContentCardsLayout.carousel,
         id: `${DEBUG_CARD_PREFIX}-top-wallet-hero-carousel-${timestamp}`,
-        categoryId: TOP_WALLET_CATEGORY_ID,
+        categoryId: TOP_WALLET_HERO_CAROUSEL_CATEGORY_ID,
+        categoryTitle: "",
         title: "Touchscreen offers",
         description: "",
         cta: "",
@@ -401,7 +413,7 @@ export function buildPresetCardBuilderValues(
       return withPresetTrackingDefaults("topWalletHero", {
         ...base,
         id: `${DEBUG_CARD_PREFIX}-top-wallet-hero-${timestamp}`,
-        categoryId: TOP_WALLET_CATEGORY_ID,
+        categoryId: TOP_WALLET_HERO_CATEGORY_ID,
         title: "Portfolio banner",
         description: "Local top-wallet hero content card.",
       });
@@ -475,9 +487,6 @@ export function validateBuilderValues(values: CardBuilderValues): string[] {
   }
   if (values.layout !== ContentCardsLayout.unique && !values.categoryId) {
     warnings.push("Category-child mismatch");
-  }
-  if (!values.title && values.type !== ContentCardsType.category) {
-    warnings.push("Missing title");
   }
   if (
     !values.mediaUrl &&
@@ -553,6 +562,16 @@ export function buildDebugContentCard(
     };
   }
 
+  const categoryTitle = values.categoryTitle.trim();
+  const categoryDescription = values.categoryDescription.trim();
+  const categoryCta = values.categoryCta.trim();
+  const isCarousel = values.layout === ContentCardsLayout.carousel;
+  // Carousel: container header uses dedicated category* fields only (empty by default = cards only).
+  let categoryLink = values.link;
+  if (isCarousel) {
+    categoryLink = categoryCta ? values.link : "";
+  }
+
   const category: CategoryContentCard = {
     id: `${values.categoryId}-category-${values.id}`,
     categoryId: values.categoryId,
@@ -563,10 +582,10 @@ export function buildDebugContentCard(
     cardsLayout: values.layout,
     cardsType: values.type,
     type: ContentCardsType.category,
-    title: values.categoryTitle.trim() || values.title,
-    description: values.description,
-    cta: values.cta,
-    link: values.link,
+    title: isCarousel ? categoryTitle : categoryTitle || values.title,
+    description: isCarousel ? categoryDescription : values.description,
+    cta: isCarousel ? categoryCta : values.cta,
+    link: categoryLink,
     isDismissable: true,
     extras: {
       platform: "mobile",

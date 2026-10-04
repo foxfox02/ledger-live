@@ -1,5 +1,5 @@
 import { Account, type AccountType, TokenAccount } from "@ledgerhq/live-e2e-shared/enum/Account";
-import { runSwapDiscreetModeTest } from "./swap.other";
+import { runSwapDiscreetModeTest } from "@e2e/specs/swap/otherTestCases/swap.other";
 
 const fundedAssetsAccounts: AccountType[] = [
   Account.BTC_NATIVE_SEGWIT_1,
@@ -10,6 +10,7 @@ const fundedAssetsAccounts: AccountType[] = [
 
 const swapDiscreetModeTestConfig = {
   fundedAssetsAccounts,
+  balanceCheckAccount: Account.ETH_1,
   tmsLinks: ["B2CQA-2457"],
   tags: [
     "@NanoSP",
@@ -27,6 +28,7 @@ const swapDiscreetModeTestConfig = {
 
 runSwapDiscreetModeTest(
   swapDiscreetModeTestConfig.fundedAssetsAccounts,
+  swapDiscreetModeTestConfig.balanceCheckAccount,
   swapDiscreetModeTestConfig.tmsLinks,
   swapDiscreetModeTestConfig.tags,
 );

@@ -20,6 +20,7 @@ import { AccountBridge } from "@ledgerhq/types-live";
 import * as bech32 from "bech32";
 import { BigNumber } from "bignumber.js";
 import invariant from "invariant";
+import { resolveSourceValidator, resolveTransactionValidators } from "./buildTransaction";
 import cryptoFactory from "./chain/chain";
 import {
   COSMOS_MAX_DELEGATIONS,
@@ -49,12 +50,13 @@ export class CosmosTransactionStatusManager {
 
     const errors: StatusErrorMap = {};
     const warnings: StatusErrorMap = {};
+    const validators = resolveTransactionValidators(transaction);
     // here we only treat about all other mode than delegate and send
     if (
-      transaction.validators.some(
+      validators.some(
         v => !v.address || !v.address.includes(cryptoFactory(account.currency.id).validatorPrefix),
       ) ||
-      transaction.validators.length === 0
+      validators.length === 0
     )
       errors.recipient = new InvalidAddress(undefined, {
         currencyName: account.currency.name,
@@ -69,15 +71,14 @@ export class CosmosTransactionStatusManager {
       }
     } else if (transaction.mode === "undelegate") {
       invariant(
-        account.cosmosResources &&
-          account.cosmosResources.unbondings.length < COSMOS_MAX_UNBONDINGS,
+        account.stakingResources.unbondings.length < COSMOS_MAX_UNBONDINGS,
         "unbondings should not have more than 6 entries",
       );
-      if (transaction.validators.length === 0)
+      if (validators.length === 0)
         errors.recipient = new InvalidAddress(undefined, {
           currencyName: account.currency.name,
         });
-      const [first] = transaction.validators;
+      const [first] = validators;
       const unbondingError = first && this.isDelegable(account, first.address, first.amount);
 
       if (unbondingError) {
@@ -85,7 +86,7 @@ export class CosmosTransactionStatusManager {
       }
     }
 
-    const validatorAmount = transaction.validators.reduce(
+    const validatorAmount = validators.reduce(
       (old, current) => old.plus(current.amount),
       new BigNumber(0),
     );
@@ -102,15 +103,12 @@ export class CosmosTransactionStatusManager {
 
     let totalSpent = estimatedFees;
 
-    if (["claimReward", "claimRewardCompound"].includes(transaction.mode)) {
-      const { cosmosResources } = account;
-      invariant(cosmosResources, "cosmosResources should exist");
-      const claimReward =
-        transaction.validators.length && cosmosResources
-          ? cosmosResources.delegations.find(
-              delegation => delegation.validatorAddress === transaction.validators[0].address,
-            )
-          : null;
+    if (["claimReward", "claimRewardCompound", "compoundReward"].includes(transaction.mode)) {
+      const claimReward = validators.length
+        ? account.stakingResources.delegations.find(
+            delegation => delegation.validatorAddress === validators[0].address,
+          )
+        : null;
 
       if (claimReward && estimatedFees.gt(claimReward.pendingRewards)) {
         warnings.claimReward = new ClaimRewardsFeesWarning();
@@ -141,22 +139,28 @@ export class CosmosTransactionStatusManager {
   ): Promise<TransactionStatus> => {
     const errors: StatusErrorMap = {};
     const warnings: StatusErrorMap = {};
+    const validators = resolveTransactionValidators(transaction);
     if (
-      transaction.validators.some(
+      validators.some(
         v => !v.address || !v.address.includes(cryptoFactory(account.currency.id).validatorPrefix),
       ) ||
-      transaction.validators.length === 0
+      validators.length === 0
     )
       errors.recipient = new InvalidAddress(undefined, {
         currencyName: account.currency.name,
       });
 
-    if (transaction.validators.length > COSMOS_MAX_DELEGATIONS) {
+    if (validators.length > COSMOS_MAX_DELEGATIONS) {
       errors.validators = new CosmosTooManyValidators();
     }
 
     const estimatedFees = transaction.fees || new BigNumber(0);
 
+    // A zero fee is treated as missing here, unlike the send path below, which only raises on a
+    // genuinely absent fee. A chain with `minGasPrice: 0` that enables staking therefore hits a
+    // permanent FeeNotLoaded on this path: the Delegate button stays disabled with no message
+    // explaining why. Left in place because no such chain currently reaches these modes; tracked
+    // in LIVE-37264 alongside unit coverage for the staking paths.
     if (!transaction.fees || !transaction.fees.gt(0)) {
       errors.fees = new FeeNotLoaded();
     }
@@ -228,7 +232,9 @@ export class CosmosTransactionStatusManager {
     }
 
     const estimatedFees = transaction.fees || new BigNumber(0);
-    if (!transaction.fees || !transaction.fees.gt(0)) {
+    // A zero fee is a loaded fee. `createTransaction` initialises `fees: null`, which is the
+    // only genuine "not yet computed" state.
+    if (!transaction.fees) {
       errors.fees = new FeeNotLoaded();
     }
 
@@ -242,7 +248,7 @@ export class CosmosTransactionStatusManager {
       errors.amount = new NotEnoughBalance();
     }
 
-    if (account.cosmosResources?.delegations.length > 0 && transaction.useAllAmount) {
+    if (account.stakingResources.delegations.length > 0 && transaction.useAllAmount) {
       warnings.amount = new RecommendUndelegation();
     }
     return Promise.resolve({
@@ -258,33 +264,27 @@ export class CosmosTransactionStatusManager {
     account: CosmosAccount,
     transaction: CosmosLikeTransaction,
   ) => {
-    if (account.cosmosResources) {
-      const redelegations = account.cosmosResources.redelegations;
-      if (redelegations.length >= COSMOS_MAX_REDELEGATIONS) {
-        return new CosmosTooManyRedelegations();
-      }
+    const { redelegations } = account.stakingResources;
+    const sourceValidator = resolveSourceValidator(transaction);
+    const validators = resolveTransactionValidators(transaction);
+    if (redelegations.length >= COSMOS_MAX_REDELEGATIONS) {
+      return new CosmosTooManyRedelegations();
+    }
 
-      if (
-        redelegations.some(redelegation => {
-          const dstValidator = redelegation.validatorDstAddress;
-          return (
-            dstValidator === transaction.sourceValidator && redelegation.completionDate > new Date()
-          );
-        })
-      ) {
-        return new CosmosRedelegationInProgress();
-      }
+    if (
+      redelegations.some(redelegation => {
+        const dstValidator = redelegation.validatorDstAddress;
+        return dstValidator === sourceValidator && redelegation.completionDate > new Date();
+      })
+    ) {
+      return new CosmosRedelegationInProgress();
+    }
 
-      if (transaction.validators.length > 0) {
-        if (transaction.sourceValidator === transaction.validators[0].address) {
-          return new InvalidAddressBecauseDestinationIsAlsoSource();
-        } else {
-          return this.isDelegable(
-            account,
-            transaction.sourceValidator,
-            transaction.validators[0].amount,
-          );
-        }
+    if (validators.length > 0) {
+      if (sourceValidator === validators[0].address) {
+        return new InvalidAddressBecauseDestinationIsAlsoSource();
+      } else {
+        return this.isDelegable(account, sourceValidator, validators[0].amount);
       }
     }
 
@@ -296,12 +296,8 @@ export class CosmosTransactionStatusManager {
     address: string | undefined | null,
     amount: BigNumber,
   ) => {
-    const { cosmosResources } = account;
-    invariant(cosmosResources, "cosmosResources should exist");
-
     if (
-      cosmosResources &&
-      cosmosResources.delegations.some(
+      account.stakingResources.delegations.some(
         delegation => delegation.validatorAddress === address && delegation.amount.lt(amount),
       )
     ) {

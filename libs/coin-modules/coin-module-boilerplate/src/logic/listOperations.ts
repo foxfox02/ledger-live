@@ -1,0 +1,70 @@
+import type {
+  ListOperationsOptions,
+  Operation,
+  Page,
+} from "@ledgerhq/coin-module-framework/api/index";
+import type { BoilerplateCoinConfig } from "../config";
+import { getTransactions } from "../network/indexer";
+import { BoilerplateOperation } from "../network/types";
+
+/**
+ * Returns list of operations associated to an account.
+ * @param config Coin config
+ * @param address Account address
+ * @param options List operations options
+ * @returns Operations found and the next cursor for pagination.
+ */
+export async function listOperations(
+  config: BoilerplateCoinConfig,
+  address: string,
+  options: ListOperationsOptions,
+): Promise<Page<Operation>> {
+  const transactions = await getTransactions(config, address, options);
+  return { items: transactions.map(convertToCoreOperation(address)), next: undefined };
+}
+
+const convertToCoreOperation =
+  (address: string) =>
+  (operation: BoilerplateOperation): Operation => {
+    const {
+      meta: { delivered_amount },
+      tx: { Fee, hash, inLedger, date, Account, Destination },
+    } = operation;
+
+    const type = Account === address ? "OUT" : "IN";
+    let value =
+      delivered_amount && typeof delivered_amount === "string"
+        ? BigInt(delivered_amount)
+        : BigInt(0);
+
+    const feeValue = BigInt(Fee);
+    if (type === "OUT") {
+      if (!Number.isNaN(feeValue)) {
+        value = value + feeValue;
+      }
+    }
+
+    return {
+      /**
+       * Note: The operation ID must be concatenated with another
+       * value if the transaction hash is not enough to identify it
+       */
+      id: hash,
+      asset: { type: "native" },
+      tx: {
+        hash,
+        fees: feeValue,
+        date: new Date(date),
+        failed: false,
+        block: {
+          height: inLedger,
+          hash,
+          time: new Date(date),
+        },
+      },
+      type,
+      value,
+      senders: [Account],
+      recipients: [Destination],
+    };
+  };

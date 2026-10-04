@@ -1,3 +1,4 @@
+import { TrackScreen } from "@shared/analytics-react";
 import {
   stakeProgramsToEarnParam,
   getEthDepositScreenSetting,
@@ -16,7 +17,6 @@ import React, { Fragment, memo, useMemo } from "react";
 import { Platform, View } from "react-native";
 import { useSelector } from "~/context/hooks";
 import { useTheme } from "styled-components/native";
-import TrackScreen from "~/analytics/TrackScreen";
 import GenericErrorView from "~/components/GenericErrorView";
 import { EarnLiveAppNavigatorParamList } from "~/components/RootNavigator/types/EarnLiveAppNavigator";
 import { StackNavigatorProps } from "~/components/RootNavigator/types/helpers";
@@ -94,6 +94,18 @@ function Earn({ route }: Props) {
         : undefined,
     [swapToEarnFlag],
   );
+  const stableSavingsFlag = useFeature("stableSavings");
+  const stableSavingsParam = useMemo(
+    () =>
+      stableSavingsFlag
+        ? JSON.stringify({
+            enabled: stableSavingsFlag.enabled,
+            params: stableSavingsFlag.params,
+          })
+        : undefined,
+    [stableSavingsFlag],
+  );
+  const deviceIntentSignEnabled = useFeature("llmWalletApiDeviceIntentSign")?.enabled ?? false;
 
   const shouldDisplayBackgroundCanvas = useMemo(
     () => shouldDisplayEarnBackgroundCanvas(params?.intent, swapToEarnFlag?.enabled ?? false),
@@ -122,11 +134,13 @@ function Earn({ route }: Props) {
         ? JSON.stringify(stakeCurrenciesParam)
         : undefined,
       swapToEarn: swapToEarnParam,
+      stableSavings: stableSavingsParam,
       OS: Platform.OS,
       ethDepositCohort,
       uiVersion: "v1",
       ...restParams,
       ...Object.fromEntries(searchParams.entries()),
+      llmWalletApiDeviceIntentSignEnabled: deviceIntentSignEnabled ? "true" : "false",
     };
 
     return {
@@ -144,6 +158,8 @@ function Earn({ route }: Props) {
     stakeCurrenciesParam,
     ethDepositCohort,
     swapToEarnParam,
+    stableSavingsParam,
+    deviceIntentSignEnabled,
     params,
     searchParams,
   ]);

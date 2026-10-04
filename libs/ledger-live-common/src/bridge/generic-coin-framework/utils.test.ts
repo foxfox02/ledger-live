@@ -3,18 +3,30 @@ import {
   adaptCoreOperationToLiveOperation,
   bigNumberToBigIntDeep,
   buildOptimisticOperation,
+  toTransferFeeFromUnknown,
   cleanedOperation,
   extractBalance,
   extractBalances,
   findCryptoCurrencyByNetwork,
+  frameworkExtraFromRaw,
+  frameworkExtraToRaw,
+  isOperationType,
+  mergeExtra,
+  nextSequenceWithPending,
+  optionalNumeric,
   toGasOptionsFromUnknown,
   transactionToIntent,
 } from "./utils";
 import { addPendingOperation } from "@ledgerhq/ledger-wallet-framework/account/index";
 import BigNumber from "bignumber.js";
 import type { Operation as CoreOperation } from "@ledgerhq/coin-module-framework/api/types";
-import { Account } from "@ledgerhq/types-live";
-import { GenericTransaction, GenericTransactionMode, OperationCommon } from "./types";
+import { Account, Operation } from "@ledgerhq/types-live";
+import {
+  GenericTransaction,
+  GenericTransactionMode,
+  GenericTransactionRaw,
+  OperationCommon,
+} from "./types";
 import * as craftTransactionDataModule from "@ledgerhq/coin-module-framework/logic/craftTransactionData";
 
 jest.mock("@ledgerhq/coin-module-framework/logic/craftTransactionData", () => {
@@ -202,6 +214,49 @@ describe("coin-framework utils", () => {
     });
   });
 
+  describe("buildOptimisticOperation memo", () => {
+    const account = {
+      id: "acc",
+      freshAddress: "sender",
+      currency: { units: [{ magnitude: 9 }] },
+      subAccounts: [],
+      pendingOperations: [],
+    } as unknown as Account;
+    const transaction = {
+      recipient: "dest",
+      amount: new BigNumber(1),
+      fees: new BigNumber(5000),
+      memoType: "TEXT",
+      memoValue: "a memo",
+    } as unknown as GenericTransaction;
+
+    it("carries the memo of a plain transfer", () => {
+      const op = buildOptimisticOperation(account, transaction, undefined, () => undefined);
+
+      expect(op.extra).toMatchObject({ memo: "a memo" });
+    });
+
+    it("leaves the memo out when the mode alone types the operation", () => {
+      const op = buildOptimisticOperation(account, {
+        ...transaction,
+        mode: "delegate",
+      } as unknown as GenericTransaction);
+
+      expect(op.extra).not.toHaveProperty("memo");
+    });
+
+    it("drops it when the family typed the operation itself", () => {
+      const op = buildOptimisticOperation(
+        account,
+        { ...transaction, mode: "split" } as unknown as GenericTransaction,
+        undefined,
+        () => ({ type: "FEES", value: new BigNumber(5000) }),
+      );
+
+      expect(op.extra).not.toHaveProperty("memo");
+    });
+  });
+
   describe("buildOptimisticOperation", () => {
     it.each([
       [
@@ -210,6 +265,17 @@ describe("coin-framework utils", () => {
         {},
         {
           parentType: "OPT_IN",
+          subType: undefined,
+          parentValue: new BigNumber(50),
+          parentRecipient: "recipient-address",
+        },
+      ],
+      [
+        "coin",
+        "tokenAssociate",
+        {},
+        {
+          parentType: "ASSOCIATE_TOKEN",
           subType: undefined,
           parentValue: new BigNumber(50),
           parentRecipient: "recipient-address",
@@ -439,6 +505,182 @@ describe("coin-framework utils", () => {
           : {}),
       });
     });
+
+    it("converts a fee at or above 1e21, where BigNumber switches to exponential notation", () => {
+      const fees = new BigNumber("1500000000000000000000");
+      const amount = new BigNumber("10000000000000000000000000");
+
+      expect(fees.toString()).toBe("1.5e+21");
+      expect(() => BigInt(fees.toString())).toThrow(SyntaxError);
+
+      const operation = buildOptimisticOperation(
+        { id: "parent-account-id", freshAddress: "account-address" } as Account,
+        {
+          mode: "send",
+          amount,
+          fees,
+          recipient: "recipient-address",
+        } as GenericTransaction,
+        3n,
+      );
+
+      expect(operation.fee).toEqual(fees);
+      expect(operation.value).toEqual(amount);
+    });
+
+    it("carries familySpecificData into transactionRaw so a pending operation survives restore", () => {
+      const familySpecificData = { chosenOption: "OPTION_A", chosenList: ["a", "b"] };
+      const operation = buildOptimisticOperation(
+        {
+          id: "parent-account-id",
+          freshAddress: "account-address",
+        } as Account,
+        {
+          family: "familyx",
+          amount: new BigNumber(100),
+          recipient: "TRecipient",
+          familySpecificData,
+        } as GenericTransaction,
+        3n,
+      );
+
+      expect(
+        (operation.transactionRaw as GenericTransactionRaw | undefined)?.familySpecificData,
+      ).toEqual(familySpecificData);
+    });
+
+    it("omits feeParameters from transactionRaw (derived, recomputed on restore)", () => {
+      const operation = buildOptimisticOperation(
+        {
+          id: "parent-account-id",
+          freshAddress: "account-address",
+        } as Account,
+        {
+          family: "familyx",
+          amount: new BigNumber(100),
+          recipient: "TRecipient",
+          feeParameters: { energyRequired: "1200" },
+        } as unknown as GenericTransaction,
+        3n,
+      );
+
+      const raw = operation.transactionRaw as
+        | (GenericTransactionRaw & { feeParameters?: unknown })
+        | undefined;
+      expect(raw?.feeParameters).toBeUndefined();
+      expect(raw && "feeParameters" in raw).toBe(false);
+    });
+
+    it("takes a described type and value from the family", () => {
+      const describeOptimisticOperation = jest.fn().mockReturnValue({
+        type: "FREEZE" as const,
+        value: new BigNumber(0),
+      });
+      const operation = buildOptimisticOperation(
+        {
+          id: "parent-account-id",
+          freshAddress: "account-address",
+        } as Account,
+        {
+          family: "familyx",
+          amount: new BigNumber(100),
+          recipient: "TRecipient",
+          mode: "stake",
+        } as GenericTransaction,
+        3n,
+        describeOptimisticOperation,
+      );
+
+      expect(operation.type).toBe("FREEZE");
+      expect(operation.value).toEqual(new BigNumber(0));
+      expect((operation.extra as Record<string, unknown>).ledgerOpType).toBe("FREEZE");
+    });
+
+    it("carries the family's own extra keys but never a framework-owned one", () => {
+      const describeOptimisticOperation = jest.fn().mockReturnValue({
+        type: "FREEZE" as const,
+        value: new BigNumber(0),
+        extra: {
+          frozenAmount: new BigNumber(5),
+          ledgerOpType: "HIJACKED",
+          index: "9",
+          internal: true,
+        },
+      });
+      const operation = buildOptimisticOperation(
+        {
+          id: "parent-account-id",
+          freshAddress: "account-address",
+        } as Account,
+        {
+          family: "familyx",
+          amount: new BigNumber(100),
+          recipient: "TRecipient",
+          mode: "stake",
+        } as GenericTransaction,
+        3n,
+        describeOptimisticOperation,
+      );
+
+      const extra = operation.extra as Record<string, unknown>;
+      expect(extra.frozenAmount).toEqual(new BigNumber(5));
+      expect(extra.ledgerOpType).toBe("FREEZE");
+      expect(extra.index).toBe("0");
+      // Stripped rather than overwritten, so the pending row's shape matches the synced operation's,
+      // which `adaptCoreOperationToLiveOperation` strips the same way.
+      expect("internal" in extra).toBe(false);
+    });
+
+    it("keeps generic behaviour when the family does not own the mode", () => {
+      const describeOptimisticOperation = jest.fn().mockReturnValue(undefined);
+      const operation = buildOptimisticOperation(
+        {
+          id: "parent-account-id",
+          freshAddress: "account-address",
+        } as Account,
+        {
+          family: "familyx",
+          amount: new BigNumber(100),
+          recipient: "TRecipient",
+          mode: "stake",
+        } as GenericTransaction,
+        3n,
+        describeOptimisticOperation,
+      );
+
+      expect(operation.type).toBe("STAKE");
+      expect(operation.value).toEqual(new BigNumber(100));
+    });
+
+    it("writes extra.transferId for a coin-specific memoType (MEMO_TYPE_TO_EXTRA_KEY hit)", () => {
+      const operation = buildOptimisticOperation(
+        { id: "acc", freshAddress: "sender" } as Account,
+        {
+          family: "casper",
+          amount: new BigNumber(100),
+          recipient: "recipient",
+          memoType: "transferId",
+          memoValue: "42",
+        } as GenericTransaction,
+        1n,
+      );
+      expect((operation.extra as Record<string, unknown>).transferId).toBe("42");
+    });
+
+    it("writes extra.memo for a generic memoType (MEMO_TYPE_TO_EXTRA_KEY fallback)", () => {
+      const operation = buildOptimisticOperation(
+        { id: "acc", freshAddress: "sender" } as Account,
+        {
+          family: "evm",
+          amount: new BigNumber(100),
+          recipient: "recipient",
+          memoType: "memo-text",
+          memoValue: "hello",
+        } as GenericTransaction,
+        1n,
+      );
+      expect((operation.extra as Record<string, unknown>).memo).toBe("hello");
+    });
   });
 
   describe("cleanedOperation", () => {
@@ -471,6 +713,30 @@ describe("coin-framework utils", () => {
   });
 
   describe("transactionToIntent", () => {
+    describe("memo", () => {
+      const account = { currency: { name: "solana", units: [{}] } } as Account;
+
+      it("carries a memo the user typed", () => {
+        expect(
+          transactionToIntent(account, {
+            mode: "send",
+            memoType: "TEXT",
+            memoValue: "hello",
+          } as GenericTransaction),
+        ).toMatchObject({ memo: { type: "string", kind: "TEXT", value: "hello" } });
+      });
+
+      it("reads a cleared memo as none, so nothing is crafted for it", () => {
+        expect(
+          transactionToIntent(account, {
+            mode: "send",
+            memoType: "TEXT",
+            memoValue: "",
+          } as GenericTransaction),
+        ).toMatchObject({ memo: { type: "none" } });
+      });
+    });
+
     describe("type", () => {
       it("fallbacks to 'Payment' without a transaction mode", () => {
         expect(
@@ -555,6 +821,24 @@ describe("coin-framework utils", () => {
       });
     });
 
+    describe("senderPublicKey", () => {
+      it("propagates account.xpub, cached from the device's getAddress at sync time", () => {
+        const intent = transactionToIntent(
+          { currency: { name: "stacks", units: [{}] }, xpub: "02abc" } as Account,
+          { mode: "send" } as GenericTransaction,
+        );
+        expect(intent).toMatchObject({ senderPublicKey: "02abc" });
+      });
+
+      it("is undefined when the account has no cached xpub", () => {
+        const intent = transactionToIntent(
+          { currency: { name: "ethereum", units: [{}] } } as Account,
+          { mode: "send" } as GenericTransaction,
+        );
+        expect(intent.senderPublicKey).toBeUndefined();
+      });
+    });
+
     describe("craftTransactionData", () => {
       it.each([
         { title: "undefined", data: undefined },
@@ -636,14 +920,34 @@ describe("coin-framework utils", () => {
         expect(craftTransactionDataMock).not.toHaveBeenCalled();
         expect(defaultCraftTransactionDataSpy).not.toHaveBeenCalled();
       });
+
+      it("prefers transaction.data over a family buildIntentData too", () => {
+        const buildIntentData = jest.fn();
+        const craftTransactionDataMock = jest.fn();
+        const expectedData = Buffer.from("deadbeef", "hex");
+
+        const intent = transactionToIntent(
+          {
+            currency: { name: "ethereum", units: ["wei"] },
+          } as unknown as Account,
+          { data: expectedData } as unknown as GenericTransaction,
+          undefined,
+          craftTransactionDataMock,
+          buildIntentData,
+        );
+
+        expect(intent).toMatchObject({ data: { type: "buffer", value: expectedData } });
+        expect(buildIntentData).not.toHaveBeenCalled();
+        expect(craftTransactionDataMock).not.toHaveBeenCalled();
+      });
     });
 
     describe("memo", () => {
       const account = { currency: { name: "ethereum", units: [{}] } } as Account;
 
-      it("defaults to NO_MEMO when no memo or tag is provided", () => {
+      it("defaults to the framework's MemoNotSupported when no memo or tag is provided", () => {
         const intent = transactionToIntent(account, {} as GenericTransaction);
-        expect(intent.memo).toEqual({ type: "NO_MEMO" });
+        expect(intent.memo).toEqual({ type: "none" });
       });
 
       it.each([
@@ -657,12 +961,12 @@ describe("coin-framework utils", () => {
         });
       });
 
-      it("maps memoType/memoValue to a typed memo", () => {
+      it("maps memoType/memoValue to a StringMemo with memoType as its kind", () => {
         const intent = transactionToIntent(account, {
           memoType: "memo-type",
           memoValue: "memo-value",
         } as GenericTransaction);
-        expect(intent.memo).toEqual({ type: "memo-type", value: "memo-value" });
+        expect(intent.memo).toEqual({ type: "string", kind: "memo-type", value: "memo-value" });
       });
 
       it("prefers tag over memoType/memoValue when both are set", () => {
@@ -787,6 +1091,23 @@ describe("coin-framework utils", () => {
 
     it("does not find non existing currencies", () => {
       expect(findCryptoCurrencyByNetwork("non_existing_currency")).toBeUndefined();
+    });
+  });
+
+  describe("optionalNumeric", () => {
+    it.each([Infinity, -Infinity, "Infinity", NaN, "abc", null, undefined, {}])(
+      "rejects %p",
+      (value: unknown) => {
+        expect(optionalNumeric(value)).toBeUndefined();
+      },
+    );
+
+    it.each([
+      [10n, "10"],
+      [10, "10"],
+      ["10", "10"],
+    ])("reads %p", (value: unknown, expected: string) => {
+      expect(optionalNumeric(value)?.toFixed()).toBe(expected);
     });
   });
 
@@ -1341,5 +1662,450 @@ describe("coin-framework utils", () => {
         fee: new BigNumber(25),
       });
     });
+
+    it.each([
+      [0, new BigNumber(0)],
+      [3, new BigNumber(3)],
+      [undefined, undefined],
+    ])("adapts a sequence of %s", (sequence, expected) => {
+      const op = { ...baseOp, details: { sequence } };
+
+      const result = adaptCoreOperationToLiveOperation(accountId, op);
+
+      expect(result.transactionSequenceNumber).toEqual(expected);
+    });
+
+    it("maps details.transferId to extra.transferId", () => {
+      const op = { ...baseOp, details: { transferId: "12345" } };
+      const result = adaptCoreOperationToLiveOperation(accountId, op);
+      expect((result.extra as Record<string, unknown>).transferId).toBe("12345");
+    });
+
+    it("does not set extra.transferId when details.transferId is absent", () => {
+      const result = adaptCoreOperationToLiveOperation(accountId, baseOp);
+      expect("transferId" in (result.extra as Record<string, unknown>)).toBe(false);
+    });
+
+    it("maps details.destinationTag to extra.memo", () => {
+      const op = { ...baseOp, details: { destinationTag: 42 } };
+      const result = adaptCoreOperationToLiveOperation(accountId, op);
+      expect((result.extra as Record<string, unknown>).memo).toBe("42");
+    });
+
+    it("maps a zero details.destinationTag to extra.memo", () => {
+      const op = { ...baseOp, details: { destinationTag: 0 } };
+      const result = adaptCoreOperationToLiveOperation(accountId, op);
+      expect((result.extra as Record<string, unknown>).memo).toBe("0");
+    });
+
+    it("prefers details.memo over details.destinationTag when both are present", () => {
+      const op = { ...baseOp, details: { memo: "a-memo", destinationTag: 42 } };
+      const result = adaptCoreOperationToLiveOperation(accountId, op);
+      expect((result.extra as Record<string, unknown>).memo).toBe("a-memo");
+    });
+
+    it("does not set extra.memo when neither memo nor destinationTag is present", () => {
+      const op = { ...baseOp, details: {} };
+      const result = adaptCoreOperationToLiveOperation(accountId, op);
+      expect("memo" in (result.extra as Record<string, unknown>)).toBe(false);
+    });
+  });
+
+  describe("nextSequenceWithPending", () => {
+    const pendingOp = (seq: number | null): Operation =>
+      ({
+        transactionSequenceNumber: seq === null ? undefined : new BigNumber(seq),
+      }) as Operation;
+
+    it("uses the network sequence when there are no pending operations", () => {
+      expect(nextSequenceWithPending([], 22n)).toBe(22n);
+    });
+
+    it("bumps past a pending op the network source hasn't caught up to yet", () => {
+      // Just broadcast nonce 22 (still pending); network source still reports 22 -> next must be 23.
+      expect(nextSequenceWithPending([pendingOp(22)], 22n)).toBe(23n);
+    });
+
+    it("takes the highest pending sequence + 1 across several pending ops", () => {
+      expect(nextSequenceWithPending([pendingOp(22), pendingOp(24), pendingOp(23)], 22n)).toBe(25n);
+    });
+
+    it("prefers the network sequence once it has moved ahead of pending ops", () => {
+      // Network source caught up (26 > 24+1) -> it wins, self-correcting.
+      expect(nextSequenceWithPending([pendingOp(24)], 26n)).toBe(26n);
+    });
+
+    it("ignores pending ops without a sequence number", () => {
+      expect(nextSequenceWithPending([pendingOp(null), pendingOp(22)], 22n)).toBe(23n);
+    });
+
+    it("ignores non-integer pending sequence numbers", () => {
+      expect(nextSequenceWithPending([pendingOp(22.5), pendingOp(22)], 22n)).toBe(23n);
+    });
+
+    it("handles a large pending sequence without throwing (fixed-point, not exponential)", () => {
+      // BigNumber(1e21).toString() is "1e+21", which BigInt() cannot parse; .toFixed() must be used.
+      expect(nextSequenceWithPending([pendingOp(1e21)], 5n)).toBe(1000000000000000000001n);
+    });
+  });
+
+  describe("adaptCoreOperationToLiveOperation family extras", () => {
+    // Kept as a precise `CoreOperation` cast rather than `as any`.
+    const coreOperation: CoreOperation = {
+      id: "op1",
+      asset: { type: "native" },
+      type: "FREEZE",
+      value: BigInt(100),
+      senders: ["TSender"],
+      recipients: ["TRecipient"],
+      tx: {
+        hash: "hash1",
+        fees: BigInt(1),
+        block: {
+          hash: "blockhash1",
+          height: 1,
+          time: new Date("2026-01-01"),
+        },
+        date: new Date("2026-01-01"),
+        failed: false,
+      },
+      details: { ledgerOpType: "FREEZE", familyExtra: { frozenAmount: "42", votes: [] } },
+    };
+
+    it("lands the family's own extras bag flat beside the framework's keys", () => {
+      const operation = adaptCoreOperationToLiveOperation("accountId", coreOperation);
+
+      expect(operation.extra).toEqual({
+        ledgerOpType: "FREEZE",
+        frozenAmount: "42",
+        votes: [],
+      });
+    });
+
+    it("revives the bag through the family's `fromOperationExtraRaw` when one is given", () => {
+      const operation = adaptCoreOperationToLiveOperation("accountId", coreOperation, extraRaw => {
+        const { frozenAmount, ...rest } = extraRaw as { frozenAmount: string };
+        return { ...rest, frozenAmount: new BigNumber(frozenAmount) };
+      });
+
+      expect((operation.extra as Record<string, unknown>).frozenAmount).toStrictEqual(
+        new BigNumber(42),
+      );
+    });
+
+    it("never lets the family shadow a framework-owned extra", () => {
+      // Including `memo`, which the framework writes only when the coin module supplies one. The
+      // reviver spreads its input, so this also pins the strip as running after it.
+      const operation = adaptCoreOperationToLiveOperation(
+        "accountId",
+        {
+          ...coreOperation,
+          details: {
+            ledgerOpType: "FREEZE",
+            familyExtra: { ledgerOpType: "HIJACKED", internal: true, memo: "hijacked" },
+          },
+        },
+        extraRaw => ({ ...(extraRaw as Record<string, unknown>) }),
+      );
+      const extra = operation.extra as Record<string, unknown>;
+
+      expect(extra.ledgerOpType).toBe("FREEZE");
+      expect(extra.internal).toBeUndefined();
+      expect(extra.memo).toBeUndefined();
+    });
+
+    it("leaves the framework's own keys alone when the coin module sends no family bag", () => {
+      const operation = adaptCoreOperationToLiveOperation("accountId", {
+        ...coreOperation,
+        details: { ledgerOpType: "FREEZE" },
+      });
+
+      expect(operation.extra).toEqual({ ledgerOpType: "FREEZE" });
+    });
+
+    it("normalises bigint/BigNumber inside familyExtra so the persisted operation stays JSON-safe", () => {
+      const operation = adaptCoreOperationToLiveOperation("accountId", {
+        ...coreOperation,
+        details: {
+          ledgerOpType: "FREEZE",
+          familyExtra: {
+            frozenAmount: 42n,
+            reward: new BigNumber(1000),
+            huge: new BigNumber("1e21"),
+            votes: ["v1"],
+          },
+        },
+      } as CoreOperation);
+
+      expect(() => JSON.stringify(operation)).not.toThrow();
+      expect(operation.extra).toEqual({
+        ledgerOpType: "FREEZE",
+        frozenAmount: "42",
+        reward: "1000",
+        huge: "1000000000000000000000",
+        votes: ["v1"],
+      });
+    });
+
+    it("normalises familyExtra exactly as a JSON round-trip would", () => {
+      const operation = adaptCoreOperationToLiveOperation("accountId", {
+        ...coreOperation,
+        details: {
+          ledgerOpType: "FREEZE",
+          familyExtra: {
+            claimedAt: new Date("2026-01-01T00:00:00.000Z"), // toJSON -> ISO string
+            keep: "x",
+            ok: true,
+            fn: () => {}, // dropped
+            sym: Symbol("s"), // dropped
+            bad: NaN, // -> null
+            gone: undefined, // dropped
+            seq: [1, undefined, NaN, "x"], // holes -> null, length preserved
+          },
+        },
+      } as CoreOperation);
+
+      expect(operation.extra).toEqual({
+        ledgerOpType: "FREEZE",
+        claimedAt: "2026-01-01T00:00:00.000Z",
+        keep: "x",
+        ok: true,
+        bad: null,
+        seq: [1, null, null, "x"],
+      });
+    });
+
+    it("maps each optional operation detail onto its framework extra key", () => {
+      const operation = adaptCoreOperationToLiveOperation("accountId", {
+        ...coreOperation,
+        tx: { ...coreOperation.tx, feesPayer: "TFeePayer" },
+        details: {
+          ledgerOpType: "FREEZE",
+          assetAmount: "500",
+          assetSenders: ["TAssetSender"],
+          assetRecipients: ["TAssetRecipient"],
+          parentSenders: ["TParentSender"],
+          parentRecipients: ["TParentRecipient"],
+          memo: "a memo",
+          internal: true,
+          stake: { address: "TValidator", amount: 2_500n },
+        },
+      } as CoreOperation);
+
+      expect(operation.extra).toEqual({
+        ledgerOpType: "FREEZE",
+        assetAmount: "500",
+        assetSenders: ["TAssetSender"],
+        assetRecipients: ["TAssetRecipient"],
+        parentSenders: ["TParentSender"],
+        parentRecipients: ["TParentRecipient"],
+        memo: "a memo",
+        internal: true,
+        feePayer: "TFeePayer",
+        stake: { address: "TValidator", amount: new BigNumber(2_500) },
+      });
+      // parentSenders/parentRecipients also stand in for the operation's own senders/recipients.
+      expect(operation.senders).toEqual(["TParentSender"]);
+      expect(operation.recipients).toEqual(["TParentRecipient"]);
+    });
+  });
+
+  describe("framework extra serialization", () => {
+    describe("frameworkExtraToRaw", () => {
+      it("returns only the converted stake, never the rest of the bag", () => {
+        const converted = frameworkExtraToRaw({
+          ledgerOpType: "FREEZE",
+          stake: { address: "validator", amount: new BigNumber(2_500) },
+        }) as Record<string, unknown>;
+
+        expect(converted).toEqual({ stake: { address: "validator", amount: "2500" } });
+      });
+
+      it("returns undefined when there is nothing of its own to convert", () => {
+        expect(frameworkExtraToRaw({ ledgerOpType: "FREEZE" })).toBeUndefined();
+        expect(frameworkExtraToRaw(undefined)).toBeUndefined();
+        expect(frameworkExtraToRaw("not-a-bag")).toBeUndefined();
+      });
+
+      it("leaves a stake.amount it did not write alone rather than coercing it", () => {
+        expect(frameworkExtraToRaw({ stake: { address: "v", amount: 2500 } })).toBeUndefined();
+        expect(frameworkExtraToRaw({ stake: { address: "v", amount: "2500" } })).toBeUndefined();
+      });
+    });
+
+    describe("frameworkExtraFromRaw", () => {
+      it("revives the stake amount as a BigNumber", () => {
+        const revived = frameworkExtraFromRaw({
+          stake: { address: "validator", amount: "2500" },
+        }) as Record<string, any>;
+
+        expect(revived).toEqual({
+          stake: { address: "validator", amount: new BigNumber(2_500) },
+        });
+      });
+
+      it("returns undefined for an amount that is not a persisted string", () => {
+        expect(frameworkExtraFromRaw({ stake: { address: "v", amount: 2500 } })).toBeUndefined();
+        expect(frameworkExtraFromRaw({ ledgerOpType: "FREEZE" })).toBeUndefined();
+        expect(frameworkExtraFromRaw(undefined)).toBeUndefined();
+      });
+    });
+
+    describe("mergeExtra", () => {
+      it("layers passthrough, then the family, then the framework's own keys", () => {
+        expect(
+          mergeExtra({ memo: "kept", frozen: 1, stake: "raw" }, { frozen: 2 }, { stake: "owned" }),
+        ).toEqual({ memo: "kept", frozen: 2, stake: "owned" });
+      });
+
+      it("keeps the passthrough when the family maps nothing", () => {
+        expect(mergeExtra({ memo: "kept" }, undefined, undefined)).toEqual({ memo: "kept" });
+      });
+
+      it("falls back to the family's result when the passthrough is not a bag", () => {
+        expect(mergeExtra(undefined, { frozen: 1 }, undefined)).toEqual({ frozen: 1 });
+        expect(mergeExtra(undefined, undefined, undefined)).toBeUndefined();
+      });
+
+      it("creates own properties, so a __proto__ key cannot reach the prototype", () => {
+        const merged = mergeExtra({}, JSON.parse('{"__proto__":{"polluted":true}}'), undefined);
+
+        expect(Object.getPrototypeOf(merged)).toBe(Object.prototype);
+        expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+      });
+    });
+  });
+
+  describe("isOperationType", () => {
+    it.each(["IN", "OUT", "FEES", "NONE", "DELEGATE", "NFT_IN", "STAKE", "TOP_UP_NEURON"])(
+      "returns true for known type %s",
+      type => {
+        expect(isOperationType(type)).toBe(true);
+      },
+    );
+
+    it.each(["", "in", "CLAIM_REWARD", "transfer", "unknown_type"])(
+      "returns false for unknown string %s",
+      type => {
+        expect(isOperationType(type)).toBe(false);
+      },
+    );
+  });
+});
+
+describe("toTransferFeeFromUnknown", () => {
+  const fee = {
+    maxTransferFee: 1,
+    transferFee: 2,
+    feePercent: 3,
+    feeBps: 4,
+    transferAmountIncludingFee: 5,
+    transferAmountExcludingFee: 6,
+  };
+
+  it("accepts a fee whose fields are all numbers", () => {
+    expect(toTransferFeeFromUnknown(fee)).toBe(fee);
+  });
+
+  it.each([
+    null,
+    undefined,
+    42,
+    "fee",
+    {},
+    { ...fee, feeBps: "4" },
+    { ...fee, transferFee: NaN },
+    { ...fee, maxTransferFee: Infinity },
+  ])("rejects %p", (value: unknown) => {
+    expect(toTransferFeeFromUnknown(value)).toBeUndefined();
+  });
+});
+
+const account = {
+  balance: new BigNumber(10_000),
+  spendableBalance: new BigNumber(10_000),
+  freshAddress: "owner",
+  stakingResources: {
+    delegations: [
+      {
+        positionId: "stake-acc-1",
+        validatorAddress: "vote-acc",
+        amount: new BigNumber(1_000),
+        pendingRewards: new BigNumber(0),
+        status: "bonded",
+        activeAmount: new BigNumber(1_000),
+        lockedReserve: new BigNumber(2_282_880),
+        canStake: true,
+        canWithdraw: true,
+      },
+    ],
+    unbondings: [
+      {
+        positionId: "stake-acc-2",
+        validatorAddress: "",
+        amount: new BigNumber(500),
+        completionDate: new Date(0),
+        status: "withdrawable",
+        canWithdraw: false,
+      },
+    ],
+  },
+} as unknown as Account;
+
+describe("extractBalances", () => {
+  it("reconstructs the staking positions the account carries", () => {
+    const [native, delegation, unbonding] = extractBalances(account);
+
+    expect(native.stake).toBeUndefined();
+    expect(native.value).toBe(10_000n);
+
+    expect(delegation.stake).toMatchObject({
+      uid: "stake-acc-1",
+      state: "active",
+      delegate: "vote-acc",
+      amount: 1_000n,
+      details: { activeAmount: 1_000, lockedReserve: 2_282_880, canStake: true, canWithdraw: true },
+    });
+
+    expect(unbonding.stake).toMatchObject({ uid: "stake-acc-2", state: "withdrawable" });
+    expect(unbonding.stake?.delegate).toBeUndefined();
+  });
+
+  it("carries an amount too large for a double as a string, not a rounded number", () => {
+    const huge = new BigNumber("9007199254740993"); // Number.MAX_SAFE_INTEGER + 2
+    const [, delegation] = extractBalances({
+      balance: new BigNumber(10_000),
+      spendableBalance: new BigNumber(10_000),
+      freshAddress: "owner",
+      stakingResources: {
+        delegations: [
+          {
+            positionId: "stake-acc-1",
+            validatorAddress: "vote-acc",
+            amount: huge,
+            pendingRewards: new BigNumber(0),
+            status: "bonded",
+            activeAmount: huge,
+          },
+        ],
+        unbondings: [],
+      },
+    } as unknown as Account);
+
+    expect(delegation.stake?.details?.activeAmount).toBe("9007199254740993");
+    expect(optionalNumeric(delegation.stake?.details?.activeAmount)?.toFixed()).toBe(
+      "9007199254740993",
+    );
+  });
+
+  it("counts the rent-exempt reserve in the position's value, not in its delegated amount", () => {
+    const [, delegation] = extractBalances(account);
+
+    expect(delegation.value).toBe(1_000n + 2_282_880n);
+    expect(delegation.stake?.amount).toBe(1_000n);
+  });
+
+  it("returns only the native balance for an account with no staking resources", () => {
+    expect(extractBalances({ ...account, stakingResources: undefined } as Account)).toHaveLength(1);
   });
 });

@@ -33,6 +33,29 @@ import Grid from "~/contentCards/layouts/grid";
 import VerticalCard from "~/contentCards/cards/vertical";
 import HeroCard from "~/contentCards/cards/hero";
 import LogContentCardWrapper from "LLM/features/DynamicContent/components/LogContentCardWrapper";
+import {
+  trackHardwareCarouselDeviceClick,
+  trackHardwareCarouselCardDismiss,
+  type HardwareCarouselDevice,
+  type HardwareCarouselSharedAnalyticsProps,
+} from "~/dynamicContent/hardwareCarousel/analytics";
+
+function extractDeviceType(title?: string): HardwareCarouselDevice | null {
+  if (!title) return null;
+
+  const titleLower = title.toLowerCase();
+  if (titleLower.includes("gen5") || titleLower.includes("gen 5")) {
+    return "ledger gen5";
+  }
+  if (titleLower.includes("flex")) {
+    return "ledger flex";
+  }
+  if (titleLower.includes("stax")) {
+    return "ledger stax";
+  }
+
+  return null;
+}
 
 // TODO : Better type to remove any (maybe use AnyContentCard)
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -72,11 +95,13 @@ const contentCardsTypes: {
 type LayoutProps = {
   category: CategoryContentCard;
   cards: BrazeContentCard[];
+  leadingSlide?: React.ReactNode;
+  hardwareCarouselSharedProps?: HardwareCarouselSharedAnalyticsProps;
 };
 
 type LayoutCardItemProps = ContentCardProps & { widthFactor?: number };
 
-const Layout = ({ category, cards }: LayoutProps) => {
+const Layout = ({ category, cards, leadingSlide, hardwareCarouselSharedProps }: LayoutProps) => {
   const { logClickCard, dismissCard, trackContentCardEvent } = useDynamicContent();
   const isTopWallet = category.location === ContentCardLocation.TopWallet;
   const { shouldDisplayBrazePlacement } = useWalletFeaturesConfig("mobile");
@@ -91,6 +116,13 @@ const Layout = ({ category, cards }: LayoutProps) => {
     : contentCardsType.contentCardComponent;
 
   const onCardClick = async (card: AnyContentCard, displayedPosition: number) => {
+    if (hardwareCarouselSharedProps) {
+      const deviceType = extractDeviceType(card.title);
+      if (deviceType) {
+        trackHardwareCarouselDeviceClick(deviceType, hardwareCarouselSharedProps);
+      }
+    }
+
     await trackContentCardEvent(ContentCardEvent.Clicked, {
       ...buildContentCardTrackingProperties({
         cardExtras: card.extras,
@@ -114,6 +146,10 @@ const Layout = ({ category, cards }: LayoutProps) => {
   };
 
   const onCardDismiss = (card: AnyContentCard, displayedPosition: number) => {
+    if (hardwareCarouselSharedProps) {
+      trackHardwareCarouselCardDismiss(hardwareCarouselSharedProps);
+    }
+
     trackContentCardEvent(ContentCardEvent.Dismissed, {
       ...buildContentCardTrackingProperties({
         cardExtras: card.extras,
@@ -138,6 +174,7 @@ const Layout = ({ category, cards }: LayoutProps) => {
     .filter(card => card);
 
   const cardsSorted = (cardsMapped as AnyContentCard[]).sort(compareCards);
+  const positionOffset = leadingSlide ? 1 : 0;
 
   const items = cardsSorted.map((card, index) =>
     contentCardItem(contentCardComponent, {
@@ -150,32 +187,48 @@ const Layout = ({ category, cards }: LayoutProps) => {
 
       metadata: {
         id: card.id,
-        displayedPosition: index,
+        displayedPosition: index + positionOffset,
 
         actions: {
-          onClick: card.link ? () => onCardClick(card, index) : undefined,
-          onDismiss: category.isDismissable ? () => onCardDismiss(card, index) : undefined,
+          onClick: card.link ? () => onCardClick(card, index + positionOffset) : undefined,
+          onDismiss: category.isDismissable
+            ? () => onCardDismiss(card, index + positionOffset)
+            : undefined,
         },
       },
     } as LayoutCardItemProps),
   );
 
+  const renderCarousel = (carouselItems: typeof items) => {
+    const widthFactorSource = cardsSorted[0];
+    const showLumenDots =
+      (isContentBannerVariant || Boolean(leadingSlide)) &&
+      carouselItems.length + (leadingSlide ? 1 : 0) > 1;
+    return (
+      <Carousel
+        items={carouselItems}
+        leadingSlide={leadingSlide}
+        showLumenPageIndicator={showLumenDots}
+        disableVerticalStretch={isTopWallet}
+        styles={{
+          widthFactor: widthFactorSource?.carouselWidthFactor || WidthFactor.Full,
+          pagination: isTopWallet ? false : category.hasPagination,
+          gap: widthFactorSource?.gridWidthFactor === WidthFactor.Full ? 6 : 8,
+        }}
+      />
+    );
+  };
+
+  // Upsell + Braze share one carousel; keep `unique` semantics (one Braze card only).
+  if (leadingSlide) {
+    const carouselItems =
+      category.cardsLayout === ContentCardsLayout.unique ? items.slice(0, 1) : items;
+    return renderCarousel(carouselItems);
+  }
+
   switch (category.cardsLayout) {
     case ContentCardsLayout.carousel: {
-      const showLumenDots = isContentBannerVariant && cardsSorted.length > 1;
-      const carouselEl = (
-        <Carousel
-          items={items}
-          showLumenPageIndicator={showLumenDots}
-          disableVerticalStretch={isTopWallet}
-          styles={{
-            widthFactor: cardsSorted[0].carouselWidthFactor || WidthFactor.Full,
-            pagination: isTopWallet ? false : category.hasPagination,
-            gap: cardsSorted[0].gridWidthFactor === WidthFactor.Full ? 6 : 8,
-          }}
-        />
-      );
-      return carouselEl;
+      return renderCarousel(items);
     }
 
     case ContentCardsLayout.grid:

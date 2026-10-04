@@ -1,7 +1,10 @@
-import { getGasTracker } from "@ledgerhq/coin-evm/network/gasTracker/index";
-import type { GasOptions, Transaction } from "@ledgerhq/coin-evm/types/index";
+import { getGasTracker } from "@ledgerhq/coin-evm/network";
+import type { EvmConfigInfo } from "@ledgerhq/coin-evm/config";
+import type { Transaction } from "./types";
+import type { GasOptions } from "@ledgerhq/coin-evm/types";
 import { CryptoCurrency } from "@domain/entity-currency-crypto";
 import { useEffect, useMemo, useState } from "react";
+import { getCurrencyConfiguration } from "../../config";
 
 /**
  * React hook to get gas options for a given currency
@@ -19,7 +22,8 @@ export const useGasOptions = ({
   interval?: number;
 }): [GasOptions | undefined, Error | null, boolean] => {
   const shouldUseEip1559 = transaction.type === 2;
-  const gasTracker = useMemo(() => getGasTracker(currency), [currency]);
+  const config = useMemo(() => getCurrencyConfiguration<EvmConfigInfo>(currency.id), [currency]);
+  const gasTracker = useMemo(() => getGasTracker(config), [config]);
   const [error, setError] = useState<Error | null>(null);
   const [gasOptions, setGasOptions] = useState<GasOptions | undefined>(undefined);
   const [loading, setLoading] = useState(true);
@@ -32,7 +36,10 @@ export const useGasOptions = ({
 
     const getGasOptionsCallback = async () =>
       gasTracker
-        .getGasOptions({ currency, options: { useEIP1559: shouldUseEip1559 } })
+        .getGasOptions({
+          config,
+          options: { useEIP1559: shouldUseEip1559 },
+        })
         .then(setGasOptions)
         .catch(setError)
         .finally(() => setLoading(false));
@@ -45,7 +52,7 @@ export const useGasOptions = ({
         clearInterval(intervalId);
       };
     }
-  }, [gasTracker, interval, currency, shouldUseEip1559]);
+  }, [gasTracker, interval, currency, config, shouldUseEip1559]);
 
   return [gasOptions, error, loading];
 };

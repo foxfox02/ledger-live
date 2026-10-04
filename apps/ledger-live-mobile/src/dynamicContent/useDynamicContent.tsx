@@ -1,3 +1,4 @@
+import { flush, track } from "@shared/analytics";
 import { useSelector, useDispatch } from "~/context/hooks";
 import { CryptoOrTokenCurrency } from "@domain/entity-currency";
 import { useCallback, useMemo, useRef } from "react";
@@ -20,7 +21,6 @@ import {
   LandingPageUseCase,
   WalletContentCard,
 } from "./types";
-import { flush, track } from "../analytics";
 import {
   finalizeContentCardEventProperties,
   ContentCardEvent,
@@ -29,6 +29,7 @@ import {
 } from "@ledgerhq/live-common/braze/contentCardExtras";
 import { setDismissedDynamicCards } from "../actions/settings";
 import { setDynamicContentMobileCards, removeLocalCard } from "~/actions/dynamicContent";
+import { useBrazeContentCards } from "LLM/features/DynamicContent/components/BrazeContentCardsProvider";
 
 const useDynamicContent = () => {
   const dispatch = useDispatch();
@@ -48,8 +49,8 @@ const useDynamicContent = () => {
     [hiddenCards],
   );
 
-  const { logClickCard, logDismissCard, logImpressionCard, refreshDynamicContent } =
-    useBrazeContentCard(mobileCards);
+  const { logClickCard, logDismissCard, logImpressionCard } = useBrazeContentCard(mobileCards);
+  const { refreshContentCards } = useBrazeContentCards();
 
   const walletCardsDisplayed = useMemo(
     () => walletCards.filter((wc: WalletContentCard) => !hiddenCards.includes(wc.id)),
@@ -204,7 +205,7 @@ const useDynamicContent = () => {
     dismissCards,
     trackContentCardEvent,
     notificationCards,
-    refreshDynamicContent,
+    refreshDynamicContent: refreshContentCards,
   };
 };
 

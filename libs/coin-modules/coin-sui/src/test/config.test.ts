@@ -1,9 +1,12 @@
-import { CryptoCurrency } from "@ledgerhq/ledger-wallet-framework/types";
+import {
+  CryptoCurrencyIdSchema,
+  type CryptoCurrency,
+} from "@ledgerhq/ledger-wallet-framework/types";
 import coinConfig from "../config";
 
 describe("Configuration", () => {
   const mockCurrency: CryptoCurrency = {
-    id: "sui",
+    id: CryptoCurrencyIdSchema.parse("sui"),
     name: "sui",
     family: "sui",
     units: [],
@@ -17,9 +20,11 @@ describe("Configuration", () => {
   };
 
   const baseConfig = {
-    node: { url: "123", graphqlUrl: "456" },
+    node: { graphqlUrl: "456", grpcUrl: "789" },
     status: { type: "active" as const },
-    features: { graphql: false },
+    features: { transport: "grpc" as const },
+    name: "Sui",
+    unit: { name: "Sui", code: "SUI", magnitude: 9 },
   };
 
   beforeEach(() => {

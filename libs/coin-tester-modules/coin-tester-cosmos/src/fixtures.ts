@@ -59,8 +59,15 @@ export const makeAccount = (
       delegatedBalance: new BigNumber(0),
       pendingRewardsBalance: new BigNumber(0),
       unbondingBalance: new BigNumber(0),
-      withdrawAddress: "",
       sequence: 0,
+    },
+    stakingResources: {
+      delegations: [],
+      redelegations: [],
+      unbondings: [],
+      delegatedBalance: new BigNumber(0),
+      pendingRewardsBalance: new BigNumber(0),
+      unbondingBalance: new BigNumber(0),
     },
   };
 };

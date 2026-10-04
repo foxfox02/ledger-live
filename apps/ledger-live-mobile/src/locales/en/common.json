@@ -1,4 +1,270 @@
 {
+  "internetComputer": {
+    "stakeBanner": {
+      "stakeICP": {
+        "title": "Stake ICP",
+        "description": "Stake ICP and gain rewards by participating in its governance.",
+        "cta": "Stake ICP"
+      },
+      "confirmFollowing": {
+        "description": "One of your neurons is losing voting power. Confirm its following to restore it.",
+        "cta": "Confirm following"
+      },
+      "syncNeurons": {
+        "description": "Your neuron data is out of date. Connect your device to refresh it.",
+        "cta": "Refresh neurons"
+      },
+      "lockNeurons": {
+        "description": "A neuron needs a longer dissolve delay before it can vote and earn rewards.",
+        "cta": "Manage neurons"
+      },
+      "addFollowees": {
+        "description": "Follow other neurons on governance topics so your neuron votes and earns rewards.",
+        "cta": "Manage neurons"
+      }
+    },
+    "headerManageActions": {
+      "manageNeurons": {
+        "title": "Neurons"
+      }
+    },
+    "summaryFooter": {
+      "availableBalanceTooltip": "ICP you can spend or stake right now. Does not include ICP already locked in neurons.",
+      "stakedBalance": "Staked Balance",
+      "stakedBalanceTooltip": "The total amount of ICP tokens currently staked in neurons. Staked ICP earns voting rewards and can be used for governance.",
+      "totalMaturity": "Total Maturity",
+      "totalMaturityTooltip": "The total accumulated rewards from staking, including both staked and liquid maturity. These rewards can be either staked again or claimed as liquid ICP."
+    },
+    "duration": {
+      "years_one": "{{count}} year",
+      "years_other": "{{count}} years",
+      "months_one": "{{count}} month",
+      "months_other": "{{count}} months",
+      "days_one": "{{count}} day",
+      "days_other": "{{count}} days",
+      "hours_one": "{{count}} hour",
+      "hours_other": "{{count}} hours",
+      "minutes_one": "{{count}} minute",
+      "minutes_other": "{{count}} minutes",
+      "lessThanAMinute": "Less than a minute"
+    },
+    "neuronState": {
+      "Locked": "Locked",
+      "Dissolving": "Dissolving",
+      "Dissolved": "Dissolved",
+      "Spawning": "Spawning",
+      "Unknown": "Unknown"
+    },
+    "common": {
+      "neuronId": "Neuron ID",
+      "stake": "Stake",
+      "maturity": "Maturity",
+      "dissolveDelay": "Dissolve delay",
+      "state": "State",
+      "action": "Action",
+      "none": "None",
+      "disburse": "Disburse",
+      "startDissolving": "Start dissolving",
+      "stopDissolving": "Stop dissolving",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "enable": "Enable",
+      "disable": "Disable"
+    },
+    "stakingFlow": {
+      "started": {
+        "title": "Stake ICP",
+        "description": "Staking ICP creates a neuron: a locked position that votes in governance and earns rewards.",
+        "steps": {
+          "0": "Your ICP is locked in the neuron until you dissolve it.",
+          "1": "A longer dissolve delay earns more voting power and more rewards.",
+          "2": "The neuron votes by following others, so it earns without you voting manually."
+        },
+        "cta": "Stake ICP"
+      },
+      "amount": {
+        "minimum": "Minimum stake"
+      },
+      "success": {
+        "title": "Neuron created",
+        "description": "Open Manage Neurons and refresh to see it — neuron data is only fetched with your device."
+      }
+    },
+    "manageNeuronFlow": {
+      "title": "Manage neurons",
+      "confirmation": {
+        "backToNeurons": "Back to neurons",
+        "success": {
+          "title": "Done",
+          "default": "Your neuron has been updated.",
+          "list_neurons": "Your neurons are up to date.",
+          "start_dissolving": "Your neuron has started dissolving.",
+          "stop_dissolving": "Your neuron has stopped dissolving.",
+          "disburse": "Your neuron's stake has been disbursed to your account.",
+          "set_dissolve_delay": "Your neuron's dissolve delay has been set.",
+          "increase_dissolve_delay": "Your neuron's dissolve delay has been increased.",
+          "add_hot_key": "The hot key has been added to your neuron.",
+          "remove_hot_key": "The hot key has been removed from your neuron.",
+          "follow": "Your neuron's following has been updated.",
+          "refresh_voting_power": "Your neuron's voting power has been refreshed.",
+          "stake_maturity": "Your neuron's maturity has been staked.",
+          "auto_stake_maturity": "Automatic maturity staking has been updated.",
+          "spawn_neuron": "A new neuron is spawning from your maturity.",
+          "split_neuron": "Your neuron has been split.",
+          "increase_stake": "Your neuron's stake has been increased."
+        }
+      },
+      "listNeuron": {
+        "title": "Neurons",
+        "empty": "You have no neurons yet. Stake ICP to create one.",
+        "lastSynced": "Last synced:",
+        "never": "Never",
+        "decayingTitle": "One of your neurons is losing voting power.",
+        "decayingDescription": "Confirming its following restores it for another six months.",
+        "sync": "Refresh neurons"
+      },
+      "manage": {
+        "title": "Manage",
+        "neuron": "Neuron",
+        "hotKeyOnly": "You hold a hot key on this neuron. You can vote and set following, but not move its stake.",
+        "missingNeuron": "This neuron is no longer in your synced snapshot. Go back to your neurons and sync to pick another.",
+        "votingPower": {
+          "title": "Voting power",
+          "tooltip": "Voting power decides how much weight your neuron carries in governance, and how many rewards it earns.",
+          "staked": "Staked",
+          "increaseStake": "Increase stake",
+          "state": "State",
+          "bonusValue": "+{{percent}}%",
+          "ageBonus": "Age bonus",
+          "ageBonusTooltip": "A neuron earns up to +25% voting power as it ages, reaching the maximum after four years.",
+          "dissolveDelayBonus": "Dissolve delay bonus: +{{percent}}%",
+          "dissolveDelayBonusTooltip": "A longer dissolve delay earns up to +200% voting power, reaching the maximum at two years.",
+          "noDissolveDelay": "No dissolve delay",
+          "setDissolveDelay": "Set dissolve delay",
+          "increaseDissolveDelay": "Increase dissolve delay",
+          "decayStartsIn": "Voting power starts decaying in {{duration}}",
+          "decaying": "Voting power is decaying — reaches zero in {{duration}}",
+          "expired": "Voting power lost — following has been cleared",
+          "confirmFollowing": "Confirm following",
+          "confirmFollowingTooltip": "Confirm your following at least every six months, or your neuron gradually loses its voting power."
+        },
+        "maturity": {
+          "title": "Maturity",
+          "tooltip": "Maturity is the reward a neuron accrues. Stake it back into the neuron, or spawn it into a new one.",
+          "available": "Available maturity",
+          "staked": "Staked maturity",
+          "stakedTooltip": "Maturity already staked into the neuron. It counts toward voting power and can no longer be spawned into a new neuron.",
+          "stake": "Stake maturity",
+          "spawn": "Spawn neuron",
+          "autoStake": "Automatic maturity staking",
+          "autoStakeTooltip": "When enabled, maturity is staked back into the neuron as it accrues."
+        },
+        "following": {
+          "title": "Following",
+          "tooltip": "A neuron that follows others votes as they do, which is how it earns rewards without voting manually.",
+          "count_one": "{{count}} topic",
+          "count_other": "{{count}} topics",
+          "edit": "Follow neurons on a governance topic",
+          "follow": "Edit following"
+        },
+        "hotKeys": {
+          "title": "Hot keys",
+          "tooltip": "A hot key can vote and set following on your behalf, but can never move the neuron's stake.",
+          "add": "Grant hot-key access to another principal",
+          "addAction": "Add hot key",
+          "remove": "Remove"
+        },
+        "advanced": {
+          "title": "Advanced",
+          "split": "Split this neuron into two",
+          "splitTooltip": "Both the original and the new neuron must keep at least the minimum stake of 1 ICP.",
+          "splitAction": "Split neuron"
+        }
+      },
+      "increaseStake": {
+        "title": "Increase stake",
+        "description": "Add ICP to this neuron. The transfer goes to the neuron's own account, so there is no recipient to choose."
+      },
+      "setDissolveDelay": {
+        "title": "Dissolve delay",
+        "setDescription": "Choose how long the neuron takes to dissolve. Between {{min}} and {{max}} days.",
+        "increaseDescription": "Add to the neuron's dissolve delay. You can add up to {{remaining}} more days, for a total of {{max}}, and it can never be lowered.",
+        "days": "Days",
+        "resulting": "New dissolve delay: {{duration}}",
+        "belowVotingThreshold": "Below {{days}} days the neuron cannot vote and earns no rewards."
+      },
+      "stakeMaturity": {
+        "title": "Stake maturity",
+        "description": "Stake a share of this neuron's maturity back into it, increasing its voting power.",
+        "percentage": "Percentage to stake",
+        "selected": "Amount to stake:"
+      },
+      "splitNeuron": {
+        "title": "Split neuron",
+        "description": "Move part of this neuron's stake into a new neuron. The new neuron starts with no dissolve delay or age bonus.",
+        "amount": "Amount to split off",
+        "range": "Allowed range:"
+      },
+      "addHotKey": {
+        "title": "Add hot key",
+        "description": "Grant another principal permission to vote and set following on this neuron. It can never move the stake.",
+        "principal": "Principal ID",
+        "ownPrincipal": "This account's principal",
+        "ownPrincipalHint": "Enter a different principal — typically the one you sign in with on the NNS dapp. This account already controls the neuron, so adding its own principal grants nothing."
+      },
+      "followTopic": {
+        "title": "Topic",
+        "description": "Pick the governance topic whose following you want to change.",
+        "followeeCount_one": "{{count}} followee",
+        "followeeCount_other": "{{count}} followees"
+      },
+      "selectFollowees": {
+        "title": "Followees",
+        "description": "Your neuron will vote on {{topic}} exactly as these neurons do.",
+        "neuronId": "Neuron ID to follow",
+        "add": "Add",
+        "remove": "Remove",
+        "empty": "No followees yet. Your neuron will not vote on this topic.",
+        "clearsFollowing": "Continuing submits an empty list, which stops this neuron following anyone on {{topic}}. It currently follows {{count}}.",
+        "notANeuronId": "A neuron ID is digits only.",
+        "outOfRange": "This is not a valid neuron ID.",
+        "duplicate": "This neuron is already a followee on this topic.",
+        "self": "A neuron cannot follow itself.",
+        "unadded": "Tap Add to include this neuron ID, or clear the field.",
+        "atCapacity": "A topic can follow at most {{max}} neurons. Remove one to add another."
+      }
+    },
+    "governanceTopic": {
+      "Unspecified": "All other topics",
+      "NeuronManagement": "Neuron management",
+      "ExchangeRate": "Exchange rate",
+      "NetworkEconomics": "Network economics",
+      "Governance": "Governance",
+      "NodeAdmin": "Node admin",
+      "ParticipantManagement": "Participant management",
+      "SubnetManagement": "Subnet management",
+      "NetworkCanisterManagement": "Application canister management",
+      "Kyc": "KYC",
+      "NodeProviderRewards": "Node provider rewards",
+      "SnsDecentralizationSale": "SNS decentralization sale",
+      "IcOsVersionDeployment": "IC OS version deployment",
+      "IcOsVersionElection": "IC OS version election",
+      "SnsAndCommunityFund": "SNS & Community Fund",
+      "ApiBoundaryNodeManagement": "API boundary node management",
+      "SubnetRental": "Subnet rental",
+      "ProtocolCanisterManagement": "Protocol canister management",
+      "ServiceNervousSystemManagement": "Service Nervous System management"
+    },
+    "refreshVotingPowerFlow": {
+      "title": "Confirm following",
+      "description": "Confirming your following restores a neuron's voting power for another six months.",
+      "timeUntilLoss": "Voting power lost in",
+      "losing": "{{duration}} — losing power now",
+      "expired": "Already lost",
+      "confirm": "Confirm",
+      "empty": "None of your neurons are on a confirmation clock right now."
+    }
+  },
   "buyCurrency": {
     "buyCTA": "Buy {{ currencyNameOrTicker }}"
   },
@@ -109,6 +375,36 @@
     "ldmkEnabled": "LDMK transport enabled"
   },
   "errors": {
+    "AleoAlreadyBondedElsewhere": {
+      "title": "Already staking with {{bondedValidator}}. Unstake before changing validator.",
+      "description": "Aleo allows one validator per account. Unstake from {{bondedValidator}} before staking elsewhere."
+    },
+    "AleoBondAmountTooLow": {
+      "title": "You must stake at least {{minAmount}} at a time.",
+      "description": "The minimum staking amount is {{minAmount}}."
+    },
+    "AleoClosedValidator": {
+      "title": "This validator is not accepting new delegators.",
+      "description": "This validator is not accepting new delegators. Choose an open validator to continue."
+    },
+    "AleoNoClaimableUnbondedFunds": {
+      "title": "No unbonded ALEO to claim yet",
+      "description": "Unbonded ALEO becomes claimable once its unbonding period has elapsed. Come back once it has."
+    },
+    "AleoStakeAmountTooLow": {
+      "title": "Staking requires a total of at least {{minAmount}}.",
+      "description": "You must have at least {{minAmount}} staked in total."
+    },
+    "AleoUnbondingValidator": {
+      "title": "This validator is unbonding.",
+      "description": "This validator is withdrawing its own stake, so the network rejects new stake to it. Choose another validator to continue."
+    },
+    "ZcashMemoTooLong": {
+      "title": "Memo must not exceed {{maxBytes}} bytes"
+    },
+    "ZcashSendTooLarge": {
+      "title": "This amount is too large to send in one transaction: try sending it in smaller amounts"
+    },
     "ReplacementTransactionUnderpriced": {
       "title": "Replacement transaction underpriced",
       "description": "The network fee might be too low. Please increase"
@@ -179,6 +475,10 @@
     "CeloAllFundsWarning": {
       "title": "Ensure you have enough balance left for future transaction fees"
     },
+    "CeloEpochProcessingActive": {
+      "title": "This action is temporarily unavailable",
+      "description": "Celo is currently processing an epoch update. During this short on-chain window, staking actions such as voting, activating, revoking, locking, and unlocking are temporarily blocked by the network. Please try again once epoch processing is complete."
+    },
     "CeloGroupNotVotable": {
       "title": "This validator group cannot receive votes. It may be full or no longer eligible."
     },
@@ -203,6 +503,66 @@
     "ConcordiumSessionExpiredError": {
       "title": "Session expired",
       "description": "The Concordium ID App session is no longer active. Please pair again."
+    },
+    "ConcordiumInsufficientCcdForFee": {
+      "title": "Not enough CCD for the network fee",
+      "description": "The network fee is paid in CCD, not in the token you are sending. Add CCD to this account and try again."
+    },
+    "ConcordiumTokenPaused": {
+      "title": "Transfers are paused for this token",
+      "description": "The token issuer has paused all transfers. You can try again once transfers resume."
+    },
+    "ConcordiumTokenTransferNotPermitted": {
+      "title": "This account cannot send this token",
+      "description": "The token issuer restricts who may send it. Contact the token issuer for details."
+    },
+    "ConcordiumAccountNotAllowed": {
+      "title": "This account hasn't been approved to send this token",
+      "description": "The token issuer keeps a list of approved senders, and this account is not on it. Approval is managed by the issuer, not by Ledger."
+    },
+    "ConcordiumAccountDenied": {
+      "title": "This account is restricted from sending this token",
+      "description": "The token issuer has restricted this account. Contact the issuer for details."
+    },
+    "ConcordiumTokenRestrictionsUnverified": {
+      "title": "Token restrictions could not be verified",
+      "description": "This token's transfer rules could not be read, so the transfer cannot be confirmed as allowed. Please resync your account and try again."
+    },
+    "ConcordiumRecipientNotAllowed": {
+      "title": "This address can't receive {{ticker}}",
+      "description": "It hasn't been approved by the token issuer. Approval is managed by the issuer, not by Ledger."
+    },
+    "ConcordiumRecipientDenied": {
+      "title": "This address is restricted from receiving {{ticker}}",
+      "description": "The token issuer has restricted this address. Contact the issuer for details."
+    },
+    "ConcordiumRecipientRestrictionsUnverified": {
+      "title": "{{ticker}} restrictions could not be verified",
+      "description": "Whether this address may receive {{ticker}} could not be checked, so the transfer cannot be confirmed as allowed. Please check your connection and try again."
+    },
+    "ConcordiumRecipientNotFound": {
+      "title": "This address doesn't exist on Concordium",
+      "description": "Check the address and try again. Sending to an address that was never created fails on the network and still costs a fee."
+    },
+    "ConcordiumUnsupportedTokenDecimals": {
+      "title": "This token cannot be signed on your Ledger device",
+      "description": "The token uses {{decimals}} decimal places, and your device supports at most {{maxDecimals}}. Receiving and holding it are unaffected."
+    },
+    "ConcordiumTokenAccountUnavailable": {
+      "title": "This token is no longer in your account",
+      "description": "The token you selected is not available any more. Please start the transaction again."
+    },
+    "ConcordiumInvalidPltPayloadError": {
+      "title": "This transaction cannot be prepared",
+      "description": "The token's details are outside what your Ledger device accepts, so the transaction cannot be built. Please contact Ledger Support."
+    },
+    "ConcordiumAppOutdatedError": {
+      "title": "App update required",
+      "description": "The Concordium app on your Ledger device does not support token transfers. Update it in My Ledger and try again."
+    },
+    "ConcordiumSignerProtocolError": {
+      "title": "Something went wrong. Please reconnect your device",
+      "description": "The Concordium app could not process the transaction. If the problem continues, please contact Ledger Support."
     },
     "CosmosBroadcastCodeInternal": {
       "title": "Something went wrong (Error #1)",
@@ -271,6 +631,10 @@
     "CosmosBroadcastCodeNoSignatures": {
       "title": "Something went wrong (Error #17)",
       "description": "Please save your logs using the button below and provide them to Ledger Support."
+    },
+    "CosmosMemoTooLong": {
+      "title": "Memo exceeds maximum length",
+      "description": "Your memo is {{memoLength}} bytes, but the maximum allowed is {{maxLength}} bytes. Please reduce the memo size."
     },
     "DeviceAppVerifyNotSupported": {
       "title": "Open My Ledger to update this app",
@@ -491,6 +855,9 @@
     "FeeTooHigh": {
       "title": "Network fees are above 10% of the amount"
     },
+    "RecipientIsNewAccount": {
+      "title": "This address has never received funds, activating it costs a higher network fee"
+    },
     "FeeTooLow": {
       "title": "Fees are too low to be accepted by the network. Please increase them"
     },
@@ -672,6 +1039,10 @@
       "title": "Sorry, insufficient funds",
       "description": "Please make sure the account has enough funds."
     },
+    "UnexpectedGetBalanceError": {
+      "title": "Your balance could not be retrieved",
+      "description": "Please check your internet connection and try again."
+    },
     "UnstakeNotEnoughStakedBalanceLeft": {
       "title": "If you unstake more than {{maxAmount}}, your total stake of {{totalAmount}} will be unstaked",
       "description": "If you unstake more than {{maxAmount}}, your total stake of {{totalAmount}} will be unstaked"
@@ -749,7 +1120,17 @@
       "title": "Minimum amount is 1 SUI"
     },
     "OneSuiMinForUnstakeToBeLeft": {
-      "title": "At least 1 SUI should be left in stake"
+      "title": "Unstake the full amount, or leave at least 1 SUI staked"
+    },
+    "SuiStakeNotFound": {
+      "title": "Stake details unavailable. Please resynchronise your account and try again"
+    },
+    "SuiUnstakeExceedsStake": {
+      "title": "Amount exceeds the selected stake"
+    },
+    "SuiAddressBalanceAppUpdateRequired": {
+      "title": "Update your Sui app",
+      "description": "Your Ledger Sui app can't sign a transfer from your SUI address balance. Update the Sui app on your Ledger device and try again."
     },
     "PasswordIncorrect": {
       "title": "Incorrect password",
@@ -785,6 +1166,10 @@
     "TransactionRefusedOnDevice": {
       "title": "Transaction refused on device",
       "description": "Please try again. If the problem persists, please save your logs using the button below and provide them to Ledger Support."
+    },
+    "TransferOfferExpiredError": {
+      "title": "This offer has expired",
+      "description": "The transfer offer expired before it was accepted. Ask the sender to send a new one."
     },
     "TransportError": {
       "title": "Something went wrong. Please reconnect your device.",
@@ -920,6 +1305,9 @@
     },
     "TezosStakeBlockedByPendingUnstake": {
       "title": "Unstaking from your previous validator must finish first"
+    },
+    "TezosStakeAmountTooSmall": {
+      "title": "This amount is too small to stake"
     },
     "RecommendSubAccountsToEmpty": {
       "title": "Please empty all subaccounts first"
@@ -1323,6 +1711,9 @@
     "AccountCreationFeeWarning": {
       "title": "This transaction will incur an account creation fee of {{fee}}"
     },
+    "AmountRequired": {
+      "title": "Enter an amount to continue."
+    },
     "AmountTooSmall": {
       "title": "Minimum required amount for this transaction is {{amount}}"
     },
@@ -1335,6 +1726,140 @@
     },
     "UtxoLimitReachedError": {
       "title": "Amount too large for UTXO constraints."
+    },
+    "CurrencyRegionRestrictedError": {
+      "title": "{{currencyName}} is not available in your region",
+      "description": "Access to {{currencyName}} is restricted in your region."
+    },
+    "NotEnoughTransferAmount": {
+      "title": "Amount too small",
+      "description": "A neuron must hold at least 1 ICP, so the amount has to cover that plus the network fee."
+    },
+    "ICPDissolveDelayLTMin": {
+      "title": "Dissolve delay too short",
+      "description_one": "The Internet Computer requires a dissolve delay of at least {{minDays}} day.",
+      "description_other": "The Internet Computer requires a dissolve delay of at least {{minDays}} days."
+    },
+    "ICPInvalidDissolveDelayIncrease": {
+      "title": "Invalid number of days",
+      "description": "Enter a whole number of days greater than zero."
+    },
+    "ICPDissolveDelayGTMax": {
+      "title": "Dissolve delay too long",
+      "description_one": "The Internet Computer caps a neuron's dissolve delay at {{maxDays}} day.",
+      "description_other": "The Internet Computer caps a neuron's dissolve delay at {{maxDays}} days."
+    },
+    "ICPDissolveDelayLTCurrent": {
+      "title": "Dissolve delay cannot be shortened",
+      "description": "A neuron's dissolve delay can only be increased. To shorten it, start dissolving the neuron instead."
+    },
+    "ICPNeuronNotFound": {
+      "title": "Neuron not found",
+      "description": "This neuron is missing from your last synced snapshot. Sync your neurons and try again."
+    },
+    "ICPInvalidHotKey": {
+      "title": "Invalid principal",
+      "description": "A hot key must be a valid Internet Computer principal."
+    },
+    "ICPHotKeyAlreadyExists": {
+      "title": "Hot key already added",
+      "description": "This principal is already a hot key on this neuron."
+    },
+    "ICPHotKeyIsController": {
+      "title": "This principal already controls the neuron",
+      "description": "Enter a different principal. A hot key can only vote and set following, which the controller can already do."
+    },
+    "ICPSplitNotAllowed": {
+      "title": "Amount outside the range this neuron can split",
+      "description": "Both the original neuron and the new one must keep at least 1 ICP staked, plus the network fee on the amount moved."
+    },
+    "ICPSpawnNotAllowed": {
+      "title": "Cannot spawn from this neuron",
+      "description": "A neuron that is already spawning cannot spawn again, and the maturity spawned has to leave at least 1 ICP after the network's maturity adjustment. Sync your neurons to see their current state."
+    },
+    "ICPStakeMaturityNotAllowed": {
+      "title": "Cannot stake this neuron's maturity",
+      "description": "Maturity cannot be staked while the neuron is spawning, once it has fully dissolved, or when the neuron has none. Sync your neurons to see their current state."
+    },
+    "ICPFollowTopicNotAllowed": {
+      "title": "This topic cannot be followed",
+      "description": "The Internet Computer has retired this topic, or the Ledger Internet Computer app cannot yet sign following on it. Choose another topic."
+    },
+    "ICPTooManyFollowees": {
+      "title": "Followee limit reached",
+      "description": "A topic can follow at most {{max}} neurons. Remove neurons until the list holds {{max}} or fewer."
+    },
+    "ICPInvalidFolloweeId": {
+      "title": "Invalid neuron ID",
+      "description": "{{id}} is not a valid neuron ID. Remove it from the list."
+    },
+    "ICPDuplicateFollowee": {
+      "title": "Neuron listed twice",
+      "description": "Neuron {{id}} is listed more than once. Remove the duplicate."
+    },
+    "ICPFolloweeIsSelf": {
+      "title": "A neuron cannot follow itself",
+      "description": "{{id}} is this neuron's own ID. Remove it from the list."
+    },
+    "ICPStartDissolvingNotAllowed": {
+      "title": "Cannot start dissolving this neuron",
+      "description": "Only a locked neuron can start dissolving. Sync your neurons to see their current state."
+    },
+    "ICPStopDissolvingNotAllowed": {
+      "title": "Cannot stop dissolving this neuron",
+      "description": "Only a dissolving neuron can stop dissolving, and this one may have already finished. Sync your neurons to see their current state."
+    },
+    "ICPDisburseNotAllowed": {
+      "title": "Cannot disburse this neuron",
+      "description": "A neuron can be disbursed once it has fully dissolved and its stake is more than the network fee. Sync your neurons to see their current state."
+    },
+    "ICPTooManyHotKeys": {
+      "title": "Hot key limit reached",
+      "description": "A neuron can hold at most {{max}} hot keys. Remove one to add another."
+    },
+    "ICPTopUpBelowMinimumStake": {
+      "title": "Top-up too small",
+      "description": "A neuron's balance has to reach 1 ICP after a top-up. As of the last sync this neuron needs at least {{missing}} ICP more. A smaller transfer settles in the neuron's account but is not counted until a later top-up reaches the minimum."
+    },
+    "ICPStakeNotRefreshed": {
+      "title": "Stake transferred, neuron not updated",
+      "description": "The ICP was transferred to the neuron's account, but Internet Computer governance refused to update the neuron from it. {{reason}} Nothing is lost: the amount stays in the neuron's account and counts toward the next top-up that brings the balance to at least 1 ICP. Ledger Live cannot see it there yet, so the amount field still asks for the full shortfall the last sync shows."
+    },
+    "ICPStakeMemoNotRecoverable": {
+      "title": "Cannot top up this neuron",
+      "description": "Topping up a neuron needs the memo from the transaction that created it, and it is not in this account's history. Top it up from the account that created the neuron."
+    },
+    "ICPCallUnconfirmed": {
+      "title": "Outcome unknown",
+      "description": "The Internet Computer accepted the request but returned no result, so it may or may not have taken effect. Sync your neurons to check before trying again."
+    },
+    "ICPInvalidPercentage": {
+      "title": "Percentage out of range",
+      "description": "Enter a whole number between 1 and 100."
+    },
+    "ICPNeuronsNotRead": {
+      "title": "Neurons not refreshed",
+      "description": "The Internet Computer did not return your neurons, so they are unchanged. Please try again."
+    },
+    "ICPGovernanceRejected": {
+      "title": "The network refused this operation",
+      "description": "Internet Computer governance rejected the request, so the neuron is unchanged. Sync your neurons to see their current state. {{reason}}"
+    },
+    "ICPCallRejected": {
+      "title": "Request not accepted",
+      "description": "The Internet Computer rejected the request before it ran, so nothing changed. Please try again. {{reason}}"
+    },
+    "ICPNodeRefused": {
+      "title": "Request not sent",
+      "description": "The Internet Computer did not take the request, so nothing was sent and nothing changed. Please try again. {{reason}}"
+    },
+    "ICPCreateNeuronWarning": {
+      "title": "This locks your ICP in a new neuron",
+      "description": "The neuron starts with the shortest dissolve delay, which is too short to vote or earn rewards. Raise it from Manage Neurons, and expect to wait out the delay before the stake is spendable again."
+    },
+    "ICPIncreaseStakeWarning": {
+      "title": "This adds to a locked stake",
+      "description": "The amount joins the neuron's existing stake and follows its dissolve delay, so it is not spendable until the neuron dissolves."
     }
   },
   "crash": {
@@ -1486,6 +2011,104 @@
     "confirm": "Are you sure you want to sign out?",
     "disclaimer": "All account data will be removed from your phone.",
     "action": "Sign me out"
+  },
+  "appLock": {
+    "field": {
+      "label": "Enter password",
+      "reveal": "Show password",
+      "hide": "Hide password",
+      "minLength": "Must be at least 6 characters"
+    },
+    "setupPassword": {
+      "title": "Enter password",
+      "description": "You'll need this password each time you open the app. If you lose it, reinstall the app and restore your wallet.",
+      "cta": "Continue"
+    },
+    "confirmPassword": {
+      "title": "Confirm password",
+      "description": "You'll need this password each time you open the app. If you lose it, reinstall the app and restore your wallet.",
+      "mismatch": "Passwords don't match",
+      "saveFailed": "We couldn't save your password. Please try again.",
+      "cta": "Confirm"
+    },
+    "longerPassword": {
+      "prompt": {
+        "title": "Change your password",
+        "description": "For better security, enter a password of at least 6 characters.",
+        "cta": "Change password"
+      },
+      "enter": {
+        "title": "Enter new password"
+      },
+      "confirm": {
+        "title": "Confirm new password"
+      },
+      "changed": {
+        "title": "Password changed",
+        "cta": "Got it"
+      }
+    },
+    "unlock": {
+      "wrongPassword": "Incorrect password",
+      "forgotPassword": "Forgot your password?",
+      "retryBiometrics": "Use biometrics",
+      "unlockCta": "Unlock Ledger Wallet",
+      "failed": "We couldn't check your password. Please try again.",
+      "cta": "Confirm",
+      "biometricsPrompt": "Unlock Ledger Wallet",
+      "forgotPasswordSheet": {
+        "title": "Forgot password",
+        "description": "If you’ve lost your password, reinstall the app and restore your wallet.",
+        "cta": "Got it"
+      }
+    },
+    "enableProtection": {
+      "biometrics": {
+        "title": "Enable {{biometricsType}}",
+        "description": "The crypto card requires {{biometricsType}}. You'll use it each time you open the app.",
+        "cta": "Enable {{biometricsType}}"
+      },
+      "password": {
+        "title": "Create a password",
+        "description": "The crypto card requires a password. You'll use it each time you open the app.",
+        "cta": "Create password"
+      }
+    },
+    "protectionEnabled": {
+      "biometrics": {
+        "title": "{{biometricsType}} enabled"
+      },
+      "password": {
+        "title": "Password created"
+      },
+      "description": "You can now sign up to get a card",
+      "cta": "Continue"
+    },
+    "keepProtection": {
+      "password": {
+        "title": "You can't turn off your password",
+        "description": "You need a password or biometrics to protect your access to Ledger Wallet."
+      },
+      "biometrics": {
+        "title": "You can't turn off {{biometricsType}}",
+        "description": "You need {{biometricsType}} or a password to protect your access to Ledger Wallet."
+      },
+      "cta": "Got it"
+    },
+    "biometrics": {
+      "title": "{{biometricsType}}",
+      "desc": "Unlock the app with {{biometricsType}}.",
+      "prompt": "Confirm {{biometricsType}} to use it for unlocking",
+      "disablePrompt": "Confirm {{biometricsType}} to stop using it for unlocking",
+      "useDeviceCredential": "Use PIN"
+    },
+    "deactivatePassword": {
+      "title": "Deactivate password",
+      "description": "Enter your password to deactivate it.",
+      "wrongPassword": "Incorrect password",
+      "failed": "We couldn't deactivate your password. Please try again.",
+      "cta": "Confirm"
+    }
   },
   "auth": {
     "failed": {
@@ -1792,6 +2415,37 @@
       "cta": "Fund your wallet",
       "title": "Start by funding your wallet",
       "subTitle": "Fund your Ledger Wallet your way — transfer, buy, or convert cash to stablecoins."
+    }
+  },
+  "q3WalletV4Tour": {
+    "cta": {
+      "start": "Take a look",
+      "next": "Next",
+      "done": "All caught up"
+    },
+    "intro": {
+      "title": "A quick tour of the latest",
+      "subTitle": "New ways to send, spend, earn, and more."
+    },
+    "contact": {
+      "title": "Say goodbye to long addresses",
+      "subTitle": "Introducing Contacts. Save wallet addresses with names. Easy to find, easy to send."
+    },
+    "contactNoPay": {
+      "title": "Say hello to Contacts",
+      "subTitle": "Say goodbye to long addresses. Save wallet addresses with names. Easy to find, easy to send."
+    },
+    "pay": {
+      "title": "Say hello to Pay",
+      "subTitle": "Pay contacts, request money, and get cashback with crypto card. Now, all via one tab."
+    },
+    "payNoCard": {
+      "title": "Say hello to Pay",
+      "subTitle": "Pay contacts and request money, all via one tab."
+    },
+    "yield": {
+      "title": "Keep your crypto, finance your projects",
+      "subTitle": "Borrow stablecoins using wrapped BTC as collateral via Yield.xyz powered by Morpho."
     }
   },
   "q2WalletV4Tour": {
@@ -2823,6 +3477,11 @@
       "skipCTA": "Maybe later"
     }
   },
+  "perpsAccountBanner": {
+    "title": "About Hyperliquid account",
+    "description": "This account is related to Perpetual trading. Transactional actions are not supported for this account",
+    "cta": "Open Perps"
+  },
   "portfolio": {
     "totalBalance": "Total balance",
     "syncPending": "Synchronizing...",
@@ -3025,9 +3684,19 @@
       "UNSTAKE": "Unstaked",
       "WITHDRAW_UNSTAKED": "Withdrawn",
       "FINALIZE_UNSTAKE": "Unstaked",
+      "STAKE_NEURON": "Staked",
+      "TOP_UP_NEURON": "Stake increased",
       "ASSOCIATE_TOKEN": "Associate token",
       "CONTRACT_CALL": "Contract call",
       "UPDATE_ACCOUNT": "Updated account"
+    }
+  },
+  "history": {
+    "cardAssetScope": "Card · {{assetName}}",
+    "tabs": {
+      "crypto": "Crypto",
+      "card": "Card",
+      "accessibilityLabel": "Transaction history type"
     }
   },
   "operationsList": {
@@ -3069,6 +3738,13 @@
     },
     "details": "{{ currency }} details",
     "extra": {
+      "pltReject": {
+        "title": "Reason",
+        "nonExistentToken": "This token doesn't exist on Concordium.",
+        "recipientNotFound": "The recipient account doesn't exist on Concordium.",
+        "insufficientBalance": "The account didn't hold enough of the token.",
+        "rejected": "Concordium refused this operation."
+      },
       "transferId": "Transfer ID (Memo)",
       "resource": "Resource",
       "validator": "Validator",
@@ -3114,7 +3790,8 @@
       "previousStakingNodeId": "Previous node ID",
       "gasConsumed": "Gas consumed",
       "gasUsed": "Gas used",
-      "functionId": "Function ID"
+      "functionId": "Function ID",
+      "inputs": "Inputs"
     },
     "multipleAddresses": "Why multiple addresses?"
   },
@@ -3707,6 +4384,9 @@
       "featureFlagsRestoreAll": "Restore all flag values",
       "featureFlagsTabAll": "All",
       "featureFlagsTabGroups": "Groups",
+      "contentAbTests": {
+        "invalidPayload": "Invalid payload. \"enabled\" must be a boolean and \"copy\" must map keys to strings."
+      },
       "firebaseProject": "Firebase project targeted by this build:",
       "showBannerDesc": "Show banner when flags are overridden",
       "bannerTitle": "Flags overridden locally",
@@ -3775,6 +4455,23 @@
           "triggerLabel": "Trigger",
           "entriesLabel": "Entries ({{count}})",
           "untitledEntry": "Untitled entry"
+        }
+      },
+      "deviceSimulationDevTool": {
+        "title": "Device simulation (QA)",
+        "description": "Simulate device history to test Nano-user upsell surfaces without physical devices.",
+        "currentHistory": "Active QA devices: {{devices}}",
+        "resetWarning": "Reset clears the 6 QA device toggles only. Other device history entries are unchanged; real history cannot be restored without the simulation engine.",
+        "reset": "Reset device history",
+        "none": "none",
+        "deviceDesc": "Mark this device as previously connected for QA testing.",
+        "devices": {
+          "nanoS": "Nano S",
+          "nanoSP": "Nano S Plus",
+          "nanoX": "Nano X",
+          "stax": "Ledger Stax",
+          "europa": "Ledger Flex",
+          "apex": "Ledger Flex Plus"
         }
       }
     }
@@ -3910,6 +4607,7 @@
         "copyAdress": "Copy address",
         "addressCopied": "Address copied!",
         "addressVerified": "Address verified",
+        "qrCode": "QR code for your receive address",
         "verifyAddress": "Verify your address",
         "adviceVerify": "We always recommend verifying your address with your Ledger device",
         "sendWarning": "Send only tokens from {{network}} network. Sending from another network may result in permanent loss of your tokens.",
@@ -4199,6 +4897,11 @@
             "viewInExplorer": "View in explorer",
             "copied": "Copied"
           },
+          "earnBanner": {
+            "title": "Earn up to {{apy}}% {{type}}",
+            "description": "Explore Earn opportunities",
+            "button": "Explore"
+          },
           "accessibility": {
             "copySwapId": "Copy swap ID"
           }
@@ -4466,6 +5169,8 @@
     "sign": {
       "title": "Continue on your {{productName}}",
       "description": "Follow the instructions displayed on your Secure Screen",
+      "termsAndConditions": "By signing this transaction, you accept <0>{{appName}}'s terms of use</0>.",
+      "termsAndConditionsWithPrivacy": "By signing this transaction, you accept <0>{{appName}}'s terms of use</0> and <1>Privacy Policy</1>.",
       "cancelled": {
         "title": "Operation rejected on device",
         "close": "Close",
@@ -4483,6 +5188,7 @@
   "send": {
     "newSendFlow": {
       "title": "Send {{currency}}",
+      "selectAddress": "Select address",
       "available": "Available {{amount}}",
       "to": "To:",
       "addressDisclaimer": {
@@ -4492,10 +5198,22 @@
       },
       "placeholder": "Enter address or ENS",
       "placeholderNoENS": "Enter address",
+      "placeholderWithContacts": "Enter address, ENS or contact",
+      "placeholderNoEnsWithContacts": "Enter address or contact",
       "pasteFromClipboard": {
         "title": "Paste from clipboard",
         "cta": "Paste"
       },
+      "addContact": {
+        "newContact": "Add a new contact",
+        "existingContact": "Add to an existing contact",
+        "selectContact": "Select contact",
+        "syncWallet": {
+          "title": "Sync your wallet to add a contact",
+          "description": "Contacts are end-to-end encrypted and synced across Ledger Wallet on all your phones and computers."
+        }
+      },
+      "contactsWillAppear": "Contacts will appear here",
       "editRecipientAccessibilityLabel": "Edit recipient",
       "sendTo": "Send to {{address}}",
       "addressMatched": "Address matched",
@@ -4503,6 +5221,10 @@
       "account": "Account",
       "alreadyUsed": "Already used · {{date}}",
       "notInRecentHistory": "Not in your recent history",
+      "addressBookUnsupported": {
+        "title": "{{family}} is not supported yet",
+        "description": "You can't add a {{family}} address to your contacts yet. We're adding more cryptos over time."
+      },
       "relativeDate": {
         "justNow": "Just now",
         "minutesAgo_one": "1 min ago",
@@ -4530,11 +5252,11 @@
         "walletNotExist": "Wallet doesn’t exist"
       },
       "skipMemo": {
-        "title": "Skip adding a {{tag}}?",
-        "warning": "Your asset may be lost if a {{tag}} is required by your recipient",
-        "notRequired": "{{tag}} not required by recipient?",
-        "confirm": "Yes, skip",
-        "neverAskAgain": "Don’t show this warning again"
+        "title": "Do you want to send without a {{tag}}?",
+        "description": "Your asset may be lost if a {{tag}} is required by your recipient.",
+        "confirm": "Yes, send without a {{tag}}",
+        "cancel": "No, go back",
+        "neverAskAgain": "Don't ask again"
       },
       "tagHelp": {
         "title": "What’s a {{tag}}?",
@@ -4692,10 +5414,6 @@
       "toggleCurrency": "Toggle currency"
     },
     "summary": {
-      "solanaRawTransaction": {
-        "title": "Blind signing required",
-        "description": "You cannot verify the transaction details on your Ledger device. If you sign it, you could lose all your assets. Only sign if you trust this website."
-      },
       "subaccountsWarning": "You will need to refill this account with {{ currency }} in order to send the tokens of this account",
       "tag": "Tag (Optional)",
       "validateTag": "Validate tag",
@@ -5042,29 +5760,28 @@
   "deviceIntentExecutor": {
     "genericStates": {
       "retryableDeviceLocked": {
-        "title": "Device is locked",
-        "description": "Unlock your device to continue."
+        "title": "Unlock your Ledger device and then select Retry below"
       },
       "unlockDevice": {
         "title": "Unlock your {{productName}}"
       },
       "continueOnDevice": {
         "title": "Continue on your {{productName}}",
-        "description": "Follow the instructions displayed on your Secure Screen"
+        "description": "Follow the instructions displayed on your Secure Screen."
       }
     },
     "errors": {
       "connectionError": {
-        "title": "Device disconnected",
-        "description": "Your Ledger is no longer connected. Make sure it's powered on and within Bluetooth range or plugged in."
+        "title": "Ledger Device disconnected",
+        "description": "Make sure it's powered on and within Bluetooth range or plugged in."
       },
       "intentError": {
         "title": "Unknown error",
-        "description": "An error occurred. Please try again or contact Ledger support if the issue persists."
+        "description": "Try again or contact Ledger support if the issue continues."
       },
       "invalidOperation": {
-        "title": "Invalid state",
-        "description": "An error occurred. Please try again or contact Ledger support if the issue persists."
+        "title": "An error occurred",
+        "description": "Try again or contact Ledger Support if the issue continues."
       }
     },
     "initialization": {
@@ -5080,45 +5797,50 @@
       },
       "retryable": {
         "userRefused": {
-          "title": "Operation rejected on device"
+          "title": "Operation rejected on Ledger device"
         },
         "deviceBusy": {
-          "title": "Action pending on your Ledger device",
-          "description": "Complete it and then select Retry."
+          "title": "Action needed on your Ledger device",
+          "description": "Finish the action on your device, then select “Retry” below."
         }
       },
       "blocking": {
         "deviceNotOnboarded": {
-          "title": "Your Ledger is not ready to use yet",
-          "description": "You need to set up your {{productName}} first. We will guide you through the device setup process"
+          "title": "Your Ledger device needs to be set up",
+          "description": "Set it up to continue."
         },
         "unsupportedFirmwareVersion": {
           "title": "Ledger OS update required"
         },
         "unsupportedApplication": {
           "title": "Unsupported feature",
-          "description": "The app required for this operation is not currently available on your Ledger device. Please contact Ledger support for details."
+          "description": "The app needed for this action is not supported by your Ledger device. Please contact Ledger Support for details."
         },
         "unsupportedFeature": {
           "title": "Unsupported feature",
-          "description": "The app required for this operation is not currently available on your Ledger device. Please contact Ledger support for details."
+          "description": "The app needed for this action is not supported by your Ledger device. Please contact Ledger Support for details."
         },
         "wrongDeviceForAccount": {
-          "title": "Wrong Secret Recovery Phrase",
-          "description": "This Ledger isn’t set up with the recovery phrase linked to the selected account. Check that you're using the correct device."
+          "title": "Use the Ledger device you originally set up this account with",
+          "description": "This Ledger isn't set up with the Secret Recovery Phrase linked to the selected crypto account."
         },
         "deviceOutOfStorageSpace": {
-          "title": "Not enough device memory",
-          "description": "Your device doesn’t have enough memory. Please uninstall apps and try again."
+          "title": "Uninstall some apps to free up Ledger device memory",
+          "description": "Your device doesn’t have enough memory."
+        },
+        "invalidProvider": {
+          "title": "Invalid Provider",
+          "description": "You have to change \"My Ledger provider\" setting. To change it, open Ledger Live \"Settings\", select \"Experimental features\", and then select a different provider."
         }
       },
       "cta": {
         "openMyLedger": "Open My Ledger",
         "goToMyLedger": "Go to My Ledger",
-        "setupDevice": "Set up device",
+        "setupDevice": "Set up Ledger device",
         "updateLedgerOs": "Update Ledger OS",
         "cancelOperation": "Cancel operation",
-        "contactLedgerSupport": "Contact Ledger support"
+        "contactLedgerSupport": "Contact Ledger support",
+        "goToSettings": "Go to settings"
       }
     },
     "connectDevice": {
@@ -5129,7 +5851,7 @@
       },
       "states": {
         "connecting": {
-          "title": "Loading"
+          "title": "Connecting to your Ledger device"
         },
         "connectionError": {
           "errors": {
@@ -5149,7 +5871,7 @@
             },
             "unknown": {
               "title": "Pairing unsuccessful",
-              "description": "Please try again or read our Bluetooth troubleshooting article below.",
+              "description": "Please try again or read our Bluetooth troubleshooting article below for more guidance.",
               "tip": "Make sure your device is unlocked.",
               "cta": {
                 "retry": "Try again",
@@ -5164,24 +5886,29 @@
         "discoveryError": {
           "errors": {
             "bluetoothPermissionDeniedPromptable": {
-              "title": "Allow Bluetooth access",
-              "description": "Allow Bluetooth to scan for nearby Ledger devices.",
+              "title": "Connect to your Ledger device via Bluetooth",
+              "description": "Ledger Wallet needs Bluetooth to find and pair with nearby Ledger devices. No data is shared via Bluetooth.",
               "cta": {
-                "retry": "Allow",
+                "retry": "Allow Bluetooth",
                 "ignore": "Continue with USB"
               }
             },
             "bluetoothPermissionDeniedManualSettings": {
-              "title": "Allow Bluetooth access",
-              "description": "Bluetooth permission is required. Go to Settings → Apps → Ledger Wallet → Permissions → Nearby devices, then come back.",
+              "title": "Enable Bluetooth in your phone’s Settings",
+              "description": "Ledger Wallet needs Bluetooth permission to find your Ledger device.\n\nGo to Settings → Apps → Ledger Wallet → Permissions → Nearby devices, then come back.",
               "cta": {
                 "retry": "I enabled it, try again",
-                "ignore": "Continue with USB"
+                "ignore": "Continue with USB instead"
               }
             },
             "bluetoothPermissionUnauthorizedManualSettings": {
-              "title": "Allow Bluetooth access",
-              "description": "Ledger Wallet needs Bluetooth permission to find your device. Enable it in Settings.",
+              "title": "Enable Bluetooth in your phone’s Settings",
+              "description": {
+                "platform": {
+                  "ios": "Ledger Wallet needs Bluetooth permission to find your device. Open Settings → Ledger Wallet. Turn on Bluetooth, then tap the button below.",
+                  "android": "Ledger Wallet needs Bluetooth permission to find your Ledger device.\n\nGo to Settings → Apps → Ledger Wallet → Bluetooth, then come back."
+                }
+              },
               "cta": {
                 "platform": {
                   "ios": {
@@ -5189,22 +5916,22 @@
                   },
                   "android": {
                     "retry": "I enabled it, try again",
-                    "ignore": "Continue with USB"
+                    "ignore": "Continue with USB instead"
                   }
                 }
               }
             },
             "bluetoothDisabledPromptable": {
-              "title": "Turn on Bluetooth",
-              "description": "Bluetooth is off. Turn it on to find your Ledger device.",
+              "title": "Enable Bluetooth on your phone",
+              "description": "Enable to scan for nearby Ledger devices.",
               "cta": {
-                "retry": "Turn on Bluetooth",
-                "ignore": "Continue with USB"
+                "retry": "Enable Bluetooth",
+                "ignore": "Continue with USB instead"
               }
             },
             "bluetoothDisabledManualAction": {
-              "title": "Turn on Bluetooth",
-              "description": "Bluetooth is off. Turn it on in your Settings → Bluetooth, then come back.",
+              "title": "Enable Bluetooth on your phone",
+              "description": "Enable Bluetooth, then come back to retry. Open Settings → Bluetooth. Toggle Bluetooth on, then select the button below.",
               "cta": {
                 "platform": {
                   "ios": {
@@ -5212,7 +5939,7 @@
                   },
                   "android": {
                     "retry": "I enabled Bluetooth, try again",
-                    "ignore": "Continue with USB"
+                    "ignore": "Continue with USB instead"
                   }
                 }
               }
@@ -5237,47 +5964,47 @@
               }
             },
             "locationPermissionDeniedPromptable": {
-              "title": "Allow location access",
-              "description": "Android needs Location permission to scan for Bluetooth devices.",
+              "title": "Android needs Location enabled to scan for Bluetooth devices",
+              "description": "Ledger does not access or store your location.",
               "cta": {
-                "retry": "Allow",
-                "ignore": "Continue with USB"
+                "retry": "Enable",
+                "ignore": "Continue with USB instead"
               }
             },
             "locationPermissionDeniedManualSettings": {
-              "title": "Allow location access",
-              "description": "Location permission is required to scan for Bluetooth devices. Go to Settings → Apps → Ledger Wallet → Permissions → Location, then come back.",
+              "title": "Enable Location in Settings",
+              "description": "Android requires this to scan for nearby Bluetooth devices. Go to Settings → Apps → Ledger Wallet → Permissions → Location. Set to \"Allow\", then select the button below. Ledger does not access or store your location.",
               "cta": {
                 "retry": "I enabled it, try again",
-                "ignore": "Continue with USB"
+                "ignore": "Continue with USB instead"
               }
             },
             "locationDisabledPromptable": {
-              "title": "Turn on Location",
-              "description": "Location services are off. Turn them on to scan for Bluetooth devices.",
+              "title": "Enable location to scan for Bluetooth devices",
+              "description": "Android requires this to scan for nearby Bluetooth devices. Ledger does not access or store your location.",
               "cta": {
-                "retry": "Turn on Location",
-                "ignore": "Continue with USB"
+                "retry": "Enable Location",
+                "ignore": "Continue with USB instead"
               }
             },
             "locationDisabledManualAction": {
-              "title": "Turn on Location",
-              "description": "Location services are off. Turn them on from Settings → Location, then come back.",
+              "title": "Location is needed to scan for nearby Bluetooth devices",
+              "description": "Open Settings → Location. Toggle Location on, then come back here and select the button below. Ledger never accesses or stores your location.",
               "cta": {
-                "retry": "I enabled Location, try again",
-                "ignore": "Continue with USB"
+                "retry": "I enabled it, try again",
+                "ignore": "Continue with USB instead"
               }
             },
             "locationServicePermissionMissing": {
-              "title": "Allow location access",
-              "description": "Location permission seems missing. Tap below to try again.",
+              "title": "Location permission couldn't be confirmed",
+              "description": "Android requires this to scan for nearby Bluetooth devices. Select “Try again”, this often resolves it. If not, check Settings → Apps → Ledger Wallet → Permissions → Location. Ledger does not access or store your location.",
               "cta": {
                 "retry": "Try again",
-                "ignore": "Continue with USB"
+                "ignore": "Continue with USB instead"
               }
             },
             "unknown": {
-              "title": "Something went wrong",
+              "title": "Bluetooth scanning unsuccessful",
               "description": "We couldn’t start the Bluetooth scan. Please try again or contact Ledger support.",
               "cta": {
                 "retry": "Try again"
@@ -5290,9 +6017,9 @@
         },
         "noKnownDevice": {
           "title": "Ledger device required",
-          "description": "To continue, set up or connect your signer.",
+          "description": "To continue, set up or connect your Ledger device.",
           "connectLedgerDevice": "Connect Ledger device",
-          "noLedgerDevice": "I don't have a Ledger device"
+          "noLedgerDevice": "I don’t have a Ledger device"
         },
         "waitingForSelectedDevice": {
           "title": "Power on and unlock your {{productName}}"
@@ -7627,7 +8354,53 @@
     }
   },
   "mina": {
-    "memoPlaceholder": "Optional Memo"
+    "memoPlaceholder": "Optional Memo",
+    "accountHeaderManageActions": {
+      "changeDelegation": "Redelegate",
+      "earn": "Earn"
+    },
+    "stakeBanner": {
+      "title": "Earn rewards with MINA",
+      "altTitle": "Manage your MINA delegation",
+      "description": "Delegate your MINA to a Block Producer and earn rewards from block production. Rewards are distributed based on your delegation amount.",
+      "altDescription": "Change your delegation settings or undelegate your MINA tokens."
+    },
+    "summaryFooter": {
+      "delegatedTo": "Delegated to",
+      "stakedBalance": "Delegated Balance",
+      "producerAddress": "Producer Address",
+      "delegatedToTooltip": "Name of the block producer you are delegating to",
+      "stakedBalanceTooltip": "Total amount of MINA currently delegated to this validator",
+      "producerAddressTooltip": "Public address of the block producer you are delegating to"
+    },
+    "delegators": "Delegators",
+    "selectValidator": {
+      "stepLabels": {
+        "chooseValidator": "Choose Validator",
+        "connectDevice": "Connect Device",
+        "confirmation": "Confirmation"
+      },
+      "title": "Delegate MINA",
+      "help": "Select a validator from the list below to delegate your MINA tokens.",
+      "success": {
+        "title": "Transaction successfully broadcasted",
+        "description": "Your delegation change request has been broadcasted."
+      },
+      "error": {
+        "title": "An error occurred while broadcasting the transaction"
+      }
+    },
+    "delegation": {
+      "totalStake": "Total Stake",
+      "commission": "Commission",
+      "showAll": "Show all",
+      "showLess": "Show less",
+      "iDelegate": "I delegate",
+      "listHeader": "Delegation",
+      "redelegate": "Redelegate",
+      "undelegate": "Undelegate",
+      "undelegateTitle": "Undelegate MINA"
+    }
   },
   "near": {
     "info": {
@@ -8595,7 +9368,9 @@
           "inactive": "Inactive",
           "inactiveTooltip": "Validator not found",
           "overstaked": "Overstaked",
-          "overstakedTooltip": "This node is overstaked, APY is lower than optimal"
+          "overstakedTooltip": "This node is overstaked, APY is lower than optimal",
+          "fetchError": "Unable to load",
+          "fetchErrorTooltip": "Couldn't load validator data. Please try again."
         },
         "rewards": "Rewards",
         "actions": {
@@ -9146,6 +9921,10 @@
         "title": "Ledger Sync",
         "description": "Sync your accounts automatically, even when switching to a new phone.",
         "cta": "Turn on Ledger Sync"
+      },
+      "sendFlow": {
+        "title": "Sync my wallet",
+        "later": "Not now"
       }
     },
     "activation": {
@@ -9509,13 +10288,46 @@
   "lnsUpsell": {
     "opted_in": {
       "title": "See more. Sign safer",
-      "description": "Upgrade to any touchscreen signer and get 20% off.",
-      "cta": "Upgrade my Ledger"
+      "description": "Upgrade and get 20% off.",
+      "cta": "Upgrade my Ledger",
+      "nanoS": {
+        "title": "Ledger Nano S Upgrade Program",
+        "description": "Unlock new OS and security features. Get 20% off."
+      }
     },
     "opted_out": {
       "title": "More security. More control",
-      "description": "Learn more about advanced security features.",
-      "cta": "Learn more"
+      "description": "Learn more about security features.",
+      "cta": "Learn more",
+      "nanoS": {
+        "title": "More Security. More Control",
+        "description": "Learn more about latest OS and security features."
+      }
+    }
+  },
+  "lazyOnboardingBanner": {
+    "title": "Why millions choose Ledger?",
+    "description": "To have peace of mind every time they transact."
+  },
+  "lazyOnboardingTour": {
+    "buyCta": "Buy a Ledger device",
+    "slides": {
+      "whoControls": {
+        "title": "Is your crypto safe?",
+        "subtitle": "Exchanges hold your assets. Software wallets keep your keys online. Both leave you vulnerable."
+      },
+      "takeBackControl": {
+        "title": "Take back control",
+        "subtitle": "A Ledger device keeps access to your crypto offline, away from hackers, and under your control."
+      },
+      "nothingMoves": {
+        "title": "You approve every move",
+        "subtitle": "Every transaction appears on the hack-resistant Secure Screen for your approval."
+      },
+      "startToday": {
+        "title": "Self-custody starts here",
+        "subtitle": "Manage your crypto with the security and control of a Ledger device."
+      }
     }
   },
   "marketBanner": {
@@ -9596,18 +10408,71 @@
     "selectAsset": "Select asset",
     "selectNetwork": "Select network",
     "selectAccount": "Select account",
+    "selectAccountToPayFrom": "Select account to pay from",
+    "selectAccountPerpsTitle": "Select Hyperliquid account",
+    "selectAccountPerpsDescription": "Select an account you want to deposit funds into to place your trades",
+    "selectAccountPerpsEmptyDescription": "To fund your perps, you need a Hyperliquid account. Add one to continue.",
+    "selectDepositCurrencyTitle": "Select asset to deposit",
+    "selectDepositCurrencyDescription": "Any supported asset works. It will be swapped automatically if needed.",
     "searchPlaceholder": "Search by name or address",
     "emptyAssetList": "No assets found",
+    "notAvailableYet": "Not available yet",
     "accountCount_one": "{{count}} account",
     "accountCount_other": "{{count}} accounts",
     "emptyAccounts": "You don't have {{network}} accounts yet. Please add one to continue",
     "addAccount": "Add account",
-    "perpetualsBanner": "Currently only supported with USDC on Arbitrum chain.",
+    "unsupportedAssetExplanation": {
+      "title": "{{asset}} is not supported yet",
+      "description": "You can't add a {{asset}} address to your contacts yet. We're adding more cryptos over time."
+    },
+    "unsupportedNetworkExplanation": {
+      "title": "{{network}} Network is not supported yet",
+      "description": "You can't select {{network}} network for {{asset}}. We're adding more networks over time."
+    },
     "errors": {
       "title": "Connection failed",
       "backend": "Something went wrong on our end. Please try again later",
       "internet": "No internet connection. Please try again",
       "cta": "Try again"
+    }
+  },
+  "perpsReview": {
+    "depositTitle": "Deposit via SwapKit",
+    "depositSubtitle": "Our partner SwapKit manages your swap and deposit in one transaction - all secured by your Ledger device.",
+    "swapDetailTitle": "Swap details",
+    "amountSendLabel": "Amount send",
+    "amountReceiveLabel": "Amount receive",
+    "approximateValue": "~{{value}}",
+    "depositDetailTitle": "Deposit details",
+    "depositAmountLabel": "Deposit amount",
+    "depositReceiveLabel": "Receiver account",
+    "depositCTA": "Deposit"
+  },
+  "perpsDepositSign": {
+    "terms": "By signing this transaction, I accept <termsLink>SwapKit by NEAR Intents T&C</termsLink>"
+  },
+  "perpsTransactionSigned": {
+    "title": "Transaction signed",
+    "description": "You'll receive your {{currency}} once confirmed on the blockchain",
+    "viewTransaction": "View transaction"
+  },
+  "perpsTransactionStatus": {
+    "title": "Fund Perpetuals",
+    "currencies": "{{sendTicker}} → {{receiveTicker}}",
+    "returnToPerps": "Return to Perps"
+  },
+  "perpsDeposit": {
+    "title": "Deposit",
+    "inputDepositAmount": "Deposit ~{{value}}",
+    "inputSubText": "Swap and deposit via {{provider}}",
+    "selectCurrencyTitle": "Deposit with {{currencyTicker}}",
+    "selectCurrencyAccount": "{{accountName}} · {{counterValue}}",
+    "selectCurrencyNoAccount": "No account",
+    "review": "Review",
+    "keypadDelete": "Delete last digit",
+    "formErrors": {
+      "amountExceedsBalance": "Insufficient balance",
+      "quoteUnavailable": "We can’t get a quote from {{provider}}, try with a different asset or come back later."
     }
   },
   "swapErrors": {
@@ -9734,7 +10599,7 @@
         },
         "dualValidator": {
           "title": "Dual-validator security",
-          "body": "Transactions require co-signing from both Ledger and Klin. Neither can act on your behalf alone."
+          "body": "Transactions require co-signing from both Ledger and Kiln. Neither can act on your behalf alone."
         },
         "tokenLiability": {
           "title": "Standard token liability ⚠️",
@@ -9931,27 +10796,6 @@
       "iHaveACard": "I have a card"
     }
   },
-  "walletV4Tour": {
-    "title": "Discover your new portfolio",
-    "slides": {
-      "portfolio": {
-        "title": "A clearer view of your portfolio",
-        "description": "See your total balance at a glance, and tap “Today” to dive deeper."
-      },
-      "navigation": {
-        "title": "Access key actions faster",
-        "description": "Access Swap, Transfer, and Buy instantly. Find Earn and your Card in the bottom navigation."
-      },
-      "actions": {
-        "title": "View market trends instantly",
-        "description": "Quickly see what’s trending directly in your portfolio, and move from insights to action."
-      }
-    },
-    "cta": {
-      "continue": "Next",
-      "explore": "Discover my new portfolio"
-    }
-  },
   "mainNavigation": {
     "home": "Home",
     "swap": "Swap",
@@ -9959,6 +10803,409 @@
     "yield": "Yield",
     "card": "Card",
     "paytab": "Pay"
+  },
+  "payTab": {
+    "disclaimer": "Provided by Monavate Onchain",
+    "cardDisclaimer": "Looking for your crypto card?",
+    "cardDisclaimerLink": "Go to CL Card",
+    "featureTour": {
+      "title": "All your payments, in one place",
+      "description": "Meet your new Pay tab, making your crypto ready for everyday money moments.",
+      "cta": "Explore Pay",
+      "rows": {
+        "global": {
+          "title": "Pay your contacts",
+          "description": "Send crypto to saved addresses."
+        },
+        "volatility": {
+          "title": "Request payments",
+          "description": "Ask Contacts to send funds straight to you."
+        },
+        "card": {
+          "title": "Shop worldwide with crypto card",
+          "description": "And earn uncapped 1% cashback."
+        }
+      }
+    },
+    "cardMore": {
+      "tile": "More",
+      "title": "More",
+      "rows": {
+        "managePin": "Card PIN",
+        "accessBaanx": "Access to Baanx",
+        "help": "Help",
+        "legal": "Legal agreement",
+        "logout": "Logout"
+      }
+    },
+    "balance": {
+      "emptyTitle": "Pay and get paid",
+      "emptyDescription": "Start by depositing stablecoin to your wallet",
+      "filter": {
+        "allStablecoins": "All stablecoins",
+        "dialogTitle": "Filter balance",
+        "dialogDescription": "Use stablecoin to pay worldwide with low fees and minimal volatility.",
+        "dialogBanner": "Manage all other assets in your home",
+        "confirm": "Confirm"
+      }
+    },
+    "card": {
+      "balanceLabel": "Balance",
+      "assets": {
+        "title": "Assets",
+        "empty": {
+          "title": "No assets yet",
+          "description": "Add an asset to start using your card.",
+          "cta": "Add asset"
+        },
+        "error": {
+          "title": "Couldn't load assets",
+          "description": "Something went wrong.",
+          "cta": "Retry"
+        },
+        "info": "These assets fund your card. Set the order they're charged in, or add more.",
+        "manage": "Manage",
+        "manageDialog": {
+          "title": "Manage assets",
+          "description": "Your assets are listed in funding order. If one asset runs low, the next one is used automatically.",
+          "reorder": "Reorder {{asset}}. Long press and drag, or use accessibility actions to move up and down.",
+          "addAssetCaption": "You will be redirected to Monavate to add asset.",
+          "addAsset": "Add asset"
+        },
+        "details": {
+          "topUp": "Top up",
+          "withdraw": "Withdraw",
+          "transactions": "Transactions"
+        },
+        "withdraw": {
+          "title": "You will be redirected to Monavate",
+          "description": "Withdraw funds from your Monavate account to your Ledger wallet address.",
+          "continue": "Continue"
+        }
+      },
+      "title": "Crypto card",
+      "topUp": "Top up",
+      "chooseCardType": "Choose card type",
+      "details": "Details",
+      "addToWallet": "Add to {{wallet}} Pay",
+      "freeze": "Freeze",
+      "unfreeze": "Unfreeze",
+      "goBack": "Go back",
+      "freezeConfirm": {
+        "title": "Freezing means you cannot use the card anymore",
+        "description": "You can unfreeze your card at any time.",
+        "confirm": "Freeze now",
+        "errorTitle": "Freeze failed"
+      },
+      "unfreezeConfirm": {
+        "title": "Unfreeze your card?",
+        "confirm": "Unfreeze now",
+        "errorTitle": "Unfreeze failed"
+      },
+      "confirmError": {
+        "description": "Something went wrong. Please try again.",
+        "retry": "Try again"
+      },
+      "numbers": {
+        "reveal": "View",
+        "hide": "Hide",
+        "failed": "Couldn't load card numbers",
+        "imageAlt": "Card numbers"
+      },
+      "reward": {
+        "title": "Total cashback · {{ratePercent}}% in {{ticker}}"
+      }
+    },
+    "cardTransactions": {
+      "title": "Transactions",
+      "categories": {
+        "SUBSCRIPTIONS": "Subscriptions",
+        "FOOD": "Food",
+        "TRAVEL": "Travel",
+        "ENTERTAINMENT": "Entertainment",
+        "HEALTH": "Health",
+        "ATM": "ATM",
+        "UTILITIES": "Utilities",
+        "MISC": "Other"
+      },
+      "detail": {
+        "amount": "Amount",
+        "status": "Status",
+        "card": "Card",
+        "cardInfo": "The last four digits of the card used for this payment.",
+        "fundingSource_one": "Funding source",
+        "fundingSource_other": "Funding sources",
+        "cashback": "Cashback",
+        "transactionId": "Transaction ID",
+        "copyTransactionId": "Copy transaction ID",
+        "today": "Today {{time}}",
+        "yesterday": "Yesterday {{time}}",
+        "dateTime": "{{date}} {{time}}",
+        "statusValues": {
+          "CONFIRMED": "Confirmed",
+          "PENDING": "Pending",
+          "DECLINED": "Declined",
+          "REVERTED": "Reverted"
+        }
+      },
+      "history": {
+        "today": "Today",
+        "yesterday": "Yesterday",
+        "unknownDate": "Date unavailable",
+        "columns": {
+          "transaction": "Transaction",
+          "fundingSources": "Funding sources",
+          "amount": "Amount"
+        },
+        "paidWithAssets": "Paid with {{count}} assets",
+        "goToPay": "Go to Pay",
+        "signedOut": {
+          "title": "Log in to see your card transactions",
+          "description": "Your card activity appears here once you’re logged in."
+        },
+        "unclaimed": {
+          "title": "Crypto card",
+          "description": "Go to pay to set up your card."
+        },
+        "empty": {
+          "title": "No card transactions yet",
+          "description": "Come back later to see your card transactions."
+        },
+        "error": {
+          "title": "Couldn't load card transactions",
+          "description": "Check your connection and try again."
+        }
+      }
+    },
+    "actions": {
+      "deposit": "Add stablecoin",
+      "request": "Request"
+    },
+    "request": {
+      "title": "Request {{asset}}",
+      "networkLabel": "{{network}} network",
+      "actions": {
+        "share": "Share",
+        "copy": "Copy",
+        "copied": "Copied",
+        "save": "Save",
+        "verify": "Verify"
+      },
+      "verifyHint": {
+        "message": "Verify your address on\nyour Ledger device\nbefore sharing",
+        "gotIt": "Got it"
+      },
+      "verifyAddress": {
+        "introTitle": "Verify your address",
+        "introDescription": "To protect against address replacement attacks, verify your address on your Ledger device's Secure Screen.",
+        "verifyCta": "Verify address",
+        "successTitle": "Address displayed on the device's Secure Screen",
+        "nextStepsLabel": "Next steps",
+        "nextStepKeepDisplayed": "Keep your address displayed on your Ledger device. Don’t confirm it yet.",
+        "nextStepPaste": "Tap “Got it,” then paste your address into the app you’re sharing it with.",
+        "nextStepCheckMatch": "Before sending, check that it matches the one on your Ledger device.",
+        "gotItCta": "Got it",
+        "device": {
+          "cancelledTitle": "Address verification cancelled",
+          "cancelledDescription": "You declined the address on your device. You can display it again to verify it.",
+          "mismatchTitle": "Addresses don't match",
+          "mismatchDescription": "The address shown on your device is different from the requested one. Do not share this address.",
+          "unsupportedTitle": "Verification not available",
+          "unsupportedDescription": "This device app can't display the address for on-device verification.",
+          "retryCta": "Show address again",
+          "closeCta": "Close"
+        }
+      }
+    },
+    "deposit": {
+      "title": "Add stablecoins",
+      "options": {
+        "bankTransfer": {
+          "title": "Bank transfer",
+          "description": "Transfer USD or EUR to receive stablecoins."
+        },
+        "swap": {
+          "title": "Swap from crypto",
+          "description": "Swap your crypto for stablecoins."
+        },
+        "receive": {
+          "title": "Crypto address",
+          "description": "Receive stablecoins from another wallet."
+        },
+        "buy": {
+          "title": "Buy",
+          "description": "Buy stablecoins with credit card."
+        }
+      }
+    },
+    "bankTransferIntro": {
+      "title": "Send cash, receive stablecoin",
+      "description": "Transfer cash and receive stablecoins straight to your Ledger Wallet™.",
+      "createAccount": "Create an account",
+      "logIn": "Log in to Noah",
+      "providedBy": "Provided by Noah",
+      "rows": {
+        "bank": {
+          "title": "Receive transfers from any bank",
+          "description": "Get salary, payments, deposits via SEPA or ACH."
+        },
+        "fees": {
+          "title": "No hidden fees",
+          "description": "Direct from bank to blockchain for 0.25% fees."
+        },
+        "earn": {
+          "title": "Put your money to work right away",
+          "description": "You can swap or earn with your stablecoin."
+        }
+      }
+    },
+    "cardLogin": {
+      "title": "Crypto card",
+      "beforeIntro": {
+        "title": "Get your crypto card",
+        "description": "Get 1% cashback every time you spend",
+        "action": "Get card"
+      },
+      "afterIntro": {
+        "title": "Log in to access your Card",
+        "description": "Log in to access your card",
+        "action": "Login"
+      },
+      "errors": {
+        "pkce_failed": {
+          "title": "Login could not start",
+          "description": "Please try again."
+        },
+        "browser_open_failed": {
+          "title": "The login page could not open",
+          "description": "Please try again."
+        },
+        "missing_attempt": {
+          "title": "This login is no longer valid",
+          "description": "Please log in again."
+        },
+        "exchange_failed": {
+          "title": "Login could not be completed",
+          "description": "Please try again."
+        },
+        "persist_failed": {
+          "title": "Your session could not be saved",
+          "description": "Please try again."
+        },
+        "fetch_user_failed": {
+          "title": "Your card could not be loaded",
+          "description": "Please try again."
+        },
+        "retryLogin": "Try again",
+        "retryUser": "Retry"
+      }
+    },
+    "cardLoginIntro": {
+      "title": "Spend crypto, earn cashback",
+      "providedBy": "Card provided by Monavate",
+      "createAccount": "Create an account",
+      "logIn": "Log in to Monavate",
+      "wallets": {
+        "applePay": "Apple Pay",
+        "googlePay": "Google Pay",
+        "both": "Apple Pay or Google Pay"
+      },
+      "rows": {
+        "cashback": {
+          "title": "Uncapped 1% crypto cashback",
+          "description": "On all crypto card purchases with USDC, USDT, or BTC."
+        },
+        "virtualCard": {
+          "title": "Free virtual card",
+          "description": "Add to {{wallet}}, ready instantly."
+        },
+        "topUp": {
+          "title": "Securely top up via Ledger Wallet",
+          "description": "Every transfer approved with your Ledger signer."
+        }
+      }
+    },
+    "contacts": {
+      "title": "Pay",
+      "pay": "New",
+      "seeAllTitle": "Pay contact",
+      "me": "Me",
+      "addressPicker": {
+        "title": "Select {{name}}'s address",
+        "meTitle": "Select my address",
+        "addAddress": "Add address"
+      },
+      "paySuccess": {
+        "title": "You paid {{recipient}}",
+        "amount": "Amount",
+        "estimatedTime": "Est. time",
+        "from": "From",
+        "viewTransaction": "View transaction",
+        "close": "Close"
+      }
+    },
+    "cardOnboarding": {
+      "widget": {
+        "title": "Set up your card",
+        "allDone": "You're all set"
+      },
+      "dialog": {
+        "title": "Set up your card",
+        "stepComplete": "Complete",
+        "gotIt": "Got it"
+      },
+      "steps": {
+        "createAccount": {
+          "title": "Create your account",
+          "description": "Verify your identity to get started"
+        },
+        "chooseCardType": {
+          "title": "Choose your card type",
+          "description": "Pick between virtual and physical"
+        },
+        "topUpCard": {
+          "title": "Top up your card",
+          "description": "Add funds using USDC, USDT, BTC or more"
+        },
+        "firstPurchase": {
+          "title": "Make your first purchase",
+          "description": "Pay online or in store"
+        },
+        "appleGooglePay": {
+          "title": "Add to {{wallet}} Pay",
+          "description": "Pay with your phone in store"
+        }
+      },
+      "addToWallet": {
+        "ios": {
+          "title": "Add to Apple Pay",
+          "step1": "Go to Apple Wallet app and tap add (+)",
+          "step2": "Select Debit or Credit Card",
+          "step3": "Follow the instructions",
+          "cta": "Go to Apple Wallet",
+          "error": {
+            "title": "Apple Wallet couldn’t be opened",
+            "description": "Make sure Apple Pay is available on this device, then try again.",
+            "action": "Try again"
+          }
+        },
+        "android": {
+          "title": "Add to Google Pay",
+          "step1": "Go to Google Wallet app and tap add.",
+          "step2": "Choose Payment card, then select New Credit or Debit Card.",
+          "step3": "Follow the instructions.",
+          "cta": "Go to Google Wallet",
+          "error": {
+            "title": "Google Wallet couldn’t be opened",
+            "description": "Google Wallet may not be installed or may be disabled.",
+            "action": "Open Google Play"
+          }
+        },
+        "error": {
+          "back": "Back to instructions"
+        }
+      }
+    }
   },
   "syncIndicator": {
     "accessibilityLabel": {
@@ -10027,7 +11274,8 @@
       },
       "recoveryKey": {
         "title": "Ledger Recovery Key",
-        "description": "A PIN-protected smart card."
+        "description": "A PIN-protected smart card.",
+        "incompatible": "Not compatible with your device"
       },
       "secretRecoveryPhrase": {
         "title": "24-word metal storage",
@@ -10111,6 +11359,116 @@
     "accountActions": {
       "publicToPrivate": "Convert"
     },
+    "bond": {
+      "stepperHeader": {
+        "validator": "Select validator",
+        "stepRange": "{{currentStep}} of {{totalSteps}}",
+        "amount": "Amount",
+        "selectDevice": "Select Device",
+        "connectDevice": "Connect Device"
+      },
+      "selectValidator": {
+        "fetchError": "Failed to load validators. Please try again.",
+        "metadataError": "We couldn't load validators metadata. You can still add to your stake.",
+        "lockedHint": "Aleo allows one validator per account. You can add to your stake with this validator, or unstake first to choose a different one.",
+        "closed": "Validator is closed to new stake",
+        "unbonding": "Validator is unbonding",
+        "totalStake": "Total stake",
+        "rateAndCommission": "{{rate}}% est. · {{commission}}% commission",
+        "commissionOnly": "{{commission}}% commission",
+        "earnsNothing": "Validator earns no rewards"
+      },
+      "amount": {
+        "available": "Available:",
+        "max": "Max",
+        "stakingAlert": "Your total stake with this validator must reach at least <minimum/> to earn rewards. Only public ALEO can be staked - convert your private balance to public first if you want to stake it.",
+        "minimumLabel": "Minimum bond amount",
+        "minimumTopUp": "Add at least <missing/> to reach the <total/> total stake needed to earn rewards.",
+        "belowMinimum": "Your public balance is <missing/> short of the <minimum/> minimum bond. Top up your public balance before staking.",
+        "changeValidator": "Choose another validator"
+      },
+      "validation": {
+        "success": {
+          "title": "Bond Submitted",
+          "description": "Your bond transaction is being processed on the Aleo network."
+        }
+      }
+    },
+    "claim": {
+      "stepperHeader": {
+        "amount": "Claim ALEO",
+        "selectDevice": "Select Device",
+        "connectDevice": "Connect Device"
+      },
+      "amount": {
+        "info": "This claims all ALEO whose unbonding period has elapsed back to your account.",
+        "claimableLabel": "Claimable amount"
+      },
+      "validation": {
+        "success": {
+          "title": "Claim submitted",
+          "description": "Your claim has been broadcast."
+        }
+      }
+    },
+    "stake": {
+      "sectionTitle": "Staking",
+      "staked": "Staked",
+      "unstaking": "Unstaking",
+      "claimable": "Claimable",
+      "estimatedRate": "{{rate}}% est.",
+      "fallbackValidator": "Aleo",
+      "status": {
+        "earning": "Earning rewards",
+        "unknown": "Status unavailable"
+      },
+      "nonEarning": {
+        "fullCommission": "This validator takes 100% commission, so you keep nothing.",
+        "overConcentrated": "This validator holds more than 25% of all staked ALEO. The protocol pays it nothing above that cap, so you earn nothing.",
+        "leftCommittee": "This validator is no longer in the committee, so your stake earns nothing. Unstake and bond to another validator to start earning again.",
+        "ownStakeBelowMinimum": "Your stake is below the 10,000 ALEO minimum, so it earns nothing. Add to it to start earning again."
+      },
+      "emptyState": {
+        "description": "You can earn rewards by staking your {{name}}.",
+        "cta": "Earn rewards",
+        "bondPending": "A stake has been sent and is waiting to be confirmed. Aleo holds one staked position per account, so staking is unavailable until it has gone through."
+      },
+      "unstakingRow": {
+        "settling": "Almost there...",
+        "claimPending": "Claiming...",
+        "unbondPending": "Unstaking...",
+        "blocksRemaining_one": "~{{count}} block left",
+        "blocksRemaining_other": "~{{count}} blocks left"
+      }
+    },
+    "manage": {
+      "bond": "Bond",
+      "claim": "Claim",
+      "unbond": "Unbond",
+      "status": "Status",
+      "estimatedRate": "Est. rewards rate",
+      "unbondPendingInfo": "An unstake is waiting to be confirmed. Aleo tracks one unbonding position at a time, so unbonding and claiming are both unavailable until it has gone through.",
+      "claimPendingInfo": "A claim is waiting to be confirmed. Aleo tracks one unbonding position at a time, so unbonding and claiming are both unavailable until it has gone through.",
+      "unlockBlock": "Unlocks at block"
+    },
+    "unbond": {
+      "stepperHeader": {
+        "amount": "Confirm unstake",
+        "selectDevice": "Select Device",
+        "connectDevice": "Connect Device"
+      },
+      "amount": {
+        "bondedAmount": "Amount to unstake",
+        "belowMinimum": "This amount will be frozen for about 360 blocks (~1 hour). If unbonding would leave less than <minimum/> bonded, your entire bonded balance is unbonded instead, because the minimum stake would no longer be met.",
+        "max": "Max"
+      },
+      "validation": {
+        "success": {
+          "title": "Unstake Submitted",
+          "description": "Your unbond transaction is being processed on the Aleo network."
+        }
+      }
+    },
     "send": {
       "balanceSelection": {
         "title": "Select balance",
@@ -10155,6 +11513,10 @@
     },
     "balancesSection": "Balances",
     "info": {
+      "available": {
+        "title": "Available balance",
+        "description": "The balance you can spend right now: transparent funds plus any private records already synced. Staked and unstaking amounts are not included."
+      },
       "transparent": {
         "title": "Transparent balance",
         "description": "The publicly visible balance on the Aleo network. This amount can be sent or received directly and is visible to anyone."
@@ -10162,6 +11524,18 @@
       "private": {
         "title": "Private balance",
         "description": "The shielded balance on the Aleo network. This balance is only visible to you and requires proof generation for private transactions."
+      },
+      "staked": {
+        "title": "Staked",
+        "description": "The amount currently bonded to a validator. It earns rewards but cannot be spent until you unstake it and the unbonding period ends."
+      },
+      "unstaking": {
+        "title": "Unstaking",
+        "description": "The amount you have unstaked that is still locked. It stops earning rewards immediately and becomes claimable once the unbonding period ends."
+      },
+      "claimable": {
+        "title": "Claimable",
+        "description": "The unstaked amount whose unbonding period has ended. Claim it to move it back to your available balance."
       }
     },
     "account": {
@@ -10178,56 +11552,120 @@
         "private": "Private"
       }
     },
+    "operationDetails": {
+      "extra": {
+        "validator": "Validator",
+        "bondedAmount": "Staked amount",
+        "unbondedAmount": "Unstaked amount"
+      }
+    },
+    "operationTypes": {
+      "WITHDRAW_UNBONDED": "Claim"
+    },
     "shared": {
       "sponsoredByProvable": "Sponsored by Provable"
     }
   },
   "contacts": {
+    "deviceIntents": {
+      "registerExternalAddress": {
+        "pending": {
+          "title": "Preparing your Ledger device"
+        }
+      },
+      "renameContact": {
+        "pending": {
+          "title": "Preparing your Ledger device"
+        }
+      },
+      "editExternalAddress": {
+        "pending": {
+          "title": "Preparing your Ledger device"
+        }
+      },
+      "errors": {
+        "wrongDevice": {
+          "title": "Use the same Ledger device you used to add this contact",
+          "description": "The connected device isn't a match."
+        },
+        "invalidData": {
+          "title": "This address can't be saved",
+          "description": "Your Ledger device rejected the contact details. Try again or contact Ledger Support if the issue continues."
+        },
+        "appVersionTooLow": {
+          "title": "App update required",
+          "description": "Update the app on your Ledger device to save contacts, then try again."
+        },
+        "osVersionTooLow": {
+          "title": "Ledger OS update required",
+          "description": "Update your Ledger device's operating system to rename contacts, then try again."
+        }
+      }
+    },
     "title": "Contacts",
     "addContact": "Add contact",
     "addAddress": "Add address",
     "addYourAddress": "Add your address",
-    "searchPlaceholder": "Search contact",
+    "searchPlaceholder": "Search by name",
     "searchNoResults": "No contact found",
     "addContactDrawer": {
       "namePlaceholder": "Contact name",
-      "namingDisclaimer": "For privacy, avoid full names and surnames. Use a nickname or just a first name + initial, e.g. 'John S'.",
-      "confirmName": "Confirm name",
-      "invalidNameError": "Special characters are not allowed."
+      "namingDisclaimer": "For privacy, avoid full names. Use a nickname or just a first name + initial, e.g. 'John S.'",
+      "invalidNameError": "Special characters are not allowed.",
+      "duplicateNameError": "This contact name is already in use."
     },
     "addAddressEntry": {
       "title": "Enter address",
       "addressPlaceholder": "Address or ENS",
+      "addressPlaceholderNoENS": "Address",
       "confirmAddress": "Confirm address",
       "validatingAddress": "Validating address",
       "validAddress": "Valid address",
       "invalidAddress": "Invalid address",
       "domainNotFound": "No address found for this domain",
+      "sanctionedAddress": "This address is sanctioned and cannot be used.",
       "validationUnavailable": "Address validation is temporarily unavailable",
-      "ensDisclaimer": "ENS names resolve to wallet addresses. Always verify the resolved address before continuing."
+      "ensDisclaimer": "ENS names can change",
+      "ensDisclaimerDescription": "ENS names can point to different addresses over time. We save the underlying address now to ensure your funds only reach the address you verify.",
+      "sanctioned": {
+        "description": "This address has been flagged and Ledger doesn't allow sending to it",
+        "learnMore": "Learn more"
+      },
+      "duplicateAddress": "This address is already used for {{contactName}}."
     },
-    "addAddressFlow": {
-      "name": "Name",
-      "review": "Validation",
-      "success": "Success"
+    "addAddressName": {
+      "title": "Name address",
+      "inputLabel": "Address name",
+      "namingDisclaimer": "This name appears on your Ledger device when you send to this address. Give it a name that makes it easy to find.",
+      "continueToReview": "Continue to review",
+      "invalidLabel": "Special characters are not allowed.",
+      "duplicateLabel": "This address name is already used for this contact.",
+      "labelTooLong": "This address name is too long.",
+      "privacyPolicy": "Learn more about Ledger's Privacy Policy."
+    },
+    "addAddressReview": {
+      "title": "Review address",
+      "addressLabel": "Address",
+      "currencyLabel": "Currency",
+      "networkLabel": "Network",
+      "nameLabel": "Address name",
+      "continue": "Confirm address"
     },
     "addressCount_zero": "0 address",
     "addressCount_one": "{{count}} address",
     "addressCount_other": "{{count}} addresses",
     "me": {
-      "name": "Me",
-      "addressCount_zero": "0 address",
-      "addressCount_one": "{{count}} address",
-      "addressCount_other": "{{count}} addresses"
+      "myAddresses": "My addresses"
     },
     "detail": {
+      "meDisplayName": "{{name}} (Me)",
       "ledgerWalletAddresses": "Ledger Wallet addresses",
       "myAddresses": "My addresses",
       "emptyState": {
-        "title": "No address yet",
+        "contactTitle": "No saved addresses for {{name}}",
         "meTitle": "Save your own addresses",
         "meDescription": "Save the external addresses you own on exchanges or other wallets. Next time you send to yourself, your Ledger device will show the name you chose.",
-        "contactDescription": "Save a wallet address to send to {{name}}"
+        "contactDescription": "Save their wallet addresses to send to them by name next time"
       }
     },
     "addressDetail": {
@@ -10240,29 +11678,65 @@
       "delete": "Delete",
       "networkTag": "{{name}} Network"
     },
+    "detailActions": {
+      "editName": "Edit name",
+      "deleteContact": "Delete contact",
+      "menuAccessibilityLabel": "Contact options"
+    },
+    "editContact": {
+      "title": "Edit contact",
+      "namePlaceholder": "Contact name",
+      "namingDisclaimer": "For privacy, avoid full names. Use a nickname or just a first name + initial, e.g. 'John S.'",
+      "confirmName": "Confirm name",
+      "applyChanges": "Apply changes",
+      "invalidNameError": "Special characters are not allowed."
+    },
+    "deleteContact": {
+      "title": "Delete contact?",
+      "description": "Deleting this contact will erase all associated addresses.",
+      "mobileDescription": "Removing this contact will erase all associated addresses.",
+      "confirm": "Delete",
+      "cancel": "Cancel"
+    },
+    "deleteAddress": {
+      "title": "Delete address?",
+      "description": "This address will be removed from the contact.",
+      "confirm": "Delete",
+      "cancel": "Cancel"
+    },
+    "editAddress": {
+      "title": "Edit address",
+      "inputLabel": "Address name",
+      "applyChanges": "Apply changes",
+      "invalidLabelError": "Special characters are not allowed."
+    },
+    "editSignerMismatch": {
+      "title": "Use the same Ledger device you used to add this contact",
+      "description": "The connected device isn't a match.",
+      "connectDifferentDevice": "Connect a different device",
+      "cancel": "Cancel"
+    },
     "ledgerSyncIntroduction": {
-      "title": "Turn on Ledger Sync to save contacts",
-      "description": "Your contacts are end-to-end encrypted with your Ledger and synced across your devices, only you can unlock them.",
-      "activate": "Turn on Ledger Sync",
-      "dismiss": "Got it",
+      "title": "Sync your wallet to add a contact",
+      "description": "Contacts are end-to-end encrypted and synced across Ledger Wallet on all your phones and computers.",
+      "activate": "Sync my wallet",
+      "dismiss": "Not now",
       "checkingAccessibilityLabel": "Checking Ledger Sync status"
     },
     "featureIntroduction": {
       "title": "Introducing Contacts",
-      "description": "Your address book for crypto — save the wallets you send to, all in one place.",
-      "primaryAction": "Try contacts",
-      "secondaryAction": "Maybe later",
+      "primaryAction": "Try now",
       "highlights": {
         "saveAddresses": {
-          "title": "Save addresses once",
-          "description": "Keep the addresses you send to in one place."
+          "title": "Save addresses by a name you choose",
+          "description": "Exchanges, friends, your own external accounts."
         },
         "sendToRightAddress": {
           "title": "Send to the right address",
-          "description": "Funds reach the right wallet every time."
+          "description": "See a name you trust, not an address."
         },
         "privateAcrossDevices": {
-          "title": "Private across your devices",
+          "title": "Private across your Ledger devices",
           "description": "End-to-end encrypted with Ledger Sync."
         }
       }

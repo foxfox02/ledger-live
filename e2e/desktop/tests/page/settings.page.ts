@@ -1,9 +1,9 @@
-import { AppPage } from "./abstractClasses";
-import { step } from "../misc/reporters/step";
+import { AppPage } from "tests/page/abstractClasses";
+import { step } from "tests/misc/reporters/step";
 import { expect } from "@playwright/test";
 import axios from "axios";
 import * as path from "path";
-import { FileUtils } from "../utils/fileUtils";
+import { FileUtils } from "tests/utils/fileUtils";
 
 export class SettingsPage extends AppPage {
   private static readonly EXPORT_LOGS_SOURCE_PATH = path.resolve("./ledgerwallet-logs.txt");
@@ -14,7 +14,7 @@ export class SettingsPage extends AppPage {
 
   private syncWalletSyncButton = this.page.getByTestId("button-sync-walletSync");
   private manageWalletSyncButton = this.page.getByTestId("button-manage-walletSync");
-  private readonly turnOnLedgerSyncButton = this.page.getByTestId("button-turn-on-ledger-sync");
+  private readonly walletSyncRow = this.page.getByTestId("setting-walletSync");
   private clearCacheButton = this.page.getByRole("button", { name: "Clear" });
   private confirmButton = this.page.getByRole("button", { name: "Confirm" });
   private accountsTab = this.page.getByTestId("settings-accounts-tab");
@@ -23,6 +23,7 @@ export class SettingsPage extends AppPage {
   private resetAppButton = this.page.getByTestId("reset-button");
   private viewUserDataButton = this.page.getByTestId("view-user-data-button");
   private exportLogsButton = this.page.getByTestId("export-logs-button");
+  private launchOnboardingButton = this.page.getByRole("button", { name: "Launch" });
 
   readonly counterValueSelector = this.page.locator(
     "[data-testid='setting-countervalue-dropDown'] .select__value-container",
@@ -47,6 +48,11 @@ export class SettingsPage extends AppPage {
   @step("Go to Settings Help tab")
   async goToHelpTab() {
     await this.helpTab.click();
+  }
+
+  @step("Launch onboarding from the Help tab")
+  async launchOnboarding() {
+    await this.launchOnboardingButton.click();
   }
 
   @step("Change counter value to $0")
@@ -74,32 +80,52 @@ export class SettingsPage extends AppPage {
 
   @step("Expect General settings tab to show $0")
   async expectGeneralTabLabel(text: string) {
-    await expect(this.generalTab).toContainText(text);
+    await expect(this.generalTab).toBeVisible();
+    await this.softExpect(async soft => {
+      await soft(this.generalTab).toContainText(text);
+    });
   }
 
   @step("Expect language row title to be $0")
   async expectLanguageRowTranslation(text: string) {
-    await expect(this.languageRow).toContainText(text);
+    await expect(this.languageRow).toBeVisible();
+    await this.softExpect(async soft => {
+      await soft(this.languageRow).toContainText(text);
+    });
   }
 
   @step("Expect counter value row title to be $0")
   async expectCounterValueRowTranslation(text: string) {
-    await expect(this.counterValueRow).toContainText(text);
+    await expect(this.counterValueRow).toBeVisible();
+    await this.softExpect(async soft => {
+      await soft(this.counterValueRow).toContainText(text);
+    });
   }
 
   @step("Expect theme row title to be $0")
   async expectThemeRowTranslation(text: string) {
-    await expect(this.themeRow).toContainText(text);
+    await expect(this.themeRow).toBeVisible();
+    await this.softExpect(async soft => {
+      await soft(this.themeRow).toContainText(text);
+    });
   }
 
   @step("Expect counter value row to contain characters matching $0")
   async expectCounterValueRowCharacterSet(regex: RegExp) {
-    await expect(this.counterValueRow).toContainText(regex);
+    await expect(this.counterValueRow).toBeVisible();
+    await this.softExpect(async soft => {
+      await soft(this.counterValueRow).toContainText(regex);
+    });
   }
 
   @step("Click 'Hide Empty Token Accounts' toggle")
   async clickHideEmptyTokenAccountsToggle() {
     await this.hideEmptyTokenAccountsToggle.click();
+  }
+
+  @step("Click 'Sync' to open Ledger Sync activation drawer")
+  async clickSyncLedgerSync() {
+    await this.syncWalletSyncButton.click();
   }
 
   @step("Open Ledger Sync Manager")
@@ -112,15 +138,9 @@ export class SettingsPage extends AppPage {
     await expect(this.manageWalletSyncButton.or(this.syncWalletSyncButton)).toBeVisible();
   }
 
-  @step("Enable Wallet Sync")
-  async enableWalletSync() {
-    if (await this.turnOnLedgerSyncButton.isVisible()) {
-      await this.turnOnLedgerSyncButton.click();
-    } else if (await this.syncWalletSyncButton.isVisible()) {
-      await this.syncWalletSyncButton.click();
-    } else {
-      await this.manageWalletSyncButton.click();
-    }
+  @step("Expect Ledger Sync settings row to be visible")
+  async expectLedgerSyncSettingsRow() {
+    await expect(this.walletSyncRow).toBeVisible();
   }
 
   @step("Clear cache")

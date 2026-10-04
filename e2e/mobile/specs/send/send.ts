@@ -1,21 +1,42 @@
 import { setEnv } from "@shared/env";
-import { verifyAppValidationSendInfo } from "../../models/send";
+import { verifyAppValidationSendInfo } from "@e2e/models/send";
 
 import invariant from "invariant";
 import { TransactionType } from "@ledgerhq/live-e2e-shared/models/Transaction";
 import { Account } from "@ledgerhq/live-e2e-shared/enum/Account";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { setTeamOwner } from "../../helpers/allure/allure-helper";
+import { setTeamOwner } from "@e2e/helpers/allure/allure-helper";
+import { BroadcastFlow, shouldRunSharedAccountFlow } from "@e2e/helpers/broadcastRotation";
 import type { LiveDataCommandOptions } from "@ledgerhq/live-e2e-shared/cliCommandsUtils";
-import type { InitOptions } from "../../utils/initUtil";
+import type { InitOptions } from "@e2e/utils/initUtil";
+import { FF_DISABLE_NEW_SEND_FLOW } from "@e2e/utils/featureFlagUtils";
 
-export const BST_SEND_CURRENCIES = new Set(["aptos", "sui", "cardano"]);
-const BST_SEND_INVALID_ADDRESS_CURRENCIES = new Set(["hedera"]);
+export const BST_SEND_CURRENCIES = new Set([
+  "aptos",
+  "sui",
+  "cardano",
+  "kaspa",
+  "vechain",
+  "zcash",
+  "algorand",
+  "hedera",
+  "ripple",
+  "concordium_testnet",
+  "internet_computer",
+]);
+const BST_SEND_INVALID_ADDRESS_CURRENCIES = new Set(["hedera", "ripple", "algorand"]);
+const BST_SEND_INVALID_AMOUNT_CURRENCIES = new Set(["hedera", "ripple"]);
+const BST_SEND_VALID_ADDRESS_CURRENCIES = new Set(["ripple"]);
 
 export type SendTestOptions = {
   featureFlags?: InitOptions["featureFlags"];
   userdata?: InitOptions["userdata"];
   liveDataOptions?: LiveDataCommandOptions;
+  /**
+   * Set it when the debited account is shared with the other mobile platform: the send then runs
+   * on one platform per run once both broadcast, instead of racing the account's nonce.
+   */
+  sharedAccountFlow?: BroadcastFlow;
 };
 
 export const beforeAllFunction = async (
@@ -43,12 +64,23 @@ export const beforeAllFunction = async (
   await app.mainNavigation.waitForWallet40Ready();
 };
 
+export const beforeAllLegacyFunction = async (
+  transaction: TransactionType,
+  options?: SendTestOptions,
+) => {
+  await beforeAllFunction(transaction, {
+    ...options,
+    featureFlags: { ...options?.featureFlags, ...FF_DISABLE_NEW_SEND_FLOW },
+  });
+};
+
 const beforeAllInvalidAddressFunction = async (
   transaction: TransactionType,
   overrideRecipient?: string,
 ) => {
   await app.init({
     speculosApp: transaction.accountToDebit.currency.speculosApp,
+    featureFlags: FF_DISABLE_NEW_SEND_FLOW,
     cliCommands: [
       async (userdataPath?: string) => {
         await liveDataCommand(transaction.accountToDebit)(userdataPath);
@@ -110,12 +142,15 @@ export function runSendTest(
   );
   tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
   tags.forEach(tag => $Tag(tag));
-  describe("Send from 1 account to another", () => {
+  const flow = options?.sharedAccountFlow;
+  const describeFlow =
+    flow === undefined || shouldRunSharedAccountFlow(flow) ? describe : describe.skip;
+  describeFlow("Send from 1 account to another", () => {
     beforeAll(async () => {
-      await beforeAllFunction(transaction, options);
+      await beforeAllLegacyFunction(transaction, options);
     });
 
-    it(`Send from ${transaction.accountToDebit.accountName} to ${transaction.accountToCredit.accountName}`, async () => {
+    it(`[${transaction.accountToDebit.currency.testLabel}] - Send`, async () => {
       const addressToCredit = transaction.accountToCredit.address;
       const amountWithCode = transaction.amount + " " + transaction.accountToCredit.currency.ticker;
       await app.send.navigateToSendScreen(transaction.accountToDebit.accountName);
@@ -146,7 +181,7 @@ export function runSendInvalidAddressTest(
       await beforeAllInvalidAddressFunction(transaction, address);
     });
 
-    it(`Send from ${transaction.accountToDebit.accountName} ${accountName || ""} to ${transaction.accountToCredit.accountName} - invalid address input`, async () => {
+    it(`[${transaction.accountToDebit.currency.testLabel}] - Send invalid address error: ${expectedErrorMessage ?? "no error message"}`, async () => {
       const recipientAddress = address ?? transaction.accountToCredit.address ?? "";
       await app.send.navigateToSendScreen(accountName || transaction.accountToDebit.accountName);
       await app.send.setRecipient(recipientAddress, transaction.memoTag);
@@ -163,15 +198,19 @@ export function runSendValidAddressTest(
   accountName?: string,
   expectedWarningMessage?: string,
 ) {
-  setTeamOwner(Team.COIN_INTEGRATION);
+  setTeamOwner(
+    BST_SEND_VALID_ADDRESS_CURRENCIES.has(transaction.accountToDebit.currency.id)
+      ? Team.BST
+      : Team.COIN_INTEGRATION,
+  );
   tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
   tags.forEach(tag => $Tag(tag));
-  describe("Send - valid address & amount input", () => {
+  describe("Send - valid address input", () => {
     beforeAll(async () => {
-      await beforeAllFunction(transaction);
+      await beforeAllLegacyFunction(transaction);
     });
 
-    it(`Send from ${transaction.accountToDebit.accountName} ${accountName || ""} to ${transaction.accountToCredit.accountName} (${testName})`, async () => {
+    it(`[${transaction.accountToDebit.currency.testLabel}] - Send valid address input - ${testName}`, async () => {
       await app.send.navigateToSendScreen(accountName || transaction.accountToDebit.accountName);
       const shouldLowerCaseRecipientAddress =
         transaction.accountToCredit === Account.ETH_2_LOWER_CASE ||
@@ -202,15 +241,19 @@ export function runSendInvalidAmountTest(
   tmsLinks: string[],
   tags: string[],
 ) {
-  setTeamOwner(Team.COIN_INTEGRATION);
+  setTeamOwner(
+    BST_SEND_INVALID_AMOUNT_CURRENCIES.has(transaction.accountToDebit.currency.id)
+      ? Team.BST
+      : Team.COIN_INTEGRATION,
+  );
   tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
   tags.forEach(tag => $Tag(tag));
-  describe("Check invalid amount input error", () => {
+  describe("Send - invalid amount input", () => {
     beforeAll(async () => {
-      await beforeAllFunction(transaction);
+      await beforeAllLegacyFunction(transaction);
     });
 
-    it(`Check "${expectedErrorMessage}" for ${transaction.accountToDebit.currency.name} - invalid amount ${transaction.amount} input error`, async () => {
+    it(`[${transaction.accountToDebit.currency.testLabel}] - Send invalid amount error: ${expectedErrorMessage || "no error message"} (${transaction.amount || "empty amount"})`, async () => {
       await app.send.navigateToSendScreen(transaction.accountToDebit.accountName);
       await app.send.setRecipientAndContinue(
         transaction.accountToCredit.address,
@@ -231,12 +274,12 @@ export function runSendInvalidTokenAmountTest(
   setTeamOwner(Team.COIN_INTEGRATION);
   tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
   tags.forEach(tag => $Tag(tag));
-  describe("Send token (subAccount) - invalid amount input", () => {
+  describe("Send - token", () => {
     beforeAll(async () => {
-      await beforeAllFunction(transaction);
+      await beforeAllLegacyFunction(transaction);
     });
 
-    it(`Check error message for ${transaction.accountToDebit.currency.name} - invalid amount ${transaction.amount} input error`, async () => {
+    it(`[${transaction.accountToDebit.currency.testLabel}] - Send invalid amount error (${transaction.amount})`, async () => {
       const addressToCredit = transaction.accountToCredit.address;
       await app.send.navigateToSendScreen(transaction.accountToDebit.currency.name);
       await app.send.setRecipientAndContinue(addressToCredit, transaction.memoTag);
@@ -264,12 +307,12 @@ export function runSendMaxTest(transaction: TransactionType, tmsLinks: string[],
   setTeamOwner(Team.COIN_INTEGRATION);
   tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
   tags.forEach(tag => $Tag(tag));
-  describe("Verify send max user flow", () => {
+  describe("Send - max amount", () => {
     beforeAll(async () => {
-      await beforeAllFunction(transaction);
+      await beforeAllLegacyFunction(transaction);
     });
 
-    it(`Check Valid amount input (${transaction.amount}) - ${transaction.accountToCredit.accountName}`, async () => {
+    it(`[${transaction.accountToDebit.currency.testLabel}] - Send max amount`, async () => {
       const addressToCredit = transaction.accountToCredit.address;
       await app.send.navigateToSendScreen(transaction.accountToDebit.accountName);
       await app.send.setRecipientAndContinue(addressToCredit, transaction.memoTag);
@@ -290,12 +333,12 @@ export function runSendENSTest(transaction: TransactionType, tmsLinks: string[],
   setTeamOwner(Team.COIN_INTEGRATION);
   tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
   tags.forEach(tag => $Tag(tag));
-  describe("User sends funds to ENS address", () => {
+  describe("Send - ENS address", () => {
     beforeAll(async () => {
-      await beforeAllFunction(transaction);
+      await beforeAllLegacyFunction(transaction);
     });
 
-    it(`User sends funds to ENS address - ${transaction.accountToCredit.ensName}`, async () => {
+    it(`[${transaction.accountToDebit.currency.testLabel}] - Send to ENS address`, async () => {
       const ensName = transaction.accountToCredit.ensName;
       invariant(ensName, "ENS name is not provided");
 

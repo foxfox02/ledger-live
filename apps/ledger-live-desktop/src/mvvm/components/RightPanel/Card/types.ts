@@ -1,0 +1,13 @@
+import type { CardFormatters, CardProps as PayCardProps } from "@features/flow-pay-card";
+
+export interface CardViewModel {
+  readonly formatters: Required<CardFormatters>;
+  readonly assets: PayCardProps["assets"];
+  readonly login: PayCardProps["login"];
+  readonly onShowMore: () => void;
+  readonly onTopUp: () => Promise<void>;
+  readonly onChooseCardType: () => Promise<void>;
+  readonly onViewRewards: () => Promise<void>;
+  readonly cardSettingsActions: PayCardProps["cardSettingsActions"];
+  readonly discreet?: boolean;
+}

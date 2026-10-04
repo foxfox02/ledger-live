@@ -7,7 +7,7 @@ import {
 } from "@ledgerhq/coin-concordium/network/walletConnect";
 import { getConcordiumBridge } from "@ledgerhq/live-common/families/concordium/bridgeHelper";
 import { Device } from "@ledgerhq/live-common/hw/actions/types";
-import { addAccountsAction } from "@ledgerhq/live-wallet/addAccounts";
+import { addAccountsAction } from "@ledgerhq/live-common/account/addAccounts";
 import { CryptoCurrency } from "@domain/entity-currency-crypto";
 import { Account } from "@ledgerhq/types-live";
 import { log } from "@ledgerhq/logs";
@@ -40,9 +40,8 @@ import {
   prepareAccountsForAdding,
 } from "./utils/accounts";
 import { getConfirmationCode, shouldRetryPairing, handlePairingProgress } from "./utils/pairing";
+import { STEP_TRANSITION_TIMEOUT } from "./constants";
 import { handleOnboardingProgress } from "./utils/onboarding";
-
-const STEP_TRANSITION_TIMEOUT = 1500; // Delay before continue to next step while ID app handles the pairing
 
 const mapStateToProps = createStructuredSelector({
   device: getCurrentDevice,

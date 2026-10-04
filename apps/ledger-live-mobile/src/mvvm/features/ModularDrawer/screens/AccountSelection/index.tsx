@@ -1,5 +1,5 @@
 import { FlatList } from "react-native";
-import { BottomSheetVirtualizedList, BottomSheetHeader, Banner } from "@ledgerhq/lumen-ui-rnative";
+import { BottomSheetVirtualizedList, BottomSheetHeader } from "@ledgerhq/lumen-ui-rnative";
 import {
   TrackDrawerScreen,
   EVENTS_NAME,
@@ -16,6 +16,18 @@ import { withDiscreetMode } from "~/context/DiscreetModeContext";
 import React, { useCallback, useRef } from "react";
 import { CryptoOrTokenCurrency } from "@domain/entity-currency";
 import { AccountLike } from "@ledgerhq/types-live";
+import type { TFunction } from "i18next";
+import {
+  getPerpsUiUseCase,
+  PERPS_UI_USE_CASE,
+} from "@ledgerhq/live-common/wallet-api/ModularDrawer/uiUseCase";
+import { PAY_ACCOUNT_UI_USE_CASE } from "../../types";
+
+type DescribeHeaderParams = {
+  isPerpsReceive: boolean;
+  hasAccounts: boolean;
+  network: string;
+};
 
 export type AccountSelectionStepProps = {
   onAccountSelected?: (account: AccountLike, parentAccount?: AccountLike) => void;
@@ -27,6 +39,16 @@ export type AccountSelectionStepProps = {
 const HEADER_HEIGHT = 64;
 const ROW_HEIGHT = 80;
 const MARGIN_BOTTOM = HEADER_HEIGHT + ROW_HEIGHT;
+
+function describeHeader(
+  t: TFunction,
+  { isPerpsReceive, hasAccounts, network }: DescribeHeaderParams,
+): string | undefined {
+  if (isPerpsReceive && hasAccounts) return t("modularDrawer.selectAccountPerpsDescription");
+  if (isPerpsReceive) return t("modularDrawer.selectAccountPerpsEmptyDescription");
+  if (!hasAccounts) return t("modularDrawer.emptyAccounts", { network });
+  return undefined;
+}
 
 const AccountSelectionContent = ({
   asset,
@@ -64,30 +86,31 @@ const AccountSelectionContent = ({
 
   const renderFooter = useCallback(() => {
     return (
-      <>
-        {uiUseCase === "perpetuals" && (
-          <Banner
-            appearance="info"
-            title={t("modularDrawer.perpetualsBanner")}
-            lx={{ marginTop: "s16" }}
-          />
-        )}
-        <AddAccountButton label={t("modularDrawer.addAccount")} onClick={onAddNewAccountOnClick} />
-      </>
+      <AddAccountButton label={t("modularDrawer.addAccount")} onClick={onAddNewAccountOnClick} />
     );
-  }, [onAddNewAccountOnClick, t, uiUseCase]);
+  }, [onAddNewAccountOnClick, t]);
+
+  const isPerpsReceive = getPerpsUiUseCase(uiUseCase) === PERPS_UI_USE_CASE.receive;
+
+  const headerTitle = isPerpsReceive
+    ? t("modularDrawer.selectAccountPerpsTitle")
+    : uiUseCase === PAY_ACCOUNT_UI_USE_CASE
+      ? t("modularDrawer.selectAccountToPayFrom")
+      : t("modularDrawer.selectAccount");
+
+  const headerDescription = describeHeader(t, {
+    isPerpsReceive,
+    hasAccounts: detailedAccounts.length > 0,
+    network: asset.name,
+  });
 
   return (
     <>
       <TrackDrawerScreen page={EVENTS_NAME.MODULAR_ACCOUNT_SELECTION} flow={flow} source={source} />
       <BottomSheetHeader
         spacing
-        title={t("modularDrawer.selectAccount")}
-        description={
-          detailedAccounts.length === 0
-            ? t("modularDrawer.emptyAccounts", { network: asset.name })
-            : undefined
-        }
+        title={headerTitle}
+        description={headerDescription}
         density="expanded"
       />
       <BottomSheetVirtualizedList

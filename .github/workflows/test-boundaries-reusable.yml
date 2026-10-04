@@ -4,17 +4,17 @@ on:
   workflow_call:
     secrets:
       AWS_ACCOUNT_ID_PROD:
-        required: false
+        required: true
       AWS_CACHE_OIDC_ROLE_ARN_BRANCH:
-        required: false
+        required: true
       AWS_CACHE_OIDC_ROLE_ARN_DEVELOP:
-        required: false
+        required: true
       AWS_CACHE_REGION:
-        required: false
+        required: true
       AWS_CACHE_ROLE_NAME:
-        required: false
+        required: true
       NX_KEY:
-        required: false
+        required: true
   workflow_dispatch:
     inputs:
       ref:
@@ -31,7 +31,7 @@ permissions:
 jobs:
   enforce-boundaries:
     name: Enforce Module Boundaries
-    runs-on: ubuntu-22.04
+    runs-on: ledger-wallet-4cpu-aws-public
     timeout-minutes: 10
     env:
       NODE_OPTIONS: "--max-old-space-size=4096"
@@ -55,8 +55,26 @@ jobs:
           roleName: ${{ secrets.AWS_CACHE_ROLE_NAME }}
           region: ${{ secrets.AWS_CACHE_REGION }}
 
-      - name: Install dependencies
-        run: pnpm i
+      - name: JFrog npm auth
+        uses: LedgerHQ/ledger-live/tools/actions/composites/jfrog-npm-auth@develop
+        with:
+          registry: ${{ vars.ARTIFACTORY_URL }}
+
+      - name: Install dev dependencies for root workspace
+        run: pnpm i --frozen-lockfile -D -F "ledger-live" --ignore-scripts
 
       - name: Enforce module boundaries
         run: pnpm exec nx run enforce-boundaries:lint:boundaries
+
+      - name: Test the package-structure rules
+        run: pnpm exec nx run enforce-package-structure:test
+
+      - name: Enforce package structure
+        run: pnpm exec nx run-many -t lint:structure
+
+      - name: Test the i18n key check
+        # run-many is a no-op when the project is absent: older branches (e.g. release) call this workflow from develop.
+        run: pnpm exec nx run-many -t test -p enforce-i18n-keys
+
+      - name: Check i18n keys exist in the Desktop and Mobile catalogs
+        run: pnpm exec nx run-many -t lint:i18n-keys -p enforce-i18n-keys

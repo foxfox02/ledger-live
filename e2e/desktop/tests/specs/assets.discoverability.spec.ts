@@ -1,14 +1,13 @@
 import { test } from "tests/fixtures/common";
 import { expect } from "@playwright/test";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { addTmsLink } from "tests/utils/allureUtils";
-import { getDescription } from "tests/utils/customJsonReporter";
 import { FF_LWD_WALLET_40_Q2 } from "tests/utils/featureFlagUtils";
 import { liveDataCommand } from "@ledgerhq/live-e2e-shared/cliCommandsUtils";
 import { Account } from "@ledgerhq/live-e2e-shared/enum/Account";
+import { Currency } from "@ledgerhq/live-e2e-shared/enum/Currency";
 import { DEVICE_TAGS } from "tests/utils/tagsUtils";
 
-test.describe("Stocks - empty discovery state", () => {
+test.describe("Asset discoverability", () => {
   test.use({
     teamOwner: Team.WALLET_XP,
     userdata: "1AccountBTC1AccountETH",
@@ -16,7 +15,7 @@ test.describe("Stocks - empty discovery state", () => {
   });
 
   test(
-    "Explore stocks market from empty stocks category",
+    "Explore the stocks market from the empty stocks category",
     {
       tag: [...DEVICE_TAGS],
       annotation: {
@@ -25,8 +24,6 @@ test.describe("Stocks - empty discovery state", () => {
       },
     },
     async ({ app }) => {
-      await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
       await app.mainNavigation.openTargetFromMainNavigation("home");
       await app.portfolio.expectStocksDiscoveryVisible();
 
@@ -38,7 +35,7 @@ test.describe("Stocks - empty discovery state", () => {
   );
 });
 
-test.describe("Stocks - holdings", () => {
+test.describe("Asset discoverability", () => {
   test.use({
     teamOwner: Team.WALLET_XP,
     userdata: "skip-onboarding-with-last-seen-device",
@@ -48,7 +45,7 @@ test.describe("Stocks - holdings", () => {
   });
 
   test(
-    "Open stocks assets page from stocks category",
+    `[${Account.ETH_1.currency.testLabel}] - Open the stocks assets page from the stocks category`,
     {
       tag: [...DEVICE_TAGS],
       annotation: {
@@ -57,8 +54,6 @@ test.describe("Stocks - holdings", () => {
       },
     },
     async ({ app }) => {
-      await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
       await app.mainNavigation.openTargetFromMainNavigation("home");
       await app.portfolio.expectStocksHoldingsVisible();
 
@@ -70,7 +65,7 @@ test.describe("Stocks - holdings", () => {
   );
 });
 
-test.describe("Stocks - global search", () => {
+test.describe("Asset discoverability", () => {
   test.use({
     teamOwner: Team.WALLET_XP,
     userdata: "skip-onboarding-with-last-seen-device",
@@ -78,7 +73,7 @@ test.describe("Stocks - global search", () => {
   });
 
   test(
-    "Navigate to markets from search categories",
+    "Navigate to markets from the search categories",
     {
       tag: [...DEVICE_TAGS],
       annotation: {
@@ -87,8 +82,6 @@ test.describe("Stocks - global search", () => {
       },
     },
     async ({ app }) => {
-      await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
       await app.topBarSearch.open();
       await app.topBarSearch.expectCategoriesVisible();
 
@@ -104,7 +97,7 @@ test.describe("Stocks - global search", () => {
   );
 
   test(
-    "Match ticker to top search result",
+    `[${Currency.BTC.testLabel}-${Currency.ETH.testLabel}] - Match the typed ticker to the top search result`,
     {
       tag: [...DEVICE_TAGS],
       annotation: {
@@ -113,8 +106,6 @@ test.describe("Stocks - global search", () => {
       },
     },
     async ({ app }) => {
-      await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
       await app.topBarSearch.open();
 
       await app.topBarSearch.searchFor("btc");

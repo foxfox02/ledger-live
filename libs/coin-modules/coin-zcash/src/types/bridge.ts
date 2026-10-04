@@ -45,12 +45,12 @@ export type BitcoinOutputRaw = [
 
 export type BitcoinResources = {
   utxos: BitcoinOutput[];
-  walletAccount?: WalletAccount | undefined;
+  walletAccount?: WalletAccount;
 };
 
 export type BitcoinResourcesRaw = {
   utxos: BitcoinOutputRaw[];
-  walletAccount?: WalletAccountRaw | undefined;
+  walletAccount?: WalletAccountRaw;
 };
 
 export const initialBitcoinResourcesValue = {
@@ -70,7 +70,18 @@ export type BtcOperationExtra = {
   inputRefs?: BtcInputRef[];
 };
 
-export type ZcashOperationExtra = BtcOperationExtra & { zcashShielded?: boolean };
+export type ZcashOperationExtra = BtcOperationExtra & {
+  zcashShielded?: boolean;
+  /** The operation moved value through a shielded pool. */
+  zcashPrivate?: boolean;
+  /**
+   * Hex nullifiers of the Ironwood notes spent by this operation.
+   * Mirrors the transparent inputs/inputRefs fields for shielded sends.
+   */
+  shieldedNullifiers?: string[];
+  /** Memo attached to the shielded output, decoded from the note. */
+  memo?: string;
+};
 
 export type BtcOperation = Operation<BtcOperationExtra>;
 
@@ -91,13 +102,15 @@ export function isZcashAccount(a: BitcoinAccount): a is ZcashAccount {
 
 // ── Transaction types ───────────────────────────────────────────────────
 
+// The private (shielded) send flow spends from the Ironwood pool only: post
+// NU6.3 that is the pool newly shielded value lands in, and Sapling/Orchard send
+// flows are deprecated. So "shielded" (z→z) and "shielded-to-transparent" (z→t)
+// both denote Ironwood-pool spends.
 export type ZcashTransferType =
   | "transparent"
   | "transparent-to-shielded"
   | "shielded-to-transparent"
-  | "shielded"
-  | "ironwood"
-  | "ironwood-to-transparent";
+  | "shielded";
 
 export type Transaction = TransactionCommon & {
   family: "zcash";
@@ -106,6 +119,12 @@ export type Transaction = TransactionCommon & {
   sender?: "public" | "private";
   /** Recipient privacy class derived from the address. */
   recipientType?: "public" | "private";
+  /**
+   * User asked to send to their own address in the opposite pool. Set by the
+   * send flow; it drives the recipient auto-fill and locks the recipient field.
+   * Never inferred from the recipient value.
+   */
+  selfTransfer?: boolean;
   /** Optional 512-byte memo field for shielded outputs. */
   memo?: string;
   // Coin selection results (populated by prepareTransaction)
@@ -125,12 +144,11 @@ export type TransactionRaw = TransactionCommonRaw & {
   transferType: ZcashTransferType;
   sender?: "public" | "private";
   recipientType?: "public" | "private";
+  selfTransfer?: boolean;
   memo?: string;
   zcashFee?: string;
   changeAmount?: string;
 };
-
-export type ZcashTransaction = Transaction;
 
 export function isZcashTransaction(tx: TransactionCommon & { family?: string }): tx is Transaction {
   return "transferType" in tx && (tx as Transaction).transferType !== undefined;

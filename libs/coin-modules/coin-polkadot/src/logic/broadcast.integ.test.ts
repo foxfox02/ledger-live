@@ -8,6 +8,8 @@ describe("Broadcast", () => {
   beforeAll(() => {
     coinConfig.setCoinConfig(() => ({
       status: { type: "active" },
+      name: "Polkadot",
+      unit: { name: "DOT", code: "DOT", magnitude: 10 },
       node: {
         url: "https://polkadot-asset-hub-fullnodes.api.live.ledger.com",
       },
@@ -43,7 +45,9 @@ describe("Broadcast", () => {
         .transferKeepAlive(receiverAddress, 15_000_000_000n)
         .signAsync(signerPair, { nonce: 0 });
 
-      await expect(broadcast(signedTx.toHex())).rejects.toThrow(/FundsUnavailable/);
+      await expect(
+        broadcast(coinConfig.getCoinConfig("polkadot"), signedTx.toHex()),
+      ).rejects.toThrow(/FundsUnavailable/);
     } finally {
       await api.disconnect();
     }

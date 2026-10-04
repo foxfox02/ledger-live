@@ -1,9 +1,7 @@
-import * as preloadedData from "@ledgerhq/coin-solana/preload-data";
-import type { SolanaAccount, SolanaPreloadDataV1, SolanaStake } from "@ledgerhq/coin-solana/types";
+import type { SolanaAccount, SolanaStake } from "@ledgerhq/coin-solana/types";
+import { solanaStakesToStakingResources } from "@ledgerhq/coin-solana/logic";
 import type { ValidatorsAppValidator } from "@ledgerhq/coin-solana/network/validator-app/index";
 import { getAccountBannerState } from "./banner";
-
-jest.mock("@ledgerhq/coin-solana/preload-data");
 
 const mockIsAccountEmpty = jest.fn();
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -87,8 +85,8 @@ const account: SolanaAccount = {
     },
     WEEK: { balances: [402282880], latestDate: 1675555200000 },
   },
-  solanaResources: {
-    stakes: [
+  stakingResources: solanaStakesToStakingResources(
+    [
       {
         stakeAccAddr: "HxMXhn5EWivZ2R4EWCKMXuhhm1Fi82FijFvHXuhVLRhX",
         stakeAccBalance: 402282880,
@@ -99,21 +97,15 @@ const account: SolanaAccount = {
           stake: 400000000,
           voteAccAddr: "26pV97Ce83ZQ6Kz9XT4td8tdoUFPTng8Fb8gPyc53dJx",
         },
-        activation: { active: 0, inactive: 400000000, state: "activating" },
+        activation: { active: 0, inactive: 400000000, activating: 0, state: "activating" },
         withdrawable: 0,
       },
     ],
-    unstakeReserve: BigNumber(0),
-  },
+    BigNumber(0),
+  ),
 };
 
 const validators = [expensiveValidator, cheapValidator, ledgerValidator];
-const validatorsMap = {
-  version: "1",
-  validatorsWithMeta: [],
-  validators,
-  splTokens: null,
-} as SolanaPreloadDataV1;
 
 const mockedIsAccountEmpty = mockIsAccountEmpty;
 
@@ -127,9 +119,8 @@ describe("solana/banner", () => {
   });
 
   it("should not display the banner is account is", async () => {
-    jest.spyOn(preloadedData, "getCurrentSolanaPreloadData").mockReturnValue(validatorsMap);
     mockedIsAccountEmpty.mockReturnValue(true);
-    const result = getAccountBannerState(account, mockBridge);
+    const result = getAccountBannerState(account, mockBridge, validators);
     expect(result).toStrictEqual({
       display: false,
       redelegate: false,
@@ -138,9 +129,8 @@ describe("solana/banner", () => {
     });
   });
   it("should return display delegate mode is account is not empty", async () => {
-    jest.spyOn(preloadedData, "getCurrentSolanaPreloadData").mockReturnValue(validatorsMap);
     mockedIsAccountEmpty.mockReturnValue(false);
-    const result = getAccountBannerState(account, mockBridge);
+    const result = getAccountBannerState(account, mockBridge, validators);
     expect(result).toStrictEqual({
       display: true,
       redelegate: false,
@@ -159,18 +149,62 @@ describe("solana/banner", () => {
         stake: 50000000,
         voteAccAddr: "3CnKZPQn92W8WXG7KTVaFQRk8LJJ3KZbrVVF4ngUxqkg",
       },
-      activation: { active: 0, inactive: 50000000, state: "activating" },
+      activation: { active: 0, inactive: 50000000, activating: 0, state: "activating" },
       withdrawable: 0,
     };
-    jest.spyOn(preloadedData, "getCurrentSolanaPreloadData").mockReturnValue(validatorsMap);
     mockedIsAccountEmpty.mockReturnValue(false);
-    account.solanaResources?.stakes.push(badValidator);
-    const result = getAccountBannerState(account, mockBridge);
+    account.stakingResources = solanaStakesToStakingResources(
+      [
+        {
+          stakeAccAddr: "HxMXhn5EWivZ2R4EWCKMXuhhm1Fi82FijFvHXuhVLRhX",
+          stakeAccBalance: 402282880,
+          rentExemptReserve: 2282880,
+          hasStakeAuth: true,
+          hasWithdrawAuth: true,
+          delegation: {
+            stake: 400000000,
+            voteAccAddr: "26pV97Ce83ZQ6Kz9XT4td8tdoUFPTng8Fb8gPyc53dJx",
+          },
+          activation: { active: 0, inactive: 400000000, activating: 0, state: "activating" },
+          withdrawable: 0,
+        },
+        badValidator,
+      ],
+      BigNumber(0),
+    );
+    const result = getAccountBannerState(account, mockBridge, validators);
     expect(result).toStrictEqual({
       display: true,
       redelegate: true,
       stakeAccAddr: "4hCKLnHHoFVtGcYSSV9K63pcnwvEfYzFb1vBAzfBGxBk",
       ledgerValidator,
     });
+  });
+  it("does not offer redelegation for a position without a stake account address", async () => {
+    mockedIsAccountEmpty.mockReturnValue(false);
+    account.stakingResources = solanaStakesToStakingResources(
+      [
+        {
+          // no stake account address, so there is nothing the redelegate modal could target
+          stakeAccAddr: "",
+          stakeAccBalance: 52282880,
+          rentExemptReserve: 2282880,
+          hasStakeAuth: true,
+          hasWithdrawAuth: true,
+          delegation: {
+            stake: 50000000,
+            voteAccAddr: "3CnKZPQn92W8WXG7KTVaFQRk8LJJ3KZbrVVF4ngUxqkg",
+          },
+          activation: { active: 0, inactive: 50000000, activating: 0, state: "activating" },
+          withdrawable: 0,
+        },
+      ],
+      BigNumber(0),
+    );
+
+    const result = getAccountBannerState(account, mockBridge, validators);
+
+    expect(result.redelegate).toBe(false);
+    expect(result.stakeAccAddr).toBe("");
   });
 });

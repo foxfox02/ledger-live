@@ -1,6 +1,15 @@
 import { NetworkError } from "../../errors";
 import { Config, getChainAPI } from ".";
-import { Connection, SendTransactionError } from "@solana/web3.js";
+import {
+  Connection,
+  PublicKey,
+  SendTransactionError,
+  StakeProgram,
+  TransactionExpiredBlockheightExceededError,
+  TransactionExpiredTimeoutError,
+} from "@solana/web3.js";
+import { HttpResponse, http } from "msw";
+import { setupServer } from "msw/node";
 
 jest.mock("@solana/web3.js", () => ({
   ...jest.requireActual("@solana/web3.js"),
@@ -8,6 +17,21 @@ jest.mock("@solana/web3.js", () => ({
 }));
 
 const FAKE_CONFIG: Config = { endpoint: "http://fake-endpoint.com" };
+const FIRST_STAKE_ACCOUNT = "FirstStakeAccountPubkey11111111111111111111";
+const SECOND_STAKE_ACCOUNT = "SecondStakeAccountPubkey1111111111111111111";
+const stakeAccount = (pubkey: string) => ({
+  pubkey,
+  account: {
+    lamports: 1000,
+    owner: StakeProgram.programId.toBase58(),
+    executable: false,
+    rentEpoch: 0,
+    space: 200,
+    data: { program: "stake", parsed: { type: "uninitialized" }, space: 200 },
+  },
+});
+const rpcJson = (payload: Record<string, unknown>) =>
+  HttpResponse.json({ jsonrpc: "2.0", id: 1, ...payload });
 
 describe("index", () => {
   beforeEach(() => {
@@ -66,10 +90,145 @@ describe("index", () => {
           expect(networkError).toMatchObject({
             message: sendTransactionError.message,
             logs: logMessages,
-            cause: sendTransactionError,
           });
           expect(mockedConfirmTransaction).not.toHaveBeenCalled();
         }
+      });
+    });
+
+    it.each([
+      ["a timeout", () => new TransactionExpiredTimeoutError("sig", 30)],
+      ["an exceeded block height", () => new TransactionExpiredBlockheightExceededError("sig")],
+    ])("keeps %s from confirmTransaction intact, for broadcast to classify", async (_n, make) => {
+      const expiry = make();
+      jest.mocked(Connection).mockImplementation(
+        () =>
+          ({
+            sendRawTransaction: jest.fn().mockResolvedValue("sig"),
+            getLatestBlockhash: jest
+              .fn()
+              .mockResolvedValue({ blockhash: "b", lastValidBlockHeight: 1 }),
+            confirmTransaction: jest.fn().mockRejectedValue(expiry),
+          }) as unknown as Connection,
+      );
+
+      await expect(getChainAPI(FAKE_CONFIG).sendRawTransaction(Buffer.alloc(0))).rejects.toBe(
+        expiry,
+      );
+    });
+
+    describe("getSignaturesForAddressBatch", () => {
+      const mockServer = setupServer();
+
+      beforeAll(() => mockServer.listen({ onUnhandledRequest: "error" }));
+      afterEach(() => mockServer.resetHandlers());
+      afterAll(() => mockServer.close());
+
+      it("refuses a batch-level failure rather than reading it as empty history", async () => {
+        mockServer.use(
+          http.post(FAKE_CONFIG.endpoint, () =>
+            HttpResponse.json({ jsonrpc: "2.0", error: { code: -32601 }, id: null }),
+          ),
+        );
+
+        await expect(
+          getChainAPI(FAKE_CONFIG).getSignaturesForAddressBatch([{ address: "addr1" }]),
+        ).rejects.toThrow("batch failed");
+      });
+    });
+
+    describe("getStakeAccountsByWithdrawAuth", () => {
+      const mockServer = setupServer();
+      const authAddr = "AuthorityAddress111111111111111111111111111";
+      const filters = [{ memcmp: { offset: 44, bytes: authAddr } }];
+
+      beforeAll(() => mockServer.listen({ onUnhandledRequest: "error" }));
+      afterEach(() => mockServer.resetHandlers());
+      afterAll(() => mockServer.close());
+
+      it("retries a rate-limited call instead of surfacing it", async () => {
+        let calls = 0;
+        mockServer.use(
+          http.post(FAKE_CONFIG.endpoint, () => {
+            calls++;
+            return calls === 1
+              ? rpcJson({ error: { code: -32603, message: "Upstream returned 429" } })
+              : rpcJson({ result: { accounts: [stakeAccount(FIRST_STAKE_ACCOUNT)] } });
+          }),
+        );
+
+        const result = await getChainAPI(FAKE_CONFIG).getStakeAccountsByWithdrawAuth(authAddr);
+
+        expect(calls).toBe(2);
+        expect(result.map(({ pubkey }) => pubkey.toBase58())).toEqual([FIRST_STAKE_ACCOUNT]);
+      });
+
+      it("follows getProgramAccountsV2 pagination", async () => {
+        const cursors: unknown[] = [];
+        mockServer.use(
+          http.post(FAKE_CONFIG.endpoint, async ({ request }) => {
+            const { params } = (await request.json()) as {
+              params: [string, { paginationKey?: string }];
+            };
+            cursors.push(params[1].paginationKey);
+            return params[1].paginationKey
+              ? rpcJson({
+                  result: { accounts: [stakeAccount(SECOND_STAKE_ACCOUNT)] },
+                })
+              : rpcJson({
+                  result: {
+                    accounts: [stakeAccount(FIRST_STAKE_ACCOUNT)],
+                    paginationKey: "page-2-cursor",
+                  },
+                });
+          }),
+        );
+
+        const result = await getChainAPI(FAKE_CONFIG).getStakeAccountsByWithdrawAuth(authAddr);
+
+        expect(result.map(({ pubkey }) => pubkey.toBase58())).toEqual([
+          FIRST_STAKE_ACCOUNT,
+          SECOND_STAKE_ACCOUNT,
+        ]);
+        // Only the cursor ends the pagination, so it has to be sent back as-is.
+        expect(cursors).toEqual([undefined, "page-2-cursor"]);
+        // The raw RPC sends base58 strings where web3.js parses PublicKeys, so both
+        // paths have to agree on the shape.
+        expect(result[0].account.owner).toBeInstanceOf(PublicKey);
+      });
+
+      it("maps an RPC error to a NetworkError", async () => {
+        mockServer.use(
+          http.post(FAKE_CONFIG.endpoint, () =>
+            rpcJson({
+              error: { code: -32005, message: "Request deprioritized" },
+            }),
+          ),
+        );
+
+        await expect(
+          getChainAPI(FAKE_CONFIG).getStakeAccountsByWithdrawAuth(authAddr),
+        ).rejects.toBeInstanceOf(NetworkError);
+      });
+
+      it("falls back to getProgramAccounts when the endpoint has no V2 method", async () => {
+        // devnet, testnet and the local test validator run vanilla agave, which does
+        // not implement getProgramAccountsV2.
+        const v1Accounts = [{ pubkey: new PublicKey(FIRST_STAKE_ACCOUNT), account: {} }];
+        const getParsedProgramAccounts = jest.fn().mockResolvedValue(v1Accounts);
+        jest
+          .mocked(Connection)
+          .mockImplementation(() => ({ getParsedProgramAccounts }) as unknown as Connection);
+        mockServer.use(
+          http.post(FAKE_CONFIG.endpoint, () =>
+            rpcJson({ error: { code: -32601, message: "Method not found" } }),
+          ),
+        );
+
+        const result = await getChainAPI(FAKE_CONFIG).getStakeAccountsByWithdrawAuth(authAddr);
+
+        expect(result).toBe(v1Accounts);
+        expect(getParsedProgramAccounts).toHaveBeenCalledWith(StakeProgram.programId, { filters });
       });
     });
   });

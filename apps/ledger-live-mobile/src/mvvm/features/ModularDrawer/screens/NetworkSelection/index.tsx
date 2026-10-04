@@ -1,5 +1,6 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useMemo } from "react";
 import { CryptoOrTokenCurrency } from "@domain/entity-currency";
+import { getCryptoCurrencyById } from "@domain/entity-currency-crypto";
 import { NetworkRow, NetworkRowData } from "./components/NetworkRow";
 import { EnhancedModularDrawerConfiguration } from "@ledgerhq/live-common/wallet-api/ModularDrawer/types";
 import {
@@ -20,27 +21,56 @@ import { useBalanceDeps } from "../../hooks/useBalanceDeps";
 import { useSelector } from "~/context/hooks";
 import { modularDrawerFlowSelector, modularDrawerSourceSelector } from "~/reducers/modularDrawer";
 import { withDiscreetMode } from "~/context/DiscreetModeContext";
+import { useAvailabilityRows } from "@ledgerhq/live-common/modularDrawer/hooks/useAvailabilityRows";
+import type { AvailabilityRow } from "@ledgerhq/live-common/modularDrawer/utils/buildAvailabilityRows";
+import type { DisabledItemExplanation, DisabledItemsExplanation } from "../../types";
+import { UnavailableSectionHeader } from "../../components/UnavailableSectionHeader";
 
 export type NetworkSelectionStepProps = {
   availableNetworks: CryptoOrTokenCurrency[];
   onNetworkSelected: (asset: CryptoOrTokenCurrency) => void;
   networksConfiguration?: EnhancedModularDrawerConfiguration["networks"];
+  selectableNetworkIds?: readonly string[];
+  disabledNetworkExplanation?: DisabledItemsExplanation["network"];
+  onDisabledNetworkPress?: (explanation: DisabledItemExplanation) => void;
+  selectedAssetName?: string;
 };
 
+type NetworkListRow = AvailabilityRow<NetworkRowData>;
+
 const SAFE_MARGIN_BOTTOM = 48;
+const UNAVAILABLE_SECTION_HEADER_KEY = "unavailable-section-header";
 
 const NetworkSelection = ({
   availableNetworks,
   onNetworkSelected,
   networksConfiguration,
+  selectableNetworkIds,
+  disabledNetworkExplanation,
+  onDisabledNetworkPress,
+  selectedAssetName,
 }: Readonly<NetworkSelectionStepProps>) => {
   const { t } = useTranslation();
   const flow = useSelector(modularDrawerFlowSelector);
   const source = useSelector(modularDrawerSourceSelector);
   const { trackModularDrawerEvent } = useModularDrawerAnalytics();
+  const selectableNetworkIdSet = useMemo(
+    () => (selectableNetworkIds === undefined ? undefined : new Set(selectableNetworkIds)),
+    [selectableNetworkIds],
+  );
+
+  const isSelectableNetwork = useCallback(
+    (networkId: string) => {
+      if (selectableNetworkIdSet === undefined) return true;
+
+      return selectableNetworkIdSet.has(networkId);
+    },
+    [selectableNetworkIdSet],
+  );
 
   const handleNetworkClick = useCallback(
     (networkId: string) => {
+      if (!isSelectableNetwork(networkId)) return;
       const originalNetwork = availableNetworks.find(n =>
         n.type === "CryptoCurrency" ? n.id === networkId : n.parentCurrencyId === networkId,
       );
@@ -50,7 +80,7 @@ const NetworkSelection = ({
           {
             flow,
             source,
-            network: originalNetwork.name,
+            network: getCryptoCurrencyById(networkId).name,
             page: MODULAR_DRAWER_PAGE_NAME.MODULAR_NETWORK_SELECTION,
           },
           {
@@ -69,6 +99,7 @@ const NetworkSelection = ({
       source,
       networksConfiguration,
       onNetworkSelected,
+      isSelectableNetwork,
     ],
   );
 
@@ -82,8 +113,16 @@ const NetworkSelection = ({
     ...networksConfiguration,
   });
 
+  const isUnavailableNetwork = useCallback(
+    (network: NetworkRowData) => !isSelectableNetwork(network.id),
+    [isSelectableNetwork],
+  );
+
+  const networkRows = useAvailabilityRows(formattedNetworks, isUnavailableNetwork);
+
   const keyExtractor = useCallback(
-    (item: NetworkRowData, index: number) => `${item.id}-${index}`,
+    (row: NetworkListRow, index: number) =>
+      row.kind === "item" ? `${row.item.id}-${index}` : UNAVAILABLE_SECTION_HEADER_KEY,
     [],
   );
 
@@ -100,11 +139,30 @@ const NetworkSelection = ({
       <BottomSheetFlatList
         scrollEnabled={true}
         showsVerticalScrollIndicator={false}
-        data={formattedNetworks}
+        data={networkRows}
         keyExtractor={keyExtractor}
-        renderItem={({ item }: { item: NetworkRowData }) => (
-          <NetworkRow {...item} onClick={() => handleNetworkClick(item.id)} />
-        )}
+        renderItem={({ item: row }: { item: NetworkListRow }) => {
+          if (row.kind === "unavailableSectionHeader") {
+            return <UnavailableSectionHeader testID="modular-drawer-unavailable-networks-header" />;
+          }
+
+          const network = row.item;
+          const isSelectable = isSelectableNetwork(network.id);
+
+          return (
+            <NetworkRow
+              {...network}
+              disabled={isSelectable ? undefined : true}
+              onClick={() => handleNetworkClick(network.id)}
+              disabledExplanation={
+                !isSelectable && selectedAssetName
+                  ? disabledNetworkExplanation?.(network.name, selectedAssetName)
+                  : undefined
+              }
+              onDisabledPress={onDisabledNetworkPress}
+            />
+          );
+        }}
         contentContainerStyle={{
           paddingBottom: SAFE_MARGIN_BOTTOM,
         }}

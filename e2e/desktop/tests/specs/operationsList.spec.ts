@@ -1,11 +1,9 @@
 import { test } from "tests/fixtures/common";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { addTmsLink } from "tests/utils/allureUtils";
-import { getDescription } from "tests/utils/customJsonReporter";
 import { FF_LWD_WALLET_40_Q2 } from "tests/utils/featureFlagUtils";
 import { DEVICE_TAGS } from "tests/utils/tagsUtils";
 
-test.describe("Operations list", () => {
+test.describe("Operations history", () => {
   test.use({
     teamOwner: Team.WALLET_XP,
     userdata: "1AccountBTC1AccountETH",
@@ -13,7 +11,7 @@ test.describe("Operations list", () => {
   });
 
   test(
-    "Validate operations list entrypoints, layout, row rendering, details drawer and CSV export",
+    "Operations list entry points, layout, details drawer and CSV export",
     {
       tag: [...DEVICE_TAGS],
       annotation: {
@@ -22,7 +20,6 @@ test.describe("Operations list", () => {
       },
     },
     async ({ app }) => {
-      await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
       const { testId } = test.info();
 
       await app.mainNavigation.openTargetFromMainNavigation("home");

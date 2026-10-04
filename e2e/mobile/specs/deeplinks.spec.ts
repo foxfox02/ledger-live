@@ -1,7 +1,8 @@
 import { Account } from "@ledgerhq/live-e2e-shared/enum/Account";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { swapSetup } from "../bridge/server";
-import { setTeamOwner } from "../helpers/allure/allure-helper";
+import { swapSetup } from "@e2e/bridge/server";
+import { setTeamOwner } from "@e2e/helpers/allure/allure-helper";
+import { allure } from "jest-allure2-reporter/api";
 
 const isSmokeTestRun = process.env.INPUTS_TEST_FILTER?.includes("@smoke");
 
@@ -9,7 +10,7 @@ setTeamOwner(Team.WALLET_XP);
 $TmsLink("B2CQA-1837");
 const tags: string[] = ["@NanoSP", "@LNS", "@NanoX", "@Stax", "@Flex", "@NanoGen5"];
 tags.forEach(tag => $Tag(tag));
-describe("DeepLinks Tests", () => {
+describe("Deeplinks", () => {
   const account = Account.ETH_2;
   const ethereumLong = "ethereum";
   const bitcoinLong = "bitcoin";
@@ -37,18 +38,13 @@ describe("DeepLinks Tests", () => {
     await app.modularDrawer.tapDrawerCloseButton({ onlyIfVisible: true });
   });
 
-  beforeEach(async () => {
-    // workaround: modular drawer blocks deeplink
-    await app.modularDrawer.tapDrawerCloseButton({ onlyIfVisible: true });
-  });
-
   (isSmokeTestRun ? it.skip : it)("should open My Ledger page", async () => {
     await app.manager.openViaDeeplink();
     await app.manager.expectManagerPage();
   });
 
   $Tag("@smoke");
-  it("should open Account page", async () => {
+  it("Open the account page from a deeplink", async () => {
     await app.assetAccountsPage.openViaDeeplink();
     await app.accounts.waitForAccountsPageToLoad();
   });
@@ -75,8 +71,9 @@ describe("DeepLinks Tests", () => {
   });
 
   (isSmokeTestRun ? it.skip : it)(
-    `should open the Discover page and search for ${randomLiveApp}`,
+    "should open the Discover page and search for a live app",
     async () => {
+      allure.description(`Live app: ${randomLiveApp}`);
       await app.discover.openViaDeeplink();
       await app.discover.typeInCatalogSearchBar(randomLiveApp);
       await app.discover.expectCatalogAppCard(randomLiveApp);
@@ -85,13 +82,11 @@ describe("DeepLinks Tests", () => {
     },
   );
 
-  (isSmokeTestRun ? it.skip : it)(
-    `should open discovery to ${randomLiveApp} live App`,
-    async () => {
-      await app.discover.openViaDeeplink(randomLiveApp);
-      await app.discover.expectApp(randomLiveApp);
-    },
-  );
+  (isSmokeTestRun ? it.skip : it)("should open discovery to a live App", async () => {
+    allure.description(`Live app: ${randomLiveApp}`);
+    await app.discover.openViaDeeplink(randomLiveApp);
+    await app.discover.expectApp(randomLiveApp);
+  });
 
   (isSmokeTestRun ? it.skip : it)("should open discovery to Kiln Widget live App", async () => {
     await app.discover.openViaDeeplink("Kiln-Widget");
@@ -129,20 +124,20 @@ describe("DeepLinks Tests", () => {
     await app.assetAccountsPage.expectAssetPage(ethereumLong);
   });
 
-  (isSmokeTestRun ? describe.skip : describe)("Open modular drawer via deeplinks", () => {
+  (isSmokeTestRun ? describe.skip : describe)("Deeplinks", () => {
     const TOP_CRYPTO_TICKERS = ["BTC", "ETH", "USDT", "XRP", "BNB"];
 
-    it("should open from Add Account", async () => {
+    it("Open add account from a deeplink", async () => {
       await app.addAccount.openViaDeeplink();
       await app.modularDrawer.validateAssetsScreen(TOP_CRYPTO_TICKERS);
     });
 
-    it("should open from Receive", async () => {
+    it("Open receive from a deeplink", async () => {
       await app.receive.openViaDeeplink();
       await app.modularDrawer.validateAssetsScreen(TOP_CRYPTO_TICKERS);
     });
 
-    it("should open from Receive in a selected account", async () => {
+    it("Open receive on a selected account from a deeplink", async () => {
       await app.mainNavigation.openPortfolioViaDeeplink();
       await app.receive.receiveViaDeeplink(ethereumLong);
       await app.modularDrawer.validateAccountsScreen([account.accountName]);

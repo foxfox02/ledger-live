@@ -5,7 +5,7 @@ import {
 } from "@ledgerhq/ledger-wallet-framework/errors";
 import type { CurrenciesData, DatasetTest } from "@ledgerhq/types-live";
 import BigNumber from "bignumber.js";
-import { getEstimatedFees } from "../bridge/bridgeHelpers/fee";
+import { getEstimatedFees } from "../logic/estimateFees";
 import { fromTransactionRaw } from "../bridge/transaction";
 import { CasperInvalidTransferId, InvalidMinimumAmount, MayBlockAccount } from "../errors";
 import type { Transaction } from "../types";
@@ -144,7 +144,8 @@ const casper: CurrenciesData<Transaction> = {
             recipient: RECIPIENT_ADDRESS_SECP256k1,
             fees: getEstimatedFees().toString(),
             amount: "3",
-            transferId: "afdsaf1",
+            memoType: "transferId",
+            memoValue: "afdsaf1",
           }),
           expectedStatus: {
             amount: new BigNumber("3"),

@@ -1,14 +1,7 @@
 import React from "react";
-import { CardScreen } from "@features/flow-card";
-import PayTabHeader from "./components/PayTabHeader";
+import { PayTabView } from "./PayTabView";
+import { usePayTabViewModel } from "./usePayTabViewModel";
 
-const PayTab = () => {
-  return (
-    <>
-      <PayTabHeader />
-      <CardScreen />
-    </>
-  );
-};
-
-export default PayTab;
+export default function PayTab() {
+  return <PayTabView {...usePayTabViewModel()} />;
+}

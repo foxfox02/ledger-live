@@ -1,3 +1,4 @@
+import { TrackScreen } from "@shared/analytics-react";
 import invariant from "invariant";
 import React, { memo, useCallback, useMemo } from "react";
 import { StyleSheet } from "react-native";
@@ -10,7 +11,6 @@ import { dependenciesToAppRequests } from "@ledgerhq/live-common/hw/actions/app"
 import { useTheme } from "@react-navigation/native";
 import { TransactionResult } from "@ledgerhq/live-common/hw/actions/transaction";
 import DeviceAction from "~/components/DeviceAction";
-import { TrackScreen } from "~/analytics";
 import { SignTransactionNavigatorParamList } from "~/components/RootNavigator/types/SignTransactionNavigator";
 import { ScreenName } from "~/const";
 import type {
@@ -35,7 +35,7 @@ function ConnectDevice({ navigation, route }: SignTransactionConnectDeviceProps)
   const { colors } = useTheme();
   const { account, parentAccount } = useAccountScreen(route);
   invariant(account, "account is required");
-  const { appName, dependencies, onSuccess } = route.params;
+  const { appName, dependencies, manifestId, manifestName, onSuccess } = route.params;
   const mainAccount = getMainAccount(account, parentAccount);
   const bridge = useAccountBridge(account, parentAccount);
   const { transaction, status } = useBridgeTransaction(bridge, () => ({
@@ -82,6 +82,8 @@ function ConnectDevice({ navigation, route }: SignTransactionConnectDeviceProps)
       account,
       parentAccount,
       appName,
+      manifestId,
+      manifestName,
       // Force transaction as the types from useBridgeTransaction
       // cannot infer the presence of transaction from the optionalInit
       // Probably something we could improve in the hook types above
@@ -90,14 +92,14 @@ function ConnectDevice({ navigation, route }: SignTransactionConnectDeviceProps)
       tokenCurrency,
       dependencies: connectAppDependencies,
       requireLatestFirmware: !swapSpeculosBypass,
-      isACRE: route.params.isACRE,
     }),
     [
       account,
       appName,
       connectAppDependencies,
+      manifestId,
+      manifestName,
       parentAccount,
-      route.params.isACRE,
       status,
       swapSpeculosBypass,
       tokenCurrency,

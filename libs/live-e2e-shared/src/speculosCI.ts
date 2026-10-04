@@ -33,8 +33,9 @@ function slugify(name: string): string {
  */
 function makeRunId(deviceParams: DeviceParams): string {
   const slug = slugify(deviceParams.appName) || "app";
-  const suffix = uniqueId().replace(/-/g, "").slice(0, 12);
-  const combined = `${slug.slice(0, 20)}-${suffix}`;
+  const id = uniqueId().replaceAll("-", "").slice(0, 12);
+  const environment = process.env.CI ? "ci" : "local";
+  const combined = `${slug.slice(0, 20)}-lw-${environment}-${id}`;
   return combined.slice(0, 63);
 }
 
@@ -51,7 +52,7 @@ type SpeculinhoStatusResponse = {
 };
 
 function buildAcquirePayload(deviceParams: DeviceParams, runId: string, seed: string) {
-  const { model, firmware, appName, appVersion, dependencies } = deviceParams;
+  const { model, firmware, appName, appVersion, dependencies, pki } = deviceParams;
   const device = reverseModelMap[model];
   if (!device) {
     throw new Error(`[speculosCI] Unsupported device model for Speculinho: ${String(model)}`);
@@ -81,8 +82,8 @@ function buildAcquirePayload(deviceParams: DeviceParams, runId: string, seed: st
     run_id: runId,
     speculos_version: tag,
     ...(libraries?.length ? { libraries } : {}),
-    /** Matches legacy workflow `additional_args` / local Docker Detox (`-p`). */
-    extra_args: ["-p"],
+    /** Speculos PKI flag, same as the local Docker provider. */
+    extra_args: pki ? ["-p"] : [],
   };
 }
 

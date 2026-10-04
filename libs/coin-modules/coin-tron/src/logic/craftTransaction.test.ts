@@ -1,19 +1,51 @@
+import type { Logger } from "@ledgerhq/coin-module-framework/config";
+import type { TronCoinConfig } from "../config";
 import { TransactionIntent } from "@ledgerhq/coin-module-framework/api/index";
 import BigNumber from "bignumber.js";
-import { craftStandardTransaction, craftTrc20Transaction } from "../network";
+import {
+  claimRewardTronTransaction,
+  craftStandardTransaction,
+  craftTrc20Transaction,
+  freezeTronTransaction,
+  legacyUnfreezeTronTransaction,
+  unDelegateResourceTransaction,
+  unfreezeTronTransaction,
+  voteTronSuperRepresentatives,
+  withdrawExpireUnfreezeTronTransaction,
+} from "../network";
 import { decode58Check } from "../network/format";
+import type { TronMemo, TronTxData } from "../types";
 import { craftTransaction } from "./craftTransaction";
+
+type TronIntent = TransactionIntent<TronMemo, TronTxData>;
 
 jest.mock("../network/format", () => ({
   decode58Check: jest.fn(),
 }));
 
 jest.mock("../network", () => ({
+  // Mirrors the real constant; `craftTransaction.integ.test.ts` asserts the crafted `fee_limit`
+  // against the module's own export, so a change to it can't silently pass here.
+  DEFAULT_TRC20_FEES_LIMIT: 50000000,
   post: jest.fn(),
   extendTronTxExpirationTimeBy10mn: jest.fn(),
   craftStandardTransaction: jest.fn(),
   craftTrc20Transaction: jest.fn(),
+  claimRewardTronTransaction: jest.fn(),
+  freezeTronTransaction: jest.fn(),
+  legacyUnfreezeTronTransaction: jest.fn(),
+  unDelegateResourceTransaction: jest.fn(),
+  unfreezeTronTransaction: jest.fn(),
+  voteTronSuperRepresentatives: jest.fn(),
+  withdrawExpireUnfreezeTronTransaction: jest.fn(),
 }));
+
+const mockLogger: Logger = jest.fn();
+
+const mockConfig = {
+  status: { type: "active" },
+  explorer: { url: "https://tron.coin.ledger.com" },
+} as TronCoinConfig;
 
 describe("craftTransaction", () => {
   beforeEach(() => {
@@ -21,13 +53,14 @@ describe("craftTransaction", () => {
   });
 
   it("should craft a standard transaction", async () => {
-    const transactionIntent: TransactionIntent = {
+    const transactionIntent: TronIntent = {
       intentType: "transaction",
       asset: { type: "native" },
       type: "send",
       recipient: "recipient",
       sender: "sender",
       amount: BigInt(1000),
+      data: { type: "tron" },
     };
 
     (decode58Check as jest.Mock).mockImplementation(address => address);
@@ -35,24 +68,28 @@ describe("craftTransaction", () => {
       raw_data_hex: "extendedRawDataHex",
     });
 
-    const { transaction: result } = await craftTransaction(transactionIntent);
+    const { transaction: result } = await craftTransaction(
+      mockLogger,
+      mockConfig,
+      transactionIntent,
+    );
 
     expect(decode58Check).toHaveBeenCalledWith("recipient");
     expect(decode58Check).toHaveBeenCalledWith("sender");
-    expect(craftStandardTransaction).toHaveBeenCalledWith(
-      undefined,
-      "recipient",
-      "sender",
-      new BigNumber(1000),
-      false,
-      undefined,
-      undefined,
-    );
+    expect(craftStandardTransaction).toHaveBeenCalledWith(mockLogger, mockConfig, {
+      tokenAddress: undefined,
+      recipientAddress: "recipient",
+      senderAddress: "sender",
+      amount: new BigNumber(1000),
+      isTransferAsset: false,
+      memo: undefined,
+      expiration: undefined,
+    });
     expect(result).toBe("extendedRawDataHex");
   });
 
   it("should craft a TRC20 transaction", async () => {
-    const transactionIntent: TransactionIntent = {
+    const transactionIntent: TronIntent = {
       intentType: "transaction",
       type: "send",
       asset: {
@@ -62,6 +99,7 @@ describe("craftTransaction", () => {
       recipient: "recipient",
       sender: "sender",
       amount: BigInt(1000),
+      data: { type: "tron" },
     };
 
     (decode58Check as jest.Mock).mockImplementation(address => address);
@@ -69,11 +107,17 @@ describe("craftTransaction", () => {
       raw_data_hex: "extendedRawDataHex",
     });
 
-    const { transaction: result } = await craftTransaction(transactionIntent);
+    const { transaction: result } = await craftTransaction(
+      mockLogger,
+      mockConfig,
+      transactionIntent,
+    );
 
     expect(decode58Check).toHaveBeenCalledWith("recipient");
     expect(decode58Check).toHaveBeenCalledWith("sender");
     expect(craftTrc20Transaction).toHaveBeenCalledWith(
+      mockLogger,
+      mockConfig,
       "contractAddress",
       "recipient",
       "sender",
@@ -84,14 +128,22 @@ describe("craftTransaction", () => {
     expect(result).toBe("extendedRawDataHex");
   });
 
-  it("should craft a native TRX transaction when custom fees are 0", async () => {
-    const transactionIntent: TransactionIntent = {
+  it("should craft a TRC10 transaction with the numeric asset id as tokenAddress", async () => {
+    // Regression (LIVE-37706): the TransferAssetContract `asset_name` is the hex of `tokenAddress`,
+    // which must be the numeric TRC10 asset id, not the issuer address. The send flow derives
+    // assetReference from the token via `getAssetFromToken`; feeding the issuer address here crafts
+    // an asset_name for a non-existent asset and the transfer fails.
+    const transactionIntent: TronIntent = {
       intentType: "transaction",
-      asset: { type: "native" },
       type: "send",
+      asset: {
+        type: "trc10",
+        assetReference: "1002000",
+      },
       recipient: "recipient",
       sender: "sender",
       amount: BigInt(1000),
+      data: { type: "tron" },
     };
 
     (decode58Check as jest.Mock).mockImplementation(address => address);
@@ -99,32 +151,77 @@ describe("craftTransaction", () => {
       raw_data_hex: "extendedRawDataHex",
     });
 
-    const { transaction: result } = await craftTransaction(transactionIntent, { value: 0n });
+    const { transaction: result } = await craftTransaction(
+      mockLogger,
+      mockConfig,
+      transactionIntent,
+    );
+
+    expect(craftStandardTransaction).toHaveBeenCalledWith(mockLogger, mockConfig, {
+      tokenAddress: "1002000",
+      recipientAddress: "recipient",
+      senderAddress: "sender",
+      amount: new BigNumber(1000),
+      isTransferAsset: true,
+      memo: undefined,
+      expiration: undefined,
+    });
+    expect(craftTrc20Transaction).not.toHaveBeenCalled();
+    expect(result).toBe("extendedRawDataHex");
+  });
+
+  it("should craft a native TRX transaction when custom fees are 0", async () => {
+    const transactionIntent: TronIntent = {
+      intentType: "transaction",
+      asset: { type: "native" },
+      type: "send",
+      recipient: "recipient",
+      sender: "sender",
+      amount: BigInt(1000),
+      data: { type: "tron" },
+    };
+
+    (decode58Check as jest.Mock).mockImplementation(address => address);
+    (craftStandardTransaction as jest.Mock).mockResolvedValue({
+      raw_data_hex: "extendedRawDataHex",
+    });
+
+    const { transaction: result } = await craftTransaction(
+      mockLogger,
+      mockConfig,
+      transactionIntent,
+      {
+        value: 0n,
+      },
+    );
 
     expect(craftStandardTransaction).toHaveBeenCalled();
     expect(craftTrc20Transaction).not.toHaveBeenCalled();
     expect(result).toBe("extendedRawDataHex");
   });
 
-  it("should use zero custom fees when user provides 0 for crafting a TRC20 transaction", async () => {
+  it("should pass a 0 custom fee straight through for a TRC20 transaction", async () => {
     const customFees = 0n;
     const amount = 1000;
     const transactionIntent = {
       intentType: "transaction",
+      type: "send",
       asset: {
         type: "trc20",
         assetReference: "contractAddress",
       },
       amount: BigInt(amount),
-    } as TransactionIntent;
+    } as TronIntent;
 
     (decode58Check as jest.Mock).mockImplementation(_address => undefined);
     (craftTrc20Transaction as jest.Mock).mockResolvedValue({
       raw_data_hex: "extendedRawDataHex",
     });
 
-    await craftTransaction(transactionIntent, { value: customFees });
+    await craftTransaction(mockLogger, mockConfig, transactionIntent, { value: customFees });
     expect(craftTrc20Transaction).toHaveBeenCalledWith(
+      mockLogger,
+      mockConfig,
       "contractAddress",
       undefined,
       undefined,
@@ -134,57 +231,169 @@ describe("craftTransaction", () => {
     );
   });
 
-  it("should use custom user fees when user provides it for crafting a TRC20 transaction", async () => {
+  it("should pass a custom fee below the default straight through for a TRC20 transaction", async () => {
     const customFees: bigint = 99n;
     const amount: number = 1000;
     const transactionIntent = {
       intentType: "transaction",
+      type: "send",
       asset: {
         type: "trc20",
         assetReference: "contractAddress",
       },
       amount: BigInt(amount),
-    } as TransactionIntent;
+    } as TronIntent;
 
     (decode58Check as jest.Mock).mockImplementation(_address => undefined);
     (craftTrc20Transaction as jest.Mock).mockResolvedValue({
       raw_data_hex: "extendedRawDataHex",
     });
 
-    await craftTransaction(transactionIntent, { value: customFees });
+    await craftTransaction(mockLogger, mockConfig, transactionIntent, { value: customFees });
     expect(craftTrc20Transaction).toHaveBeenCalledWith(
+      mockLogger,
+      mockConfig,
       "contractAddress",
       undefined,
       undefined,
       BigNumber(amount),
-      Number(customFees),
+      99,
       undefined,
     );
   });
 
-  it("should not use any fees when user does not provide it for crafting a TRC20 transaction", async () => {
-    const amount = 1000;
+  it("should pass a custom fee above the default straight through for a TRC20 transaction", async () => {
+    const customFees: bigint = 60_000_000n;
+    const amount: number = 1000;
     const transactionIntent = {
       intentType: "transaction",
+      type: "send",
       asset: {
         type: "trc20",
         assetReference: "contractAddress",
       },
       amount: BigInt(amount),
-    } as TransactionIntent;
+    } as TronIntent;
 
     (decode58Check as jest.Mock).mockImplementation(_address => undefined);
     (craftTrc20Transaction as jest.Mock).mockResolvedValue({
       raw_data_hex: "extendedRawDataHex",
     });
 
-    await craftTransaction(transactionIntent);
+    await craftTransaction(mockLogger, mockConfig, transactionIntent, { value: customFees });
     expect(craftTrc20Transaction).toHaveBeenCalledWith(
+      mockLogger,
+      mockConfig,
+      "contractAddress",
+      undefined,
+      undefined,
+      BigNumber(amount),
+      60_000_000,
+      undefined,
+    );
+  });
+
+  it("should leave the fee limit to the network default when no custom fee is provided for a TRC20 transaction", async () => {
+    const amount = 1000;
+    const transactionIntent = {
+      intentType: "transaction",
+      type: "send",
+      asset: {
+        type: "trc20",
+        assetReference: "contractAddress",
+      },
+      amount: BigInt(amount),
+    } as TronIntent;
+
+    (decode58Check as jest.Mock).mockImplementation(_address => undefined);
+    (craftTrc20Transaction as jest.Mock).mockResolvedValue({
+      raw_data_hex: "extendedRawDataHex",
+    });
+
+    await craftTransaction(mockLogger, mockConfig, transactionIntent);
+    // `undefined` here, not the default: `craftTrc20Transaction` owns the `?? DEFAULT_TRC20_FEES_LIMIT`
+    // fallback, so the default is asserted in the network + integ tests, not mocked away here.
+    expect(craftTrc20Transaction).toHaveBeenCalledWith(
+      mockLogger,
+      mockConfig,
       "contractAddress",
       undefined,
       undefined,
       BigNumber(amount),
       undefined,
+      undefined,
+    );
+  });
+
+  it("should cap at the estimate's published ceiling, not its net fee, for a TRC20 transaction", async () => {
+    // LIVE-36865: the wallet forwards the net display fee as customFees.value on every send, and that
+    // collapses to 0 for an energy-covered account. `fee_limit` is a ceiling, not a charge, so it
+    // comes from the ceiling the estimate published alongside the fee — pinning it to 0 reverts
+    // OUT_OF_ENERGY. Arrives as a decimal string: the generic layer JSON-normalises the bag.
+    const amount = 1000;
+    const transactionIntent = {
+      intentType: "transaction",
+      type: "send",
+      asset: {
+        type: "trc20",
+        assetReference: "contractAddress",
+      },
+      amount: BigInt(amount),
+    } as TronIntent;
+
+    (decode58Check as jest.Mock).mockImplementation(_address => undefined);
+    (craftTrc20Transaction as jest.Mock).mockResolvedValue({
+      raw_data_hex: "extendedRawDataHex",
+    });
+
+    await craftTransaction(mockLogger, mockConfig, transactionIntent, {
+      value: 0n,
+      parameters: { feeLimit: "50000000" },
+    });
+    expect(craftTrc20Transaction).toHaveBeenCalledWith(
+      mockLogger,
+      mockConfig,
+      "contractAddress",
+      undefined,
+      undefined,
+      BigNumber(amount),
+      50_000_000,
+      undefined,
+    );
+  });
+
+  it("should prefer a deliberate override over the estimate's ceiling for a TRC20 transaction", async () => {
+    // Both arrive together only when a custom fee is combined with send-max, which still estimates to
+    // resolve the max amount. The user's cap has to win — otherwise the ceiling they chose is
+    // silently replaced, which is what broke the signer in TSD-11634.
+    const amount = 1000;
+    const transactionIntent = {
+      intentType: "transaction",
+      type: "send",
+      asset: {
+        type: "trc20",
+        assetReference: "contractAddress",
+      },
+      amount: BigInt(amount),
+    } as TronIntent;
+
+    (decode58Check as jest.Mock).mockImplementation(_address => undefined);
+    (craftTrc20Transaction as jest.Mock).mockResolvedValue({
+      raw_data_hex: "extendedRawDataHex",
+    });
+
+    await craftTransaction(mockLogger, mockConfig, transactionIntent, {
+      value: 30_000_000n,
+      parameters: { fees: 30_000_000n, feeLimit: "50000000" },
+    });
+    expect(craftTrc20Transaction).toHaveBeenCalledWith(
+      mockLogger,
+      mockConfig,
+      "contractAddress",
+      undefined,
+      undefined,
+      BigNumber(amount),
+      30_000_000,
       undefined,
     );
   });
@@ -192,22 +401,191 @@ describe("craftTransaction", () => {
   it.each([-1n, BigInt(2 * Number.MAX_SAFE_INTEGER)])(
     "should throw an error when user provides fees which exceeds Typescript Number type value limit for crafting a TRC20 transaction",
     async (customFees: bigint) => {
-      try {
-        await craftTransaction(
+      await expect(
+        craftTransaction(
+          mockLogger,
+          mockConfig,
           {
             intentType: "transaction",
+            type: "send",
             asset: {
               type: "trc20",
               assetReference: "contractAddress",
             },
-          } as TransactionIntent,
+          } as TronIntent,
           { value: customFees },
-        );
-      } catch (error) {
-        expect((error as Error).message).toEqual(
-          `fees must be between 0 and ${Number.MAX_SAFE_INTEGER} (Typescript Number type value limit)`,
-        );
-      }
+        ),
+      ).rejects.toThrow(
+        `fees must be between 0 and ${Number.MAX_SAFE_INTEGER} (Typescript Number type value limit)`,
+      );
     },
   );
+
+  describe("resource staking", () => {
+    const SENDER = "sender";
+    const RECIPIENT = "recipient";
+    const VOTES = [{ name: "sr", address: "srAddress", voteCount: 3 }];
+
+    const stakingIntent = (
+      type: string,
+      data: Partial<TronTxData> = {},
+      overrides: Partial<TransactionIntent<TronMemo, TronTxData>> = {},
+    ): TransactionIntent<TronMemo, TronTxData> =>
+      ({
+        intentType: "transaction",
+        type,
+        sender: SENDER,
+        recipient: "",
+        amount: 0n,
+        asset: { type: "native" },
+        data: { type: "tron", ...data },
+        ...overrides,
+      }) as TransactionIntent<TronMemo, TronTxData>;
+
+    beforeEach(() => {
+      for (const builder of [
+        claimRewardTronTransaction,
+        freezeTronTransaction,
+        legacyUnfreezeTronTransaction,
+        unDelegateResourceTransaction,
+        unfreezeTronTransaction,
+        voteTronSuperRepresentatives,
+        withdrawExpireUnfreezeTronTransaction,
+      ]) {
+        (builder as jest.Mock).mockResolvedValue({ raw_data_hex: "stakingRawDataHex" });
+      }
+    });
+
+    it("crafts a freeze from the amount and the TxData resource", async () => {
+      const { transaction } = await craftTransaction(
+        mockLogger,
+        mockConfig,
+        stakingIntent("freeze", { resource: "BANDWIDTH", duration: 3 }, { amount: 5_000_000n }),
+      );
+
+      expect(freezeTronTransaction).toHaveBeenCalledWith(
+        mockLogger,
+        mockConfig,
+        SENDER,
+        new BigNumber(5_000_000),
+        "BANDWIDTH",
+      );
+      expect(transaction).toBe("stakingRawDataHex");
+    });
+
+    it("crafts an unfreeze from the amount and the TxData resource", async () => {
+      await craftTransaction(
+        mockLogger,
+        mockConfig,
+        stakingIntent("unfreeze", { resource: "ENERGY" }, { amount: 2_000_000n }),
+      );
+
+      expect(unfreezeTronTransaction).toHaveBeenCalledWith(
+        mockLogger,
+        mockConfig,
+        SENDER,
+        new BigNumber(2_000_000),
+        "ENERGY",
+      );
+    });
+
+    it("crafts a vote from the TxData vote list", async () => {
+      await craftTransaction(mockLogger, mockConfig, stakingIntent("vote", { votes: VOTES }));
+
+      expect(voteTronSuperRepresentatives).toHaveBeenCalledWith(
+        mockLogger,
+        mockConfig,
+        SENDER,
+        VOTES,
+      );
+    });
+
+    it("crafts a vote with an empty list when the TxData carries none", async () => {
+      await craftTransaction(mockLogger, mockConfig, stakingIntent("vote"));
+
+      expect(voteTronSuperRepresentatives).toHaveBeenCalledWith(mockLogger, mockConfig, SENDER, []);
+    });
+
+    it("crafts a claimReward from the sender alone", async () => {
+      await craftTransaction(mockLogger, mockConfig, stakingIntent("claimReward"));
+
+      expect(claimRewardTronTransaction).toHaveBeenCalledWith(mockLogger, mockConfig, SENDER);
+    });
+
+    it("crafts a withdrawExpireUnfreeze from the sender alone", async () => {
+      await craftTransaction(mockLogger, mockConfig, stakingIntent("withdrawExpireUnfreeze"));
+
+      expect(withdrawExpireUnfreezeTronTransaction).toHaveBeenCalledWith(
+        mockLogger,
+        mockConfig,
+        SENDER,
+      );
+    });
+
+    it("crafts an unDelegateResource towards the recipient", async () => {
+      await craftTransaction(
+        mockLogger,
+        mockConfig,
+        stakingIntent(
+          "unDelegateResource",
+          { resource: "ENERGY" },
+          { recipient: RECIPIENT, amount: 1_000_000n },
+        ),
+      );
+
+      expect(unDelegateResourceTransaction).toHaveBeenCalledWith(mockLogger, mockConfig, {
+        ownerAddress: SENDER,
+        receiverAddress: RECIPIENT,
+        amount: new BigNumber(1_000_000),
+        resource: "ENERGY",
+      });
+    });
+
+    it("crafts a legacyUnfreeze with a receiver when reclaiming a delegation", async () => {
+      await craftTransaction(
+        mockLogger,
+        mockConfig,
+        stakingIntent("legacyUnfreeze", { resource: "BANDWIDTH" }, { recipient: RECIPIENT }),
+      );
+
+      expect(legacyUnfreezeTronTransaction).toHaveBeenCalledWith(mockLogger, mockConfig, {
+        ownerAddress: SENDER,
+        resource: "BANDWIDTH",
+        receiverAddress: RECIPIENT,
+      });
+    });
+
+    it("crafts a legacyUnfreeze without a receiver when there is no recipient", async () => {
+      await craftTransaction(
+        mockLogger,
+        mockConfig,
+        stakingIntent("legacyUnfreeze", { resource: "BANDWIDTH" }),
+      );
+
+      expect(legacyUnfreezeTronTransaction).toHaveBeenCalledWith(mockLogger, mockConfig, {
+        ownerAddress: SENDER,
+        resource: "BANDWIDTH",
+        receiverAddress: undefined,
+      });
+    });
+
+    it("rejects an unknown mode rather than signing it as a plain transfer", async () => {
+      await expect(
+        craftTransaction(mockLogger, mockConfig, stakingIntent("notAMode")),
+      ).rejects.toThrow(/unsupported Tron intent type/);
+      expect(craftStandardTransaction).not.toHaveBeenCalled();
+    });
+
+    it("throws when the node returns no raw_data_hex", async () => {
+      (freezeTronTransaction as jest.Mock).mockResolvedValue({});
+
+      await expect(
+        craftTransaction(
+          mockLogger,
+          mockConfig,
+          stakingIntent("freeze", { resource: "BANDWIDTH" }, { amount: 5_000_000n }),
+        ),
+      ).rejects.toThrow(/no raw_data_hex/);
+    });
+  });
 });

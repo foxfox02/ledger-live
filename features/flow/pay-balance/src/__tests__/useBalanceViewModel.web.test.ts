@@ -1,0 +1,152 @@
+import { act, renderHook } from "@testing-library/react";
+import { useBalanceViewModel } from "../components/Hero/useBalanceViewModel";
+import type { BalanceProps } from "../types";
+import { USDC_ID, formatCountervalue, options } from "./fixtures";
+import { i18nWrapper } from "./i18nWrapper";
+import { trackButtonClicked } from "@features/platform-pay-analytics/testing/module-mock";
+
+jest.mock("@features/platform-pay-analytics", () =>
+  jest.requireActual("@features/platform-pay-analytics/testing/module-mock"),
+);
+
+function buildProps(overrides: Partial<BalanceProps> = {}): BalanceProps {
+  return {
+    status: "ready",
+    stableBalance: 0,
+    filter: "all",
+    hasBalance: false,
+    filterOptions: options,
+    formatCountervalue,
+    onConfirmFilter: jest.fn(),
+    ...overrides,
+  };
+}
+
+function renderBalanceViewModel(props: BalanceProps) {
+  return renderHook(() => useBalanceViewModel(props), { wrapper: i18nWrapper() });
+}
+
+describe("useBalanceViewModel", () => {
+  it("should be empty when the user has no balance", () => {
+    const actionTiles = { page: "Pay", tiles: [] };
+    const { result } = renderBalanceViewModel(buildProps({ hasBalance: false, actionTiles }));
+
+    expect(result.current).toMatchObject({
+      displayMode: "empty",
+      actionTiles,
+    });
+  });
+
+  it("should be funded when the user has balance and is ready", () => {
+    const { result } = renderBalanceViewModel(
+      buildProps({ hasBalance: true, stableBalance: 1250.5 }),
+    );
+
+    expect(result.current).toMatchObject({
+      displayMode: "funded",
+      balance: 1250.5,
+      filter: "all",
+      isLoading: false,
+    });
+  });
+
+  it("should pass discreet mode through to the funded view", () => {
+    const { result } = renderBalanceViewModel(
+      buildProps({ hasBalance: true, stableBalance: 1250.5, discreet: true }),
+    );
+
+    expect(result.current).toMatchObject({ displayMode: "funded", discreet: true });
+  });
+
+  it("should pass discreet toggle through to the funded view", () => {
+    const onToggleDiscreetMode = jest.fn();
+    const { result } = renderBalanceViewModel(
+      buildProps({ hasBalance: true, stableBalance: 1250.5, onToggleDiscreetMode }),
+    );
+
+    expect(result.current).toMatchObject({ displayMode: "funded", onToggleDiscreetMode });
+  });
+
+  it("should keep funded chrome and skeleton the amount while funded data loads", () => {
+    const { result } = renderBalanceViewModel(
+      buildProps({ status: "loading", hasBalance: true, stableBalance: 1250.5 }),
+    );
+
+    expect(result.current).toMatchObject({
+      displayMode: "funded",
+      balance: 1250.5,
+      isLoading: true,
+    });
+  });
+
+  it("should stay empty while data loads if the user has no balance", () => {
+    const { result } = renderBalanceViewModel(buildProps({ status: "loading", hasBalance: false }));
+
+    expect(result.current.displayMode).toBe("empty");
+  });
+
+  it("should stay funded on error if the user has a balance", () => {
+    const { result } = renderBalanceViewModel(
+      buildProps({ status: "error", hasBalance: true, stableBalance: 1250.5 }),
+    );
+
+    expect(result.current).toMatchObject({
+      displayMode: "funded",
+      balance: 1250.5,
+      isLoading: false,
+    });
+  });
+
+  it("should stay empty on error if the user has no balance", () => {
+    const { result } = renderBalanceViewModel(buildProps({ status: "error", hasBalance: false }));
+
+    expect(result.current.displayMode).toBe("empty");
+  });
+
+  it("should expose the selected option for a valid filter", () => {
+    const { result } = renderBalanceViewModel(buildProps({ hasBalance: true, filter: USDC_ID }));
+
+    expect(result.current).toMatchObject({
+      displayMode: "funded",
+      filter: USDC_ID,
+      selectedOption: { id: USDC_ID, ticker: "USDC" },
+    });
+  });
+
+  it("should open the filter and track the open event", () => {
+    const { result } = renderBalanceViewModel(buildProps({ hasBalance: true }));
+
+    if (result.current.displayMode !== "funded") throw new Error("expected funded");
+    expect(result.current.isFilterOpen).toBe(false);
+
+    act(() => result.current.displayMode === "funded" && result.current.onOpenFilter());
+
+    if (result.current.displayMode !== "funded") throw new Error("expected funded");
+    expect(result.current.isFilterOpen).toBe(true);
+    expect(trackButtonClicked).toHaveBeenCalledWith({
+      button: "balance filter",
+      page: "Pay",
+    });
+  });
+
+  it("should close the filter", () => {
+    const { result } = renderBalanceViewModel(buildProps({ hasBalance: true }));
+
+    act(() => result.current.displayMode === "funded" && result.current.onOpenFilter());
+    act(() => result.current.displayMode === "funded" && result.current.onCloseFilter());
+
+    if (result.current.displayMode !== "funded") throw new Error("expected funded");
+    expect(result.current.isFilterOpen).toBe(false);
+  });
+
+  it("should resolve its copy from the mounted i18n provider, not from props", () => {
+    const { result } = renderHook(() => useBalanceViewModel(buildProps({ hasBalance: false })), {
+      wrapper: i18nWrapper({
+        en: { translation: { payTab: { balance: { emptyTitle: "Payez" } } } },
+      }),
+    });
+
+    if (result.current.displayMode !== "empty") throw new Error("expected empty");
+    expect(result.current.labels.emptyTitle).toBe("Payez");
+  });
+});

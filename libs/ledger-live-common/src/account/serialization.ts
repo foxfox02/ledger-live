@@ -1,5 +1,6 @@
 import memoize from "lodash/memoize";
 import { getCryptoCurrencyById } from "@domain/entity-currency-crypto";
+import { getDefaultAccountNameForCurrencyIndex } from "@domain/entity-account-name";
 import type {
   Account,
   AccountBridge,
@@ -19,8 +20,9 @@ import {
   fromOperationRaw as commonFromOperationRaw,
   toOperationRaw as commonToOperationRaw,
 } from "@ledgerhq/ledger-wallet-framework/serialization/index";
-import { getAccountBridge } from "../bridge";
 import { getAccountBridgeByFamily } from "../bridge/impl";
+import { resolveSerializationFamily } from "../bridge/zcashRouting";
+import { checkAccountSupported } from "./support";
 
 export function toBalanceHistoryRaw(b: BalanceHistory): BalanceHistoryRaw {
   return b.map(({ date, value }) => [date.toISOString(), value.toString()]);
@@ -65,7 +67,10 @@ export const fromOperationRaw = async (
 
 export async function fromAccountRaw(rawAccount: AccountRaw): Promise<Account> {
   const currency = getCryptoCurrencyById(rawAccount.currencyId);
-  const bridge = await getAccountBridgeByFamily(currency.family, rawAccount.id);
+  const bridge = await getAccountBridgeByFamily(
+    resolveSerializationFamily(currency, rawAccount.id),
+    rawAccount.id,
+  );
 
   return await commonFromAccountRaw(rawAccount, {
     assignFromAccountRaw: bridge.assignFromAccountRaw,
@@ -78,7 +83,19 @@ export async function toAccountRaw(
   account: Account,
   userData?: AccountUserData,
 ): Promise<AccountRaw> {
-  const bridge = await getAccountBridge(account);
+  // getAccountBridge() ran this same check before resolving the bridge; preserve it here
+  // now that the bridge is resolved via resolveSerializationFamily instead, so an
+  // unregistered coin module or unsupported derivation mode still rejects on save as it
+  // did before, for every currency (not just Zcash).
+  const supportedError = checkAccountSupported(account);
+  if (supportedError) {
+    throw supportedError;
+  }
+
+  const bridge = await getAccountBridgeByFamily(
+    resolveSerializationFamily(account.currency, account.id),
+    account.id,
+  );
 
   const commonAccountRaw = commonToAccountRaw(account, {
     assignToAccountRaw: bridge.assignToAccountRaw,
@@ -97,6 +114,26 @@ export async function toAccountRaw(
 
   return commonAccountRaw;
 }
+
+export const accountRawToAccountUserData = (raw: AccountRaw): AccountUserData => {
+  const { id } = raw;
+  const name =
+    raw.name ||
+    getDefaultAccountNameForCurrencyIndex({
+      currency: getCryptoCurrencyById(raw.currencyId),
+      index: raw.index,
+    });
+  const starredIds: string[] = [];
+  if (raw.starred) {
+    starredIds.push(raw.id);
+  }
+  for (const t of raw.subAccounts || []) {
+    if (t.starred) {
+      starredIds.push(t.id);
+    }
+  }
+  return { id, name, starredIds };
+};
 
 const inferFamilyFromAccountId: (accountId: string) => string | null | undefined = memoize(
   accountId => {

@@ -13,7 +13,7 @@ import postOnboarding from "@ledgerhq/live-common/postOnboarding/reducer";
 import market, { MarketState } from "./market";
 import marketBanner, { MarketBannerState } from "./marketBanner";
 import wallet from "./wallet";
-import { WalletState } from "@ledgerhq/live-wallet/store";
+import type { WalletState } from "./wallet";
 import { authEnvironmentReducer, type AuthEnvironmentState } from "@shared/auth";
 import walletSync, { WalletSyncState } from "./walletSync";
 import trustchain from "./trustchain";
@@ -24,14 +24,33 @@ import modularDialog, { ModularDialogState } from "./modularDialog";
 import sendFlow, { SendFlowState } from "./sendFlow";
 import onboarding, { OnboardingState } from "./onboarding";
 import { lldRTKApiReducers, LLDRTKApiState } from "./rtkQueryApi";
+import { accountAliasSlice, type AccountAliasState } from "@domain/entity-account-alias";
 import { identitiesSlice, type IdentitiesState } from "@domain/entity-client-identity";
 import { supportedFiatsSlice, type SupportedFiatsState } from "@domain/entity-currency-fiat";
 import { contactsSlice, type ContactsState } from "@domain/entity-contact";
 import {
   largeScreenUpsellModalSlice,
   type LargeScreenUpsellModalState,
-} from "@domain/entity-large-screen-upsell-modal";
-import { payCardSlice, type PayCardState } from "@domain/entity-pay-card";
+} from "@features/flow-large-screen-upsell";
+import { payCardBalanceSlice, type PayCardBalanceState } from "@features/flow-pay-balance/state";
+import {
+  payCardFeatureTourSlice,
+  type PayCardFeatureTourState,
+} from "@features/flow-pay-feature-tour/state";
+import {
+  payRequestVerifyHintSlice,
+  type PayRequestVerifyHintState,
+} from "@features/flow-pay-request/state";
+import {
+  payCardAuthSlice,
+  payCardLoginIntroSlice,
+  type PayCardAuthState,
+  type PayCardLoginIntroState,
+} from "@features/flow-pay-card-auth/state";
+import {
+  payCardOnboardingWidgetSlice,
+  type PayCardOnboardingWidgetState,
+} from "@features/flow-pay-card-widget/state";
 import type { PayloadAction, UnknownAction } from "@reduxjs/toolkit";
 import dialogs, { DialogsState } from "./dialogs";
 import dialogsWithData, { DialogsWithDataState } from "./dialogsWithData";
@@ -53,6 +72,7 @@ import coinConfigOverrides, { CoinConfigOverridesState } from "./coinConfigOverr
 import knownDevices, { KnownDevicesState } from "./knownDevices";
 
 export type State = LLDRTKApiState & {
+  accountAliases: AccountAliasState;
   accounts: AccountsState;
   application: ApplicationState;
   countervalues: CountervaluesState;
@@ -89,10 +109,16 @@ export type State = LLDRTKApiState & {
   supportedFiats: SupportedFiatsState;
   contacts: ContactsState;
   largeScreenUpsellModal: LargeScreenUpsellModalState;
-  payCard: PayCardState;
+  payCardBalance: PayCardBalanceState;
+  payCardFeatureTour: PayCardFeatureTourState;
+  payRequestVerifyHint: PayRequestVerifyHintState;
+  payCardOnboardingWidget: PayCardOnboardingWidgetState;
+  payCardAuth: PayCardAuthState;
+  payCardLoginIntro: PayCardLoginIntroState;
 };
 
 const appReducer = combineReducers({
+  accountAliases: accountAliasSlice.reducer,
   accounts,
   application,
   countervalues,
@@ -129,7 +155,12 @@ const appReducer = combineReducers({
   supportedFiats: supportedFiatsSlice.reducer,
   contacts: contactsSlice.reducer,
   largeScreenUpsellModal: largeScreenUpsellModalSlice.reducer,
-  payCard: payCardSlice.reducer,
+  payCardBalance: payCardBalanceSlice.reducer,
+  payCardFeatureTour: payCardFeatureTourSlice.reducer,
+  payRequestVerifyHint: payRequestVerifyHintSlice.reducer,
+  payCardOnboardingWidget: payCardOnboardingWidgetSlice.reducer,
+  payCardAuth: payCardAuthSlice.reducer,
+  payCardLoginIntro: payCardLoginIntroSlice.reducer,
   ...lldRTKApiReducers,
   ...(getEnv("PLAYWRIGHT_RUN") && {
     lastAction: (_: unknown, action: PayloadAction) => action,

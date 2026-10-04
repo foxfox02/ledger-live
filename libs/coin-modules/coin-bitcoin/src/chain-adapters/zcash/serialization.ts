@@ -6,7 +6,40 @@ import type {
   ZcashPrivateInfoRaw,
   ZcashSyncState,
 } from "./types";
-import { rehydrateOutput } from "./serialization/rehydrate";
+
+// Persistence of the shielded `privateInfo` (its unified full viewing key,
+// balances and decrypted notes) for a Zcash account served by the bitcoin
+// family bridge. This is flag-independent on purpose: ledger-live-common's
+// `bridge/zcashRouting.ts#resolveSerializationFamily` only ever escalates
+// persistence to the standalone `zcash` family for a `mock:` account id, so a
+// real account id always resolves here, whatever the `zcashShielded` flag
+// says -- this is the one place that reads and writes a real account's ufvk.
+// The standalone @ledgerhq/coin-zcash module writes the same raw shape for its
+// own (mock-only) persistence path, so the two round-trip interchangeably.
+//
+// The mapping below is therefore a deliberate duplicate of coin-zcash's
+// bridge/serialization.ts. The two modules do not import each other (owner
+// decision, see the "Option D" note in coin-zcash/src/types/bridge.ts), so this
+// file carries a `sonar.cpd.exclusions` entry that must be dropped along with it.
+//
+// TODO: remove this module once the `zcashShielded` feature flag is retired and
+// Zcash is served by @ledgerhq/coin-zcash by default. At that point set the
+// Zcash `currency.family` to "zcash" (see domain/entity/currency-crypto) and
+// drop the flag-based routing in ledger-live-common's `resolveFamily`
+// (bridge/impl.ts): both decode and encode then resolve to coin-zcash
+// unconditionally, coin-bitcoin no longer serves Zcash, and this file — along
+// with the `assignToAccountRaw`/`assignFromAccountRaw` hooks in ./index.ts —
+// becomes dead code. coin-zcash's own bridge/serialization.ts already owns the
+// same round-trip, so persistence is preserved by that move alone.
+//
+// This holds only if the transparent transaction path is re-routed through
+// @ledgerhq/coin-zcash too. Today it is this chain-adapter — getAddress,
+// getWalletXpub, getFullViewingKey, createSigner and the ZIP-317 fee pricer in
+// ./index.ts — that backs the transparent PSBT flow whenever coin-bitcoin
+// serves Zcash. If that path stays on coin-bitcoin, then coin-bitcoin keeps
+// serving Zcash, `currency.family` cannot become "zcash", and this
+// serialization must stay. So the precondition for the cleanup above is that
+// coin-zcash owns the whole Zcash path, transparent included.
 
 function mapDecryptedOutput(output: DecryptedOutput): DecryptedOutputRaw {
   return {
@@ -23,6 +56,21 @@ function mapDecryptedOutput(output: DecryptedOutput): DecryptedOutputRaw {
   };
 }
 
+function rehydrateOutput(raw: DecryptedOutputRaw): DecryptedOutput {
+  return {
+    memo: raw.memo,
+    transfer_type: raw.transfer_type,
+    amount: new BigNumber(raw.amount),
+    ...(raw.nullifier !== undefined && { nullifier: raw.nullifier }),
+    ...(raw.rho !== undefined && { rho: raw.rho }),
+    ...(raw.rseed !== undefined && { rseed: raw.rseed }),
+    ...(raw.cmx !== undefined && { cmx: raw.cmx }),
+    ...(raw.position !== undefined && { position: raw.position }),
+    ...(raw.recipient !== undefined && { recipient: raw.recipient }),
+    ...(raw.is_spent !== undefined && { isSpent: raw.is_spent }),
+  };
+}
+
 export function toZcashPrivateInfoRaw(info: ZcashPrivateInfo): ZcashPrivateInfoRaw {
   return {
     saplingBalance: info.saplingBalance.toString(),
@@ -30,11 +78,16 @@ export function toZcashPrivateInfoRaw(info: ZcashPrivateInfo): ZcashPrivateInfoR
     ironwoodBalance: info.ironwoodBalance.toString(),
     lastSyncTimestamp: info.lastSyncTimestamp,
     ufvk: info.ufvk,
+    shieldedAddress: info.shieldedAddress,
     syncState: info.syncState,
     progress: info.progress,
     estimatedTimeRemaining: info.estimatedTimeRemaining,
     birthday: info.birthday,
     lastProcessedBlock: info.lastProcessedBlock,
+    // Written out only when known: undefined can't be assigned to an optional
+    // field directly under exactOptionalPropertyTypes, so the key is omitted
+    // entirely rather than written as undefined.
+    ...(info.lastSyncError !== undefined && { lastSyncError: info.lastSyncError }),
     transactions: info.transactions.map(({ fee, transparentOut, decryptedData, ...tx }) => ({
       ...tx,
       fee: fee.toString(),
@@ -62,11 +115,14 @@ export function fromZcashPrivateInfoRaw(info: ZcashPrivateInfoRaw): ZcashPrivate
     ironwoodBalance: new BigNumber(info.ironwoodBalance ?? "0"),
     lastSyncTimestamp: info.lastSyncTimestamp,
     ufvk: info.ufvk,
+    shieldedAddress: info.shieldedAddress ?? null,
     syncState: info.syncState as ZcashSyncState,
     progress: info.progress,
     estimatedTimeRemaining: info.estimatedTimeRemaining,
     birthday: info.birthday,
     lastProcessedBlock: info.lastProcessedBlock,
+    // Guard accounts persisted before this field was added.
+    lastSyncError: info.lastSyncError ?? null,
     transactions: info.transactions.map(({ fee, transparentOut, decryptedData, ...tx }) => ({
       ...tx,
       fee: new BigNumber(fee),

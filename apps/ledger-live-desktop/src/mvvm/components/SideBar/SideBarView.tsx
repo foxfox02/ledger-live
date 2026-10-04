@@ -18,13 +18,15 @@ import {
   Chart5,
   Chart5Fill,
   Compass,
-  DollarConvert,
+  DollarFill,
+  Dollar,
 } from "@ledgerhq/lumen-ui-react/symbols";
 import { FeatureToggle } from "@features/platform-feature-flags";
 import React from "react";
 import { useTranslation } from "react-i18next";
 import type { SideBarViewModel } from "./types";
 import { AnimatedLogo } from "../AnimatedLogo";
+import { DeviceScreen } from "../DeviceScreen";
 import { cn } from "LLD/utils/cn";
 
 export interface SideBarViewProps {
@@ -35,18 +37,19 @@ export function SideBarView({ viewModel }: SideBarViewProps) {
   const { t } = useTranslation();
 
   return (
-    <div className="grid h-full grid-rows-[auto_1fr] gap-24 py-32 pl-32">
+    <div className="flex h-full flex-col gap-24 py-32 pl-32">
       <div
         className={cn(
-          "flex h-48 w-0 items-center justify-center justify-self-center overflow-visible transition-transform duration-300",
+          "flex h-48 w-0 shrink-0 items-center justify-center self-center overflow-visible transition-transform duration-300",
           viewModel.collapsed && "translate-x-2",
         )}
       >
         <AnimatedLogo collapsed={viewModel.collapsed} />
       </div>
 
-      <div className="min-h-0">
+      <div className="min-h-0 flex-1">
         <SideBar
+          ref={viewModel.navRef}
           active={viewModel.active}
           onActiveChange={viewModel.handleActiveChange}
           collapsed={viewModel.collapsed}
@@ -83,8 +86,8 @@ export function SideBarView({ viewModel }: SideBarViewProps) {
             {viewModel.isPayTabEnabled ? (
               <SideBarItem
                 value="paytab"
-                icon={DollarConvert}
-                activeIcon={DollarConvert}
+                icon={Dollar}
+                activeIcon={DollarFill}
                 label={t("sidebar.paytab")}
               />
             ) : (
@@ -122,6 +125,11 @@ export function SideBarView({ viewModel }: SideBarViewProps) {
           </SideBarTrailing>
         </SideBar>
       </div>
+
+      {/* Emulated device screen. Hidden on the collapsed rail, which is too
+          narrow to render a device frame. Left unwrapped so that it costs no
+          gap while the panel renders nothing. */}
+      {!viewModel.collapsed && <DeviceScreen />}
     </div>
   );
 }

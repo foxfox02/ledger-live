@@ -1,105 +1,223 @@
+import invariant from "invariant";
 import type {
-  CoinModuleApi,
+  AccountInfo,
+  CoinModuleImpl,
   Balance,
-  Block,
   BlockInfo,
   CraftedTransaction,
-  Cursor,
   FeeEstimation,
   MemoNotSupported,
   Page,
-  Reward,
   Stake,
   TransactionIntent,
-  TransactionValidation,
-  Validator,
   BalanceOptions,
+  Validator,
 } from "@ledgerhq/coin-module-framework/api/index";
 import { craftTransactionData } from "@ledgerhq/coin-module-framework/logic/craftTransactionData";
 import { rejectBalanceOptions } from "@ledgerhq/coin-module-framework/api/getBalance/rejectBalanceOptions";
-import coinConfig from "../config";
-import { estimateFees, getBalance, lastBlock, listOperations, validateAddress } from "../logic";
-import { getTransactionType } from "../logic/utils";
-import type { AleoCoinConfig, AleoConfig, AleoTransactionIntentData } from "../types";
+import { FEE_INTENT_TYPES } from "../constants";
+import {
+  broadcast,
+  combine,
+  craftTransaction,
+  estimateFees,
+  getAccountInfo,
+  getBalance,
+  getStakes,
+  getValidators,
+  lastBlock,
+  register,
+  validateAddress,
+} from "../logic";
+import {
+  buildFeeConfigurationForRootIntent,
+  getTransactionType,
+  resolvePrivacyContext,
+} from "../logic/utils";
+import type {
+  AleoContext,
+  AleoCoinConfig,
+  AleoRegistration,
+  AleoTransactionIntentData,
+} from "../types";
+import { listOperations } from "../logic/listOperations";
 
-export function createApi(
-  config: AleoConfig,
-  currencyId: string,
-): CoinModuleApi<MemoNotSupported, AleoTransactionIntentData> {
-  const aleoCoinConfig: AleoCoinConfig = { ...config, status: { type: "active" } };
-  coinConfig.setCoinConfig(() => aleoCoinConfig);
+type AleoCoinModuleImpl = CoinModuleImpl<
+  AleoCoinConfig,
+  MemoNotSupported,
+  AleoTransactionIntentData
+>;
 
+function requireViewKey(context: AleoContext, action: string): string {
+  const { viewKey } = context;
+  if (typeof viewKey !== "string" || viewKey.length === 0) {
+    throw new Error(`aleo: a view key is required to ${action}`);
+  }
+  return viewKey;
+}
+
+// currencyId is captured here (it can't live on the Context). The logic functions are shared with
+// the classic bridge (config-based), so each method resolves the config itself and passes it down —
+// no context-first wrappers.
+//
+// Checked against CoinModuleImpl with `satisfies` rather than annotated as it, so the precise shape
+// survives and a caller sees exactly which methods exist.
+//
+// Omitted rather than stubbed: `call`, `craftRawTransaction`, `getBlock`, `getBlockInfo`,
+// `getRewards`, `validateIntent` and `getNextSequence`. The consumer resolver applies
+// `withDefaults`, which answers "not supported" for each.
+//
+// `getAccountInfo`, `register` and `validateAddress` stay: they are real implementations —
+// enrollment into the Provable record scanner and the scan status it reports are central to Aleo's
+// private balance and history, so listing them here is what tells a caller they are not placeholders.
+export function createApi(currencyId: string) {
   return {
-    async call() {
-      throw new Error("call is not supported");
+    broadcast: async (
+      context: AleoContext,
+      signedTransaction: string,
+      _options?,
+    ): Promise<string> => {
+      const config = await context.config();
+      return broadcast({
+        configOrCurrencyId: config,
+        signedTx: signedTransaction,
+      });
     },
-    broadcast: (_signature: string): Promise<string> => {
-      throw new Error("broadcast is not supported");
-    },
-    combine: (_transaction: string, _signature: string, _publicKey: string | undefined): string => {
-      throw new Error("combine is not supported");
+    combine: async (
+      context: AleoContext,
+      transaction: string,
+      signatures: string[],
+      _options?,
+    ): Promise<string> => {
+      const config = await context.config();
+      const viewKey = requireViewKey(context, "combine a transaction");
+      return combine({ config, transaction, signatures, viewKey });
     },
     craftTransaction: async (
-      _txIntent: TransactionIntent<MemoNotSupported, AleoTransactionIntentData>,
-      _customFees?: FeeEstimation,
+      context: AleoContext,
+      txIntent: TransactionIntent<MemoNotSupported, AleoTransactionIntentData>,
+      options?: { customFees?: FeeEstimation },
     ): Promise<CraftedTransaction> => {
-      throw new Error("craftTransaction is not supported");
-    },
-    craftRawTransaction: (
-      _transaction: string,
-      _sender: string,
-      _publicKey: string,
-      _sequence: bigint,
-    ): Promise<CraftedTransaction> => {
-      throw new Error("craftRawTransaction is not supported");
-    },
-    estimateFees: async (intent): Promise<FeeEstimation> => {
-      const transactionType = getTransactionType(intent);
-      return estimateFees({ configOrCurrencyId: aleoCoinConfig, transactionType });
-    },
-    getBalance: (address: string, options?: BalanceOptions): Promise<Balance[]> => {
-      return rejectBalanceOptions(() => getBalance(aleoCoinConfig, address), options);
-    },
-    lastBlock: async (): Promise<BlockInfo> => {
-      return lastBlock(aleoCoinConfig);
-    },
-    listOperations: async (address, options) => {
-      const { operations, nextCursor } = await listOperations({
-        config: aleoCoinConfig,
-        currencyId,
-        address,
-        options,
-        mode: "coin-framework",
+      invariant(!txIntent.useAllAmount, "aleo: useAllAmount is not supported");
+
+      const config = await context.config();
+      const isFeeIntent = FEE_INTENT_TYPES.has(txIntent.type);
+      const isPrivateIntent = "data" in txIntent && "records" in txIntent.data;
+      const isPrivateFeeIntent = txIntent.type === "fee_private";
+
+      if (isFeeIntent) {
+        invariant(!config.isFeeSponsored, "aleo: fee craft is not needed when fees are sponsored");
+        invariant(!options?.customFees, "aleo: customFees is not supported for fee intents");
+
+        if (isPrivateFeeIntent) {
+          requireViewKey(context, "craft a private fee transaction");
+        }
+
+        // txIntent.amount -> base fee
+        // txIntent.data.priorityFee -> priority fee (defaults to 0)
+        // both should match max_base_fee/max_priority_fee from the FeeConfiguration of the root intent
+        return craftTransaction({
+          config,
+          txIntent,
+          feeConfiguration: null,
+          ...(context.viewKey && { viewKey: context.viewKey }),
+        });
+      }
+
+      if (isPrivateIntent) {
+        requireViewKey(context, "craft a private transaction");
+      }
+
+      const maxBaseFee = options?.customFees
+        ? options.customFees.value
+        : estimateFees({
+            configOrCurrencyId: config,
+            transactionType: getTransactionType(txIntent),
+          }).value;
+
+      const maxPriorityFee =
+        ("data" in txIntent && "priorityFee" in txIntent.data
+          ? txIntent.data.priorityFee
+          : undefined) ?? 0n;
+
+      const feeConfiguration = buildFeeConfigurationForRootIntent({
+        isPrivate: isPrivateIntent,
+        maxBaseFee,
+        maxPriorityFee,
       });
 
-      return { items: operations, next: nextCursor ?? undefined };
+      return craftTransaction({
+        config,
+        txIntent,
+        feeConfiguration,
+        ...(context.viewKey && { viewKey: context.viewKey }),
+      });
     },
-    getBlock(_height): Promise<Block> {
-      throw new Error("getBlock is not supported");
+    estimateFees: async (context: AleoContext, intent, _options?): Promise<FeeEstimation> => {
+      const config = await context.config();
+      return estimateFees({
+        configOrCurrencyId: config,
+        transactionType: getTransactionType(intent),
+      });
     },
-    getBlockInfo(_height: number): Promise<BlockInfo> {
-      throw new Error("getBlockInfo is not supported");
+    getAccountInfo: async (context: AleoContext, _address: string): Promise<AccountInfo> => {
+      const provableId = context.provableId;
+      if (typeof provableId !== "string" || provableId.length === 0) {
+        return { type: "none" };
+      }
+      const config = await context.config();
+      return getAccountInfo(config, provableId);
     },
-    getStakes(_address: string, _cursor?: Cursor): Promise<Page<Stake>> {
-      throw new Error("getStakes is not supported");
+    getBalance: async (
+      context: AleoContext,
+      address: string,
+      options?: BalanceOptions,
+    ): Promise<Balance[]> => {
+      return rejectBalanceOptions(() => getBalance(context, address), options);
     },
-    getRewards(_address: string, _cursor?: Cursor): Promise<Page<Reward>> {
-      throw new Error("getRewards is not supported");
+    getStakes: async (context: AleoContext, address: string, _options?): Promise<Page<Stake>> => {
+      const config = await context.config();
+      return getStakes(config, address);
     },
-    getValidators(_cursor?: Cursor): Promise<Page<Validator>> {
-      throw new Error("getValidators is not supported");
+    getValidators: async (context: AleoContext, _options?): Promise<Page<Validator>> => {
+      const config = await context.config();
+      const validators = await getValidators(config);
+      return {
+        items: validators.map(validator => ({
+          id: validator.address,
+          address: validator.address,
+          name: validator.name ?? validator.address,
+          balance: BigInt(validator.stakeMicrocredits),
+          commissionRate: String(validator.commissionPercent),
+          ...(validator.estimatedYearlyRewardsRate !== undefined && {
+            apy: validator.estimatedYearlyRewardsRate,
+          }),
+        })),
+      };
     },
-    validateIntent: async (
-      _transactionIntent: TransactionIntent,
-      _balances: Balance[],
-      _customFees?: FeeEstimation,
-    ): Promise<TransactionValidation> => {
-      throw new Error("validateIntent is not supported");
+    lastBlock: async (context: AleoContext): Promise<BlockInfo> => {
+      const config = await context.config();
+      return lastBlock(config);
     },
-    getNextSequence: async (_address: string) => {
-      throw new Error("getNextSequence is not supported");
+    listOperations: async (context: AleoContext, address, options) => {
+      if (options.order && options.order !== "desc") {
+        throw new Error(`aleo: listOperations does not support order "${options.order}"`);
+      }
+
+      const { provableId, viewKey } = resolvePrivacyContext(context);
+
+      const config = await context.config(currencyId);
+
+      return listOperations({ config, address, options, provableId, viewKey });
     },
-    validateAddress,
-    craftTransactionData,
-  };
+    validateAddress: (_context: AleoContext, address, parameters) =>
+      validateAddress(address, parameters),
+    craftTransactionData: (_context, intent) => craftTransactionData(intent),
+    // `address` is unused: enrollment is keyed by the view key, not the address.
+    register: async (context: AleoContext, _address: string): Promise<AleoRegistration> => {
+      const viewKey = requireViewKey(context, "register with the Provable scanner");
+      const config = await context.config();
+      return register(config, viewKey);
+    },
+  } satisfies AleoCoinModuleImpl;
 }

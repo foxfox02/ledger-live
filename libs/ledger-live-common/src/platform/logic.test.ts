@@ -1,4 +1,4 @@
-import { Transaction as EvmTransaction } from "@ledgerhq/coin-evm/types/index";
+import type { Transaction as EvmTransaction } from "../families/evm/types";
 import { TokenCurrency, TokenCurrencyIdSchema } from "@domain/entity-currency-token";
 import {
   OperationType,
@@ -10,6 +10,7 @@ import BigNumber from "bignumber.js";
 import * as signMessage from "../hw/signMessage/index";
 import { createFixtureAccount, createFixtureTokenAccount } from "../mock/fixtures/cryptoCurrencies";
 import * as converters from "./converters";
+import type { AccountNamesState } from "@domain/entity-account-name";
 
 jest.mock("../hw/signMessage/index", () => ({
   ...jest.requireActual("../hw/signMessage/index"),
@@ -35,11 +36,16 @@ import {
 import { RawPlatformTransaction } from "./rawTypes";
 import * as serializers from "./serializers";
 import { LiveAppManifest } from "./types";
-import { initialState } from "@ledgerhq/live-wallet/store";
 import { TrackingAPI } from "./tracking";
+import { LiveConfig } from "@ledgerhq/live-config/LiveConfig";
+import { evmConfig } from "../families/evm/config";
+
+// completeExchangeLogic's EVM path reads chainId via getCurrencyConfiguration (LiveConfig); seed the
+// real EVM config so the "ethereum" fixture account/token resolve deterministically.
+LiveConfig.setConfig(evmConfig);
 
 describe("receiveOnAccountLogic", () => {
-  const walletState = initialState;
+  const walletState: AccountNamesState = new Map();
   // Given
   const mockPlatformReceiveRequested = jest.fn();
   const mockPlatformReceiveFail = jest.fn();

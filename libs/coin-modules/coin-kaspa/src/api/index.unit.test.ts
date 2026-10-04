@@ -1,8 +1,8 @@
 /**
- * Unit tests for the createApi factory — verifies the coin config is set, every
- * CoinModuleApi method is wired and delegates to its logic function with the
- * right arguments, and unsupported methods throw synchronously. Network and
- * logic layers are mocked; no network access.
+ * Unit tests for the createApi factory — verifies the coin config is set, every method the chain
+ * supports is wired and delegates to its logic function with the right arguments, and the
+ * capabilities the module omits raise "not supported" once the resolver's `withDefaults` is
+ * applied. Network and logic layers are mocked; no network access.
  */
 import type {
   Balance,
@@ -13,8 +13,10 @@ import type {
   Page,
   TransactionIntent,
 } from "@ledgerhq/coin-module-framework/api/index";
+import { capabilityReport } from "@ledgerhq/coin-module-framework/test-utils";
 import { createApi } from "./index";
-import coinConfig, { type KaspaCoinConfig } from "../config";
+import { type KaspaCoinConfig } from "../config";
+import { createMockKaspaContext } from "../test/context";
 import { broadcast } from "../logic/transaction/broadcast";
 import { combine } from "../logic/transaction/combine";
 import { craftTransaction } from "../logic/transaction/craftTransaction";
@@ -37,8 +39,6 @@ jest.mock("../logic/history/lastBlock", () => ({ lastBlock: jest.fn() }));
 jest.mock("../logic/history/listOperations", () => ({ listOperations: jest.fn() }));
 jest.mock("../logic/validateIntent", () => ({ validateIntent: jest.fn() }));
 
-const config: KaspaCoinConfig = { status: { type: "active" } };
-
 const SENDER = "kaspa:qz24c4tse54c2f9v02ap2l3957uw5kq3rdg960gvw50wtvvy0nxax5jt8zckp";
 const RECIPIENT = "kaspa:qyp8y7hlk9uj5l9vqsyz78x90yt84cujdytg93s8q8malhpdq6c4hpg9dyesk65";
 
@@ -56,25 +56,30 @@ describe("createApi", () => {
     jest.clearAllMocks();
   });
 
-  it("sets the coin config, forcing status active", () => {
-    const setCoinConfigSpy = jest.spyOn(coinConfig, "setCoinConfig");
-
-    createApi(config, "kaspa");
-
-    expect(setCoinConfigSpy).toHaveBeenCalled();
-    const resolved = setCoinConfigSpy.mock.calls[0][0]();
-    expect(resolved).toEqual(expect.objectContaining({ ...config, status: { type: "active" } }));
+  // Absent, raising "<name> is not supported" through the resolver — exhaustive by `toEqual`.
+  it("omits the capabilities the chain has none of", async () => {
+    await expect(capabilityReport(createApi(), createMockKaspaContext())).resolves.toEqual({
+      unsupported: [
+        "call",
+        "craftRawTransaction",
+        "getNextSequence",
+        "getRewards",
+        "getStakes",
+        "getValidators",
+        "register",
+        "validateAddress",
+      ],
+      inconsistent: [],
+    });
   });
-
-  it("returns an object with every CoinModuleApi method", () => {
-    const api = createApi(config, "kaspa");
+  it("declares every method the chain supports", () => {
+    const api = createApi();
 
     expect(api).toEqual(
       expect.objectContaining({
         broadcast: expect.any(Function),
         combine: expect.any(Function),
         craftTransaction: expect.any(Function),
-        craftRawTransaction: expect.any(Function),
         craftTransactionData: expect.any(Function),
         estimateFees: expect.any(Function),
         getBalance: expect.any(Function),
@@ -82,21 +87,17 @@ describe("createApi", () => {
         listOperations: expect.any(Function),
         getBlock: expect.any(Function),
         getBlockInfo: expect.any(Function),
-        getRewards: expect.any(Function),
-        getStakes: expect.any(Function),
-        getValidators: expect.any(Function),
         validateIntent: expect.any(Function),
-        getNextSequence: expect.any(Function),
-        validateAddress: expect.any(Function),
       }),
     );
   });
 
   it("delegates broadcast to the logic function", async () => {
     jest.mocked(broadcast).mockResolvedValueOnce("txHash");
-    const api = createApi(config, "kaspa");
+    const api = createApi();
+    const context = createMockKaspaContext();
 
-    const result = await api.broadcast("signedTx");
+    const result = await api.broadcast(context, "signedTx");
 
     expect(broadcast).toHaveBeenCalledWith("signedTx", undefined);
     expect(result).toBe("txHash");
@@ -104,21 +105,23 @@ describe("createApi", () => {
 
   it("delegates combine to the logic function", () => {
     jest.mocked(combine).mockReturnValueOnce("signedTx");
-    const api = createApi(config, "kaspa");
+    const api = createApi();
+    const context = createMockKaspaContext();
 
-    const result = api.combine("tx", "sigs");
+    const result = api.combine(context, "tx", ["sigs"]);
 
-    expect(combine).toHaveBeenCalledWith("tx", "sigs");
+    expect(combine).toHaveBeenCalledWith("tx", ["sigs"]);
     expect(result).toBe("signedTx");
   });
 
   it("delegates craftTransaction to the logic function (intent, customFees)", async () => {
     const crafted: CraftedTransaction = { transaction: "{}", details: { fee: "1000" } };
     jest.mocked(craftTransaction).mockResolvedValueOnce(crafted);
-    const api = createApi(config, "kaspa");
+    const api = createApi();
+    const context = createMockKaspaContext();
     const customFees: FeeEstimation = { value: 5000n };
 
-    const result = await api.craftTransaction(nativeIntent, customFees);
+    const result = await api.craftTransaction(context, nativeIntent, { customFees });
 
     expect(craftTransaction).toHaveBeenCalledWith(nativeIntent, customFees);
     expect(result).toEqual(crafted);
@@ -127,9 +130,10 @@ describe("createApi", () => {
   it("delegates estimateFees to the logic function (intent, params)", async () => {
     const fees: FeeEstimation = { value: 1000n };
     jest.mocked(estimateFees).mockResolvedValueOnce(fees);
-    const api = createApi(config, "kaspa");
+    const api = createApi();
+    const context = createMockKaspaContext();
 
-    const result = await api.estimateFees(nativeIntent);
+    const result = await api.estimateFees(context, nativeIntent);
 
     expect(estimateFees).toHaveBeenCalledWith(nativeIntent, undefined);
     expect(result).toEqual(fees);
@@ -138,19 +142,25 @@ describe("createApi", () => {
   it("delegates getBalance to the logic function (address)", async () => {
     const balances: Balance[] = [{ value: 1000n, asset: { type: "native" } }];
     jest.mocked(getBalance).mockResolvedValueOnce(balances);
-    const api = createApi(config, "kaspa");
+    const api = createApi();
+    const context = createMockKaspaContext();
 
-    const result = await api.getBalance(SENDER);
+    const result = await api.getBalance(context, SENDER);
 
     expect(getBalance).toHaveBeenCalledWith(SENDER);
     expect(result).toEqual(balances);
   });
 
   it("rejects getBalance when options are provided (not supported for UTXO chains)", async () => {
-    const api = createApi(config, "kaspa");
+    const api = createApi();
+    const context = createMockKaspaContext();
 
     await expect(
-      api.getBalance(SENDER, {} as Parameters<CoinModuleApi["getBalance"]>[1]),
+      api.getBalance(
+        context,
+        SENDER,
+        {} as Parameters<CoinModuleApi<KaspaCoinConfig>["getBalance"]>[2],
+      ),
     ).rejects.toThrow();
     expect(getBalance).not.toHaveBeenCalled();
   });
@@ -158,9 +168,10 @@ describe("createApi", () => {
   it("delegates lastBlock to the logic function", async () => {
     const block = { height: 100, hash: "abc", time: new Date() };
     jest.mocked(lastBlock).mockResolvedValueOnce(block);
-    const api = createApi(config, "kaspa");
+    const api = createApi();
+    const context = createMockKaspaContext();
 
-    const result = await api.lastBlock();
+    const result = await api.lastBlock(context);
 
     expect(lastBlock).toHaveBeenCalled();
     expect(result).toEqual(block);
@@ -169,9 +180,10 @@ describe("createApi", () => {
   it("delegates getBlockInfo to the logic function (height)", async () => {
     const info = { height: 42, hash: "abc", time: new Date() };
     jest.mocked(getBlockInfo).mockResolvedValueOnce(info);
-    const api = createApi(config, "kaspa");
+    const api = createApi();
+    const context = createMockKaspaContext();
 
-    const result = await api.getBlockInfo(42);
+    const result = await api.getBlockInfo(context, 42);
 
     expect(getBlockInfo).toHaveBeenCalledWith(42);
     expect(result).toEqual(info);
@@ -180,9 +192,10 @@ describe("createApi", () => {
   it("delegates getBlock to the logic function (height)", async () => {
     const block = { info: { height: 42, hash: "abc", time: new Date() }, transactions: [] };
     jest.mocked(getBlock).mockResolvedValueOnce(block);
-    const api = createApi(config, "kaspa");
+    const api = createApi();
+    const context = createMockKaspaContext();
 
-    const result = await api.getBlock(42);
+    const result = await api.getBlock(context, 42);
 
     expect(getBlock).toHaveBeenCalledWith(42);
     expect(result).toEqual(block);
@@ -191,9 +204,10 @@ describe("createApi", () => {
   it("delegates listOperations to the logic function (address, options)", async () => {
     const page: Page<Operation> = { items: [], next: undefined };
     jest.mocked(listOperations).mockResolvedValueOnce(page);
-    const api = createApi(config, "kaspa");
+    const api = createApi();
+    const context = createMockKaspaContext();
 
-    const result = await api.listOperations(SENDER, { minHeight: 0 });
+    const result = await api.listOperations(context, SENDER, { minHeight: 0 });
 
     expect(listOperations).toHaveBeenCalledWith(SENDER, { minHeight: 0 });
     expect(result).toEqual(page);
@@ -202,31 +216,12 @@ describe("createApi", () => {
   it("delegates validateIntent to the logic function (intent, balances, customFees)", async () => {
     const validation = { errors: {}, warnings: {}, estimatedFees: 0n, amount: 0n, totalSpent: 0n };
     jest.mocked(validateIntent).mockResolvedValueOnce(validation);
-    const api = createApi(config, "kaspa");
+    const api = createApi();
+    const context = createMockKaspaContext();
 
-    const result = await api.validateIntent(nativeIntent, [], undefined);
+    const result = await api.validateIntent(context, nativeIntent, [], undefined);
 
     expect(validateIntent).toHaveBeenCalledWith(nativeIntent, [], undefined);
     expect(result).toEqual(validation);
-  });
-
-  it("throws synchronously for methods not applicable to Kaspa's UTXO model", () => {
-    const api = createApi(config, "kaspa");
-
-    expect(() => api.getNextSequence(SENDER)).toThrow(
-      "getNextSequence is not applicable for Kaspa",
-    );
-    expect(() => api.craftRawTransaction("raw", SENDER, "pubkey", 0n)).toThrow(
-      "craftRawTransaction is not supported",
-    );
-    expect(() => api.validateAddress(SENDER, {})).toThrow("validateAddress is not supported");
-    expect(() => api.getStakes(SENDER)).toThrow("getStakes is not supported");
-    expect(() => api.getRewards(SENDER)).toThrow("getRewards is not supported");
-    expect(() => api.getValidators()).toThrow("getValidators is not supported");
-  });
-
-  it("rejects for call (not supported)", async () => {
-    const api = createApi(config, "kaspa");
-    await expect(api.call({})).rejects.toThrow("call is not supported");
   });
 });

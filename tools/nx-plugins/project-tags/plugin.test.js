@@ -36,6 +36,13 @@ test("shared/* gets scope:shared", () => {
   ]);
 });
 
+test("support/* gets scope:support", () => {
+  assert.deepEqual(inferTags("support/jest-devtools", "@support/jest-devtools"), [
+    "scope:no-apps",
+    "scope:support",
+  ]);
+});
+
 test("features/* (unclassified sub-path) gets scope:features only — no type tag (regression)", () => {
   const tags = inferTags("features/market-banner", "@features/market-banner");
   assert.deepEqual(tags, ["scope:features", "scope:no-apps"]);
@@ -74,6 +81,20 @@ test("libs/* does not pick up new-arch tags (regression)", () => {
   assert.ok(!libTags.includes("type:domain-entity"));
   assert.ok(libTags.includes("scope:libs"));
   assert.ok(libTags.includes("type:live-common"));
+});
+
+test("e2e/tooling/* gets scope:e2e and scope:e2e-tooling", () => {
+  assert.deepEqual(inferTags("e2e/tooling/baanx-test-client", "@ledgerhq/baanx-test-client"), [
+    "scope:e2e",
+    "scope:e2e-tooling",
+    "scope:no-apps",
+  ]);
+});
+
+test("e2e/desktop does not get scope:e2e-tooling", () => {
+  const tags = inferTags("e2e/desktop", "ledger-live-desktop-e2e-tests");
+  assert.ok(tags.includes("scope:e2e"));
+  assert.ok(!tags.includes("scope:e2e-tooling"));
 });
 
 test("apps/* still get scope:apps and not scope:no-apps (regression)", () => {

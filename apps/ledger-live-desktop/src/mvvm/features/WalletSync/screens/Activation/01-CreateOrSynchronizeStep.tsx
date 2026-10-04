@@ -3,7 +3,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "styled-components";
 import ButtonV3 from "~/renderer/components/ButtonV3";
-import TrackPage from "~/renderer/analytics/TrackPage";
+import { TrackPage } from "@shared/analytics-react";
 import {
   AnalyticsFlow,
   AnalyticsPage,
@@ -56,14 +56,24 @@ export default function CreateOrSynchronizeStep({ goToCreateBackup, goToSync, so
         </LogoWrapper>
       </Flex>
 
-      <Text fontSize={24} variant="h4Inter" textAlign="center">
+      <Text
+        fontSize={24}
+        variant="h4Inter"
+        textAlign="center"
+        data-testid="walletsync-activate-title"
+      >
         {t("walletSync.activate.title")}
       </Text>
       <Text fontSize={14} variant="body" color="hsla(0, 0%, 58%, 1)" textAlign="center">
         {t("walletSync.activate.description")}
       </Text>
       <Flex justifyContent="center" width="100%">
-        <ButtonV3 variant="main" width="100%" onClick={goToCreateBackup}>
+        <ButtonV3
+          buttonTestId="walletsync-activate-cta"
+          variant="main"
+          width="100%"
+          onClick={goToCreateBackup}
+        >
           <Text variant="body" color="neutral.c00" fontSize={14} flexShrink={1}>
             {t("walletSync.activate.cta")}
           </Text>
@@ -71,7 +81,12 @@ export default function CreateOrSynchronizeStep({ goToCreateBackup, goToSync, so
       </Flex>
 
       <Flex justifyContent="center" width="100%">
-        <ButtonV3 variant="shade" width="100%" onClick={goToSync}>
+        <ButtonV3
+          buttonTestId="walletsync-activate-already-sync"
+          variant="shade"
+          width="100%"
+          onClick={goToSync}
+        >
           <Text variant="body" fontSize={14} flexShrink={1}>
             {t("walletSync.activate.alreadySync")}
           </Text>

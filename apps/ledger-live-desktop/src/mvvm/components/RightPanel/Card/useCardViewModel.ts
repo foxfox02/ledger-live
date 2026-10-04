@@ -1,0 +1,273 @@
+import { useCallback, useEffect, useMemo } from "react";
+import { useLocation, useNavigate } from "react-router";
+import {
+  buildTopUpPath,
+  buildWithdrawalPath,
+  buildAccessBaanxPath,
+  buildManagePinPath,
+  buildAddAssetPath,
+  buildOrderCardPath,
+  buildCashbackPath,
+  openHostedCardPathSafely,
+  type CardAssetPathBuilder,
+} from "@features/flow-pay-card-auth";
+import type { CardAssetsProps } from "@features/flow-pay-card-assets";
+import useEnv from "@features/platform-env";
+import { useFeature } from "@features/platform-feature-flags";
+import type { CardSettingsActions } from "@features/flow-pay-card-details";
+import { useSelector } from "LLD/hooks/redux";
+import { discreetModeSelector, localeSelector } from "~/renderer/reducers/settings";
+import { useCountervalueFormatter } from "LLD/hooks/useCountervalueFormatter";
+import logger from "~/renderer/logger";
+import { useDateFormatter } from "~/renderer/hooks/useDateFormatter";
+import { HISTORY_TAB_CARD, HISTORY_TAB_SEARCH_PARAM } from "LLD/features/History/constants";
+import { buildNavigationBackState } from "LLD/utils/navigationBackPath";
+import { CL_CARD_APP_ID } from "LLD/features/Card/constants";
+import { formatCardTransactionAmount } from "./formatCardTransactionAmount";
+import { useCardHostedPageOpeners } from "./useCardHostedPageOpeners";
+import { usePayCardFace } from "./usePayCardFace";
+import { usePayCardAssets } from "./usePayCardAssets";
+import type { CardViewModel } from "./types";
+
+/** The shape `payTabHandler` navigates with once the Card login redirect carried a code. */
+function readCallbackCode(state: unknown): string | undefined {
+  if (typeof state !== "object" || state === null) {
+    return undefined;
+  }
+
+  const code = (state as { code?: unknown }).code;
+
+  return typeof code === "string" && code !== "" ? code : undefined;
+}
+
+/** The attempt id the redirect echoed back, carried the same way as the code. */
+function readCallbackState(state: unknown): string | undefined {
+  if (typeof state !== "object" || state === null) {
+    return undefined;
+  }
+
+  const oauthState = (state as { state?: unknown }).state;
+
+  return typeof oauthState === "string" && oauthState !== "" ? oauthState : undefined;
+}
+const CARD_TRANSACTION_DATE_FORMAT: Intl.DateTimeFormatOptions = { dateStyle: "medium" };
+
+/** The provider app the redirect named, carried the same way as the code. */
+function readCallbackAppId(state: unknown): string | undefined {
+  if (typeof state !== "object" || state === null) {
+    return undefined;
+  }
+
+  const appId = (state as { appId?: unknown }).appId;
+
+  return typeof appId === "string" && appId !== "" ? appId : undefined;
+}
+
+export function useCardViewModel(): CardViewModel {
+  const { pathname, state } = useLocation();
+  const navigate = useNavigate();
+  const locale = useSelector(localeSelector);
+  const discreet = useSelector(discreetModeSelector);
+  const formatCountervalue = useCountervalueFormatter();
+
+  const formatTransactionAmount = useCallback<
+    NonNullable<CardViewModel["formatters"]["transactionAmount"]>
+  >(
+    (value, currency, kind) =>
+      formatCardTransactionAmount({ value, currency, kind, locale, discreet }),
+    [locale, discreet],
+  );
+  const formatTransactionDate = useDateFormatter(CARD_TRANSACTION_DATE_FORMAT);
+
+  const formatters = useMemo(
+    () => ({
+      countervalue: formatCountervalue,
+      transactionAmount: formatTransactionAmount,
+      transactionDate: formatTransactionDate,
+    }),
+    [formatCountervalue, formatTransactionAmount, formatTransactionDate],
+  );
+
+  // Read with `useEnv`, and not with `getEnv`: a tester sets these in the debug settings, and the
+  // login must take the new values without a restart of the app.
+  const apiUrl = useEnv("CARD_BAANX_API_URL");
+  const clientId = useEnv("CARD_BAANX_CLIENT_KEY");
+  const redirectUri = useEnv("CARD_OAUTH_REDIRECT_URI");
+  const usAppId = useEnv("CARD_BAANX_US_APP_ID");
+
+  // Baanx uses the same value for the client key header and the OAuth `client_id`.
+  const oauthConfig: CardViewModel["login"]["oauthConfig"] = useMemo(
+    () => ({
+      apiUrl,
+      clientId,
+      // No `hostedUiUrl`: the manifest of the live app carries the base of every hosted page.
+      // No `deepLink`: the Discover webview has no secure-browser-session API to close it with.
+      redirectUri,
+    }),
+    [apiUrl, clientId, redirectUri],
+  );
+
+  // The code is what the exchange needs: PKCE ties it to the verifier the attempt store still holds.
+  // The state, when the redirect carried one, only lets the flow recognize its own attempt's redirect.
+  // The app id names the provider tenant every later request has to reach.
+  const callback: CardViewModel["login"]["callback"] = useMemo(() => {
+    const code = readCallbackCode(state);
+    const oauthState = readCallbackState(state);
+    const appId = readCallbackAppId(state);
+
+    return code
+      ? { code, ...(oauthState ? { state: oauthState } : {}), ...(appId ? { appId } : {}) }
+      : null;
+  }, [state]);
+
+  useEffect(() => {
+    // The flow only reads this on mount. Left on the history entry, it would replay into a later
+    // remount — e.g. a logout brings CardLogin back, hydrates with no attempt on disk, and the
+    // stale code alone is read as a redirect for a login that never started.
+    if (callback) {
+      navigate(pathname, { replace: true, state: null });
+    }
+  }, [callback, navigate, pathname]);
+
+  const { openHostedLogin, openHostedPage, openLegacyCardApp } = useCardHostedPageOpeners();
+  const isLegacyTopUp = !!useFeature("lwdPayTab")?.params?.legacyTopUp;
+  const isLiveAppCard = usePayCardFace() === "liveApp";
+
+  const openHosted = useCallback(
+    (buildPath: CardAssetPathBuilder, failedToOpen: string, currency?: string) =>
+      openHostedCardPathSafely(
+        openHostedPage,
+        usAppId,
+        buildPath,
+        error => logger.warn(`[card] ${failedToOpen}`, error),
+        currency,
+      ),
+    [openHostedPage, usAppId],
+  );
+
+  const openAssetPage = useCallback(
+    (buildPath: CardAssetPathBuilder, currency?: string) =>
+      openHosted(buildPath, "the hosted asset page did not open", currency),
+    [openHosted],
+  );
+
+  // The legacy live app has its own top-up flow and its own login. It takes no currency, so the
+  // fallback opens it at its root from every top-up entry point.
+  const openTopUp = useCallback(
+    async (currency?: string) => {
+      if (isLegacyTopUp) {
+        openLegacyCardApp();
+        return;
+      }
+
+      await openAssetPage(buildTopUpPath, currency);
+    },
+    [isLegacyTopUp, openLegacyCardApp, openAssetPage],
+  );
+
+  const onTopUp = useCallback(() => openTopUp(), [openTopUp]);
+
+  const onChooseCardType = useCallback(
+    () => openHosted(buildOrderCardPath, "order card page did not open"),
+    [openHosted],
+  );
+
+  const onViewRewards = useCallback(
+    () => openHosted(buildCashbackPath, "cashback page did not open"),
+    [openHosted],
+  );
+
+  // The live app face hands sign up and log in to the Card live apps, and keeps the login page.
+  const onCreateAccount = useCallback(
+    () => navigate("/card/card-program?path=%2Fproviders-list", { state: { fromPayTab: true } }),
+    [navigate],
+  );
+  const onLogIn = useCallback(
+    () => navigate(`/card/${CL_CARD_APP_ID}`, { state: { fromPayTab: true } }),
+    [navigate],
+  );
+
+  const login: CardViewModel["login"] = useMemo(
+    () => ({
+      oauthConfig,
+      callback,
+      openHostedLogin,
+      openHostedPage,
+      ...(isLiveAppCard && { keepLoginPage: true, onCreateAccount, onLogIn }),
+    }),
+    [
+      oauthConfig,
+      callback,
+      openHostedLogin,
+      openHostedPage,
+      isLiveAppCard,
+      onCreateAccount,
+      onLogIn,
+    ],
+  );
+
+  const onShowMore = useCallback(() => {
+    navigate(
+      `/history?${HISTORY_TAB_SEARCH_PARAM}=${HISTORY_TAB_CARD}`,
+      buildNavigationBackState("historyBackPath", pathname),
+    );
+  }, [navigate, pathname]);
+
+  const onShowAssetHistory = useCallback<
+    NonNullable<NonNullable<CardViewModel["assets"]>["onShowHistory"]>
+  >(
+    asset => {
+      // Only the asset code travels: History resolves the display name from it, so the URL cannot
+      // carry a name that contradicts the one the asset row shows.
+      const searchParams = new URLSearchParams({
+        [HISTORY_TAB_SEARCH_PARAM]: HISTORY_TAB_CARD,
+        asset: asset.currency,
+      });
+      navigate(`/history?${searchParams}`, buildNavigationBackState("historyBackPath", pathname));
+    },
+    [navigate, pathname],
+  );
+
+  const onManagePin = useCallback(
+    () => openHosted(buildManagePinPath, "manage pin page did not open"),
+    [openHosted],
+  );
+
+  const onAccessBaanx = useCallback(
+    () => openHosted(buildAccessBaanxPath, "baanx page did not open"),
+    [openHosted],
+  );
+
+  const onAddAsset = useCallback(
+    () => openHosted(buildAddAssetPath, "add asset page did not open"),
+    [openHosted],
+  );
+
+  const payCardAssets = usePayCardAssets();
+  const assets: CardAssetsProps = useMemo(
+    () => ({
+      ...payCardAssets,
+      onShowHistory: onShowAssetHistory,
+      onTopUp: asset => void openTopUp(asset.currency),
+      onWithdraw: asset => void openAssetPage(buildWithdrawalPath, asset.currency),
+      onAddAsset,
+    }),
+    [onAddAsset, onShowAssetHistory, openAssetPage, openTopUp, payCardAssets],
+  );
+
+  const cardSettingsActions: CardSettingsActions = useMemo(
+    () => ({ onManagePin, onAccessBaanx }),
+    [onManagePin, onAccessBaanx],
+  );
+  return {
+    formatters,
+    assets,
+    login,
+    onShowMore,
+    onTopUp,
+    onChooseCardType,
+    onViewRewards,
+    cardSettingsActions,
+    discreet,
+  };
+}

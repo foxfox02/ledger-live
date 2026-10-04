@@ -14,11 +14,9 @@ on:
         required: true
         type: choice
         options:
-          - regen-pods
-          - regen-doc
           - generate-screenshots
           - full-lld-tests
-        default: regen-pods
+        default: generate-screenshots
       login:
         description: "GitHub login (defaults to the user running the workflow)"
         required: false
@@ -44,6 +42,9 @@ jobs:
         with:
           app-id: ${{ secrets.GH_BOT_APP_ID }}
           private-key: ${{ secrets.GH_BOT_PRIVATE_KEY }}
+          permission-actions: write
+          permission-issues: write
+          permission-members: read
 
       - name: Parse comment and dispatch
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -71,8 +72,6 @@ jobs:
             }
 
             const COMMANDS = {
-              'regen-pods': { workflow: 'regen-pods.yml', inputs: (r, n, l, c) => ({ ref: r, number: n, login: l, commentId: c }) },
-              'regen-doc': { workflow: 'regen-doc.yml', inputs: (r, n, l, c) => ({ ref: r, number: n, login: l, commentId: c }) },
               'generate-screenshots': { workflow: 'generate-screenshots.yml', inputs: (r, n, l, c) => ({ ref: r, number: n, login: l, commentId: c }) },
               'full-lld-tests': { workflow: 'test-desktop-reusable.yml', inputs: (r, n, l) => ({ ref: r, login: l }) },
             };

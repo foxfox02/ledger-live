@@ -4,14 +4,16 @@
 import { renderHook, act, cleanup } from "@testing-library/react";
 import BigNumber from "bignumber.js";
 import type { WalletHandlers } from "@ledgerhq/wallet-api-server";
-import { initialState as walletState } from "@ledgerhq/live-wallet/store";
+import type { AccountNamesState } from "@domain/entity-account-name";
 import { createFixtureAccount } from "../mock/fixtures/cryptoCurrencies";
 import type { TrackingAPI } from "./tracking";
 import type { useWalletAPIServerOptions } from "./react";
 import { AccountPublicKeyUnavailable } from "../errors";
 import { accountGetPublicKeyLogic } from "./logic";
 import { getAccountIdFromWalletAccountId, resolveWalletApiSpendableBalance } from "./converters";
+import { getCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
 
+const walletState: AccountNamesState = new Map();
 const mockSetHandler = jest.fn();
 const mockSetConfig = jest.fn();
 const mockSetPermissions = jest.fn();
@@ -81,7 +83,7 @@ jest.mock("../currencies", () => ({
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { useWalletAPIServer } = require("./react");
+const { useWalletAPIServer, TOKEN_LOOKUP_CONCURRENCY } = require("./react");
 
 function getRegisteredHandler<Name extends keyof WalletHandlers>(name: Name): WalletHandlers[Name] {
   const calls = mockSetHandler.mock.calls.filter(([handlerName]) => handlerName === name);
@@ -93,7 +95,7 @@ function createDefaultOptions(
 ): useWalletAPIServerOptions {
   const tracking = createMockTracking();
   return {
-    walletState,
+    accountNames: walletState,
     manifest: {
       id: "test-app",
       private: false,
@@ -244,6 +246,38 @@ describe("useWalletAPIServer", () => {
     expect(options.tracking.load).toHaveBeenCalledWith(options.manifest);
   });
 
+  it("does not track load again when the same live app manifest is replaced", () => {
+    const options = createDefaultOptions();
+    const { rerender } = renderHook(
+      (props: useWalletAPIServerOptions) => useWalletAPIServer(props),
+      { initialProps: options },
+    );
+
+    expect(options.tracking.load).toHaveBeenCalledTimes(1);
+
+    rerender({
+      ...options,
+      manifest: { ...options.manifest, name: "Renamed App" },
+    });
+
+    expect(options.tracking.load).toHaveBeenCalledTimes(1);
+  });
+
+  it("tracks load when the live app id changes", () => {
+    const options = createDefaultOptions();
+    const { rerender } = renderHook(
+      (props: useWalletAPIServerOptions) => useWalletAPIServer(props),
+      { initialProps: options },
+    );
+
+    rerender({
+      ...options,
+      manifest: { ...options.manifest, id: "other-app" },
+    });
+
+    expect(options.tracking.load).toHaveBeenCalledTimes(2);
+  });
+
   it("should register handlers on the server", () => {
     const options = createDefaultOptions();
     renderHook(() => useWalletAPIServer(options));
@@ -304,6 +338,61 @@ describe("account.list handler", () => {
     expect(result).toEqual([expect.objectContaining({ spendableBalance })]);
     expect(resolveWalletApiSpendableBalance).toHaveBeenCalledTimes(1);
     expect(resolveWalletApiSpendableBalance).toHaveBeenCalledWith(account, account);
+  });
+});
+
+describe("currency.list handler — token lookup concurrency", () => {
+  const getHandler = () => getRegisteredHandler("currency.list");
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  /**
+   * Regression for QAA-1497. The handler used to resolve every requested token id in a
+   * single unbounded `Promise.all`. Measured against the real CAL API with the ids the
+   * Buy screen asks for, that took 75.6s and 251 of the requests failed outright;
+   * bounding the pool took 5.9s with none failing. A failed lookup resolves to null and
+   * is silently dropped, so the unbounded version also returned an incomplete list.
+   * This pins the bound so a future refactor cannot quietly restore the fan-out.
+   */
+  it("never has more than TOKEN_LOOKUP_CONCURRENCY lookups in flight", async () => {
+    const tokenIds = Array.from(
+      { length: TOKEN_LOOKUP_CONCURRENCY * 8 },
+      (_, i) => `ethereum/erc20/token_${i}`,
+    );
+    let inFlight = 0;
+    let peakInFlight = 0;
+
+    const findTokenById = jest.fn(async () => {
+      inFlight += 1;
+      peakInFlight = Math.max(peakInFlight, inFlight);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      inFlight -= 1;
+      return null;
+    });
+    jest.mocked(getCryptoAssetsStore).mockReturnValue({ findTokenById } as never);
+
+    renderHook(() => useWalletAPIServer(createDefaultOptions()));
+    await getHandler()({ currencyIds: tokenIds });
+
+    expect(findTokenById).toHaveBeenCalledTimes(tokenIds.length);
+    expect(peakInFlight).toBeGreaterThan(1);
+    expect(peakInFlight).toBeLessThanOrEqual(TOKEN_LOOKUP_CONCURRENCY);
+  });
+
+  it("should omit failed token lookups instead of rejecting currency.list", async () => {
+    jest.mocked(getCryptoAssetsStore).mockReturnValue({
+      findTokenById: jest.fn().mockRejectedValue(new Error("bad json")),
+    } as never);
+
+    renderHook(() => useWalletAPIServer(createDefaultOptions()));
+
+    await expect(getHandler()({ currencyIds: ["ethereum/erc20/usd__coin"] })).resolves.toEqual([]);
   });
 });
 

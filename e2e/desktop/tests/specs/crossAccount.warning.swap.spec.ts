@@ -1,8 +1,6 @@
 import { SwapProvider } from "@ledgerhq/live-e2e-shared/enum/Provider";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
 import test from "tests/fixtures/common";
-import { addTmsLink } from "tests/utils/allureUtils";
-import { getDescription } from "tests/utils/customJsonReporter";
 import { performSwapUntilQuoteSelectionStep, setupEnv } from "tests/utils/swapUtils";
 import { keepRunningProviders } from "@ledgerhq/live-e2e-shared/swap";
 import { Account, TokenAccount } from "@ledgerhq/live-e2e-shared/enum/Account";
@@ -19,7 +17,7 @@ const dexProviders = [
 const fromAccount = TokenAccount.ETH_USDT_1;
 const toAccount = Account.ETH_3;
 
-test.describe("Swap cross account warning", () => {
+test.describe("Swap - cross account warning", () => {
   setupEnv();
 
   test.use({
@@ -43,13 +41,13 @@ test.describe("Swap cross account warning", () => {
 
   for (const provider of dexProviders) {
     test(
-      `A warning should be visible for a cross account swap with ${provider.uiName}`,
+      `[${fromAccount.currency.testLabel}-${toAccount.currency.testLabel}] - Swap cross account warning with ${provider.uiName}`,
       {
         tag: [...DEVICE_TAGS, "@ethereum", "@family-evm"],
         annotation: [
           {
             type: "TMS",
-            description: "LIVE-19543",
+            description: "B2CQA-4013",
           },
         ],
       },
@@ -60,12 +58,11 @@ test.describe("Swap cross account warning", () => {
           `${provider.uiName} provider is currently down — skipping cross-account warning check`,
         );
 
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
         const minAmount = await app.swap.getMinimumAmount(fromAccount, toAccount);
         const swap = new Swap(fromAccount, toAccount, minAmount, provider);
         const errorMessage =
           "Cross-account swaps are not currently supported. Please ensure your sending and receiving accounts are the same.";
-        await performSwapUntilQuoteSelectionStep(app, swap, minAmount);
+        await performSwapUntilQuoteSelectionStep({ app, swap, minAmount });
         await app.swap.selectSpecificProvider(provider);
         await app.swap.verifySwapCrossAccountErrorMessageIsCorrect(errorMessage);
       },

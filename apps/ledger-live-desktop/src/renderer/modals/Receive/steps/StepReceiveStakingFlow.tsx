@@ -5,7 +5,7 @@ import { Flex, Text, IconsLegacy, Link } from "@ledgerhq/react-ui";
 import { useFeature } from "@features/platform-feature-flags";
 import { StepProps } from "../Body";
 import StakingIllustration from "../assets/StakingIllustration";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import { openURL } from "~/renderer/linking";
 import { withV3StyleProvider } from "~/renderer/styles/StyleProviderV3";
 import Button from "~/renderer/components/ButtonV3";
@@ -13,7 +13,7 @@ import CheckBox from "~/renderer/components/CheckBox";
 import { Account } from "@ledgerhq/types-live";
 import { useLLDCoinFamily } from "~/renderer/families";
 import { ManageAction } from "~/renderer/families/types";
-import { getDefaultAccountName } from "@ledgerhq/live-wallet/accountName";
+import { getDefaultAccountName } from "@domain/entity-account-name";
 
 export const LOCAL_STORAGE_KEY_PREFIX = "receive_staking_";
 

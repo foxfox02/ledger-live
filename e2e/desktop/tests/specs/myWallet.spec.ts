@@ -1,11 +1,9 @@
 import { test } from "tests/fixtures/common";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { addTmsLink } from "tests/utils/allureUtils";
-import { getDescription } from "tests/utils/customJsonReporter";
 import { FF_LWD_WALLET_40_Q2 } from "tests/utils/featureFlagUtils";
 import { DEVICE_TAGS } from "tests/utils/tagsUtils";
 
-test.describe("Wallet 4.0 - My Wallet", () => {
+test.describe("My Wallet", () => {
   test.use({
     teamOwner: Team.WALLET_XP,
     userdata: "skip-onboarding",
@@ -14,7 +12,7 @@ test.describe("Wallet 4.0 - My Wallet", () => {
       protectServicesDesktop: { enabled: true },
       referralProgramDesktopSidebar: {
         enabled: true,
-        params: { path: "/refer-a-friend" },
+        params: { path: "/refer-a-friend", isNew: true, amount: "$20" },
       },
       lwdBackupHub: { enabled: false },
     },
@@ -30,8 +28,6 @@ test.describe("Wallet 4.0 - My Wallet", () => {
       },
     },
     async ({ app }) => {
-      await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
       await app.mainNavigation.openTargetFromMainNavigation("home");
 
       await app.myWallet.openMyWalletPopover();

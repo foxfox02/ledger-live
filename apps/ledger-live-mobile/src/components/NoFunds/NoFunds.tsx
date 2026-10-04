@@ -1,3 +1,5 @@
+import { track } from "@shared/analytics";
+import { TrackScreen } from "@shared/analytics-react";
 import React, { useMemo, useCallback } from "react";
 import { Text, Flex, IconsLegacy, Box } from "@ledgerhq/native-ui";
 import { useRampCatalog } from "@ledgerhq/live-common/platform/providers/RampCatalogProvider/useRampCatalog";
@@ -9,7 +11,7 @@ import { StyleProp, ViewStyle } from "react-native";
 import CoinsIcon from "./CoinsIcon";
 import TransferButton from "../TransferButton";
 import { NavigatorName, ScreenName } from "~/const";
-import { TrackScreen, useAnalytics, track } from "~/analytics";
+import { usePageNameFromRoute } from "~/analytics";
 import type { NoFundsNavigatorParamList } from "../RootNavigator/types/NoFundsNavigator";
 import { StackNavigatorProps } from "../RootNavigator/types/helpers";
 import { Currency } from "@domain/entity-currency";
@@ -23,6 +25,8 @@ import {
 import { isReceiveDisabledForFamily } from "@ledgerhq/live-common/account/index";
 import { navigateToSwapTab } from "~/screens/Swap/navigation/navigateToSwapTab";
 import { BaseNavigatorStackParamList } from "../RootNavigator/types/BaseNavigator";
+import { useSelector } from "~/context/hooks";
+import { flattenAccountsSelector } from "~/reducers/accounts";
 
 const useText = (
   entryPoint: "noFunds" | "getFunds",
@@ -80,7 +84,15 @@ export default function NoFunds({ route }: Readonly<Props>) {
     return currency && swapAvailableIds.includes(currency.id);
   }, [currency, swapAvailableIds]);
 
-  const { page, track } = useAnalytics();
+  // `custom.getFunds` synthesises a token account when the user holds none yet: it is absent
+  // from the store, so the Swap live app cannot match its id. Pre-fill the asset instead.
+  const accounts = useSelector(flattenAccountsSelector);
+  const isAccountInStore = useMemo(
+    () => accounts.some(a => a.id === account.id),
+    [accounts, account.id],
+  );
+
+  const page = usePageNameFromRoute();
   const onNavigate = useCallback(
     (name: string, options?: object) => {
       (navigation as NativeStackNavigationProp<{ [key: string]: object | undefined }>).navigate(
@@ -111,7 +123,7 @@ export default function NoFunds({ route }: Readonly<Props>) {
         createTokenAccount: shouldCreateTokenAccount,
       },
     });
-  }, [account, currency, onNavigate, page, parentAccount, track]);
+  }, [account, currency, onNavigate, page, parentAccount]);
 
   const onSwap = useCallback(() => {
     track("button_clicked", {
@@ -120,8 +132,16 @@ export default function NoFunds({ route }: Readonly<Props>) {
     });
     navigateToSwapTab({
       navigation: navigation as unknown as NativeStackNavigationProp<BaseNavigatorStackParamList>,
+      params: {
+        defaultCurrency: currency,
+        fromPath: page,
+        ...(isAccountInStore && {
+          defaultAccount: account,
+          defaultParentAccount: parentAccount,
+        }),
+      },
     });
-  }, [navigation, page, track]);
+  }, [account, currency, isAccountInStore, navigation, page, parentAccount]);
 
   const onBuy = useCallback(() => {
     track("button_clicked", {
@@ -135,7 +155,7 @@ export default function NoFunds({ route }: Readonly<Props>) {
         defaultCurrencyId: currency.id,
       },
     });
-  }, [track, page, onNavigate, account, parentAccount, currency.id]);
+  }, [page, onNavigate, account, parentAccount, currency.id]);
 
   const buttonsList: ButtonItem[] = [
     {

@@ -1,6 +1,12 @@
 # @shared/env
 
-Workspace-private DDD layer for Ledger Live environment variables.
+> [!WARNING]
+> **Status: DEPRECATED** — sunset together with `@ledgerhq/live-env`
+> ([LIVE-36894](https://ledgerhq.atlassian.net/browse/LIVE-36894)). Do not add a definition and do
+> not add a call site. See **[/docs/configuration.md](../../docs/configuration.md)** for the home
+> each kind of value takes and how to migrate an existing one.
+
+Workspace-private `shared/` package for Ledger Live environment variables.
 
 ## What it is
 
@@ -45,6 +51,6 @@ import useEnv from "@features/platform-env";
 ## Who can import this
 
 - `apps/*` — all app entrypoints
-- `shared/*` — other shared DDD layers
+- `shared/*` — other `shared/` packages
 - Private `libs/*` (those with `"private": true`) — test setups and internal libs
 - Published `libs/*` — **must not** depend on `@shared/env`. Their test setup must inline the required `injectDefinitions()` call using `@ledgerhq/live-env` directly, with only the env vars they need.

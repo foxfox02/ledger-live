@@ -3,7 +3,7 @@ import React, { useCallback, useState } from "react";
 import { View, StyleSheet, ScrollView } from "react-native";
 import SafeAreaView from "~/components/SafeAreaView";
 import { useTranslation } from "~/context/Locale";
-import i18next from "i18next";
+import i18next from "~/i18n/instance";
 import { useAccountBridge } from "@ledgerhq/live-common/bridge/useAccountBridge";
 import type { Transaction as CasperTransaction } from "@ledgerhq/live-common/families/casper/types";
 import { useIsFocused, useTheme } from "@react-navigation/native";
@@ -44,7 +44,9 @@ function CasperEditTransferId({ navigation, route }: NavigationProps) {
     popToScreen(navigation, ScreenName.SendSummary, {
       accountId: account.id,
       transaction: bridge.updateTransaction(transaction, {
-        transferId: transferId && transferId.toString(),
+        transferId: transferId || undefined,
+        memoType: "transferId",
+        memoValue: transferId || undefined,
       }),
     });
   }, [navigation, route.params, account, bridge, transferId]);

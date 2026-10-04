@@ -45,6 +45,7 @@ import {
 import { TokenAccount } from "@ledgerhq/types-live";
 import { useAccountUnit } from "~/renderer/hooks/useAccountUnit";
 import { useNavigate } from "react-router";
+import { getAccountUrl } from "~/renderer/utils";
 
 type Props = {
   account: PolkadotAccount | TokenAccount;
@@ -71,7 +72,7 @@ const Nomination = ({ account }: { account: PolkadotAccount }) => {
   const locale = useSelector(localeSelector);
   const unit = useAccountUnit(account);
   const dispatch = useDispatch();
-  const { staking, validators } = usePolkadotPreloadData();
+  const { staking, validators, minimumBondBalance } = usePolkadotPreloadData(account.currency);
   const { polkadotResources } = account;
   invariant(polkadotResources, "polkadot account expected");
   const { lockedBalance, unlockedBalance, nominations, unlockings } = polkadotResources;
@@ -123,7 +124,7 @@ const Nomination = ({ account }: { account: PolkadotAccount }) => {
         state: {
           yieldId: "polkadot-dot-validator-staking",
           accountId: account.id,
-          returnTo: `/account/${account.id}`,
+          returnTo: getAccountUrl(account.id),
         },
       });
     } else {
@@ -183,7 +184,7 @@ const Nomination = ({ account }: { account: PolkadotAccount }) => {
   const hasUnlockings = unlockings && unlockings.length > 0;
   const hasPendingBondOperation = hasPendingOperationType(account, "BOND");
   const hasPendingWithdrawUnbondedOperation = hasPendingOperationType(account, "WITHDRAW_UNBONDED");
-  const nominateEnabled = !electionOpen && canNominate(account);
+  const nominateEnabled = !electionOpen && canNominate(account, minimumBondBalance);
   const withdrawEnabled =
     !electionOpen && hasUnlockedBalance && !hasPendingWithdrawUnbondedOperation;
   const renderNomination = useCallback(

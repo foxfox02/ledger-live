@@ -4,6 +4,7 @@ import {
   featureFlagsOverridesSelector,
   featureFlagsBannerVisibleSelector,
   selectRemoteFlagsReady,
+  selectCachedFlagsSettled,
 } from "./selectors";
 import type { FeatureFlagsState } from "./schema";
 import { FEATURE_FLAGS_DEFAULTS } from "../constants";
@@ -19,6 +20,7 @@ const state: { featureFlags: FeatureFlagsState } = {
     } as FeatureFlagsState["resolved"],
     bannerVisible: false,
     remoteFlagsReady: false,
+    cachedFlagsSettled: false,
   },
 };
 
@@ -44,8 +46,17 @@ describe("feature-flags selectors", () => {
 
   it("selectRemoteFlagsReady returns remoteFlagsReady", () => {
     expect(selectRemoteFlagsReady(state)).toBe(false);
-    expect(selectRemoteFlagsReady({ featureFlags: { ...state.featureFlags, remoteFlagsReady: true } })).toBe(
-      true,
-    );
+    expect(
+      selectRemoteFlagsReady({ featureFlags: { ...state.featureFlags, remoteFlagsReady: true } }),
+    ).toBe(true);
+  });
+
+  it("selectCachedFlagsSettled returns cachedFlagsSettled", () => {
+    expect(selectCachedFlagsSettled(state)).toBe(false);
+    expect(
+      selectCachedFlagsSettled({
+        featureFlags: { ...state.featureFlags, cachedFlagsSettled: true },
+      }),
+    ).toBe(true);
   });
 });

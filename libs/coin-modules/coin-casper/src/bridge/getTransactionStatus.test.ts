@@ -7,20 +7,21 @@ import {
 } from "@ledgerhq/ledger-wallet-framework/errors";
 import { BigNumber } from "bignumber.js";
 import {
+  CASPER_FEES_MOTES,
   CASPER_MINIMUM_VALID_AMOUNT_MOTES,
   InvalidMinimumAmountError,
   MayBlockAccountError,
-} from "../consts";
+} from "../constants";
 import { CasperInvalidTransferId } from "../errors";
 import * as logicValidateMemo from "../logic/validateMemo";
-import { createMockAccount, createMockTransaction, TEST_ADDRESSES } from "../test/fixtures";
+import { createMockAccount, createMockTransaction, TEST_ADDRESSES } from "../__tests__/fixtures";
 import { CasperAccount, Transaction } from "../types";
-import * as bridgeHelpersAddresses from "./bridgeHelpers/addresses";
+import * as addressLogic from "../logic/validateAddress";
 import { getTransactionStatus } from "./getTransactionStatus";
 
 jest.mock("../logic/validateMemo");
-jest.mock("./bridgeHelpers/addresses", () => {
-  const actual = jest.requireActual("./bridgeHelpers/addresses");
+jest.mock("../logic/validateAddress", () => {
+  const actual = jest.requireActual("../logic/validateAddress");
   return {
     ...actual,
     isAddressValid: jest.fn(actual.isAddressValid),
@@ -32,7 +33,7 @@ describe("getTransactionStatus", () => {
   const mockAccount = createMockAccount();
   const validTransaction = createMockTransaction();
   const spiedValidateMemo = jest.spyOn(logicValidateMemo, "validateMemo");
-  const spiedIsAddressValid = jest.spyOn(bridgeHelpersAddresses, "isAddressValid");
+  const spiedIsAddressValid = jest.spyOn(addressLogic, "isAddressValid");
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -47,7 +48,19 @@ describe("getTransactionStatus", () => {
     expect(status.warnings).toEqual({});
     expect(status.estimatedFees).toEqual(validTransaction.fees);
     expect(status.amount).toEqual(validTransaction.amount);
-    expect(status.totalSpent).toEqual(validTransaction.amount.plus(validTransaction.fees));
+    expect(status.totalSpent).toEqual(
+      validTransaction.amount.plus(validTransaction.fees ?? new BigNumber(0)),
+    );
+  });
+
+  test("should use getEstimatedFees() fallback when fees is null", async () => {
+    const txWithNullFees = { ...validTransaction, fees: null };
+    const expectedFees = new BigNumber(CASPER_FEES_MOTES);
+
+    const status = await getTransactionStatus(mockAccount, txWithNullFees);
+
+    expect(status.estimatedFees).toEqual(expectedFees);
+    expect(status.totalSpent).toEqual(txWithNullFees.amount.plus(expectedFees));
   });
 
   test("should return error when recipient is missing", async () => {
@@ -94,7 +107,9 @@ describe("getTransactionStatus", () => {
 
     const status = await getTransactionStatus(mockAccount, useAllAmountTx);
 
-    expect(status.amount).toEqual(mockAccount.spendableBalance.minus(useAllAmountTx.fees));
+    expect(status.amount).toEqual(
+      mockAccount.spendableBalance.minus(useAllAmountTx.fees ?? new BigNumber(0)),
+    );
     expect(status.totalSpent).toEqual(mockAccount.spendableBalance);
     expect(status.errors).toEqual({});
   });
@@ -187,7 +202,9 @@ describe("getTransactionStatus", () => {
         account: createMockAccount(),
         transaction: createMockTransaction({
           amount: new BigNumber(
-            createMockAccount().balance.minus(createMockTransaction().fees).toString(),
+            createMockAccount()
+              .balance.minus(createMockTransaction().fees ?? new BigNumber(0))
+              .toString(),
           ),
         }),
         expectedStatus: {

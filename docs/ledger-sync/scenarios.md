@@ -9,8 +9,8 @@ so they stay **linked** (📹) to their Confluence page — the behaviour and it
 > - **📹** links the original demo recording on Confluence (legacy; to be refreshed).
 > - **Verified by** links a behaviour to a deterministic
 >   [LKRP scenario](./test-strategy.md#deterministic-scenario-tests-lkrp)
->   (`libs/ledger-key-ring-protocol/tests/scenarios`) or a
->   [WalletSyncDataManager test](./test-strategy.md#walletsyncdatamanager-unit-tests).
+>   (`ts-libs/libs/ledger-key-ring-protocol/tests/scenarios`) or a
+>   [CloudSyncDataManager test](./test-strategy.md#cloudsyncdatamanager-unit-tests).
 >   App-level behaviours are validated manually / in app E2E (**QA**).
 
 ## Trustchain lifecycle
@@ -52,11 +52,12 @@ so they stay **linked** (📹) to their Confluence page — the behaviour and it
 | Adding accounts is propagated to other members. | [📹](https://ledgerhq.atlassian.net/wiki/spaces/WXP/pages/4895866941) | `__tests__/modules/accounts.test.ts`, QA |
 | Removing an account is propagated to other members. | [📹](https://ledgerhq.atlassian.net/wiki/spaces/WXP/pages/4896849973) | `accounts.test.ts`, QA |
 | Renaming an account is propagated to other members. | [📹](https://ledgerhq.atlassian.net/wiki/spaces/WXP/pages/4896161884) | `__tests__/modules/accountNames.test.ts`, QA |
+| Creating, updating, or removing Contacts is propagated to other members and restored after an app restart. | — | `domain/entity/contact/src/cloudSync/module.test.ts`, `walletSyncComposition.test.ts`, QA |
 | Wallet Sync recovers after being removed; history reconciliates. | [📹](https://ledgerhq.atlassian.net/wiki/spaces/WXP/pages/4895965222) | QA |
 | Wallet Sync works even when Ledger Wallet doesn't support a received account (unsupported currency, sync issues): the account is queued, not lost. | [📹](https://ledgerhq.atlassian.net/wiki/spaces/WXP/pages/4896161894) | `accounts.test.ts` (nonImportedAccountInfos) |
 | Wallet Sync preserves non-imported accounts and restores them when available (backoff retry). | [📹](https://ledgerhq.atlassian.net/wiki/spaces/WXP/pages/4896620635) | `accounts.test.ts`; see [accounts module](./05-wallet-sync-data-manager.md#the-accounts-module) |
 | Wallet Sync supports account-**id migration**. | [📹](https://ledgerhq.atlassian.net/wiki/spaces/WXP/pages/4896129100) | `accounts.test.ts` |
-| Wallet Sync preserves **unknown fields** in Cloud Sync's DistantState (forward compat). | [📹](https://ledgerhq.atlassian.net/wiki/spaces/WXP/pages/4896849983) | `__tests__/compatibility.test.ts` |
+| Wallet Sync preserves **unknown fields** in Cloud Sync's DistantState (forward compat). | [📹](https://ledgerhq.atlassian.net/wiki/spaces/WXP/pages/4896849983) | `walletSyncComposition.test.ts` (`parseDistantState`), `createAggregator.test.ts` |
 
 > [!TIP]
 > Most data scenarios are easiest to reproduce in the

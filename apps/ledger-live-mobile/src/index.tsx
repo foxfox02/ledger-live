@@ -9,11 +9,13 @@ import React, { Component, useMemo, useEffect, useRef } from "react";
 import { StyleSheet, LogBox, Appearance, AppState, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { I18nextProvider } from "react-i18next";
+import { I18nProvider } from "@shared/i18n";
 import Transport from "@ledgerhq/hw-transport";
 import { log } from "@ledgerhq/logs";
 import { checkLibs } from "@ledgerhq/live-common/sanityChecks";
 import "./config/configInit";
 import "./config/bridge-setup";
+import "./analytics/registerTransactionObserver";
 import Config from "react-native-config";
 import useEnv from "@features/platform-env";
 import { init } from "~/e2e/bridge/client";
@@ -28,7 +30,6 @@ import {
 import { accountsSelector } from "~/reducers/accounts";
 import { rebootIdSelector } from "~/reducers/appstate";
 import LocaleProvider, { i18n } from "~/context/Locale";
-import AuthPass from "~/context/AuthPass";
 import LedgerStoreProvider from "~/context/LedgerStore";
 import { useSelector, useDispatch } from "~/context/hooks";
 import { store } from "~/state-manager/configureStore";
@@ -38,6 +39,8 @@ import AnalyticsConsole from "~/components/AnalyticsConsole";
 import DebugTheme from "~/components/DebugTheme";
 import SyncNewAccounts from "~/bridge/SyncNewAccounts";
 import SegmentSetup from "~/analytics/SegmentSetup";
+import EvmAddressBookSetup from "~/components/EvmAddressBookSetup";
+import TronAddressBookSetup from "~/components/TronAddressBookSetup";
 import HookNotifications from "~/notifications/HookNotifications";
 import RootNavigator from "~/components/RootNavigator";
 import SetEnvsFromSettings from "~/components/SetEnvsFromSettings";
@@ -45,7 +48,7 @@ import ExperimentalHeader from "~/screens/Settings/Experimental/ExperimentalHead
 import Modals from "~/screens/Modals";
 import NavBarColorHandler from "~/components/NavBarColorHandler";
 import { TermsAndConditionMigrateLegacyData } from "~/logic/terms";
-import HookDynamicContentCards from "~/dynamicContent/useContentCards";
+import { BrazeContentCardsProvider } from "LLM/features/DynamicContent/components/BrazeContentCardsProvider";
 import { ModalSystemPrimer } from "LLM/components/ModalSystemPrimer";
 import { JsThreadMonitor } from "LLM/components/JsThreadMonitor";
 import PlatformAppProviderWrapper from "./PlatformAppProviderWrapper";
@@ -64,11 +67,14 @@ import { useTrackFundsReceived } from "LLM/features/Analytics/hooks/useTrackFund
 import { updateIdentify } from "./analytics";
 import { FeatureToggle, useFeature } from "@features/platform-feature-flags";
 import { setAnalyticsFeatureFlagMethod } from "~/analytics/segment";
+import { getVersionedRedirects } from "LLM/hooks/useStake/useVersionedStakePrograms";
 import { selectFeature, type FeatureId } from "@shared/feature-flags";
+import { LiveConfig } from "@ledgerhq/live-config/LiveConfig";
+import { installEarnLifecycleHost } from "@ledgerhq/transaction-observability";
 import { useSettings } from "~/hooks";
 import AppProviders from "./AppProviders";
 import { useAutoDismissPostOnboardingEntryPoint } from "@ledgerhq/live-common/postOnboarding/hooks/index";
-import QueuedDrawersContextProvider from "LLM/components/QueuedDrawer/QueuedDrawersContextProvider";
+import QueuedBottomSheetsProvider from "LLM/components/QueuedDrawer/QueuedBottomSheetsProvider";
 import { registerTransports } from "~/services/registerTransports";
 import { useDeviceManagementKit } from "@ledgerhq/live-dmk-mobile";
 import { WaitForAppReady } from "LLM/contexts/WaitForAppReady";
@@ -79,11 +85,10 @@ import { logStartupEvent } from "LLM/utils/logStartupTime";
 import {
   TrackingConsent,
   DatadogProvider,
-  AutoInstrumentationConfiguration,
   DdSdkReactNative,
   PropagatorType,
 } from "@datadog/mobile-react-native";
-import { PartialInitializationConfiguration } from "@datadog/mobile-react-native/lib/typescript/DdSdkReactNativeConfiguration";
+import type { AutoInstrumentationConfiguration } from "@datadog/mobile-react-native";
 import {
   customActionEventMapper,
   customErrorEventMapper,
@@ -94,9 +99,16 @@ import { datadogIdSelector, isDummyDatadogId } from "@domain/entity-client-ident
 import { FIRST_PARTY_MAIN_HOST_DOMAIN } from "./utils/constants";
 import { ConfigureDBSaveEffects } from "./components/DBSave";
 import HookDevTools from "./devTools/useDevTools";
-import { setSolanaLdmkEnabled } from "@ledgerhq/live-common/families/solana/setup";
+import {
+  setSolanaLdmkEnabled,
+  setSolanaTxcEnabled,
+} from "@ledgerhq/live-common/families/solana/setup";
 import { setCosmosLdmkEnabled } from "@ledgerhq/live-common/families/cosmos/setup";
-import { setSuiGraphqlEnabled } from "@ledgerhq/live-common/families/sui/setup";
+import { LinkingProviderWrapper } from "~/components/LinkingProviderWrapper";
+import { setPolkadotLdmkEnabled } from "@ledgerhq/live-common/families/polkadot/setup";
+import { setXrpLdmkEnabled } from "@ledgerhq/live-common/families/xrp/setup";
+import { setTronLdmkEnabled } from "@ledgerhq/live-common/families/tron/setup";
+import { resolveSuiTransport, setSuiTransport } from "@ledgerhq/live-common/families/sui/setup";
 import useCheckAccountWithFunds from "./logic/postOnboarding/useCheckAccountWithFunds";
 import { useAutoFinishPostOnboarding } from "LLM/features/PostOnboarding/hooks/useAutoFinishPostOnboarding";
 logStartupEvent("After js imports");
@@ -118,6 +130,17 @@ setAnalyticsFeatureFlagMethod(
   ((key: FeatureId) => selectFeature(store.getState(), key) ?? null) as Parameters<
     typeof setAnalyticsFeatureFlagMethod
   >[0],
+);
+store.subscribe(
+  installEarnLifecycleHost({
+    platform: "mobile",
+    readEnabled: () =>
+      selectFeature(store.getState(), "earnTxLifecycleMonitoring")?.enabled ?? false,
+    readStakePrograms: () => selectFeature(store.getState(), "stakePrograms"),
+    resolveVersionedRedirects: getVersionedRedirects,
+    readAppVersion: () => LiveConfig.instance.appVersion || "0.0.0",
+    apiBaseUrl: Config.EARN_API_BASE_URL,
+  }),
 );
 
 const styles = StyleSheet.create({
@@ -141,22 +164,30 @@ function App() {
   const automaticBugReportingEnabled = useSelector(reportErrorsEnabledSelector);
   const datadogId = useSelector(datadogIdSelector);
   const ldmkSolanaSignerFeatureFlag = useFeature("ldmkSolanaSigner");
+  const ldmkSolanaSignerIsTxcActiveFeatureFlag = useFeature("ldmkSolanaSignerIsTxcActive");
   const ldmkCosmosSignerFeatureFlag = useFeature("ldmkCosmosSigner");
-  const suiGraphqlTransportFeatureFlag = useFeature("suiGraphqlTransport");
+  const ldmkPolkadotSignerFeatureFlag = useFeature("ldmkPolkadotSigner");
+  const ldmkXrpSignerFeatureFlag = useFeature("ldmkXrpSigner");
+  const ldmkTronSignerFeatureFlag = useFeature("ldmkTronSigner");
+  const suiTransportFeatureFlag = useFeature("suiTransport");
   const datadogAutoInstrumentation: AutoInstrumentationConfiguration = useMemo(
     () => ({
-      trackErrors: datadogFF?.params?.trackErrors ?? false,
-      trackInteractions: datadogFF?.params?.trackInteractions ?? false,
-      trackResources: datadogFF?.params?.trackResources ?? false,
-      errorEventMapper: customErrorEventMapper(!automaticBugReportingEnabled),
-      actionEventMapper: customActionEventMapper,
-      logEventMapper: customLogEventMapper,
-      firstPartyHosts: [
-        {
-          match: FIRST_PARTY_MAIN_HOST_DOMAIN,
-          propagatorTypes: [PropagatorType.DATADOG, PropagatorType.TRACECONTEXT],
-        },
-      ],
+      rumConfiguration: {
+        trackErrors: datadogFF?.params?.trackErrors ?? false,
+        trackInteractions: datadogFF?.params?.trackInteractions ?? false,
+        trackResources: datadogFF?.params?.trackResources ?? false,
+        errorEventMapper: customErrorEventMapper(!automaticBugReportingEnabled),
+        actionEventMapper: customActionEventMapper,
+        firstPartyHosts: [
+          {
+            match: FIRST_PARTY_MAIN_HOST_DOMAIN,
+            propagatorTypes: [PropagatorType.DATADOG, PropagatorType.TRACECONTEXT],
+          },
+        ],
+      },
+      logsConfiguration: {
+        logEventMapper: customLogEventMapper,
+      },
     }),
     [datadogFF?.params, automaticBugReportingEnabled],
   );
@@ -168,14 +199,38 @@ function App() {
   }, [ldmkSolanaSignerFeatureFlag]);
 
   useEffect(() => {
+    if (typeof ldmkSolanaSignerIsTxcActiveFeatureFlag?.enabled === "boolean") {
+      setSolanaTxcEnabled(ldmkSolanaSignerIsTxcActiveFeatureFlag?.enabled);
+    }
+  }, [ldmkSolanaSignerIsTxcActiveFeatureFlag]);
+
+  useEffect(() => {
     if (typeof ldmkCosmosSignerFeatureFlag?.enabled === "boolean") {
       setCosmosLdmkEnabled(ldmkCosmosSignerFeatureFlag.enabled);
     }
   }, [ldmkCosmosSignerFeatureFlag]);
 
   useEffect(() => {
-    setSuiGraphqlEnabled(suiGraphqlTransportFeatureFlag?.enabled === true);
-  }, [suiGraphqlTransportFeatureFlag]);
+    if (typeof ldmkPolkadotSignerFeatureFlag?.enabled === "boolean") {
+      setPolkadotLdmkEnabled(ldmkPolkadotSignerFeatureFlag.enabled);
+    }
+  }, [ldmkPolkadotSignerFeatureFlag]);
+
+  useEffect(() => {
+    if (typeof ldmkXrpSignerFeatureFlag?.enabled === "boolean") {
+      setXrpLdmkEnabled(ldmkXrpSignerFeatureFlag.enabled);
+    }
+  }, [ldmkXrpSignerFeatureFlag]);
+
+  useEffect(() => {
+    if (typeof ldmkTronSignerFeatureFlag?.enabled === "boolean") {
+      setTronLdmkEnabled(ldmkTronSignerFeatureFlag.enabled);
+    }
+  }, [ldmkTronSignerFeatureFlag]);
+
+  useEffect(() => {
+    setSuiTransport(resolveSuiTransport(suiTransportFeatureFlag));
+  }, [suiTransportFeatureFlag]);
 
   useEffect(() => {
     if (providerNumber) {
@@ -210,8 +265,7 @@ function App() {
     };
     initializeDatadogProvider(
       {
-        // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-        ...(datadogFF?.params as PartialInitializationConfiguration),
+        ...datadogFF?.params,
         ...(Config.FORCE_DATADOG_SAMPLE_RATE_100 ? { sessionSamplingRate: 100 } : {}),
       },
       isTrackingEnabled ? TrackingConsent.GRANTED : TrackingConsent.NOT_GRANTED,
@@ -349,40 +403,48 @@ export default class Root extends Component {
             <RebootProvider>
               <SetEnvsFromSettings />
               <SegmentSetup />
-              <HookNotifications />
-              <HookDynamicContentCards />
-              <HookDevTools />
-              <TermsAndConditionMigrateLegacyData />
-              <QueuedDrawersContextProvider>
-                <I18nextProvider i18n={i18n}>
-                  <LocaleProvider>
-                    <PlatformAppProviderWrapper>
-                      <SafeAreaProvider>
-                        <ModalSystemPrimer />
-                        <StylesProvider>
-                          <StyledStatusBar />
-                          <NavBarColorHandler />
-                          <AuthPass>
-                            <GestureHandlerRootView style={styles.root}>
-                              <WaitForAppReady currencyInitialized={currencyInitialized}>
-                                <AppProviders initialCountervalues={initialCountervalues}>
-                                  <AppGeoBlocker>
-                                    <AppVersionBlocker>
-                                      <BridgeSyncProvider>
-                                        <App />
-                                      </BridgeSyncProvider>
-                                    </AppVersionBlocker>
-                                  </AppGeoBlocker>
-                                </AppProviders>
-                              </WaitForAppReady>
-                            </GestureHandlerRootView>
-                          </AuthPass>
-                        </StylesProvider>
-                      </SafeAreaProvider>
-                    </PlatformAppProviderWrapper>
-                  </LocaleProvider>
-                </I18nextProvider>
-              </QueuedDrawersContextProvider>
+              <EvmAddressBookSetup />
+              <TronAddressBookSetup />
+              <BrazeContentCardsProvider>
+                <HookNotifications />
+                <HookDevTools />
+                <TermsAndConditionMigrateLegacyData />
+                <QueuedBottomSheetsProvider>
+                  {/* Two providers, one instance: `I18nextProvider` serves the app's own
+                    react-i18next call sites, `I18nProvider` serves `features/*` and `domain/*`
+                    through `@shared/i18n`. */}
+                  <LinkingProviderWrapper>
+                    <I18nextProvider i18n={i18n}>
+                      <I18nProvider i18n={i18n}>
+                        <LocaleProvider>
+                          <PlatformAppProviderWrapper>
+                            <SafeAreaProvider>
+                              <ModalSystemPrimer />
+                              <StylesProvider>
+                                <StyledStatusBar />
+                                <NavBarColorHandler />
+                                <GestureHandlerRootView style={styles.root}>
+                                  <WaitForAppReady currencyInitialized={currencyInitialized}>
+                                    <AppProviders initialCountervalues={initialCountervalues}>
+                                      <AppGeoBlocker>
+                                        <AppVersionBlocker>
+                                          <BridgeSyncProvider>
+                                            <App />
+                                          </BridgeSyncProvider>
+                                        </AppVersionBlocker>
+                                      </AppGeoBlocker>
+                                    </AppProviders>
+                                  </WaitForAppReady>
+                                </GestureHandlerRootView>
+                              </StylesProvider>
+                            </SafeAreaProvider>
+                          </PlatformAppProviderWrapper>
+                        </LocaleProvider>
+                      </I18nProvider>
+                    </I18nextProvider>
+                  </LinkingProviderWrapper>
+                </QueuedBottomSheetsProvider>
+              </BrazeContentCardsProvider>
             </RebootProvider>
           ) : (
             <LoadingApp />

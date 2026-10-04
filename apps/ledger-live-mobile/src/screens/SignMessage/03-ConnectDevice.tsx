@@ -1,10 +1,10 @@
+import { TrackScreen } from "@shared/analytics-react";
 import invariant from "invariant";
 import React, { useMemo } from "react";
 import { StyleSheet } from "react-native";
 import SafeAreaView from "~/components/SafeAreaView";
 import { getMainAccount } from "@ledgerhq/live-common/account/helpers";
 import DeviceAction from "~/components/DeviceAction";
-import { TrackScreen } from "~/analytics";
 import { ScreenName } from "~/const";
 import { SignMessageNavigatorStackParamList } from "~/components/RootNavigator/types/SignMessageNavigator";
 import {
@@ -50,15 +50,8 @@ export default function ConnectDevice({
       appName: route.params.appName,
       message: route.params.message,
       dependencies: appRequests,
-      isACRE: route.params.isACRE,
     };
-  }, [
-    mainAccount,
-    route.params.appName,
-    route.params.dependencies,
-    route.params.isACRE,
-    route.params.message,
-  ]);
+  }, [mainAccount, route.params.appName, route.params.dependencies, route.params.message]);
 
   return useMemo(
     () => (

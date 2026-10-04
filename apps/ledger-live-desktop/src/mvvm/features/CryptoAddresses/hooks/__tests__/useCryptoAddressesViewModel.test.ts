@@ -1,9 +1,10 @@
 import { renderHook, act, withFlagOverrides } from "tests/testSetup";
+import { useLocation } from "react-router";
 import { genTokenAccount } from "@ledgerhq/ledger-wallet-framework/mocks/account";
 import { usdcToken } from "@ledgerhq/live-common/modularDrawer/__mocks__/currencies.mock";
 import { useOpenAssetFlow } from "LLD/features/ModularDialog/hooks/useOpenAssetFlow";
 import useAddAccountAnalytics from "LLD/features/AddAccountDrawer/analytics/useAddAccountAnalytics";
-import { setTrackingSource } from "~/renderer/analytics/TrackPage";
+import { setTrackingSource } from "@shared/analytics";
 import { getAccountUrl } from "~/renderer/utils/accountUrl";
 import { ModularDrawerLocation } from "@ledgerhq/live-common/modularDrawer/enums";
 import { MAD_SOURCE_PAGES } from "LLD/features/ModularDialog/analytics/modularDialog.types";
@@ -14,7 +15,6 @@ import { ETH_ACCOUNT } from "LLD/features/__mocks__/accounts.mock";
 
 const mockTrack = jest.fn();
 jest.mock("~/renderer/analytics/segment", () => ({
-  track: (event: string, props?: Record<string, unknown>) => mockTrack(event, props),
   setAnalyticsFeatureFlagMethod: jest.fn(),
 }));
 
@@ -25,6 +25,7 @@ const mockTrackAddAccountEvent = jest.fn();
 jest.mock("react-router", () => ({
   ...jest.requireActual("react-router"),
   useNavigate: jest.fn(() => mockNavigate),
+  useLocation: jest.fn(),
 }));
 
 jest.mock("LLD/features/ModularDialog/hooks/useOpenAssetFlow", () => ({
@@ -36,7 +37,9 @@ jest.mock("LLD/features/AddAccountDrawer/analytics/useAddAccountAnalytics", () =
   default: jest.fn(),
 }));
 
-jest.mock("~/renderer/analytics/TrackPage", () => ({
+jest.mock("@shared/analytics", () => ({
+  ...jest.requireActual("@shared/analytics"),
+  track: (event: string, props?: Record<string, unknown>) => mockTrack(event, props),
   setTrackingSource: jest.fn(),
 }));
 
@@ -48,6 +51,7 @@ const mockUseOpenAssetFlow = jest.mocked(useOpenAssetFlow);
 const mockUseAddAccountAnalytics = jest.mocked(useAddAccountAnalytics);
 const mockUseCryptoAccountRows = jest.mocked(useCryptoAccountRows);
 const mockSetTrackingSource = jest.mocked(setTrackingSource);
+const mockUseLocation = jest.mocked(useLocation);
 
 describe("useCryptoAddressesViewModel", () => {
   beforeEach(() => {
@@ -63,6 +67,33 @@ describe("useCryptoAddressesViewModel", () => {
       rows: [],
       lookupParentAccount: jest.fn(),
     });
+    mockUseLocation.mockReturnValue({
+      pathname: "/cryptos",
+      state: null,
+      key: "default",
+      search: "",
+      hash: "",
+    });
+  });
+
+  it("should show a back button and pop the history when opened from Contacts", () => {
+    mockUseLocation.mockReturnValue({
+      pathname: "/cryptos",
+      state: { cryptoAddressesBackPath: "/contacts" },
+      key: "default",
+      search: "",
+      hash: "",
+    });
+
+    const { result } = renderHook(() => useCryptoAddressesViewModel());
+
+    expect(result.current.showBackButton).toBe(true);
+
+    act(() => {
+      result.current.navigateBack();
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith(-1);
   });
 
   it("should track button_clicked and call openAssetFlow on onAddAddressClick", () => {

@@ -13,10 +13,11 @@ import {
   initMSW,
   makeAccount,
 } from "../fixtures";
-import type { SolanaAccount } from "@ledgerhq/coin-solana/types";
+import type { SolanaAccount, SolanaStakingPosition } from "@ledgerhq/coin-solana/types";
+import { listSolanaStakingPositions } from "@ledgerhq/coin-solana/logic";
 import BigNumber from "bignumber.js";
 import { setEnv } from "@shared/env";
-import { airdrop, killAgave, spawnAgave } from "../agave";
+import { type AgaveCluster, airdrop, killAgave, spawnAgave } from "../agave";
 import { encodeTokenAccountId } from "@ledgerhq/ledger-wallet-framework/account/index";
 import { encodeAccountIdWithTokenAccountAddress } from "@ledgerhq/coin-solana/logic";
 import {
@@ -62,66 +63,24 @@ function computeSubAccountId(
   return encodeTokenAccountId(parentAccountId, token);
 }
 
-function getSolanaStakes(account: Account): SolanaAccount["solanaResources"]["stakes"] {
-  return (account as SolanaAccount).solanaResources?.stakes ?? [];
+function getSolanaPositions(account: Account): SolanaStakingPosition[] {
+  return listSolanaStakingPositions((account as SolanaAccount).stakingResources);
 }
 
-interface StakingResourcesShape {
-  delegations: Array<{ validatorAddress: string; amount: BigNumber }>;
-  unbondings: Array<{ validatorAddress: string; amount: BigNumber }>;
-  delegatedBalance: BigNumber;
-  unbondingBalance: BigNumber;
-  pendingRewardsBalance: BigNumber;
+function expectDelegationTo(account: Account, validatorAddress: string): void {
+  const found = getSolanaPositions(account).find(p => p.validatorAddress === validatorAddress);
+  expect(found).toBeDefined();
+  expect(found!.amount.isGreaterThan(0)).toBe(true);
+  expect(found!.positionId).toBeDefined();
 }
 
-/** Extract stakingResources set by the generic-coin-framework bridge (not typed on Account). */
-function getStakingResources(account: Account): StakingResourcesShape | undefined {
-  const raw = (account as Account & { stakingResources?: StakingResourcesShape }).stakingResources;
-  return raw;
+function expectStakeExists(account: Account, stakeAddress: string): void {
+  const found = getSolanaPositions(account).find(p => p.positionId === stakeAddress);
+  expect(found).toBeDefined();
 }
 
-/**
- * Strategy-agnostic staking assertions.
- * Legacy exposes `solanaResources.stakes`, generic-adapter exposes `stakingResources`.
- * These helpers verify the same semantic invariants regardless of strategy.
- */
-function expectDelegationTo(
-  account: Account,
-  strat: BridgeStrategy,
-  validatorAddress: string,
-): void {
-  if (strat === "legacy") {
-    const stakes = getSolanaStakes(account);
-    const found = stakes.find(s => s.delegation?.voteAccAddr === validatorAddress);
-    expect(found).toBeDefined();
-  } else {
-    const sr = getStakingResources(account);
-    expect(sr).toBeDefined();
-    const found = sr!.delegations.find(d => d.validatorAddress === validatorAddress);
-    expect(found).toBeDefined();
-    expect(found!.amount.isGreaterThan(0)).toBe(true);
-  }
-}
-
-function expectStakeExists(account: Account, strat: BridgeStrategy, stakeAddress: string): void {
-  if (strat === "legacy") {
-    const found = getSolanaStakes(account).find(s => s.stakeAccAddr === stakeAddress);
-    expect(found).toBeDefined();
-  } else {
-    // generic-adapter doesn't expose individual stake addresses, check total staking > 0
-    const sr = getStakingResources(account);
-    expect(sr).toBeDefined();
-    const totalStaking = sr!.delegatedBalance.plus(sr!.unbondingBalance);
-    expect(totalStaking.isGreaterThan(0)).toBe(true);
-  }
-}
-
-function expectStakingResourcesDefined(account: Account, strat: BridgeStrategy): void {
-  if (strat === "legacy") {
-    expect(getSolanaStakes(account)).toBeDefined();
-  } else {
-    expect(getStakingResources(account)).toBeDefined();
-  }
+function expectStakingResourcesDefined(account: Account): void {
+  expect((account as SolanaAccount).stakingResources).toBeDefined();
 }
 
 function makeScenarioTransactions(
@@ -434,7 +393,7 @@ function makeScenarioTransactions(
         previousAccount.spendableBalance.minus(1e9 + 2297880),
       );
       // Verify staking resources are populated after sync with delegation to the validator
-      expectDelegationTo(currentAccount, strategy, VOTE_ACCOUNT!.votePubkey);
+      expectDelegationTo(currentAccount, VOTE_ACCOUNT!.votePubkey);
     },
   };
 
@@ -458,7 +417,7 @@ function makeScenarioTransactions(
         previousAccount.balance.minus(latestOperation.value),
       );
       // Verify the stake account is now delegated
-      expectDelegationTo(currentAccount, strategy, VOTE_ACCOUNT!.votePubkey);
+      expectDelegationTo(currentAccount, VOTE_ACCOUNT!.votePubkey);
     },
   };
 
@@ -478,7 +437,7 @@ function makeScenarioTransactions(
       );
       // Verify the stake account still exists (state may be "deactivating" or still
       // "active" depending on epoch boundary timing on the local validator)
-      expectStakeExists(currentAccount, strategy, STAKE_ACCOUNT!.publicKey.toBase58());
+      expectStakeExists(currentAccount, STAKE_ACCOUNT!.publicKey.toBase58());
     },
   };
 
@@ -510,7 +469,7 @@ function makeScenarioTransactions(
       );
       // Verify staking resources still exist after partial withdrawal
       // (spendableBalance increase above already validates the withdraw landed)
-      expectStakingResourcesDefined(currentAccount, strategy);
+      expectStakingResourcesDefined(currentAccount);
     },
   };
 
@@ -536,7 +495,7 @@ function makeScenarioTransactions(
       );
       expect(currentAccount.spendableBalance).toStrictEqual(new BigNumber(0));
       // Verify staking resources reflect the new stake
-      expectDelegationTo(currentAccount, strategy, VOTE_ACCOUNT!.votePubkey);
+      expectDelegationTo(currentAccount, VOTE_ACCOUNT!.votePubkey);
     },
   };
 
@@ -561,10 +520,10 @@ function makeScenarioTransactions(
 
 let closeMSW: (() => void) | null = null;
 
-export const scenarioSolana: Scenario<GenericTransaction, Account> = {
-  name: "Ledger Live Basic Solana Transactions",
+export const scenarioSolana = (cluster: AgaveCluster): Scenario<GenericTransaction, Account> => ({
+  name: `Ledger Live Basic Solana Transactions (${cluster})`,
   setup: async strategy => {
-    await spawnAgave();
+    await spawnAgave(cluster);
 
     setEnv("API_SOLANA_PROXY", "http://localhost:8899");
 
@@ -573,6 +532,8 @@ export const scenarioSolana: Scenario<GenericTransaction, Account> = {
         type: "object",
         default: {
           status: { type: "active" },
+          name: "Solana",
+          unit: { name: "SOL", code: "SOL", magnitude: 9 },
           token2022Enabled: true,
           legacyOCMSMaxVersion: "1.8.0",
         },
@@ -590,8 +551,8 @@ export const scenarioSolana: Scenario<GenericTransaction, Account> = {
 
     const account = makeAccount(address, SOLANA);
 
-    await airdrop(account.freshAddress, 5);
-    await airdrop(PAYER.publicKey.toBase58(), 5);
+    await airdrop(cluster, account.freshAddress, 5);
+    await airdrop(cluster, PAYER.publicKey.toBase58(), 5);
     await createSplAccount(account.freshAddress, SOLANA_USDC, 5, "spl-token");
     await createSplAccount(account.freshAddress, SOLANA_CWIF, 5, "spl-token-2022");
     await createSplAccount(account.freshAddress, SOLANA_VIRTUAL, 5, "spl-token");
@@ -613,4 +574,4 @@ export const scenarioSolana: Scenario<GenericTransaction, Account> = {
     closeMSW = null;
     await killAgave();
   },
-};
+});

@@ -1,4 +1,8 @@
 import { allure } from "jest-allure2-reporter/api";
+import {
+  extractSwapInitError,
+  type SwapInitLogEntry,
+} from "@ledgerhq/live-e2e-shared/swapInitError";
 
 const stderrChunks: string[] = [];
 const originalStderrWrite = process.stderr.write.bind(process.stderr);
@@ -45,10 +49,7 @@ export function getCapturedStderr(): string {
  * uses that snapshot so it appears in the Test body; otherwise uses live capture.
  */
 export async function attachTestExecutionConsoleToAllure(): Promise<void> {
-  const stderrText =
-    globalThis.speculosFailureStderr !== undefined
-      ? globalThis.speculosFailureStderr
-      : getCapturedStderr();
+  const stderrText = globalThis.speculosFailureStderr ?? getCapturedStderr();
   if (globalThis.speculosFailureStderr !== undefined) {
     globalThis.speculosFailureStderr = undefined;
   }
@@ -70,7 +71,7 @@ const TS_WIDTH = 28;
 const LEVEL_WIDTH = 7;
 const INDENT = "  ";
 
-export type WebviewConsoleEntry = { timestamp?: string; level?: string; text?: string };
+type WebviewConsoleEntry = { timestamp?: string; level?: string; text?: string };
 
 function stripConsoleFormatting(text: string): string {
   return text
@@ -102,16 +103,19 @@ function splitSummaryAndJson(text: string): { summary: string; body: string | nu
   }
 }
 
-export function formatWebviewConsoleLogs(entries: WebviewConsoleEntry[]): string {
+const CONSOLE_KEEP_LEVELS = new Set(["warn", "warning", "error"]);
+
+function formatWebviewConsoleLogs(entries: WebviewConsoleEntry[]): string {
   const lines: string[] = [
     "TIMESTAMP                      | LEVEL   | MESSAGE",
     "-------------------------------|---------|--------",
   ];
+  const kept = entries.filter(e => CONSOLE_KEEP_LEVELS.has((e.level ?? "log").toLowerCase()));
 
-  for (const e of entries) {
+  for (const e of kept) {
     const ts = (e.timestamp ?? "").slice(0, TS_WIDTH).padEnd(TS_WIDTH);
     const level = (e.level ?? "log").toUpperCase().padEnd(LEVEL_WIDTH);
-    const raw = (e.text ?? "").replace(/\n/g, " ");
+    const raw = (e.text ?? "").replaceAll("\n", " ");
     const cleaned = stripConsoleFormatting(raw);
     const { summary, body } = splitSummaryAndJson(cleaned);
     const summaryLine = summary.length > 120 ? summary.slice(0, 120) + "…" : summary;
@@ -124,15 +128,31 @@ export function formatWebviewConsoleLogs(entries: WebviewConsoleEntry[]): string
   return lines.join("\n");
 }
 
+/** The fields of `@ledgerhq/logs`' `Log` that survive the bridge's JSON round-trip. */
+type AppLogRecord = { type?: string; message?: string; data?: unknown; date?: string };
+
+/** `data` is folded into the text so a signature nested inside it still matches. */
+function appLogsAsEntries(appLogs: unknown): SwapInitLogEntry[] {
+  if (typeof appLogs === "string") {
+    return appLogs.split("\n").map(line => ({ text: line }));
+  }
+  if (!Array.isArray(appLogs)) return [];
+  return appLogs.map((entry: AppLogRecord | null | undefined) => {
+    const data = entry?.data === undefined ? "" : ` ${JSON.stringify(entry.data)}`;
+    return { timestamp: entry?.date, level: entry?.type, text: `${entry?.message ?? ""}${data}` };
+  });
+}
+
 type ParsedLogsPayload = {
   appLogs?: unknown;
   appNetworkLogs?: unknown[];
+  appNetworkSummary?: { total: number; peakInFlight: number; byHost: Record<string, number> };
   webviewNetworkLogs?: unknown[];
   webviewConsoleLogs?: WebviewConsoleEntry[];
   webviewLoadErrors?: unknown[];
 };
 
-/** Parse logs payload and attach App logs, Webview Network Logs, and Webview Console Logs to Allure. */
+/** Parse a serialized logs payload and attach each section it carries to Allure. */
 export async function attachFailureLogsToAllure(logsPayload: string): Promise<void> {
   let parsed: ParsedLogsPayload;
   try {
@@ -141,10 +161,24 @@ export async function attachFailureLogsToAllure(logsPayload: string): Promise<vo
     parsed = { appLogs: logsPayload };
   }
 
+  // A raw (non-JSON) payload renders legibly as text/plain, not as one escaped JSON line.
+  const appLogsValue = parsed.appLogs ?? logsPayload;
+  const appLogsIsString = typeof appLogsValue === "string";
+
+  // Attached first: the failure message names this attachment (QAA-1521). Both sources are scanned
+  // because either side of the wallet-api call can be the one that breaks.
+  const swapInitError = extractSwapInitError([
+    ...appLogsAsEntries(appLogsValue),
+    ...(parsed.webviewConsoleLogs ?? []),
+  ]);
+  if (swapInitError) {
+    await allure.attachment("⚠️ Swap-init error", swapInitError, "text/plain");
+  }
+
   await allure.attachment(
-    "App logs",
-    JSON.stringify(parsed.appLogs ?? logsPayload),
-    "application/json",
+    "App Logs",
+    appLogsIsString ? appLogsValue : JSON.stringify(appLogsValue, null, 2),
+    appLogsIsString ? "text/plain" : "application/json",
   );
   parsed.appLogs = undefined;
 
@@ -159,11 +193,22 @@ export async function attachFailureLogsToAllure(logsPayload: string): Promise<vo
 
   if (parsed.appNetworkLogs?.length) {
     await allure.attachment(
-      "Ledger Wallet Network Logs",
+      "App Network Logs",
       JSON.stringify(parsed.appNetworkLogs, null, 2),
       "application/json",
     );
     parsed.appNetworkLogs = undefined;
+  }
+
+  // Peak concurrency answers "was the fan-out bounded?" in one number, without having to
+  // read several hundred individual entries.
+  if (parsed.appNetworkSummary) {
+    await allure.attachment(
+      "App Network Summary",
+      JSON.stringify(parsed.appNetworkSummary, null, 2),
+      "application/json",
+    );
+    parsed.appNetworkSummary = undefined;
   }
 
   if (parsed.webviewConsoleLogs?.length) {

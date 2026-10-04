@@ -27,6 +27,7 @@ Several `@ledgerhq/*` packages consumed here are published from separate reposit
 | Repository | Key packages |
 | --- | --- |
 | [device-sdk-ts](https://github.com/LedgerHQ/device-sdk-ts) | `@ledgerhq/device-management-kit`, `@ledgerhq/context-module`, `@ledgerhq/device-signer-kit-*`, `@ledgerhq/device-transport-kit-*`, `@ledgerhq/speculos-device-controller` |
+| [ts-libs](https://github.com/LedgerHQ/ts-libs) | `@ledgerhq/auth`, `@ledgerhq/devices`, `@ledgerhq/hw-transport`, `@ledgerhq/hw-transport-mocker`, `@ledgerhq/live-network`, `@ledgerhq/live-promise`, `@ledgerhq/psbtv2`, [...more](https://ledgerhq.atlassian.net/browse/LIVE-37105) |
 | [wallet-api](https://github.com/LedgerHQ/wallet-api) | `@ledgerhq/wallet-api-client`, `@ledgerhq/wallet-api-client-react`, `@ledgerhq/wallet-api-core`, `@ledgerhq/wallet-api-server`, `@ledgerhq/wallet-api-simulator` |
 | [coin-modules](https://github.com/LedgerHQ/coin-modules) | `@ledgerhq/coin-stellar`, `@ledgerhq/coin-xrp` |
 | [lumen](https://github.com/LedgerHQ/lumen) | `@ledgerhq/lumen-ui-react`, `@ledgerhq/lumen-ui-rnative`, `@ledgerhq/lumen-utils-shared`, `@ledgerhq/lumen-ui-*-visualization` |
@@ -75,19 +76,21 @@ What to run next depends on the workspace you're targeting. See [repo commands](
 | `domain/`   | Domain packages (`entity/`, `api/`)\*                                                                      |
 | `e2e/`      | E2E tests using [Detox](https://wix.github.io/Detox/) and [Speculos](https://github.com/LedgerHQ/speculos) |
 | `features/` | Features shared across apps\*                                                                              |
-| `libs/`     | Shared libraries — the home for new shared code; `ledger-live-common` is maintenance-only\*               |
+| `libs/`     | Legacy shared libraries — maintained, not grown\*\*                                                        |
 | `patches/`  | `patchedDependencies` auto-applied during pnpm install                                                     |
 | `scripts/`  | Repo-level utility scripts                                                                                 |
 | `shared/`   | Cross-cutting packages used in domain/, features/ and apps/\*                                              |
 | `tests/`    | Dummy apps for testing (dapps, wallet)                                                                     |
 | `tools/`    | CI actions, GitHub bots and Nx plugins                                                                     |
 
-\*Adding new code? See [libs/README.md](./libs/README.md).
+\*[Monorepo architecture](docs/monorepo-architecture.md) — where new code goes.
+
+\*\*See [libs/README.md](./libs/README.md).
 
 ## Nightly releases
 
 - **Desktop binaries** and **Android APKs** are attached to build workflows – see [GitHub Actions](https://github.com/LedgerHQ/ledger-live/actions).
-- Authorised users can also access [Testflight](https://developer.apple.com/testflight/), [Google Play Console](https://play.google.com/console) and [ledger-live-build](https://github.com/LedgerHQ/ledger-live-build) repository.
+- Authorised users can also access [Testflight](https://developer.apple.com/testflight/), [Firebase App Distribution](https://console.firebase.google.com/) and [ledger-live-build](https://github.com/LedgerHQ/ledger-live-build) repository.
 - Nightly **packages** are published with `@nightly` dist-tag, e.g. `npm i @ledgerhq/hw-app-eth@nightly`
 - More details on the Wiki: https://github.com/LedgerHQ/ledger-live/wiki/Release-Process#nightlies
 

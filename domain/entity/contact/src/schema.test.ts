@@ -1,8 +1,11 @@
 import {
+  ContactAddressLabelInputSchema,
   ContactAddressLabelSchema,
   ContactAddressSchema,
   ContactAddressValueSchema,
   ContactCurrencyIdSchema,
+  CONTACT_NAME_MAX_LENGTH,
+  ContactNameInputSchema,
   ContactNameSchema,
   ContactSchema,
 } from "./schema";
@@ -33,22 +36,47 @@ describe("ContactSchema", () => {
     expect(contact.isMe).toBe(false);
   });
 
+  it("rejects a contact address collection without group credentials", () => {
+    const contact = mockContactWithAddress();
+    const { deviceCredentials: _deviceCredentials, ...unsignedContact } = contact;
+
+    expect(ContactSchema.safeParse(unsignedContact).success).toBe(false);
+  });
+
   it("rejects a contact without a name", () => {
     expect(() => ContactSchema.parse(mockContact({ name: "   " }))).toThrow();
   });
 
-  it("accepts international contact names", () => {
-    expect(ContactNameSchema.parse(" E\u0301lodie ")).toBe("E\u0301lodie");
-    expect(ContactNameSchema.parse("Jean-Luc O'Connor")).toBe("Jean-Luc O'Connor");
-    expect(ContactNameSchema.parse("Алексей")).toBe("Алексей");
-    expect(ContactNameSchema.parse("مريم")).toBe("مريم");
+  it("accepts printable ASCII contact names", () => {
+    expect(ContactNameInputSchema.parse(" Jean Luc ")).toBe("Jean Luc");
+    expect(ContactNameSchema.parse("Jean Luc")).toBe("Jean Luc");
+    expect(ContactNameSchema.parse("Coinbase 1")).toBe("Coinbase 1");
+    expect(ContactNameSchema.parse("1Password")).toBe("1Password");
+    expect(ContactNameSchema.parse("O'Connor")).toBe("O'Connor");
+    expect(ContactNameSchema.parse("Jean-Luc")).toBe("Jean-Luc");
+    expect(ContactNameSchema.parse("Olive@2")).toBe("Olive@2");
+    expect(ContactNameSchema.parse("a")).toBe("a");
   });
 
-  it("rejects unsupported contact name characters", () => {
-    expect(() => ContactNameSchema.parse("\u0301")).toThrow();
-    expect(() => ContactNameSchema.parse("Olive2")).toThrow();
+  it("rejects non-ASCII, control-character, and blank contact names", () => {
+    expect(() => ContactNameSchema.parse("Élodie")).toThrow();
+    expect(() => ContactNameSchema.parse("E\u0301lodie")).toThrow();
+    expect(() => ContactNameSchema.parse("Алексей")).toThrow();
+    expect(() => ContactNameSchema.parse("مريم")).toThrow();
+    expect(() => ContactNameSchema.parse("田中")).toThrow();
     expect(() => ContactNameSchema.parse("Olive 💎")).toThrow();
-    expect(() => ContactNameSchema.parse("Olive@")).toThrow();
+    expect(() => ContactNameSchema.parse("O’Connor")).toThrow();
+    expect(() => ContactNameSchema.parse("Olive\nSmith")).toThrow();
+    expect(() => ContactNameSchema.parse("Olive\tSmith")).toThrow();
+    expect(() => ContactNameSchema.parse("   ")).toThrow();
+    expect(() => ContactNameSchema.parse("")).toThrow();
+  });
+
+  it("rejects contact names longer than the domain limit", () => {
+    expect(ContactNameSchema.parse("a".repeat(CONTACT_NAME_MAX_LENGTH))).toHaveLength(
+      CONTACT_NAME_MAX_LENGTH,
+    );
+    expect(() => ContactNameSchema.parse("a".repeat(CONTACT_NAME_MAX_LENGTH + 1))).toThrow();
   });
 });
 
@@ -58,6 +86,12 @@ describe("ContactAddressSchema", () => {
 
     expect(ContactAddressSchema.parse(address)).toEqual(address);
     expect(address.currencyId).toBe("ethereum");
+  });
+
+  it("rejects an address without its Device Intent context", () => {
+    const { device: _device, ...unsignedAddress } = mockContactAddress();
+
+    expect(ContactAddressSchema.safeParse(unsignedAddress).success).toBe(false);
   });
 
   it("keeps address format generic for the selected currency", () => {
@@ -83,20 +117,29 @@ describe("ContactAddressSchema", () => {
     expect(() => ContactAddressValueSchema.parse("   ")).toThrow();
   });
 
-  it("accepts international and MAD-compatible address labels", () => {
-    expect(ContactAddressLabelSchema.parse(" محفظة ")).toBe("محفظة");
-    expect(ContactAddressLabelSchema.parse("Кошелек")).toBe("Кошелек");
-    expect(ContactAddressLabelSchema.parse("Ethér")).toBe("Ethér");
+  it("accepts printable ASCII address labels", () => {
     expect(ContactAddressLabelSchema.parse("Aave v3 1INCH")).toBe("Aave v3 1INCH");
     expect(ContactAddressLabelSchema.parse("USDC.e")).toBe("USDC.e");
     expect(ContactAddressLabelSchema.parse("123")).toBe("123");
   });
 
-  it("rejects punctuation-only, emoji, and control-character address labels", () => {
+  it("normalizes address label input before applying the entity schema", () => {
+    expect(ContactAddressLabelInputSchema.parse("  Ethereum  ")).toBe("Ethereum");
+    expect(ContactAddressLabelInputSchema.parse("   ")).toBe("");
+  });
+
+  it("rejects non-ASCII, punctuation-only, emoji, and control-character address labels", () => {
+    expect(() => ContactAddressLabelSchema.parse("Ethér")).toThrow();
+    expect(() => ContactAddressLabelSchema.parse(" محفظة ")).toThrow();
+    expect(() => ContactAddressLabelSchema.parse("Кошелек")).toThrow();
     expect(() => ContactAddressLabelSchema.parse("---")).toThrow();
     expect(() => ContactAddressLabelSchema.parse("Ethereum 💎")).toThrow();
     expect(() => ContactAddressLabelSchema.parse("Ethereum 1\uFE0F\u20E3")).toThrow();
     expect(() => ContactAddressLabelSchema.parse("Ethereum\nWallet")).toThrow();
+  });
+
+  it("rejects address labels longer than 32 characters", () => {
+    expect(() => ContactAddressLabelSchema.parse("a".repeat(33))).toThrow();
   });
 });
 

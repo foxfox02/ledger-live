@@ -1,15 +1,96 @@
 import Braze from "@braze/react-native-sdk";
 import { type UserId, isDummyUserId } from "@domain/entity-client-identity";
+import {
+  runBrazeOptInTransition,
+  runBrazeOptOutTransition,
+  type BrazeIdentityLifecycleSdk,
+} from "@ledgerhq/live-common/braze/identityLifecycle";
 import { NotificationsSettings } from "../reducers/types";
-import { generateAnonymousId } from "@ledgerhq/live-common/braze/anonymousUsers";
 
-export const start = (isTrackedUser: boolean, userId: UserId) => {
-  if (!isDummyUserId(userId)) {
-    Braze.changeUser(isTrackedUser ? userId.exportUserIdForBraze() : generateAnonymousId());
+const mobileBrazeSdk: BrazeIdentityLifecycleSdk = {
+  wipeData: () => Braze.wipeData(),
+  enableSDK: () => Braze.enableSDK(),
+  changeUser: userId => Braze.changeUser(userId),
+  refreshContentCards: () => Braze.requestContentCardsRefresh(),
+};
+
+export const applyBrazeConsentTransition = async (
+  {
+    isTrackedUser,
+    userId,
+  }: {
+    isTrackedUser: boolean;
+    userId: UserId;
+  },
+  {
+    prepareForIdentityTransition,
+    refreshContentCards = mobileBrazeSdk.refreshContentCards,
+    shouldAbort,
+  }: {
+    prepareForIdentityTransition?: () => void;
+    refreshContentCards?: BrazeIdentityLifecycleSdk["refreshContentCards"];
+    shouldAbort?: () => boolean;
+  } = {},
+): Promise<void> => {
+  const isAborted = () => shouldAbort?.() === true;
+  if (isDummyUserId(userId) || isAborted()) return;
+
+  prepareForIdentityTransition?.();
+  if (isAborted()) return;
+
+  const sdk: BrazeIdentityLifecycleSdk = {
+    ...mobileBrazeSdk,
+    enableSDK: async () => {
+      if (isAborted()) return;
+      await Promise.resolve(mobileBrazeSdk.enableSDK());
+    },
+    changeUser: async changeUserId => {
+      if (isAborted()) return;
+      await Promise.resolve(mobileBrazeSdk.changeUser(changeUserId));
+    },
+    refreshContentCards: async () => {
+      if (isAborted()) return;
+      await refreshContentCards();
+    },
+  };
+
+  if (!isTrackedUser) {
+    await runBrazeOptOutTransition(sdk);
+    return;
+  }
+
+  if (isAborted()) return;
+
+  await runBrazeOptInTransition(sdk, {
+    userId: userId.exportUserIdForBraze(),
+  });
+};
+
+export type StartBrazeOptions = {
+  brazeOptOutIdentityCleanup?: boolean;
+};
+
+export const start = (isTrackedUser: boolean, userId: UserId, _options: StartBrazeOptions = {}) => {
+  if (isDummyUserId(userId)) return;
+
+  if (isTrackedUser) {
+    Braze.changeUser(userId.exportUserIdForBraze());
   }
 };
 
-export const updateUserPreferences = (notificationsPreferences: NotificationsSettings) => {
+export type UpdateUserPreferencesOptions = {
+  brazeOptOutIdentityCleanup?: boolean;
+};
+
+export const updateUserPreferences = (
+  notificationsPreferences: NotificationsSettings,
+  isTrackedUser: boolean,
+  { brazeOptOutIdentityCleanup = false }: UpdateUserPreferencesOptions = {},
+) => {
+  // Legacy (flag off): still write prefs for opted-out users (anonymous Braze profile).
+  // Flag on: never write Braze custom attributes without tracking consent.
+  if (brazeOptOutIdentityCleanup && !isTrackedUser) return;
+
   const notificationsOptedIn = {
     optInAnnouncements: notificationsPreferences.announcementsCategory,
     optInLargeMovers: notificationsPreferences.largeMoverCategory,

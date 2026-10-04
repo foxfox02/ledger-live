@@ -1,8 +1,10 @@
 import { getCryptoCurrencyById } from "@domain/entity-currency-crypto";
 import React from "react";
 import * as reduxHooks from "LLD/hooks/redux";
-import { render, screen, waitFor } from "tests/testSetup";
-import { track, trackPage } from "~/renderer/analytics/segment";
+import { act, render, screen, waitFor } from "tests/testSetup";
+import { server, http, HttpResponse } from "tests/server";
+import { closeDialog } from "~/renderer/reducers/modularDialog";
+import { track, trackPage } from "@shared/analytics";
 import { INITIAL_STATE } from "~/renderer/reducers/settings";
 import {
   ARB_ACCOUNT,
@@ -26,6 +28,7 @@ import {
   mockOnAccountSelected,
 } from "../../__tests__/shared";
 import ModularDialogFlowManager from "../ModularDialogFlowManager";
+import ModularDialogRoot from "../ModularDialogRoot";
 import { setDrawer } from "~/renderer/drawers/Provider";
 
 jest.mock("~/renderer/drawers/Provider", () => ({
@@ -51,7 +54,7 @@ const mockUseAcceptedCurrency = jest.fn(() => () => true);
 
 // Helper to get the back button from DialogHeader (uses aria-label since DialogHeader doesn't expose test-id)
 const getBackButton = () => {
-  return screen.getByLabelText("components.dialogHeader.goBackAriaLabel");
+  return screen.getByLabelText("Go back");
 };
 
 beforeEach(() => {
@@ -162,10 +165,86 @@ describe("ModularDialogFlowManager - Select Account Flow", () => {
       },
     });
 
-    await waitFor(() =>
-      expect(screen.getByTestId("modular-dialog-screen-ACCOUNT_SELECTION")).toBeVisible(),
-    );
+    expect(screen.queryByText(/select asset/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId("modular-dialog-screen-ACCOUNT_SELECTION")).toBeVisible();
     expect(await screen.findByText(/ethereum 2/i)).toBeVisible();
+    expect(screen.queryByText(/select asset/i)).not.toBeInTheDocument();
+  });
+
+  it("should show list placeholders while a single currency is still loading", async () => {
+    server.use(
+      http.get("https://dada.api.ledger-test.com/v1/assets", () => new Promise(() => {})),
+      http.get("https://dada.api.ledger.com/v1/assets", () => new Promise(() => {})),
+    );
+
+    try {
+      render(<ModularDialogFlowManager />, {
+        ...INITIAL_STATE,
+        initialState: {
+          accounts: [ETH_ACCOUNT],
+          modularDialog: createFilteredModularDialogState([ethereumCurrency.id]),
+        },
+      });
+
+      expect(screen.queryByText(/select asset/i)).not.toBeInTheDocument();
+      expect(screen.getByTestId("modular-dialog-screen-ACCOUNT_SELECTION")).toBeVisible();
+      expect(screen.getByTestId("modular-dialog-skeleton")).toBeVisible();
+    } finally {
+      server.resetHandlers();
+    }
+  });
+
+  it("should keep the pay-from title while a single currency is auto-skipped", async () => {
+    const filteredPayDialog = createFilteredModularDialogState([ethereumCurrency.id]);
+
+    render(<ModularDialogFlowManager />, {
+      ...INITIAL_STATE,
+      initialState: {
+        accounts: [ETH_ACCOUNT],
+        modularDialog: {
+          ...filteredPayDialog,
+          dialogParams: {
+            ...filteredPayDialog.dialogParams,
+            uiUseCase: "pay",
+          },
+        },
+      },
+    });
+
+    expect(screen.queryByText(/select asset/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/select account to pay from/i)[0]).toBeVisible();
+    expect(await screen.findByText(/ethereum 2/i)).toBeVisible();
+    expect(screen.getAllByText(/select account to pay from/i)[0]).toBeVisible();
+  });
+
+  it("should show the asset error when a single-currency catalog request fails", async () => {
+    server.use(
+      http.get("https://dada.api.ledger-test.com/v1/assets", () =>
+        HttpResponse.json(null, { status: 500 }),
+      ),
+      http.get("https://dada.api.ledger.com/v1/assets", () =>
+        HttpResponse.json(null, { status: 500 }),
+      ),
+    );
+
+    try {
+      render(<ModularDialogFlowManager />, {
+        ...INITIAL_STATE,
+        initialState: {
+          accounts: [ETH_ACCOUNT],
+          modularDialog: createFilteredModularDialogState([ethereumCurrency.id]),
+        },
+      });
+
+      expect(await screen.findByText(/connection failed/i)).toBeVisible();
+      expect(screen.getAllByText(/select asset/i)[0]).toBeVisible();
+      expect(screen.getByRole("button", { name: /try again/i })).toBeVisible();
+      expect(
+        screen.queryByTestId("modular-dialog-screen-ACCOUNT_SELECTION"),
+      ).not.toBeInTheDocument();
+    } finally {
+      server.resetHandlers();
+    }
   });
 
   it("should navigate directly to networkSelection step", async () => {
@@ -189,8 +268,8 @@ describe("ModularDialogFlowManager - Select Account Flow", () => {
       },
     });
 
-    await waitFor(() => expect(screen.getAllByText(/select account/i)[0]).toBeVisible());
-    expect(screen.getByText(/add account/i)).toBeVisible();
+    await waitFor(() => expect(screen.getByText(/add account/i)).toBeVisible());
+    expect(screen.getAllByText(/select account/i)[0]).toBeVisible();
     expect(screen.getAllByText(/you don't have bitcoin accounts yet/i)[0]).toBeVisible();
   });
 
@@ -205,8 +284,7 @@ describe("ModularDialogFlowManager - Select Account Flow", () => {
       },
     });
 
-    await waitFor(() => expect(screen.getAllByText(/select account/i)[0]).toBeVisible());
-    expect(screen.getByText(/add account/i)).toBeVisible();
+    await waitFor(() => expect(screen.getByText(/add account/i)).toBeVisible());
     await user.click(screen.getByText(/add account/i));
     expect(setDrawer).toHaveBeenCalledTimes(1);
     expect(jest.mocked(setDrawer).mock.calls[0][1]).toEqual(
@@ -270,7 +348,7 @@ describe("ModularDialogFlowManager - Select Account Flow", () => {
     });
 
     await waitFor(() => expect(screen.getAllByText(/select account/i)[0]).toBeVisible());
-    expect(screen.queryByLabelText("components.sheetBar.goBackAriaLabel")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Go back")).not.toBeInTheDocument();
   });
 
   it("should not display back button on AccountSelection step if only one currency", async () => {
@@ -282,7 +360,7 @@ describe("ModularDialogFlowManager - Select Account Flow", () => {
     });
 
     await waitFor(() => expect(screen.getAllByText(/select network/i)[0]).toBeVisible());
-    expect(screen.queryByLabelText("components.sheetBar.goBackAriaLabel")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Go back")).not.toBeInTheDocument();
   });
 
   it("should not re trigger page tracking on asset search", async () => {
@@ -329,21 +407,21 @@ describe("ModularDialogFlowManager - Select Account Flow", () => {
     await waitFor(() => expect(screen.getByText(/bitcoin/i)).toBeVisible());
     expect(trackPage).toHaveBeenNthCalledWith(
       1,
-      "Asset Selection",
-      undefined,
       {
-        asset_component_features: {
-          apy: false,
-          balance: false,
-          filter: false,
-          market_trend: false,
+        category: "Asset Selection",
+        name: undefined,
+        props: {
+          asset_component_features: {
+            apy: false,
+            balance: false,
+            filter: false,
+            market_trend: false,
+          },
+          flow: "flowTest",
+          source: "sourceTest",
         },
-        flow: "flowTest",
-        source: "sourceTest",
       },
-      true,
-      true,
-      false,
+      { mandatory: false, refreshSource: true, updateRoutes: true },
     );
   });
 
@@ -423,17 +501,14 @@ describe("ModularDialogFlowManager - Select Account Flow", () => {
     expect(screen.getByText(/bitcoin 2/i)).toBeVisible();
   });
 
-  it("should display perpetuals banner when uiUseCase is perpetuals", async () => {
+  const renderAccountStep = async (uiUseCase: string, accounts = [ETH_ACCOUNT]) => {
     const { user } = render(<ModularDialogFlowManager />, {
       ...INITIAL_STATE,
       initialState: {
-        accounts: [ETH_ACCOUNT],
+        accounts,
         modularDialog: {
           ...defaultModularDialogState,
-          dialogParams: {
-            ...defaultModularDialogState.dialogParams,
-            uiUseCase: "perpetuals",
-          },
+          dialogParams: { ...defaultModularDialogState.dialogParams, uiUseCase },
         },
       },
     });
@@ -441,12 +516,79 @@ describe("ModularDialogFlowManager - Select Account Flow", () => {
     await waitFor(() => expect(screen.getByText(/ethereum/i)).toBeVisible());
     await user.click(screen.getByText(/ethereum/i));
     await user.click(screen.getByText(/ethereum/i));
+  };
+
+  it("should keep the legacy perpetuals pick on the default header, with its funding banner", async () => {
+    await renderAccountStep("perpetuals");
 
     expect(screen.getAllByText(/select account/i)[0]).toBeVisible();
-    expect(screen.getByText(/currently only supported with usdc on arbitrum chain/i)).toBeVisible();
+    expect(screen.queryByText(/select hyperliquid account/i)).not.toBeInTheDocument();
+    expect(screen.getAllByText(/only supported with usdc on arbitrum chain/i)[0]).toBeVisible();
   });
 
-  it("should not display perpetuals banner when uiUseCase is not set", async () => {
+  it("should display the receiving account header for the perpetuals receive use case", async () => {
+    await renderAccountStep("perpetuals:receive");
+
+    expect(screen.getAllByText(/select hyperliquid account/i)[0]).toBeVisible();
+    expect(
+      screen.getAllByText(/select an account you want to deposit funds into/i)[0],
+    ).toBeVisible();
+  });
+
+  it("should ask for a Hyperliquid account when the receiving step has none", async () => {
+    await renderAccountStep("perpetuals:receive", []);
+
+    expect(screen.getAllByText(/select hyperliquid account/i)[0]).toBeVisible();
+    expect(
+      screen.getAllByText(/To fund your perps, you need a Hyperliquid account/i)[0],
+    ).toBeVisible();
+    expect(screen.queryByText(/you don't have ethereum accounts yet/i)).not.toBeInTheDocument();
+  });
+
+  it("should show the deposit asset header for the perpetuals funding use case", async () => {
+    render(<ModularDialogFlowManager />, {
+      ...INITIAL_STATE,
+      initialState: {
+        modularDialog: {
+          ...defaultModularDialogState,
+          dialogParams: {
+            ...defaultModularDialogState.dialogParams,
+            uiUseCase: "perpetuals:fund",
+          },
+        },
+      },
+    });
+
+    expect(screen.getAllByText(/select asset to deposit/i)[0]).toBeVisible();
+    expect(
+      screen.getAllByText(
+        /any supported asset works. it will be swapped automatically if needed/i,
+      )[0],
+    ).toBeVisible();
+  });
+
+  it("should show the default account header for the perpetuals funding use case", async () => {
+    await renderAccountStep("perpetuals:fund");
+
+    expect(screen.getAllByText(/select account/i)[0]).toBeVisible();
+    expect(screen.queryByText(/select hyperliquid account/i)).not.toBeInTheDocument();
+  });
+
+  it("should fall back to the legacy pick for a variant it does not know", async () => {
+    await renderAccountStep("perpetuals:ships-later");
+
+    expect(screen.getAllByText(/select account/i)[0]).toBeVisible();
+    expect(screen.getAllByText(/only supported with usdc on arbitrum chain/i)[0]).toBeVisible();
+  });
+
+  it("should show the pay-from header for the pay use case", async () => {
+    await renderAccountStep("pay");
+
+    expect(screen.getAllByText(/select account to pay from/i)[0]).toBeVisible();
+    expect(screen.queryByText(/select hyperliquid account/i)).not.toBeInTheDocument();
+  });
+
+  it("should not display perpetuals account header when uiUseCase is not set", async () => {
     const { user } = render(<ModularDialogFlowManager />, {
       ...INITIAL_STATE,
       initialState: {
@@ -460,9 +602,7 @@ describe("ModularDialogFlowManager - Select Account Flow", () => {
     await user.click(screen.getByText(/ethereum/i));
 
     expect(screen.getAllByText(/select account/i)[0]).toBeVisible();
-    expect(
-      screen.queryByText(/currently only supported with usdc on arbitrum chain/i),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/select hyperliquid account/i)).not.toBeInTheDocument();
   });
 
   it("should auto focus on search input when autoFocus is true", async () => {
@@ -514,5 +654,63 @@ describe("ModularDialogFlowManager - Select Account Flow", () => {
 
     const description = screen.queryByText(/you don't have ethereum accounts yet/i);
     expect(description).not.toBeInTheDocument();
+  });
+
+  // A live app that opened this dialog cannot claim keyboard focus back on its
+  // own, so closing has to hand it to the guest.
+  describe("focus handoff on close", () => {
+    let hostWebview: HTMLElement;
+
+    beforeEach(() => {
+      hostWebview = document.createElement("webview");
+      document.body.appendChild(hostWebview);
+    });
+
+    afterEach(() => {
+      hostWebview.remove();
+    });
+
+    it("should focus the live app webview when the account picker closes", async () => {
+      const hostFocus = jest.spyOn(hostWebview, "focus");
+      const { user } = render(<ModularDialogRoot />, {
+        ...INITIAL_STATE,
+        initialState: {
+          accounts: [ETH_ACCOUNT],
+          modularDialog: defaultModularDialogState,
+        },
+      });
+
+      await waitFor(() => expect(screen.getByText(/ethereum/i)).toBeVisible());
+      await user.click(screen.getByLabelText("Close"));
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      await waitFor(() => expect(hostFocus).toHaveBeenCalled());
+    });
+
+    // The caller closes the dialog once it has the account, so the success path
+    // has to hand focus back the same way the cancel path does.
+    it("should focus the live app webview after an account was selected", async () => {
+      const hostFocus = jest.spyOn(hostWebview, "focus");
+      const { user, store } = render(<ModularDialogRoot />, {
+        ...INITIAL_STATE,
+        initialState: {
+          accounts: [ETH_ACCOUNT],
+          modularDialog: defaultModularDialogState,
+        },
+      });
+
+      await waitFor(() => expect(screen.getByText(/ethereum/i)).toBeVisible());
+      await user.click(screen.getByText(/ethereum/i));
+      await user.click(screen.getByText(/ethereum/i));
+      await waitFor(() => expect(screen.getAllByText(/select account/i)[0]).toBeVisible());
+      await user.click(screen.getByText(/ethereum 2/i));
+      expect(mockOnAccountSelected).toHaveBeenCalledWith(ETH_ACCOUNT);
+
+      act(() => {
+        store.dispatch(closeDialog());
+      });
+
+      await waitFor(() => expect(hostFocus).toHaveBeenCalled());
+    });
   });
 });

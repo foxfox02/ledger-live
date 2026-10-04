@@ -39,15 +39,18 @@ export type SettingsNavigatorStackParamList = {
   [ScreenName.DebugDeviceIntentExecutorContent]: undefined;
   [ScreenName.DebugDeviceIntentExecutorInfoState]: undefined;
   [ScreenName.DebugDeviceIntentExecutorConnectDevice]: undefined;
+  [ScreenName.DebugDeviceIntentExecutorContactsValidation]: undefined;
   [ScreenName.DebugDeviceIntentExecutorInitialization]: undefined;
   [ScreenName.DebugDeviceIntentExecutorInitializerStates]: undefined;
   [ScreenName.DebugDeviceIntentExecutorOrchestration]: undefined;
+  [ScreenName.DebugOsUpdateOrchestrator]: undefined;
   [ScreenName.DebugConfiguration]: undefined;
   [ScreenName.DebugFeatures]:
     | {
         pairedDevice?: Device | null;
       }
     | undefined;
+  [ScreenName.DebugStartTour]: undefined;
   [ScreenName.DebugConnectivity]: undefined;
   [ScreenName.DebugGenerators]: undefined;
   [ScreenName.DebugContentCards]: undefined;
@@ -67,12 +70,15 @@ export type SettingsNavigatorStackParamList = {
   [ScreenName.DebugCrash]: undefined;
   [ScreenName.DebugStore]: undefined;
   [ScreenName.DebugEnv]: undefined;
+  [ScreenName.DebugDeviceSimulation]: undefined;
   [ScreenName.DebugHttpTransport]: undefined;
   [ScreenName.DebugLogs]: undefined;
   [ScreenName.DebugLottie]: undefined;
   [ScreenName.DebugWallet40]: undefined;
   [ScreenName.DebugContacts]: undefined;
   [ScreenName.DebugDevTools]: undefined;
+  [ScreenName.DebugPayContactSuccess]: { recipient?: "me" } | undefined;
+  [ScreenName.DebugSendSuccess]: undefined;
   [ScreenName.DebugPlayground]: undefined;
   [ScreenName.DebugBluetoothAndLocationServices]: undefined;
   [ScreenName.DebugStorageMigration]: undefined;
@@ -96,7 +102,7 @@ export type SettingsNavigatorStackParamList = {
   [ScreenName.DebugSwipe]: undefined;
   [ScreenName.DebugModularAssetDrawer]: undefined;
   [ScreenName.DebugTooltip]: undefined;
-  [ScreenName.DebugWalletV4Tour]: undefined;
   [ScreenName.DebugProductTour]: undefined;
   [ScreenName.DebugQ2WalletV4Tour]: undefined;
+  [ScreenName.DebugQ3WalletV4Tour]: undefined;
 };

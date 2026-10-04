@@ -1,6 +1,6 @@
 import React from "react";
 import { render, screen } from "@tests/test-renderer";
-import { CONTACTS_FEATURE_INTRODUCTION_HIGHLIGHTS } from "@features/flow-contacts";
+import { CONTACTS_FEATURE_INTRODUCTION_HIGHLIGHTS } from "@features/flow-contacts-introduction";
 import { ContactsFeatureIntroductionSheet } from ".";
 
 const highlights = CONTACTS_FEATURE_INTRODUCTION_HIGHLIGHTS.map(({ icon, translationKey }) => ({
@@ -10,19 +10,17 @@ const highlights = CONTACTS_FEATURE_INTRODUCTION_HIGHLIGHTS.map(({ icon, transla
 }));
 
 describe("ContactsFeatureIntroductionSheet", () => {
-  it("should call onComplete once from Try contacts", async () => {
+  it("should call onComplete once from Explore now", async () => {
     const onComplete = jest.fn();
-    const onDefer = jest.fn();
+    const onClose = jest.fn();
     const { user } = render(
       <ContactsFeatureIntroductionSheet
         isOpen
         title="Introducing Contacts"
-        description="Your address book for crypto."
         highlights={highlights}
-        primaryActionLabel="Try contacts"
-        secondaryActionLabel="Maybe later"
+        primaryActionLabel="Explore now"
         onComplete={onComplete}
-        onDefer={onDefer}
+        onClose={onClose}
       />,
     );
 
@@ -31,28 +29,27 @@ describe("ContactsFeatureIntroductionSheet", () => {
     await user.press(screen.getByTestId("contacts-feature-introduction-primary"));
 
     expect(onComplete).toHaveBeenCalledTimes(1);
-    expect(onDefer).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("contacts-feature-introduction-secondary")).toBeNull();
   });
 
-  it("should call onDefer once from Maybe later", async () => {
+  it("should call onClose once from the sheet header", async () => {
     const onComplete = jest.fn();
-    const onDefer = jest.fn();
+    const onClose = jest.fn();
     const { user } = render(
       <ContactsFeatureIntroductionSheet
         isOpen
         title="Introducing Contacts"
-        description="Your address book for crypto."
         highlights={highlights}
-        primaryActionLabel="Try contacts"
-        secondaryActionLabel="Maybe later"
+        primaryActionLabel="Explore now"
         onComplete={onComplete}
-        onDefer={onDefer}
+        onClose={onClose}
       />,
     );
 
-    await user.press(screen.getByTestId("contacts-feature-introduction-secondary"));
+    await user.press(screen.getByTestId("bottom-sheet-header-close-button"));
 
-    expect(onDefer).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
     expect(onComplete).not.toHaveBeenCalled();
   });
 });

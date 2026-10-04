@@ -1,13 +1,23 @@
 import BigNumber from "bignumber.js";
-import type { AccountRaw, Account, TokenAccount, TokenAccountRaw } from "@ledgerhq/types-live";
+import type {
+  AccountRaw,
+  Account,
+  OperationExtra,
+  OperationExtraRaw,
+  TokenAccount,
+  TokenAccountRaw,
+} from "@ledgerhq/types-live";
 import type {
   AleoAccount,
   AleoAccountRaw,
+  AleoOperationExtra,
+  AleoOperationExtraRaw,
   AleoResources,
   AleoResourcesRaw,
   AleoTokenAccount,
   AleoTokenAccountRaw,
 } from "../types";
+import { isAleoOperationExtra, isAleoOperationExtraRaw } from "../logic/utils";
 
 export function toAleoResourcesRaw(resources: AleoResources): AleoResourcesRaw {
   return {
@@ -20,11 +30,20 @@ export function toAleoResourcesRaw(resources: AleoResources): AleoResourcesRaw {
     unspentPrivateRecords: resources.unspentPrivateRecords
       ? JSON.stringify(resources.unspentPrivateRecords)
       : null,
+    ...(BigNumber.isBigNumber(resources.bondedBalance) && {
+      bondedBalance: resources.bondedBalance.toString(),
+      bondedValidator: resources.bondedValidator ?? null,
+      unbondingBalance: resources.unbondingBalance?.toString() ?? "0",
+      unbondingHeight: resources.unbondingHeight ?? null,
+    }),
     ...(typeof resources.hasMigratedPublicTokens === "boolean" && {
       hasMigratedPublicTokens: resources.hasMigratedPublicTokens,
     }),
     ...(typeof resources.hasMigratedPrivateTokens === "boolean" && {
       hasMigratedPrivateTokens: resources.hasMigratedPrivateTokens,
+    }),
+    ...(typeof resources.hasMigratedStaking === "boolean" && {
+      hasMigratedStaking: resources.hasMigratedStaking,
     }),
   };
 }
@@ -40,11 +59,20 @@ export function fromAleoResourcesRaw(rawResources: AleoResourcesRaw): AleoResour
     unspentPrivateRecords: rawResources.unspentPrivateRecords
       ? JSON.parse(rawResources.unspentPrivateRecords)
       : null,
+    ...(typeof rawResources.bondedBalance === "string" && {
+      bondedBalance: new BigNumber(rawResources.bondedBalance),
+      bondedValidator: rawResources.bondedValidator ?? null,
+      unbondingBalance: new BigNumber(rawResources.unbondingBalance ?? 0),
+      unbondingHeight: rawResources.unbondingHeight ?? null,
+    }),
     ...(typeof rawResources.hasMigratedPublicTokens === "boolean" && {
       hasMigratedPublicTokens: rawResources.hasMigratedPublicTokens,
     }),
     ...(typeof rawResources.hasMigratedPrivateTokens === "boolean" && {
       hasMigratedPrivateTokens: rawResources.hasMigratedPrivateTokens,
+    }),
+    ...(typeof rawResources.hasMigratedStaking === "boolean" && {
+      hasMigratedStaking: rawResources.hasMigratedStaking,
     }),
   };
 }
@@ -93,4 +121,40 @@ export function assignFromTokenAccountRaw(
   aleoTokenAccount.unspentPrivateRecords = aleoTokenAccountRaw.unspentPrivateRecords
     ? JSON.parse(aleoTokenAccountRaw.unspentPrivateRecords)
     : null;
+}
+
+export function toOperationExtraRaw(extra: OperationExtra): OperationExtraRaw {
+  if (!isAleoOperationExtra(extra)) {
+    throw new Error("aleo: unsupported OperationExtra");
+  }
+
+  const extraRaw: AleoOperationExtraRaw = {
+    functionId: extra.functionId,
+    transactionType: extra.transactionType,
+    ...(extra.patched !== undefined && { patched: extra.patched }),
+    ...(extra.programId !== undefined && { programId: extra.programId }),
+    ...(extra.validator !== undefined && { validator: extra.validator }),
+    ...(extra.stakedAmount !== undefined && { stakedAmount: extra.stakedAmount.toFixed() }),
+  };
+
+  return extraRaw;
+}
+
+export function fromOperationExtraRaw(extraRaw: OperationExtraRaw): OperationExtra {
+  if (!isAleoOperationExtraRaw(extraRaw)) {
+    throw new Error("aleo: unsupported OperationExtraRaw");
+  }
+
+  const extra: AleoOperationExtra = {
+    functionId: extraRaw.functionId,
+    transactionType: extraRaw.transactionType,
+    ...(extraRaw.patched !== undefined && { patched: extraRaw.patched }),
+    ...(extraRaw.programId !== undefined && { programId: extraRaw.programId }),
+    ...(extraRaw.validator !== undefined && { validator: extraRaw.validator }),
+    ...(extraRaw.stakedAmount !== undefined && {
+      stakedAmount: new BigNumber(extraRaw.stakedAmount),
+    }),
+  };
+
+  return extra;
 }

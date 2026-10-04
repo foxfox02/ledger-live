@@ -18,6 +18,10 @@ describe("getRemoteABTestingAttributes", () => {
     expect(getRemoteABTestingAttributes(method)).toEqual({
       llmTransferButtonCopyVariantEnabled: false,
       llmTransferButtonCopyVariant: "control",
+      llmWalletApiDeviceIntentSignEnabled: false,
+      llmWalletApiDeviceIntentSignVariant: "control",
+      ptxEarnTransactionSuccessBannerEnabled: false,
+      ptxEarnTransactionSuccessBanner: "ptxEarnTransactionSuccessBannerDisabled",
     });
   });
 
@@ -26,6 +30,10 @@ describe("getRemoteABTestingAttributes", () => {
     expect(getRemoteABTestingAttributes(method)).toEqual({
       llmTransferButtonCopyVariantEnabled: true,
       llmTransferButtonCopyVariant: "variant_a",
+      llmWalletApiDeviceIntentSignEnabled: true,
+      llmWalletApiDeviceIntentSignVariant: "variant_a",
+      ptxEarnTransactionSuccessBannerEnabled: true,
+      ptxEarnTransactionSuccessBanner: "ptxEarnTransactionSuccessBannerEnabled",
     });
   });
 
@@ -34,6 +42,10 @@ describe("getRemoteABTestingAttributes", () => {
     expect(getRemoteABTestingAttributes(method)).toEqual({
       llmTransferButtonCopyVariantEnabled: true,
       llmTransferButtonCopyVariant: undefined,
+      llmWalletApiDeviceIntentSignEnabled: true,
+      llmWalletApiDeviceIntentSignVariant: undefined,
+      ptxEarnTransactionSuccessBannerEnabled: true,
+      ptxEarnTransactionSuccessBanner: "ptxEarnTransactionSuccessBannerEnabled",
     });
   });
 
@@ -42,6 +54,10 @@ describe("getRemoteABTestingAttributes", () => {
     expect(getRemoteABTestingAttributes(method)).toEqual({
       llmTransferButtonCopyVariantEnabled: false,
       llmTransferButtonCopyVariant: undefined,
+      llmWalletApiDeviceIntentSignEnabled: false,
+      llmWalletApiDeviceIntentSignVariant: undefined,
+      ptxEarnTransactionSuccessBannerEnabled: false,
+      ptxEarnTransactionSuccessBanner: "ptxEarnTransactionSuccessBannerDisabled",
     });
   });
 });

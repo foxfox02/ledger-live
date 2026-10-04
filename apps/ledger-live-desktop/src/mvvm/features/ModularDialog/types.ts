@@ -9,6 +9,7 @@ export type AssetType = {
   numberOfNetworks?: number;
   assetId?: string;
   shouldDisplayId?: boolean;
+  disabled?: boolean;
 };
 
 export const NAVIGATION_DIRECTION = {
@@ -17,6 +18,8 @@ export const NAVIGATION_DIRECTION = {
 } as const;
 
 export type NavigationDirection = (typeof NAVIGATION_DIRECTION)[keyof typeof NAVIGATION_DIRECTION];
+
+export const PAY_ACCOUNT_UI_USE_CASE = "pay";
 
 export const MODULAR_DIALOG_STEP = {
   ASSET_SELECTION: "ASSET_SELECTION",
@@ -44,5 +47,6 @@ export type ModularDialogFlowRenderProps = Readonly<{
 
 export type ModularDialogFlowProps = Readonly<{
   children: (props: ModularDialogFlowRenderProps) => ReactNode;
+  fillAvailableHeight?: boolean;
   onClose?: () => void;
 }>;

@@ -2,8 +2,6 @@ import { test } from "tests/fixtures/common";
 import { expect } from "@playwright/test";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
 import { Currency } from "@ledgerhq/live-e2e-shared/enum/Currency";
-import { addTmsLink } from "tests/utils/allureUtils";
-import { getDescription } from "tests/utils/customJsonReporter";
 import { FF_LWD_WALLET_40_Q2 } from "tests/utils/featureFlagUtils";
 import { DEVICE_TAGS } from "tests/utils/tagsUtils";
 import { coinDetailUrlPattern } from "tests/utils/urlUtils";
@@ -24,12 +22,12 @@ const EXPECTED_ADDITIONAL_CRYPTOS = [
 ];
 const EXPECTED_STABLECOINS = [Currency.ETH_USDT, Currency.ETH_USDC];
 
-test.describe("Wallet 4.0 - Portfolio-Asset/Address", () => {
+test.describe("Wallet assets", () => {
   // This suite covers the Wallet 4.0 Assets section UI (cryptos/stablecoins sections and category
   // pages), which only exists with the Asset Section ON, so opt into the Q2 feature-flag set.
   test.use({ featureFlags: FF_LWD_WALLET_40_Q2 });
 
-  test.describe("No accounts - empty state", () => {
+  test.describe("Empty state", () => {
     test.use({
       teamOwner: Team.WALLET_XP,
       userdata: "skip-onboarding-with-last-seen-device",
@@ -48,7 +46,7 @@ test.describe("Wallet 4.0 - Portfolio-Asset/Address", () => {
     });
 
     test(
-      "Empty state: verify placeholder assets, market navigation, and Add account CTA",
+      `[${Currency.BTC.testLabel}] - Wallet assets empty state shows placeholders and add account CTA`,
       {
         tag: [...DEVICE_TAGS],
         annotation: {
@@ -57,8 +55,6 @@ test.describe("Wallet 4.0 - Portfolio-Asset/Address", () => {
         },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
         await app.mainNavigation.openTargetFromMainNavigation("home");
         await app.portfolio.assetsView.waitForAssetsToLoad();
         await app.portfolio.assetsView.expectHeaderVisible("cryptos");
@@ -112,14 +108,14 @@ test.describe("Wallet 4.0 - Portfolio-Asset/Address", () => {
     );
   });
 
-  test.describe("Existing BTC and ETH accounts", () => {
+  test.describe("Fewer than 6 assets", () => {
     test.use({
       teamOwner: Team.WALLET_XP,
       userdata: "1AccountBTC1AccountETH",
     });
 
     test(
-      "Validate assets section with less than 6 cryptos/stablecoins added",
+      `[${EXPECTED_CRYPTOS.map(c => c.testLabel).join("-")}] - Wallet assets section with fewer than 6 cryptos and stablecoins`,
       {
         tag: [...DEVICE_TAGS],
         annotation: {
@@ -128,7 +124,6 @@ test.describe("Wallet 4.0 - Portfolio-Asset/Address", () => {
         },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
         await app.mainNavigation.openTargetFromMainNavigation("home");
         await app.portfolio.assetsView.waitForAssetsToLoad();
         await app.portfolio.assetsView.expectHeaderVisible("cryptos");
@@ -140,14 +135,14 @@ test.describe("Wallet 4.0 - Portfolio-Asset/Address", () => {
     );
   });
 
-  test.describe("Multiple accounts - capped display and category pages", () => {
+  test.describe("Capped display", () => {
     test.use({
       teamOwner: Team.WALLET_XP,
       userdata: "portfolioWithManyStablecoins",
     });
 
     test(
-      "validate assets section with more than 6 cryptos/stablecoins",
+      "Wallet assets section caps cryptos and stablecoins at 6",
       {
         tag: [...DEVICE_TAGS],
         annotation: {
@@ -156,8 +151,6 @@ test.describe("Wallet 4.0 - Portfolio-Asset/Address", () => {
         },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
         await app.mainNavigation.openTargetFromMainNavigation("home");
         await app.portfolio.assetsView.waitForAssetsToLoad();
         await app.portfolio.assetsView.expectHeaderVisible("cryptos");

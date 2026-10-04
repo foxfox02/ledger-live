@@ -1,13 +1,15 @@
 import BigNumber from "bignumber.js";
-import type { TransactionIntent } from "@ledgerhq/coin-module-framework/api/types";
 import { log } from "@ledgerhq/logs";
-import { setCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
-import { encodeOperationId } from "@ledgerhq/ledger-wallet-framework/operation";
+import type { TransactionIntent } from "@ledgerhq/coin-module-framework/api/types";
 import aleoConfig from "../config";
 import {
   EXPLORER_TRANSFER_TYPES,
   MAX_PRIVATE_RECORDS_PER_TRANSACTION,
   MAX_PRIVATE_TOKEN_RECORDS_PER_TRANSACTION,
+  MICROCREDITS_PER_CREDIT,
+  MIN_BOND_AMOUNT_MICROCREDITS,
+  MIN_DELEGATOR_STAKE_MICROCREDITS,
+  PROGRAM_ID,
   TRANSACTION_TYPE,
 } from "../constants";
 import {
@@ -27,7 +29,8 @@ import {
 } from "../__tests__/fixtures/account.fixture";
 import {
   getMockedTransaction as getMockedPublicTransaction,
-  getMockedEnrichedPrivateRecord,
+  getMockedRecord,
+  getMockedTokenDetails,
 } from "../__tests__/fixtures/api.fixture";
 import { getMockedOperation } from "../__tests__/fixtures/operation.fixture";
 import { getMockedPreparedRequestResponse } from "../__tests__/fixtures/sdk.fixture";
@@ -35,6 +38,9 @@ import {
   getMockedTransaction,
   mockTxIntentFeePrivate,
   mockTxIntentFeePublic,
+  mockTxIntentBondPublic,
+  mockTxIntentUnbondPublic,
+  mockTxIntentClaimUnbondPublic,
   mockTxIntentSelfTransferToPrivate,
   mockTxIntentSelfTransferToPublic,
   mockTxIntentSelfTransferToPublic2,
@@ -48,25 +54,40 @@ import {
   mockTxIntentConvertTokenPrivateToPublic,
   mockTxIntentConvertTokenPrivateToPublic2,
 } from "../__tests__/fixtures/transaction.fixture";
-import type { AleoOperationExtra, ProvableApi } from "../types";
+import type {
+  AleoContext,
+  AleoOperation,
+  AleoOperationExtra,
+  AleoTransactionIntent,
+  AleoPublicTransaction,
+  AleoTokenType,
+  ProvableApi,
+  AleoAccount,
+} from "../types";
 import {
+  estimateGrossRate,
+  estimateNetRate,
+  parseTotalSupply,
   parseMicrocredits,
   parseAmount,
   normalizeAleoPlaintext,
   isAleoAddressPlaintext,
   isAleoAmountPlaintext,
+  isParsableTransferFunction,
+  findTransferArguments,
   determineTransactionType,
   patchAccountWithViewKey,
-  toCoinFrameworkOperation,
-  toBridgeOperation,
-  toPrivateBridgeOperation,
+  toPublicOperation,
+  hasPublicAddress,
   resolveConfig,
   getTransactionType,
+  buildFeeConfigurationForRootIntent,
   getAleoSubAccount,
   calculateAmount,
   isProvableApiConfigured,
   isRecordScannerReady,
   getOperationTransactionType,
+  getStakingOperationType,
   splitPrivateAndPublicOperations,
   toHex,
   fromHex,
@@ -74,7 +95,13 @@ import {
   hasSpecificIntentData,
   getOperationDetailsExtraFields,
   getAvailableBalance,
+  getClaimableStakingBalance,
+  getUnbondingDisplayState,
+  getUnstakingBalance,
+  sumStakedBalance,
+  toStakingResources,
   isSelfTransferTransaction,
+  isSelfStakingMode,
   isPublicTransaction,
   isPrivateTransaction,
   isTokenTransaction,
@@ -86,16 +113,28 @@ import {
   getRecordByCommitment,
   getFunctionNameFromTransactionType,
   getNextSequenceNumber,
+  getValidatorNonEarningReason,
   extractViewKey,
   findBestRecordForFee,
   selectPrivateRecordsForAmount,
   getEstimatedSigningTime,
   sumPrivateRecords,
-  getCalTokens,
   getMaxPrivateRecordsForAccount,
   getStrategyConfig,
   isAleoAccount,
   isAleoTransaction,
+  isTokenRecord,
+  classifyAleoTokenType,
+  resolvePrivacyContext,
+  toStakingPosition,
+  parseTransactionFields,
+  resolveStakingOperationType,
+  isStakingOperation,
+  isAleoOperationExtra,
+  isAleoOperationExtraRaw,
+  getMinBondAmount,
+  isValidatorBondable,
+  isFirstBondPending,
 } from "./utils";
 
 jest.mock("../config");
@@ -105,8 +144,6 @@ jest.mock("@ledgerhq/logs", () => ({
 
 const mockedAleoConfig = jest.mocked(aleoConfig);
 
-const mockCurrency = getMockedCurrency();
-const mockTokenCurrency = getMockedTokenCurrency();
 const mockConfig = getMockedConfig("mainnet");
 
 const supportedPublicTransactionModes = [
@@ -210,6 +247,75 @@ describe("isAleoAmountPlaintext", () => {
     ["", false],
   ])("(%j) → %s", (input, expected) => {
     expect(isAleoAmountPlaintext(input)).toBe(expected);
+  });
+});
+
+describe("isParsableTransferFunction", () => {
+  it.each([
+    ["transfer_private", true],
+    ["transfer_private_to_public", true],
+    ["transfer_public_to_private", true],
+    ["transfer_private_2", true],
+    ["transfer_private_13", true],
+    ["transfer_private_to_public_4", true],
+    ["transfer_public_to_private_3", true],
+    ["transfer_from_public", false],
+    ["transfer_from_public_to_private", false],
+    ["transfer_public", false],
+    ["transfer_public_as_signer", false],
+    ["mint_private", false],
+    ["burn_private", false],
+    ["join", false],
+    ["join_5", false],
+    ["split", false],
+    ["fee_private", false],
+    ["", false],
+  ])("(%j) → %s", (input, expected) => {
+    expect(isParsableTransferFunction(input)).toBe(expected);
+  });
+});
+
+describe("findTransferArguments", () => {
+  const to = "aleo1recipient123";
+
+  it.each([
+    [
+      "credits.aleo / ARC-20 (record, recipient, amount)",
+      [null, to, "150000u64"],
+      { recipient: to, amount: "150000u64" },
+    ],
+    [
+      "ARC-21 / ARC-22 (recipient, amount, record)",
+      [to, "700u64", null],
+      { recipient: to, amount: "700u64" },
+    ],
+    [
+      "token_registry.aleo (token_id, recipient, amount, flag)",
+      ["1field", to, "500u128", "true"],
+      { recipient: to, amount: "500u128" },
+    ],
+    [
+      "batcher wrapper (external records, recipient, amount, proof)",
+      [null, null, to, "250000u64", "proof"],
+      { recipient: to, amount: "250000u64" },
+    ],
+    [
+      "trailing amount-shaped merkle proof is ignored",
+      [null, to, "42u64", "9999u64"],
+      { recipient: to, amount: "42u64" },
+    ],
+    [
+      "visibility suffixes are stripped",
+      [`${to}.private`, "42u64.public"],
+      { recipient: to, amount: "42u64" },
+    ],
+    ["undecryptable amount", [null, to, null], null],
+    ["no amount-shaped argument after the recipient", [null, to, null, "notanamount"], null],
+    ["no address-shaped argument (join)", [null, null], null],
+    ["amount before the recipient", ["42u64", to], null],
+    ["no arguments", [], null],
+  ])("%s", (_label, plaintexts, expected) => {
+    expect(findTransferArguments(plaintexts)).toEqual(expected);
   });
 });
 
@@ -326,14 +432,42 @@ describe("determineTransactionType", () => {
   );
 });
 
-describe("toCoinFrameworkOperation", () => {
+describe("hasPublicAddress", () => {
+  it("should be true when either side is set", () => {
+    expect(hasPublicAddress(getMockedPublicTransaction({ recipient_address: "" }))).toBe(true);
+    expect(hasPublicAddress(getMockedPublicTransaction({ sender_address: "" }))).toBe(true);
+  });
+
+  it("should be false when both sides are blank", () => {
+    expect(
+      hasPublicAddress(getMockedPublicTransaction({ sender_address: "", recipient_address: "" })),
+    ).toBe(false);
+  });
+
+  it("should treat a missing address like a blank one", () => {
+    // the explorer is typed to send "" but has been seen omitting the field entirely
+    const { sender_address: _, recipient_address: __, ...rawTx } = getMockedPublicTransaction();
+
+    expect(hasPublicAddress(rawTx as AleoPublicTransaction)).toBe(false);
+  });
+});
+
+const NO_TOKENS = new Map<string, AleoTokenType>();
+
+describe("toPublicOperation", () => {
   const recipientAddress = "aleo1rhgdu77hgyqd3xjj8ucu3jj9r2krwz6mnzyd80gncr5fxcwlh5rsvzp9px";
   const senderAddress = "aleo1a2ehlgqhvs3p7d4hqhs0tvgk954dr8gafu9kxse2mzu9a5sqxvpsrn98pr";
+  const otherAddress = "aleo1test123address456";
 
   it("should set type to IN when address is the recipient", () => {
     const rawTx = getMockedPublicTransaction();
 
-    const result = toCoinFrameworkOperation(rawTx, recipientAddress);
+    const result = toPublicOperation({
+      rawTx,
+      address: recipientAddress,
+      hasOwnedRecord: false,
+      tokenTypeByProgramName: NO_TOKENS,
+    });
 
     expect(result.type).toBe("IN");
   });
@@ -341,23 +475,65 @@ describe("toCoinFrameworkOperation", () => {
   it("should set type to OUT when address is the sender", () => {
     const rawTx = getMockedPublicTransaction();
 
-    const result = toCoinFrameworkOperation(rawTx, senderAddress);
+    const result = toPublicOperation({
+      rawTx,
+      address: senderAddress,
+      hasOwnedRecord: false,
+      tokenTypeByProgramName: NO_TOKENS,
+    });
 
     expect(result.type).toBe("OUT");
   });
 
-  it("should set type to NONE when program_id is not CREDITS", () => {
-    const rawTx = getMockedPublicTransaction({ program_id: "custom.aleo" });
+  it("should set type to NONE when address is neither sender nor recipient", () => {
+    const rawTx = getMockedPublicTransaction();
 
-    const result = toCoinFrameworkOperation(rawTx, recipientAddress);
+    const result = toPublicOperation({
+      rawTx,
+      address: otherAddress,
+      hasOwnedRecord: false,
+      tokenTypeByProgramName: NO_TOKENS,
+    });
 
     expect(result.type).toBe("NONE");
+  });
+
+  it("should map a token program to the standard the registry reports", () => {
+    const rawTx = getMockedPublicTransaction({ program_id: "custom.aleo" });
+
+    const result = toPublicOperation({
+      rawTx,
+      address: recipientAddress,
+      hasOwnedRecord: false,
+      tokenTypeByProgramName: new Map([["custom.aleo", "arc20"]]),
+    });
+
+    expect(result.asset).toEqual({ type: "arc20", assetReference: "custom.aleo" });
+    expect(result.type).toBe("IN");
+  });
+
+  it("should map a program missing from the registry to an unknown asset", () => {
+    const rawTx = getMockedPublicTransaction({ program_id: "custom.aleo" });
+
+    const result = toPublicOperation({
+      rawTx,
+      address: recipientAddress,
+      hasOwnedRecord: false,
+      tokenTypeByProgramName: NO_TOKENS,
+    });
+
+    expect(result.asset).toEqual({ type: "unknown", assetReference: "custom.aleo" });
   });
 
   it("should map core fields from rawTx", () => {
     const rawTx = getMockedPublicTransaction();
 
-    const result = toCoinFrameworkOperation(rawTx, recipientAddress);
+    const result = toPublicOperation({
+      rawTx,
+      address: recipientAddress,
+      hasOwnedRecord: false,
+      tokenTypeByProgramName: NO_TOKENS,
+    });
 
     expect(result.id).toBe(rawTx.transaction_id);
     expect(result.senders).toEqual([rawTx.sender_address]);
@@ -372,16 +548,40 @@ describe("toCoinFrameworkOperation", () => {
   it("should derive fees and blockHash from rawTx", () => {
     const rawTx = getMockedPublicTransaction();
 
-    const result = toCoinFrameworkOperation(rawTx, recipientAddress);
+    const result = toPublicOperation({
+      rawTx,
+      address: recipientAddress,
+      hasOwnedRecord: false,
+      tokenTypeByProgramName: NO_TOKENS,
+    });
 
     expect(result.tx.fees).toBe(BigInt(rawTx.fee));
     expect(result.tx.block.hash).toBe(rawTx.block_hash);
   });
 
+  it("should use amount_u128 over amount when provided, including values beyond JS safe integer range", () => {
+    const amountU128 = "123456789012345678901234567890";
+    const rawTx = getMockedPublicTransaction({ amount: 10000000, amount_u128: amountU128 });
+
+    const result = toPublicOperation({
+      rawTx,
+      address: recipientAddress,
+      hasOwnedRecord: false,
+      tokenTypeByProgramName: NO_TOKENS,
+    });
+
+    expect(result.value).toBe(BigInt(amountU128));
+  });
+
   it("should set failed to true when transaction_status is not Accepted", () => {
     const rawTx = getMockedPublicTransaction({ transaction_status: "Rejected" });
 
-    const result = toCoinFrameworkOperation(rawTx, recipientAddress);
+    const result = toPublicOperation({
+      rawTx,
+      address: recipientAddress,
+      hasOwnedRecord: false,
+      tokenTypeByProgramName: NO_TOKENS,
+    });
 
     expect(result.tx.failed).toBe(true);
   });
@@ -389,104 +589,131 @@ describe("toCoinFrameworkOperation", () => {
   it("should include functionId, transactionType, and ledgerOpType in details", () => {
     const rawTx = getMockedPublicTransaction();
 
-    const result = toCoinFrameworkOperation(rawTx, recipientAddress);
+    const result = toPublicOperation({
+      rawTx,
+      address: recipientAddress,
+      hasOwnedRecord: false,
+      tokenTypeByProgramName: NO_TOKENS,
+    });
 
     expect(result.details).toMatchObject({
       functionId: rawTx.function_id,
       ledgerOpType: "IN",
     });
   });
-});
 
-describe("toBridgeOperation", () => {
-  const ledgerAccountId = "js:2:aleo:aleo1test:";
-  const recipientAddress = "aleo1rhgdu77hgyqd3xjj8ucu3jj9r2krwz6mnzyd80gncr5fxcwlh5rsvzp9px";
-  const senderAddress = "aleo1a2ehlgqhvs3p7d4hqhs0tvgk954dr8gafu9kxse2mzu9a5sqxvpsrn98pr";
-
-  beforeEach(() => {
-    jest.mocked(log).mockClear();
-  });
-
-  it("should produce an operation with encoded id and accountId", () => {
-    const rawTx = getMockedPublicTransaction();
-    const expectedId = encodeOperationId(ledgerAccountId, rawTx.transaction_id, "IN");
-
-    const result = toBridgeOperation(ledgerAccountId, rawTx, recipientAddress);
-
-    expect(result.id).toBe(expectedId);
-    expect(result.accountId).toBe(ledgerAccountId);
-  });
-
-  it("should derive all operation fields from rawTx", () => {
-    const rawTx = getMockedPublicTransaction();
-
-    const result = toBridgeOperation(ledgerAccountId, rawTx, recipientAddress);
-
-    expect(result.hash).toBe(rawTx.transaction_id);
-    expect(result.type).toBe("IN");
-    expect(result.value).toEqual(new BigNumber(rawTx.amount));
-    expect(result.fee).toEqual(new BigNumber(rawTx.fee));
-    expect(result.senders).toEqual([rawTx.sender_address]);
-    expect(result.recipients).toEqual([rawTx.recipient_address]);
-    expect(result.blockHeight).toBe(rawTx.block_number);
-    expect(result.blockHash).toBe(rawTx.block_hash);
-    expect(result.hasFailed).toBe(false);
-  });
-
-  it("should generate different ids for different account ids", () => {
-    const rawTx = getMockedPublicTransaction();
-    const otherId = "js:2:aleo:aleo1other:";
-
-    const result1 = toBridgeOperation(ledgerAccountId, rawTx, recipientAddress);
-    const result2 = toBridgeOperation(otherId, rawTx, recipientAddress);
-
-    expect(result1.id).not.toBe(result2.id);
-    expect(result1.accountId).toBe(ledgerAccountId);
-    expect(result2.accountId).toBe(otherId);
-  });
-
-  it("should set type to OUT when address is the sender", () => {
-    const rawTx = getMockedPublicTransaction();
-
-    const result = toBridgeOperation(ledgerAccountId, rawTx, senderAddress);
-
-    expect(result.type).toBe("OUT");
-    expect(result.id).toBe(encodeOperationId(ledgerAccountId, rawTx.transaction_id, "OUT"));
-  });
-
-  it("should attach programId when the transaction is a token transfer", () => {
+  it("should fill a blank recipient with the account address when it owns a record", () => {
     const rawTx = getMockedPublicTransaction({
-      program_id: "usdcx_stablecoin.aleo",
+      function_id: "transfer_public_to_private",
+      recipient_address: "",
     });
 
-    const result = toBridgeOperation(ledgerAccountId, rawTx, recipientAddress, true);
-
-    expect(result.extra.programId).toBe("usdcx_stablecoin.aleo");
-  });
-
-  it.each([
-    ["NaN amount", { amount: NaN as number }],
-    ["zero amount", { amount: 0 }],
-    ["negative amount", { amount: -1 }],
-  ])("should log invalid raw transaction details for %s", (_label, amountOverride) => {
-    const rawTx = getMockedPublicTransaction(amountOverride);
-
-    const result = toBridgeOperation(ledgerAccountId, rawTx, recipientAddress);
-
-    expect(log).toHaveBeenCalledWith(
-      "aleo/toBridgeOperation",
-      `Invalid raw transaction details for ${recipientAddress}`,
+    const result = toPublicOperation({
       rawTx,
-    );
-    expect(result.value).toEqual(new BigNumber(rawTx.amount));
+      address: senderAddress,
+      hasOwnedRecord: true,
+      tokenTypeByProgramName: NO_TOKENS,
+    });
+
+    expect(result.recipients).toEqual([senderAddress]);
+    // sender wins: the balance the transfer left is still the public one
+    expect(result.type).toBe("OUT");
   });
 
-  it("should not log when amount is valid", () => {
-    const rawTx = getMockedPublicTransaction();
+  it("should fill a blank sender with the account address when it owns a record", () => {
+    const rawTx = getMockedPublicTransaction({
+      function_id: "transfer_private_to_public",
+      sender_address: "",
+    });
 
-    toBridgeOperation(ledgerAccountId, rawTx, recipientAddress);
+    const result = toPublicOperation({
+      rawTx,
+      address: recipientAddress,
+      hasOwnedRecord: true,
+      tokenTypeByProgramName: NO_TOKENS,
+    });
 
-    expect(log).not.toHaveBeenCalled();
+    expect(result.senders).toEqual([recipientAddress]);
+    expect(result.type).toBe("OUT");
+  });
+
+  it("should leave blank addresses alone when no record is owned", () => {
+    const rawTx = getMockedPublicTransaction({ recipient_address: "" });
+
+    const result = toPublicOperation({
+      rawTx,
+      address: senderAddress,
+      hasOwnedRecord: false,
+      tokenTypeByProgramName: NO_TOKENS,
+    });
+
+    expect(result.recipients).toEqual([""]);
+  });
+
+  it("should set type to IN for a self-transfer, as the classic bridge does", () => {
+    const rawTx = getMockedPublicTransaction({
+      sender_address: senderAddress,
+      recipient_address: senderAddress,
+    });
+
+    const result = toPublicOperation({
+      rawTx,
+      address: senderAddress,
+      hasOwnedRecord: false,
+      tokenTypeByProgramName: NO_TOKENS,
+    });
+
+    expect(result.type).toBe("IN");
+  });
+
+  it("should keep a self shield OUT, since the explorer blanked the recipient", () => {
+    const rawTx = getMockedPublicTransaction({
+      sender_address: senderAddress,
+      recipient_address: "",
+      function_id: "transfer_public_to_private",
+    });
+
+    const result = toPublicOperation({
+      rawTx,
+      address: senderAddress,
+      hasOwnedRecord: true,
+      tokenTypeByProgramName: NO_TOKENS,
+    });
+
+    expect(result.type).toBe("OUT");
+    expect(result.recipients).toEqual([senderAddress]);
+  });
+
+  it("should use the resolved shield recipient when the explorer blanked it", () => {
+    const rawTx = getMockedPublicTransaction({
+      recipient_address: "",
+      function_id: "transfer_public_to_private",
+    });
+
+    const result = toPublicOperation({
+      rawTx,
+      address: senderAddress,
+      hasOwnedRecord: false,
+      tokenTypeByProgramName: NO_TOKENS,
+      resolvedRecipient: recipientAddress,
+    });
+
+    expect(result.recipients).toEqual([recipientAddress]);
+    expect(result.type).toBe("OUT");
+  });
+
+  it("should prefer the explorer's recipient over a resolved one", () => {
+    const rawTx = getMockedPublicTransaction({ recipient_address: recipientAddress });
+
+    const result = toPublicOperation({
+      rawTx,
+      address: senderAddress,
+      hasOwnedRecord: false,
+      tokenTypeByProgramName: NO_TOKENS,
+      resolvedRecipient: "aleo1someoneelse",
+    });
+
+    expect(result.recipients).toEqual([recipientAddress]);
   });
 });
 
@@ -540,6 +767,39 @@ describe("getTransactionType", () => {
     const mockTx: TransactionIntent = {};
 
     expect(() => getTransactionType(mockTx)).toThrow();
+  });
+});
+
+describe("buildFeeConfigurationForRootIntent", () => {
+  it("returns function_name fee_public when isPrivate is false", () => {
+    const result = buildFeeConfigurationForRootIntent({
+      isPrivate: false,
+      maxBaseFee: 1234n,
+      maxPriorityFee: 0n,
+    });
+
+    expect(result.function_name).toBe("fee_public");
+  });
+
+  it("returns function_name fee_private when isPrivate is true", () => {
+    const result = buildFeeConfigurationForRootIntent({
+      isPrivate: true,
+      maxBaseFee: 1234n,
+      maxPriorityFee: 0n,
+    });
+
+    expect(result.function_name).toBe("fee_private");
+  });
+
+  it("stringifies maxBaseFee and maxPriorityFee", () => {
+    const result = buildFeeConfigurationForRootIntent({
+      isPrivate: false,
+      maxBaseFee: 4242n,
+      maxPriorityFee: 10n,
+    });
+
+    expect(result.max_base_fee).toBe("4242");
+    expect(result.max_priority_fee).toBe("10");
   });
 });
 
@@ -761,6 +1021,53 @@ describe("calculateAmount", () => {
     expect(result.amount).toStrictEqual(expectedAmount);
     expect(result.totalSpent).toStrictEqual(expectedAmount);
   });
+
+  // The bonded figure reaches an unbond only when the caller sets useAllAmount: true — a
+  // documented, inherited limitation (see Known risks), not an oversight.
+  it("should return the bonded balance for unbond_public with useAllAmount true", () => {
+    const estimatedFees = new BigNumber(5000);
+    const bondedBalance = new BigNumber(70000);
+    const mockAccount = getMockedAccount({
+      aleoResources: { ...mockAleoResources, bondedBalance },
+    });
+    const mockTransaction = getMockedTransaction({
+      mode: TRANSACTION_TYPE.UNBOND_PUBLIC,
+      amount: new BigNumber(0),
+      useAllAmount: true,
+    });
+
+    const result = calculateAmount({
+      account: mockAccount,
+      transaction: mockTransaction,
+      estimatedFees,
+    });
+
+    expect(result.amount).toStrictEqual(bondedBalance);
+    expect(result.totalSpent).toStrictEqual(bondedBalance);
+  });
+
+  it("should return the caller's amount for unbond_public with useAllAmount false", () => {
+    const estimatedFees = new BigNumber(5000);
+    const bondedBalance = new BigNumber(70000);
+    const callerAmount = new BigNumber(1234);
+    const mockAccount = getMockedAccount({
+      aleoResources: { ...mockAleoResources, bondedBalance },
+    });
+    const mockTransaction = getMockedTransaction({
+      mode: TRANSACTION_TYPE.UNBOND_PUBLIC,
+      amount: callerAmount,
+      useAllAmount: false,
+    });
+
+    const result = calculateAmount({
+      account: mockAccount,
+      transaction: mockTransaction,
+      estimatedFees,
+    });
+
+    expect(result.amount).toStrictEqual(callerAmount);
+    expect(result.totalSpent).toStrictEqual(callerAmount);
+  });
 });
 
 describe("isProvableApiConfigured", () => {
@@ -827,131 +1134,6 @@ describe("getOperationTransactionType", () => {
     ["public", "unknown_type" as any],
   ])("should return '%s' for transaction type '%s'", (expected, transactionType) => {
     expect(getOperationTransactionType(transactionType)).toBe(expected);
-  });
-});
-
-describe("toPrivateBridgeOperation", () => {
-  const mockLedgerAccountId =
-    "js:2:aleo:aleo1rhgdu77hgyqd3xjj8ucu3jj9r2krwz6mnzyd80gncr5fxcwlh5rsvzp9px::";
-  const mockRecipientAddress = "aleo1rhgdu77hgyqd3xjj8ucu3jj9r2krwz6mnzyd80gncr5fxcwlh5rsvzp9px";
-  const mockSenderAddress = "aleo1a2ehlgqhvs3p7d4hqhs0tvgk954dr8gafu9kxse2mzu9a5sqxvpsrn98pr";
-
-  it("should return an IN operation when recipient matches address", () => {
-    const enriched = getMockedEnrichedPrivateRecord({
-      recipient: mockRecipientAddress,
-      sender: mockSenderAddress,
-    });
-
-    const result = toPrivateBridgeOperation(mockLedgerAccountId, enriched, mockRecipientAddress);
-
-    expect(result.type).toBe("IN");
-    expect(result.senders).toEqual([mockSenderAddress]);
-    expect(result.recipients).toEqual([mockRecipientAddress]);
-  });
-
-  it("should return an OUT operation when sender matches address", () => {
-    const enriched = getMockedEnrichedPrivateRecord({
-      sender: mockSenderAddress,
-      recipient: mockRecipientAddress,
-    });
-
-    const result = toPrivateBridgeOperation(mockLedgerAccountId, enriched, mockSenderAddress);
-
-    expect(result.type).toBe("OUT");
-    expect(result.senders).toEqual([mockSenderAddress]);
-    expect(result.recipients).toEqual([mockRecipientAddress]);
-  });
-
-  it("should encode operation id using ledgerAccountId, transaction_id and type", () => {
-    const enriched = getMockedEnrichedPrivateRecord({
-      recipient: mockRecipientAddress,
-    });
-    const expectedId = encodeOperationId(
-      mockLedgerAccountId,
-      enriched.rawRecord.transaction_id.trim(),
-      "IN",
-    );
-
-    const result = toPrivateBridgeOperation(mockLedgerAccountId, enriched, mockRecipientAddress);
-
-    expect(result.id).toBe(expectedId);
-    expect(result.accountId).toBe(mockLedgerAccountId);
-  });
-
-  it("should trim whitespace from transaction_id when building hash and id", () => {
-    const enriched = getMockedEnrichedPrivateRecord({
-      rawRecord: { transaction_id: "  tx-with-spaces  " },
-      recipient: mockRecipientAddress,
-    });
-
-    const result = toPrivateBridgeOperation(mockLedgerAccountId, enriched, mockRecipientAddress);
-
-    expect(result.hash).toBe("tx-with-spaces");
-    expect(result.id).toContain("tx-with-spaces");
-  });
-
-  it("should set fee from details.fee_value", () => {
-    const enriched = getMockedEnrichedPrivateRecord({
-      details: { fee_value: 9999 },
-    });
-
-    const result = toPrivateBridgeOperation(mockLedgerAccountId, enriched, mockRecipientAddress);
-
-    expect(result.fee).toEqual(new BigNumber(9999));
-  });
-
-  it("should set blockHash from details.block_hash", () => {
-    const enriched = getMockedEnrichedPrivateRecord({
-      details: { block_hash: "ab1testhash", fee_value: 1000 },
-    });
-
-    const result = toPrivateBridgeOperation(mockLedgerAccountId, enriched, mockRecipientAddress);
-
-    expect(result.blockHash).toBe("ab1testhash");
-  });
-
-  it("should set date from block_timestamp multiplied by 1000", () => {
-    const enriched = getMockedEnrichedPrivateRecord({
-      rawRecord: { block_timestamp: 1704067200 },
-    });
-
-    const result = toPrivateBridgeOperation(mockLedgerAccountId, enriched, mockRecipientAddress);
-
-    expect(result.date).toEqual(new Date(1704067200 * 1000));
-  });
-
-  it("should set extra.transactionType to private", () => {
-    const enriched = getMockedEnrichedPrivateRecord();
-
-    const result = toPrivateBridgeOperation(mockLedgerAccountId, enriched, mockRecipientAddress);
-
-    expect(result.extra).toMatchObject({ transactionType: "private" });
-  });
-
-  it("should set extra.functionId from rawRecord.function_name", () => {
-    const enriched = getMockedEnrichedPrivateRecord({
-      rawRecord: { function_name: "transfer_private" },
-    });
-
-    const result = toPrivateBridgeOperation(mockLedgerAccountId, enriched, mockRecipientAddress);
-
-    expect(result.extra).toMatchObject({ functionId: "transfer_private" });
-  });
-
-  it("should set hasFailed to false", () => {
-    const enriched = getMockedEnrichedPrivateRecord();
-
-    const result = toPrivateBridgeOperation(mockLedgerAccountId, enriched, mockRecipientAddress);
-
-    expect(result.hasFailed).toBe(false);
-  });
-
-  it("should set value from enriched.value", () => {
-    const enriched = getMockedEnrichedPrivateRecord({ value: new BigNumber(42000000) });
-
-    const result = toPrivateBridgeOperation(mockLedgerAccountId, enriched, mockRecipientAddress);
-
-    expect(result.value).toEqual(new BigNumber(42000000));
   });
 });
 
@@ -1063,6 +1245,75 @@ describe("mapTransactionIntentToSdkIntent", () => {
       amount: intent.amount.toString(),
       to: intent.recipient,
     });
+  });
+
+  // The validator arrives as the intent's `recipient` but the program argument is named
+  // `validator`, and `withdrawal` is a third argument with no equivalent on a transfer.
+  it("should map bond_public intent to the validator/withdrawal SDK argument names", () => {
+    const intent = mockTxIntentBondPublic;
+
+    const result = mapTransactionIntentToSdkIntent(intent);
+
+    expect(result).toEqual({
+      type: "bond_public",
+      amount: intent.amount.toString(),
+      validator: intent.recipient,
+      withdrawal: "aleo1sender",
+    });
+  });
+
+  it("should throw when a bond_public intent carries no withdrawal address", () => {
+    // The key has to be absent, not undefined: `hasSpecificIntentData` guards with `in`.
+    const { data: _data, ...withoutData } = mockTxIntentBondPublic as AleoTransactionIntent & {
+      data: unknown;
+    };
+
+    expect(() => mapTransactionIntentToSdkIntent(withoutData as AleoTransactionIntent)).toThrow(
+      "aleo: intent data is required for bond_public",
+    );
+  });
+
+  // The staker arrives as the intent's `recipient` but the program argument is named `staker`.
+  it("should map unbond_public intent to the staker SDK argument name", () => {
+    const intent = mockTxIntentUnbondPublic;
+
+    const result = mapTransactionIntentToSdkIntent(intent);
+
+    expect(result).toEqual({
+      type: "unbond_public",
+      amount: intent.amount.toString(),
+      staker: intent.recipient,
+    });
+  });
+
+  it("should map claim_unbond_public intent without an amount key", () => {
+    const intent = mockTxIntentClaimUnbondPublic;
+
+    const result = mapTransactionIntentToSdkIntent(intent);
+
+    expect(result).toEqual({
+      type: "claim_unbond_public",
+      staker: intent.recipient,
+    });
+    // toEqual alone would pass on `amount: undefined`, which the backend's deny_unknown_fields
+    // would still see as a key.
+    expect(result).not.toHaveProperty("amount");
+  });
+
+  it("should throw when the staker is not the sender for unbond_public", () => {
+    const intent = { ...mockTxIntentUnbondPublic, recipient: "aleo1someoneelse" };
+
+    expect(() => mapTransactionIntentToSdkIntent(intent)).toThrow(
+      "aleo: unbond_public staker must be the sender (recipient aleo1someoneelse, sender aleo1sender)",
+    );
+  });
+
+  it("should throw when the staker is not the sender for claim_unbond_public", () => {
+    const intent = { ...mockTxIntentClaimUnbondPublic, recipient: "aleo1someoneelse" };
+
+    expect(() => mapTransactionIntentToSdkIntent(intent)).toThrow(
+      "aleo: claim_unbond_public staker must be the sender (recipient aleo1someoneelse, sender aleo1sender)",
+    );
   });
 
   it("should map convert_public_to_private intent to SDK intent with correct fields", () => {
@@ -1459,6 +1710,8 @@ describe("getAvailableBalance", () => {
   it.each([
     [TRANSACTION_TYPE.TRANSFER_PUBLIC, mockTransparentBalance],
     [TRANSACTION_TYPE.CONVERT_PUBLIC_TO_PRIVATE, mockTransparentBalance],
+    // Only public ALEO can be bonded, so a bond spends the transparent balance.
+    [TRANSACTION_TYPE.BOND_PUBLIC, mockTransparentBalance],
     [TRANSACTION_TYPE.TRANSFER_PRIVATE, expectedPrivateSpendableBalance],
     [TRANSACTION_TYPE.CONVERT_PRIVATE_TO_PUBLIC, expectedPrivateSpendableBalance],
   ])("should return correct balance for %s", (mode, expected) => {
@@ -1487,6 +1740,251 @@ describe("getAvailableBalance", () => {
       `aleo: unsupported tx mode for balance calculation: ${unsupportedMode}`,
     );
   });
+
+  describe("staking modes", () => {
+    const bondedBalance = new BigNumber(70000);
+    const unbondingBalance = new BigNumber(50000);
+
+    const stakingAccount = (unbondingHeight: number | null) =>
+      getMockedAccount({
+        blockHeight: 1234,
+        aleoResources: {
+          ...mockAleoResources,
+          bondedBalance,
+          unbondingBalance,
+          unbondingHeight,
+        },
+      });
+
+    it("returns bondedBalance for unbond_public", () => {
+      const transaction = getMockedTransaction({ mode: TRANSACTION_TYPE.UNBOND_PUBLIC });
+
+      expect(getAvailableBalance(stakingAccount(1234), transaction)).toStrictEqual(bondedBalance);
+    });
+
+    it("returns the claimable balance for claim_unbond_public once the unbonding height is reached", () => {
+      const transaction = getMockedTransaction({ mode: TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC });
+
+      expect(getAvailableBalance(stakingAccount(1234), transaction)).toStrictEqual(
+        unbondingBalance,
+      );
+    });
+
+    it("returns zero for claim_unbond_public before the unbonding height is reached", () => {
+      const transaction = getMockedTransaction({ mode: TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC });
+
+      expect(getAvailableBalance(stakingAccount(2000), transaction)).toStrictEqual(
+        new BigNumber(0),
+      );
+    });
+
+    it("returns zero for unbond_public when bondedBalance is absent", () => {
+      const { bondedBalance: _bondedBalance, ...withoutBondedBalance } = mockAleoResources;
+      const account = getMockedAccount({ aleoResources: withoutBondedBalance });
+      const transaction = getMockedTransaction({ mode: TRANSACTION_TYPE.UNBOND_PUBLIC });
+
+      expect(getAvailableBalance(account, transaction)).toStrictEqual(new BigNumber(0));
+    });
+  });
+});
+
+describe("toStakingResources", () => {
+  it("carries a chain position through unchanged, dropping the withdrawal address", () => {
+    const result = toStakingResources({
+      bondedBalance: new BigNumber(70000),
+      bondedValidator: "aleo1validator",
+      unbondingBalance: new BigNumber(5000),
+      unbondingHeight: 250,
+    });
+
+    expect(result).toStrictEqual({
+      bondedBalance: new BigNumber(70000),
+      bondedValidator: "aleo1validator",
+      unbondingBalance: new BigNumber(5000),
+      unbondingHeight: 250,
+    });
+  });
+
+  it("normalizes an account that predates the staking fields to an empty position", () => {
+    expect(toStakingResources({})).toStrictEqual({
+      bondedBalance: new BigNumber(0),
+      bondedValidator: null,
+      unbondingBalance: new BigNumber(0),
+      unbondingHeight: null,
+    });
+  });
+
+  it("normalizes a missing source to an empty position", () => {
+    expect(toStakingResources(undefined)).toStrictEqual({
+      bondedBalance: new BigNumber(0),
+      bondedValidator: null,
+      unbondingBalance: new BigNumber(0),
+      unbondingHeight: null,
+    });
+  });
+});
+
+describe("sumStakedBalance", () => {
+  it("adds the bonded and unbonding amounts", () => {
+    const result = sumStakedBalance({
+      bondedBalance: new BigNumber(70000),
+      unbondingBalance: new BigNumber(5000),
+    });
+
+    expect(result).toStrictEqual(new BigNumber(75000));
+  });
+
+  it("returns zero for the empty slice staking-disabled accounts carry", () => {
+    expect(sumStakedBalance({})).toStrictEqual(new BigNumber(0));
+  });
+});
+
+describe("getClaimableStakingBalance", () => {
+  const unbondingBalance = new BigNumber(50000);
+
+  const accountAt = (blockHeight: number, unbondingHeight: number | null) =>
+    getMockedAccount({
+      blockHeight,
+      aleoResources: { ...mockAleoResources, unbondingBalance, unbondingHeight },
+    });
+
+  it("returns zero while the chain has not reached the unbonding height", () => {
+    expect(getClaimableStakingBalance(accountAt(249, 250))).toStrictEqual(new BigNumber(0));
+  });
+
+  it("returns the full unbonding balance once the height is reached", () => {
+    expect(getClaimableStakingBalance(accountAt(250, 250))).toStrictEqual(unbondingBalance);
+  });
+
+  it("returns the full unbonding balance once the height is passed", () => {
+    expect(getClaimableStakingBalance(accountAt(999, 250))).toStrictEqual(unbondingBalance);
+  });
+
+  it("returns zero when there is no unbonding entry", () => {
+    expect(getClaimableStakingBalance(accountAt(999, null))).toStrictEqual(new BigNumber(0));
+  });
+
+  it("returns zero when the account has never synced a staking position", () => {
+    // the four fields are simply absent on an account cached before they existed
+    const {
+      unbondingBalance: _balance,
+      unbondingHeight: _height,
+      ...neverSynced
+    } = mockAleoResources;
+    const account = getMockedAccount({ blockHeight: 999, aleoResources: neverSynced });
+
+    expect(getClaimableStakingBalance(account)).toStrictEqual(new BigNumber(0));
+  });
+
+  it("returns zero when aleoResources is missing entirely", () => {
+    // @ts-expect-error - testing behavior when aleoResources is explicitly undefined
+    const brokenAccount = getMockedAccount({ blockHeight: 999, aleoResources: undefined });
+
+    expect(getClaimableStakingBalance(brokenAccount)).toStrictEqual(new BigNumber(0));
+  });
+});
+
+describe("getUnstakingBalance", () => {
+  const unbondingBalance = new BigNumber(5_000);
+
+  const accountAt = (blockHeight: number, unbondingHeight: number | null) =>
+    getMockedAccount({
+      blockHeight,
+      aleoResources: { ...mockAleoResources, unbondingBalance, unbondingHeight },
+    });
+
+  it("is the whole unbonding entry while none of it is claimable", () => {
+    expect(getUnstakingBalance(accountAt(249, 250))).toStrictEqual(unbondingBalance);
+  });
+
+  it("is zero once the entry became claimable", () => {
+    expect(getUnstakingBalance(accountAt(250, 250))).toStrictEqual(new BigNumber(0));
+  });
+
+  it("is zero without an unbonding entry", () => {
+    const account = getMockedAccount({
+      blockHeight: 249,
+      aleoResources: {
+        ...mockAleoResources,
+        unbondingBalance: new BigNumber(0),
+        unbondingHeight: null,
+      },
+    });
+
+    expect(getUnstakingBalance(account)).toStrictEqual(new BigNumber(0));
+  });
+});
+
+describe("getUnbondingDisplayState", () => {
+  const UNBONDING_HEIGHT = 1_000;
+
+  const stateOf = (overrides: {
+    claimableBalance?: BigNumber;
+    unbondingHeight?: number | null;
+    syncedHeight: number;
+    currentHeight: number;
+  }) =>
+    getUnbondingDisplayState({
+      unbondingHeight: UNBONDING_HEIGHT,
+      claimableBalance: new BigNumber(0),
+      ...overrides,
+    });
+
+  it("reports claimable once the synced height has produced a claimable balance", () => {
+    expect(
+      stateOf({
+        claimableBalance: new BigNumber(5_000),
+        syncedHeight: UNBONDING_HEIGHT + 1,
+        currentHeight: UNBONDING_HEIGHT + 1,
+      }),
+    ).toEqual({
+      isClaimable: true,
+      isCountingDown: false,
+      isSettling: false,
+      blocksLeft: 0,
+      currentHeight: UNBONDING_HEIGHT + 1,
+    });
+  });
+
+  it("counts down in blocks while the chain has not reached the unbonding height", () => {
+    expect(
+      stateOf({ syncedHeight: UNBONDING_HEIGHT - 40, currentHeight: UNBONDING_HEIGHT - 10 }),
+    ).toEqual({
+      isClaimable: false,
+      isCountingDown: true,
+      isSettling: false,
+      blocksLeft: 10,
+      currentHeight: UNBONDING_HEIGHT - 10,
+    });
+  });
+
+  it("reports settling when the live height passed the unbonding height but the sync has not", () => {
+    expect(
+      stateOf({ syncedHeight: UNBONDING_HEIGHT - 5, currentHeight: UNBONDING_HEIGHT + 2 }),
+    ).toEqual({
+      isClaimable: false,
+      isCountingDown: true,
+      isSettling: true,
+      blocksLeft: 0,
+      currentHeight: UNBONDING_HEIGHT + 2,
+    });
+  });
+
+  it("reports nothing to display without an unbonding entry", () => {
+    expect(
+      stateOf({
+        unbondingHeight: null,
+        syncedHeight: UNBONDING_HEIGHT,
+        currentHeight: UNBONDING_HEIGHT,
+      }),
+    ).toEqual({
+      isClaimable: false,
+      isCountingDown: false,
+      isSettling: false,
+      blocksLeft: null,
+      currentHeight: UNBONDING_HEIGHT,
+    });
+  });
 });
 
 describe("isSelfTransferTransaction", () => {
@@ -1495,6 +1993,8 @@ describe("isSelfTransferTransaction", () => {
     [true, TRANSACTION_TYPE.CONVERT_PRIVATE_TO_PUBLIC],
     [true, TRANSACTION_TYPE.CONVERT_TOKEN_PUBLIC_TO_PRIVATE],
     [true, TRANSACTION_TYPE.CONVERT_TOKEN_PRIVATE_TO_PUBLIC],
+    [false, TRANSACTION_TYPE.UNBOND_PUBLIC],
+    [false, TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC],
     [false, "other_type" as never],
   ])("should return %s for mode '%s'", (expected, mode) => {
     const transaction = getMockedTransaction({ mode });
@@ -1519,11 +2019,24 @@ describe("isPublicTransaction", () => {
     [true, TRANSACTION_TYPE.CONVERT_PUBLIC_TO_PRIVATE],
     [true, TRANSACTION_TYPE.TRANSFER_TOKEN_PUBLIC],
     [true, TRANSACTION_TYPE.CONVERT_TOKEN_PUBLIC_TO_PRIVATE],
+    [true, TRANSACTION_TYPE.UNBOND_PUBLIC],
+    [true, TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC],
     [false, "other_type" as never],
   ] as const)("should return %s for mode '%s'", (expected, mode) => {
     const transaction = getMockedTransaction({ mode });
 
     expect(isPublicTransaction(transaction)).toBe(expected);
+  });
+});
+
+describe("isSelfStakingMode", () => {
+  it.each([
+    [true, TRANSACTION_TYPE.UNBOND_PUBLIC],
+    [true, TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC],
+    [false, TRANSACTION_TYPE.BOND_PUBLIC],
+    [false, TRANSACTION_TYPE.TRANSFER_PUBLIC],
+  ] as const)("should return %s for mode '%s'", (expected, mode) => {
+    expect(isSelfStakingMode({ mode })).toBe(expected);
   });
 });
 
@@ -1633,6 +2146,52 @@ describe("createTransactionIntent", () => {
       });
     },
   );
+
+  // A bond carries the withdrawal address that unbonded funds are later released to, so
+  // unlike every other public mode its intent is not the bare base.
+  it("should carry the withdrawal address on a bond_public intent", () => {
+    const transaction = getMockedTransaction({
+      mode: TRANSACTION_TYPE.BOND_PUBLIC,
+      amount: new BigNumber(1_000_000),
+      recipient: "aleo1validator",
+      withdrawal: mockAccount.freshAddress,
+    });
+
+    const result = createTransactionIntent({ account: mockAccount, transaction });
+
+    expect(result).toEqual({
+      intentType: "transaction",
+      asset: { type: "native" },
+      type: TRANSACTION_TYPE.BOND_PUBLIC,
+      amount: 1_000_000n,
+      recipient: "aleo1validator",
+      sender: mockAccount.freshAddress,
+      data: {
+        type: TRANSACTION_TYPE.BOND_PUBLIC,
+        withdrawal: mockAccount.freshAddress,
+      },
+    });
+  });
+
+  it("should create a base transaction intent with no data key for claim_unbond_public", () => {
+    const transaction = getMockedTransaction({
+      mode: TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC,
+      amount: new BigNumber(500000),
+      recipient: mockAccount.freshAddress,
+    });
+
+    const result = createTransactionIntent({ account: mockAccount, transaction });
+
+    expect(result).toEqual({
+      intentType: "transaction",
+      asset: { type: "native" },
+      type: TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC,
+      amount: BigInt(transaction.amount.toString()),
+      recipient: transaction.recipient,
+      sender: mockAccount.freshAddress,
+    });
+    expect("data" in result).toBe(false);
+  });
 
   it.each(supportedPublicTransactionModes)(
     "should keep the native asset for %s even with a stale subAccountId from a previous token selection",
@@ -2185,6 +2744,9 @@ describe("getFunctionNameFromTransactionType", () => {
     ["transfer_token_private", TRANSACTION_TYPE.TRANSFER_TOKEN_PRIVATE],
     ["transfer_token_public_to_private", TRANSACTION_TYPE.CONVERT_TOKEN_PUBLIC_TO_PRIVATE],
     ["transfer_token_private_to_public", TRANSACTION_TYPE.CONVERT_TOKEN_PRIVATE_TO_PUBLIC],
+    ["bond_public", TRANSACTION_TYPE.BOND_PUBLIC],
+    ["unbond_public", TRANSACTION_TYPE.UNBOND_PUBLIC],
+    ["claim_unbond_public", TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC],
   ])("should return '%s' for transaction type '%s'", (expected, transactionType) => {
     expect(getFunctionNameFromTransactionType(transactionType)).toBe(expected);
   });
@@ -2194,6 +2756,24 @@ describe("getFunctionNameFromTransactionType", () => {
     expect(() => getFunctionNameFromTransactionType("unknown_type")).toThrow(
       "aleo: unsupported transaction type: unknown_type",
     );
+  });
+});
+
+describe("getStakingOperationType", () => {
+  it.each([
+    ["BOND", TRANSACTION_TYPE.BOND_PUBLIC],
+    ["UNBOND", TRANSACTION_TYPE.UNBOND_PUBLIC],
+    ["WITHDRAW_UNBONDED", TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC],
+  ])("should return '%s' for staking mode '%s'", (expected, mode) => {
+    expect(getStakingOperationType(mode)).toBe(expected);
+  });
+
+  it("should return undefined for a non-staking transaction type", () => {
+    expect(getStakingOperationType(TRANSACTION_TYPE.TRANSFER_PUBLIC)).toBeUndefined();
+  });
+
+  it("should return undefined for a prototype member", () => {
+    expect(getStakingOperationType("constructor")).toBeUndefined();
   });
 });
 
@@ -2601,28 +3181,659 @@ describe("isAleoAccount", () => {
   });
 });
 
-describe("getCalTokens", () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    setCryptoAssetsStore({
-      findTokenById: async () => undefined,
-      findTokenByAddressInCurrency: jest.fn().mockImplementation(async (programName: string) => {
-        if (programName === MOCK_TOKEN_PROGRAM_ID) {
-          return mockTokenCurrency;
-        }
-        return undefined;
-      }),
-      getTokensSyncHash: async () => "",
+describe("isTokenRecord", () => {
+  it("returns true for a Token record on a non-credits program", () => {
+    const record = getMockedRecord({
+      record_name: "Token",
+      program_name: "token_a.aleo",
+    });
+
+    expect(isTokenRecord(record)).toBe(true);
+  });
+
+  it("is case-insensitive on record_name", () => {
+    const record = getMockedRecord({
+      record_name: "TOKEN",
+      program_name: "token_a.aleo",
+    });
+
+    expect(isTokenRecord(record)).toBe(true);
+  });
+
+  it("returns false for a Token record on credits.aleo", () => {
+    const record = getMockedRecord({
+      record_name: "Token",
+      program_name: PROGRAM_ID.CREDITS,
+    });
+
+    expect(isTokenRecord(record)).toBe(false);
+  });
+
+  it("returns false for a non-Token record", () => {
+    const record = getMockedRecord({
+      record_name: "credits",
+      program_name: "token_a.aleo",
+    });
+
+    expect(isTokenRecord(record)).toBe(false);
+  });
+});
+
+describe("classifyAleoTokenType", () => {
+  it.each([
+    [
+      "token_standard is ARC-20",
+      { token_standard: "ARC-20", program_name: "arc20_program.aleo" },
+      "arc20",
+    ],
+    [
+      "token_standard is lowercase arc-20",
+      { token_standard: "arc-20", program_name: "arc20_program.aleo" },
+      "arc20",
+    ],
+    [
+      "program_name is the shared token_registry.aleo program",
+      { token_standard: null, program_name: PROGRAM_ID.TOKEN_REGISTRY },
+      "arc21",
+    ],
+    [
+      "token_standard wins over a token_registry.aleo program match",
+      { token_standard: "ARC-20", program_name: PROGRAM_ID.TOKEN_REGISTRY },
+      "arc20",
+    ],
+    [
+      "program_name contains stablecoin",
+      { token_standard: null, program_name: "usdcx_stablecoin.aleo" },
+      "arc22",
+    ],
+    [
+      "no rule matches",
+      { token_standard: null, program_name: "some_random_program.aleo" },
+      "unknown",
+    ],
+  ] as const)("%s → %s", (_description, overrides, expected) => {
+    const token = getMockedTokenDetails(overrides);
+
+    expect(classifyAleoTokenType(token)).toBe(expected);
+  });
+});
+
+describe("resolvePrivacyContext", () => {
+  const mockConfigFn = async () => getMockedConfig("mainnet");
+
+  it("returns provableId and viewKey when both are present", () => {
+    const context: AleoContext = {
+      config: mockConfigFn,
+      logger: () => {},
+      provableId: "provable-id-1",
+      viewKey: "AViewKey1mock",
+    };
+
+    expect(resolvePrivacyContext(context)).toEqual({
+      provableId: "provable-id-1",
+      viewKey: "AViewKey1mock",
     });
   });
 
-  it("should resolve known program names from CAL and omit unknown ones", async () => {
-    const result = await getCalTokens({
-      currencyId: mockCurrency.id,
-      programNames: [MOCK_TOKEN_PROGRAM_ID, "unknown_token.aleo", MOCK_TOKEN_PROGRAM_ID],
+  it("throws when provableId is missing", () => {
+    const context: AleoContext = {
+      config: mockConfigFn,
+      logger: () => {},
+      viewKey: "AViewKey1mock",
+    };
+
+    expect(() => resolvePrivacyContext(context)).toThrow("aleo: provableId is missing");
+  });
+
+  it("throws when viewKey is missing", () => {
+    const context: AleoContext = {
+      config: mockConfigFn,
+      logger: () => {},
+      provableId: "provable-id-1",
+    };
+
+    expect(() => resolvePrivacyContext(context)).toThrow("aleo: viewKey is missing");
+  });
+});
+
+describe("staking rates", () => {
+  const toMicrocredits = (credits: number) =>
+    new BigNumber(credits).multipliedBy(MICROCREDITS_PER_CREDIT);
+
+  // Observed on mainnet 2026-08-24, quoted in LIVE-32275 as the reference point.
+  const MAINNET_TOTAL_SUPPLY_CREDITS = new BigNumber(2_056_277_710);
+  const MAINNET_TOTAL_STAKE_CREDITS = 1_323_101_922;
+
+  describe("parseTotalSupply", () => {
+    it("accepts a JSON number", () => {
+      expect(parseTotalSupply(2_056_277_710)?.toNumber()).toBe(2_056_277_710);
     });
 
-    expect(result.size).toBe(1);
-    expect(result.get(MOCK_TOKEN_PROGRAM_ID)).toEqual(mockTokenCurrency);
+    it("accepts a numeric string, since the endpoint's scalar form is not guaranteed", () => {
+      expect(parseTotalSupply("2056277710")?.toNumber()).toBe(2_056_277_710);
+    });
+
+    it.each([
+      ["null", null],
+      ["undefined", undefined],
+      ["a non-numeric string", "not-a-number"],
+      ["an object", { total: 1 }],
+      ["an array", [1]],
+      ["zero", 0],
+      ["a negative supply", -1],
+      ["NaN", NaN],
+      ["Infinity", Infinity],
+    ])("rejects %s", (_label, value) => {
+      expect(parseTotalSupply(value)).toBeNull();
+    });
+  });
+
+  describe("estimateGrossRate", () => {
+    it("matches the rate observed on mainnet", () => {
+      const rate = estimateGrossRate(
+        MAINNET_TOTAL_SUPPLY_CREDITS,
+        toMicrocredits(MAINNET_TOTAL_STAKE_CREDITS),
+      );
+
+      expect(rate?.toNumber()).toBeCloseTo(0.0777, 4);
+    });
+
+    it("converts microcredits to credits before dividing, rather than inflating by 1e6", () => {
+      const rate = estimateGrossRate(new BigNumber(1_000), toMicrocredits(1_000));
+
+      expect(rate?.toNumber()).toBe(0.05);
+    });
+
+    it.each([
+      ["zero total stake", new BigNumber(100), new BigNumber(0)],
+      ["negative total stake", new BigNumber(100), new BigNumber(-1)],
+      ["zero total supply", new BigNumber(0), new BigNumber(100)],
+      ["a non-finite total supply", new BigNumber(NaN), new BigNumber(100)],
+      ["a non-finite total stake", new BigNumber(100), new BigNumber(NaN)],
+    ])("returns null for %s", (_label, supply, stake) => {
+      expect(estimateGrossRate(supply, stake)).toBeNull();
+    });
+  });
+
+  describe("getValidatorNonEarningReason", () => {
+    const baseParams = {
+      totalStakeMicrocredits: toMicrocredits(MAINNET_TOTAL_STAKE_CREDITS),
+      // Comfortably under the 25% concentration cap.
+      validatorStakeMicrocredits: toMicrocredits(10_000_000),
+      commissionPercent: new BigNumber(10),
+    };
+
+    it("returns null for a validator that pays its delegators", () => {
+      expect(getValidatorNonEarningReason(baseParams)).toBeNull();
+    });
+
+    it("reports overConcentrated above the 25% cap", () => {
+      expect(
+        getValidatorNonEarningReason({
+          ...baseParams,
+          validatorStakeMicrocredits: toMicrocredits(MAINNET_TOTAL_STAKE_CREDITS * 0.26),
+        }),
+      ).toBe("overConcentrated");
+    });
+
+    it("still pays a validator sitting exactly at the cap", () => {
+      expect(
+        getValidatorNonEarningReason({
+          ...baseParams,
+          validatorStakeMicrocredits: toMicrocredits(MAINNET_TOTAL_STAKE_CREDITS * 0.25),
+        }),
+      ).toBeNull();
+    });
+
+    it("reports fullCommission at exactly 100%", () => {
+      expect(
+        getValidatorNonEarningReason({ ...baseParams, commissionPercent: new BigNumber(100) }),
+      ).toBe("fullCommission");
+    });
+
+    it("still pays at 99% commission", () => {
+      expect(
+        getValidatorNonEarningReason({ ...baseParams, commissionPercent: new BigNumber(99) }),
+      ).toBeNull();
+    });
+
+    // Concentration is checked first: it is the reason the protocol pays nothing at all,
+    // so it outranks a commission split of something that was never earned.
+    it("prefers overConcentrated when both rules apply", () => {
+      expect(
+        getValidatorNonEarningReason({
+          ...baseParams,
+          validatorStakeMicrocredits: toMicrocredits(MAINNET_TOTAL_STAKE_CREDITS * 0.26),
+          commissionPercent: new BigNumber(100),
+        }),
+      ).toBe("overConcentrated");
+    });
+
+    // estimateNetRate collapses every reason to exactly 0, so the two must not disagree.
+    it.each([
+      ["overConcentrated", { validatorStakeMicrocredits: toMicrocredits(1_000_000_000) }],
+      ["fullCommission", { commissionPercent: new BigNumber(100) }],
+    ])("agrees with a zero net rate for %s", (_label, override) => {
+      const params = { ...baseParams, ...override };
+
+      expect(getValidatorNonEarningReason(params)).not.toBeNull();
+      expect(
+        estimateNetRate({
+          ...params,
+          totalSupplyCredits: MAINNET_TOTAL_SUPPLY_CREDITS,
+        })?.toNumber(),
+      ).toBe(0);
+    });
+  });
+
+  describe("estimateNetRate", () => {
+    const baseParams = {
+      totalSupplyCredits: MAINNET_TOTAL_SUPPLY_CREDITS,
+      totalStakeMicrocredits: toMicrocredits(MAINNET_TOTAL_STAKE_CREDITS),
+      // Comfortably under the 25% concentration cap.
+      validatorStakeMicrocredits: toMicrocredits(10_000_000),
+      commissionPercent: new BigNumber(10),
+    };
+
+    it("matches the net rate observed on mainnet at 10% commission", () => {
+      expect(estimateNetRate(baseParams)?.toNumber()).toBeCloseTo(0.0699, 4);
+    });
+
+    it("equals the gross rate at zero commission", () => {
+      const net = estimateNetRate({ ...baseParams, commissionPercent: new BigNumber(0) });
+      const gross = estimateGrossRate(
+        baseParams.totalSupplyCredits,
+        baseParams.totalStakeMicrocredits,
+      );
+
+      expect(net?.toNumber()).toBe(gross?.toNumber());
+    });
+
+    it("returns zero when the validator holds more than 25% of total stake", () => {
+      const rate = estimateNetRate({
+        ...baseParams,
+        validatorStakeMicrocredits: toMicrocredits(MAINNET_TOTAL_STAKE_CREDITS * 0.26),
+      });
+
+      expect(rate?.toNumber()).toBe(0);
+    });
+
+    it("still pays a validator sitting exactly at the 25% cap", () => {
+      const rate = estimateNetRate({
+        ...baseParams,
+        validatorStakeMicrocredits: toMicrocredits(MAINNET_TOTAL_STAKE_CREDITS * 0.25),
+      });
+
+      expect(rate?.toNumber()).toBeGreaterThan(0);
+    });
+
+    it("returns zero for a delegator below the protocol minimum", () => {
+      const rate = estimateNetRate({
+        ...baseParams,
+        delegatorStakeMicrocredits: new BigNumber(MIN_DELEGATOR_STAKE_MICROCREDITS).minus(1),
+      });
+
+      expect(rate?.toNumber()).toBe(0);
+    });
+
+    it("pays a delegator sitting exactly at the protocol minimum", () => {
+      const rate = estimateNetRate({
+        ...baseParams,
+        delegatorStakeMicrocredits: new BigNumber(MIN_DELEGATOR_STAKE_MICROCREDITS),
+      });
+
+      expect(rate?.toNumber()).toBeGreaterThan(0);
+    });
+
+    it("ignores the delegator minimum when no delegator stake is given", () => {
+      expect(estimateNetRate(baseParams)?.toNumber()).toBeGreaterThan(0);
+    });
+
+    it("clamps a commission above 100% to zero instead of going negative", () => {
+      const rate = estimateNetRate({ ...baseParams, commissionPercent: new BigNumber(150) });
+
+      expect(rate?.toNumber()).toBe(0);
+    });
+
+    it("returns null — not zero — when the rate cannot be derived", () => {
+      const rate = estimateNetRate({ ...baseParams, totalStakeMicrocredits: new BigNumber(0) });
+
+      expect(rate).toBeNull();
+    });
+
+    it("returns null for a negative commission", () => {
+      const rate = estimateNetRate({ ...baseParams, commissionPercent: new BigNumber(-1) });
+
+      expect(rate).toBeNull();
+    });
+  });
+});
+
+describe("toStakingPosition", () => {
+  const ADDRESS = "aleo1d37xxnms3sq5qxcnnh3dtvzr35xemjzas4jcytjr8uvymfetnu9salav5n";
+  const BONDED_RAW = `{\n  validator: ${ADDRESS},\n  microcredits: 39339243096u64\n}`;
+  const UNBONDING_RAW = "{\n  microcredits: 39339243096u64,\n  height: 7654321u32\n}";
+  const WITHDRAW_RAW = "aleo1g5wrxvgyvckgtuceg36eg6pf024x3p6nex05lcefz0h6576rmgrs22dr4w";
+
+  const noEntries = { bondedRaw: null, unbondingRaw: null, withdrawRaw: null };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("reads a zero position for an address that never bonded", () => {
+    // Absent is not zero on chain, but it is the honest reading here — and must not throw.
+    const position = toStakingPosition(noEntries);
+
+    expect(position.bondedBalance.toString()).toBe("0");
+    expect(position.bondedValidator).toBeNull();
+    expect(position.unbondingBalance.toString()).toBe("0");
+    expect(position.unbondingHeight).toBeNull();
+    expect(position.withdrawalAddress).toBeNull();
+  });
+
+  it("reads an empty mapping body as absent rather than unparseable", () => {
+    // The node answers 200 + JSON null today, but `res.data` is an unchecked cast — an empty
+    // body must not read as a failed parse and kill the sync for an address with no stake.
+    const position = toStakingPosition({ bondedRaw: "", unbondingRaw: "", withdrawRaw: "" });
+
+    expect(position.bondedBalance.toString()).toBe("0");
+    expect(position.withdrawalAddress).toBeNull();
+    expect(log).not.toHaveBeenCalled();
+  });
+
+  it("parses a bonded-only address", () => {
+    const position = toStakingPosition({
+      ...noEntries,
+      bondedRaw: BONDED_RAW,
+      withdrawRaw: WITHDRAW_RAW,
+    });
+
+    expect(position.bondedBalance.toString()).toBe("39339243096");
+    expect(position.bondedValidator).toBe(ADDRESS);
+    expect(position.unbondingBalance.toString()).toBe("0");
+    expect(position.unbondingHeight).toBeNull();
+    expect(position.withdrawalAddress).toBe(WITHDRAW_RAW);
+  });
+
+  it("parses a bonded-plus-unbonding address", () => {
+    const position = toStakingPosition({
+      bondedRaw: BONDED_RAW,
+      unbondingRaw: UNBONDING_RAW,
+      withdrawRaw: WITHDRAW_RAW,
+    });
+
+    expect(position.bondedBalance.toString()).toBe("39339243096");
+    expect(position.bondedValidator).toBe(ADDRESS);
+    expect(position.unbondingBalance.toString()).toBe("39339243096");
+    expect(position.unbondingHeight).toBe(7654321);
+    expect(position.withdrawalAddress).toBe(WITHDRAW_RAW);
+  });
+
+  it("returns the withdrawal address even once nothing is bonded", () => {
+    const position = toStakingPosition({ ...noEntries, withdrawRaw: WITHDRAW_RAW });
+
+    expect(position.bondedBalance.toString()).toBe("0");
+    expect(position.withdrawalAddress).toBe(WITHDRAW_RAW);
+  });
+
+  it("keeps precision on a position above Number.MAX_SAFE_INTEGER", () => {
+    const huge = "9007199254740993"; // 2^53 + 1
+    const position = toStakingPosition({
+      ...noEntries,
+      bondedRaw: `{\n  validator: ${ADDRESS},\n  microcredits: ${huge}u64\n}`,
+    });
+
+    expect(position.bondedBalance.toFixed()).toBe(huge);
+  });
+
+  describe("unparseable values", () => {
+    const cases = [
+      ["bonded", { bondedRaw: "{ garbage }" }],
+      ["unbonding", { unbondingRaw: "{ garbage }" }],
+      ["withdraw", { withdrawRaw: "not-an-address" }],
+      // Half-parsed is worse than unparsed: a validator with a zero stake, or an
+      // unbonding amount with no height, would both read as a real position.
+      ["bonded", { bondedRaw: `{\n  validator: ${ADDRESS}\n}` }],
+      ["unbonding", { unbondingRaw: "{\n  microcredits: 39339243096u64\n}" }],
+    ] as const;
+
+    it.each(cases)("throws rather than reporting a zero position for %s", (mapping, mocks) => {
+      // A zero position here would silently hide a real stake, so this must be loud.
+      expect(() => toStakingPosition({ ...noEntries, ...mocks })).toThrow(
+        `aleo: unparseable ${mapping} mapping value`,
+      );
+    });
+
+    it.each(cases)("logs the raw %s value that failed to parse", (mapping, mocks) => {
+      expect(() => toStakingPosition({ ...noEntries, ...mocks })).toThrow(
+        `aleo: unparseable ${mapping} mapping value`,
+      );
+
+      // The raw value is the whole point of the log line: without it the failure is undiagnosable.
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(log).toHaveBeenCalledWith(
+        "aleo/stakingPosition",
+        `unparseable ${mapping} mapping value`,
+        { raw: Object.values(mocks)[0] },
+      );
+    });
+  });
+});
+
+describe("resolveStakingOperationType", () => {
+  it.each([
+    [TRANSACTION_TYPE.BOND_PUBLIC, "BOND"],
+    [TRANSACTION_TYPE.UNBOND_PUBLIC, "UNBOND"],
+    [TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC, "WITHDRAW_UNBONDED"],
+  ])("maps %s to %s", (functionId, expected) => {
+    const rawTx = getMockedPublicTransaction({ function_id: functionId });
+
+    expect(resolveStakingOperationType(rawTx)).toBe(expected);
+  });
+
+  it("returns undefined for a plain credits.aleo transfer", () => {
+    expect(resolveStakingOperationType(getMockedPublicTransaction())).toBeUndefined();
+  });
+
+  it("returns undefined for a bond_public on another program", () => {
+    const rawTx = getMockedPublicTransaction({
+      function_id: TRANSACTION_TYPE.BOND_PUBLIC,
+      program_id: MOCK_TOKEN_PROGRAM_ID,
+    });
+
+    expect(resolveStakingOperationType(rawTx)).toBeUndefined();
+  });
+});
+
+describe("parseTransactionFields", () => {
+  const address = "aleo1a2ehlgqhvs3p7d4hqhs0tvgk954dr8gafu9kxse2mzu9a5sqxvpsrn98pr";
+
+  const stakingTx = (functionId: string) =>
+    getMockedPublicTransaction({
+      function_id: functionId,
+      sender_address: "",
+      recipient_address: "",
+      amount: 0,
+    });
+
+  it.each([
+    [TRANSACTION_TYPE.BOND_PUBLIC, "BOND"],
+    [TRANSACTION_TYPE.UNBOND_PUBLIC, "UNBOND"],
+    [TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC, "WITHDRAW_UNBONDED"],
+  ])("types %s as %s from the function id alone", (functionId, expected) => {
+    expect(parseTransactionFields(stakingTx(functionId), address).type).toBe(expected);
+  });
+
+  it("badges a staking call as public", () => {
+    const { transactionType } = parseTransactionFields(
+      stakingTx(TRANSACTION_TYPE.BOND_PUBLIC),
+      address,
+    );
+
+    expect(transactionType).toBe("public");
+  });
+
+  it("still types a plain transfer by address", () => {
+    const rawTx = getMockedPublicTransaction();
+
+    expect(parseTransactionFields(rawTx, rawTx.recipient_address).type).toBe("IN");
+    expect(parseTransactionFields(rawTx, rawTx.sender_address).type).toBe("OUT");
+  });
+});
+
+describe("isStakingOperation", () => {
+  const opWith = (extra: Partial<AleoOperation["extra"]>) =>
+    getMockedOperation({
+      extra: { functionId: "transfer_public", transactionType: "public", ...extra },
+    });
+
+  it.each([
+    TRANSACTION_TYPE.BOND_PUBLIC,
+    TRANSACTION_TYPE.UNBOND_PUBLIC,
+    TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC,
+  ])("recognises %s on credits.aleo", functionId => {
+    expect(isStakingOperation(opWith({ functionId, programId: PROGRAM_ID.CREDITS }))).toBe(true);
+  });
+
+  it("recognises a staking op still typed OUT", () => {
+    const op = getMockedOperation({
+      type: "OUT",
+      extra: {
+        functionId: TRANSACTION_TYPE.BOND_PUBLIC,
+        transactionType: "public",
+        programId: PROGRAM_ID.CREDITS,
+      },
+    });
+
+    expect(isStakingOperation(op)).toBe(true);
+  });
+
+  it.each(["transfer_public", "transfer_token_public", "fee_public"])(
+    "rejects %s on credits.aleo",
+    functionId => {
+      expect(isStakingOperation(opWith({ functionId, programId: PROGRAM_ID.CREDITS }))).toBe(false);
+    },
+  );
+
+  it("rejects a staking function name exposed by another program", () => {
+    const op = opWith({
+      functionId: TRANSACTION_TYPE.BOND_PUBLIC,
+      programId: MOCK_TOKEN_PROGRAM_ID,
+    });
+
+    expect(isStakingOperation(op)).toBe(false);
+  });
+
+  // An operation that cannot name its program is not taken for a staking one: the function id
+  // alone does not say it came from credits.aleo, and any program may expose the same name.
+  it("rejects a staking function name on an op without a programId", () => {
+    expect(isStakingOperation(opWith({ functionId: TRANSACTION_TYPE.BOND_PUBLIC }))).toBe(false);
+  });
+
+  it("rejects a non-staking op without a programId", () => {
+    expect(isStakingOperation(opWith({ functionId: "transfer_public" }))).toBe(false);
+  });
+
+  it("rejects an op without a functionId", () => {
+    const op = getMockedOperation({ extra: {} as AleoOperation["extra"] });
+
+    expect(isStakingOperation(op)).toBe(false);
+  });
+});
+
+describe("isAleoOperationExtra", () => {
+  it.each([
+    ["null", null],
+    ["undefined", undefined],
+    ["an extra without functionId", { transactionType: "public" }],
+  ])("rejects %s", (_label, extra) => {
+    expect(isAleoOperationExtra(extra as never)).toBe(false);
+    expect(isAleoOperationExtraRaw(extra as never)).toBe(false);
+  });
+
+  it("accepts an extra carrying a functionId", () => {
+    const extra = { functionId: "transfer_public", transactionType: "public" as const };
+
+    expect(isAleoOperationExtra(extra)).toBe(true);
+    expect(isAleoOperationExtraRaw(extra)).toBe(true);
+  });
+});
+
+describe("getMinBondAmount", () => {
+  it("requires the full delegator minimum when nothing is bonded yet", () => {
+    expect(getMinBondAmount(new BigNumber(0)).toString()).toBe(
+      MIN_DELEGATOR_STAKE_MICROCREDITS.toString(),
+    );
+  });
+
+  it("defaults to the full delegator minimum when no bonded balance is known", () => {
+    expect(getMinBondAmount().toString()).toBe(MIN_DELEGATOR_STAKE_MICROCREDITS.toString());
+  });
+
+  it("only asks for the missing part of the delegator minimum on a top-up", () => {
+    const bonded = new BigNumber(MIN_DELEGATOR_STAKE_MICROCREDITS).minus(
+      500 * MICROCREDITS_PER_CREDIT,
+    );
+
+    expect(getMinBondAmount(bonded).toString()).toBe((500 * MICROCREDITS_PER_CREDIT).toString());
+  });
+
+  it("never falls below the absolute bond floor once the delegator minimum is cleared", () => {
+    const bonded = new BigNumber(MIN_DELEGATOR_STAKE_MICROCREDITS).multipliedBy(2);
+
+    expect(getMinBondAmount(bonded).toString()).toBe(MIN_BOND_AMOUNT_MICROCREDITS.toString());
+  });
+});
+
+describe("isValidatorBondable", () => {
+  const bondable = { isOpen: true, isUnbonding: false } as const;
+
+  it("accepts an open, non-unbonding validator with no non-earning reason", () => {
+    expect(isValidatorBondable(bondable)).toBe(true);
+  });
+
+  it("accepts a validator that earns nothing only because it takes full commission", () => {
+    expect(isValidatorBondable({ ...bondable, nonEarningReason: "fullCommission" })).toBe(true);
+  });
+
+  it("rejects a closed validator", () => {
+    expect(isValidatorBondable({ ...bondable, isOpen: false })).toBe(false);
+  });
+
+  it("rejects an unbonding validator", () => {
+    expect(isValidatorBondable({ ...bondable, isUnbonding: true })).toBe(false);
+  });
+
+  it("rejects an over-concentrated validator", () => {
+    expect(isValidatorBondable({ ...bondable, nonEarningReason: "overConcentrated" })).toBe(false);
+  });
+});
+
+describe("isFirstBondPending", () => {
+  const withPendingBond = (overrides: Partial<AleoAccount["aleoResources"]> = {}) =>
+    getMockedAccount({
+      pendingOperations: [getMockedOperation({ type: "BOND" })],
+      aleoResources: { ...mockAleoResources, ...overrides },
+    });
+
+  it("flags a pending bond on an account that holds no position", () => {
+    expect(isFirstBondPending(withPendingBond({ bondedValidator: null }))).toBe(true);
+  });
+
+  it("clears once a position exists, since the flow then locks the picker to its validator", () => {
+    expect(isFirstBondPending(withPendingBond({ bondedValidator: "aleo1validator" }))).toBe(false);
+  });
+
+  it("clears when nothing is pending", () => {
+    expect(isFirstBondPending(getMockedAccount({ pendingOperations: [] }))).toBe(false);
+  });
+
+  it("ignores a pending operation of another type", () => {
+    expect(
+      isFirstBondPending(
+        getMockedAccount({ pendingOperations: [getMockedOperation({ type: "UNBOND" })] }),
+      ),
+    ).toBe(false);
   });
 });

@@ -1,7 +1,14 @@
 import { getEnv, setEnv } from "@shared/env";
 import { DeviceManagementKitTransportSpeculos } from "@ledgerhq/live-dmk-speculos";
 import { Account } from "../enum/Account";
-import { specs, startSpeculos, stopSpeculos, type SpeculosDevice } from "../speculos";
+import {
+  enableBlindSigning,
+  specs,
+  startSpeculos,
+  stopSpeculos,
+  type SpeculosDevice,
+} from "../speculos";
+import { waitForSpeculosReady } from "../speculosCI";
 import {
   DEFAULT_MARKET_ID,
   ETHEREUM_CHAIN_ID,
@@ -18,7 +25,7 @@ import type { EvmSignablePayload, OpenLoan } from "./types";
 // Public, keyless Ethereum mainnet RPC used when neither --rpc nor EVM_RPC_URL is set.
 export const DEFAULT_RPC_URL = "https://ethereum-rpc.publicnode.com";
 
-export type Flow = "open" | "close" | "repay" | "withdraw";
+export type Flow = "open" | "close" | "repay" | "withdraw" | "address";
 
 export interface BorrowFlowOptions {
   flow: Flow;
@@ -44,7 +51,11 @@ export interface BorrowFlowOptions {
   loanAmount?: string;
   repayAmount?: string;
   withdrawAmount?: string;
+  requireAction?: boolean;
+  returnAddress?: boolean;
 }
+
+export type BorrowFlowOptionsWithoutAddress = Omit<BorrowFlowOptions, "returnAddress">;
 
 const positive = (v?: string): boolean => v != null && Number.parseFloat(v) > 0;
 
@@ -93,9 +104,18 @@ async function open(
   if (!opts.collateralAmount || !opts.loanAmount) {
     throw new Error("open requires --collateral-amount and --loan-amount");
   }
-  if (!opts.force && findPositions(await getPositions(address)).length > 0) {
-    console.log("Position already open — skipping. Use --force.");
-    return;
+  if (!opts.force) {
+    const positions = findPositions(await getPositions(address));
+    if (positions.some(loan => positive(loan.debtBalance))) {
+      console.log("Loan with debt already open — skipping. Use --force.");
+      return;
+    }
+    if (positions.length > 0) {
+      console.log(
+        "Collateral-only position found — skipping open. Reset loan state before ensureLoanOpen.",
+      );
+      return;
+    }
   }
   const dryRun = opts.dryRun ?? false;
   console.log(`Opening loan on market=${marketId}`);
@@ -174,7 +194,9 @@ async function close(
       relevantToFlow(opts.flow, loan),
     );
     if (loans.length === 0) {
-      console.log(nothingToDoMessage(opts.flow));
+      const message = nothingToDoMessage(opts.flow);
+      if (opts.requireAction) throw new Error(message);
+      console.log(message);
       return;
     }
     if (!opts.all) {
@@ -192,6 +214,30 @@ async function close(
   console.log(`✔ ${opts.flow} complete (${loans.length} position(s))`);
 }
 
+async function startOwnSpeculos(
+  options: BorrowFlowOptions,
+  specKey: string,
+): Promise<SpeculosDevice> {
+  if (!process.env.SEED) throw new Error("Missing SEED env (Speculos seed)");
+  setEnv("MOCK", "");
+  process.env.MOCK = "";
+  setEnv("PLAYWRIGHT_RUN", true);
+  // The Speculos app-version catalog is read via live-env; default it to the
+  // checked-in desktop catalog unless the caller already set one.
+  if (options.nanoAppCatalogPath) {
+    setEnv("E2E_NANO_APP_VERSION_PATH", options.nanoAppCatalogPath);
+  } else if (!getEnv("E2E_NANO_APP_VERSION_PATH")) {
+    throw new Error(
+      "Missing Speculos app-version catalog: pass nanoAppCatalogPath or set E2E_NANO_APP_VERSION_PATH",
+    );
+  }
+  const spec = specs[specKey];
+  if (!spec) throw new Error(`No Speculos spec for "${specKey}"`);
+  const device = await startSpeculos(`borrow-${options.flow}`, spec);
+  if (!device) throw new Error("Speculos not started");
+  return device;
+}
+
 /**
  * Runs a Borrow flow end-to-end, signing on Speculos. Safe to call from
  * Playwright `beforeAll` / `afterAll` hooks — it never calls `process.exit`,
@@ -201,7 +247,11 @@ async function close(
  * `COINAPPS`. Pass `speculosApiPort` to reuse an already-running device (the
  * caller then owns its lifecycle and on-device approval).
  */
-export async function runBorrow(options: BorrowFlowOptions): Promise<void> {
+export function runBorrow(
+  options: BorrowFlowOptionsWithoutAddress & { returnAddress: true },
+): Promise<string>;
+export function runBorrow(options: BorrowFlowOptionsWithoutAddress): Promise<void>;
+export async function runBorrow(options: BorrowFlowOptions): Promise<string | void> {
   // SEED is sourced from the environment only — never a CLI flag, never logged.
   const { path, specKey } = resolveAccount(options.account ?? "ETH_4");
 
@@ -211,29 +261,20 @@ export async function runBorrow(options: BorrowFlowOptions): Promise<void> {
 
   try {
     if (ownSpeculos) {
-      // startSpeculos reads SEED / COINAPPS from process.env directly (not live-env).
-      if (!process.env.SEED) throw new Error("Missing SEED env (Speculos seed)");
-      setEnv("MOCK", "");
-      process.env.MOCK = "";
-      setEnv("PLAYWRIGHT_RUN", true);
-      // The Speculos app-version catalog is read via live-env; default it to the
-      // checked-in desktop catalog unless the caller already set one.
-      if (options.nanoAppCatalogPath) {
-        setEnv("E2E_NANO_APP_VERSION_PATH", options.nanoAppCatalogPath);
-      } else if (!getEnv("E2E_NANO_APP_VERSION_PATH")) {
-        throw new Error(
-          "Missing Speculos app-version catalog: pass nanoAppCatalogPath or set E2E_NANO_APP_VERSION_PATH",
-        );
-      }
-      const spec = specs[specKey];
-      if (!spec) throw new Error(`No Speculos spec for "${specKey}"`);
-      device = await startSpeculos(`borrow-${options.flow}`, spec);
-      if (!device) throw new Error("Speculos not started");
+      device = await startOwnSpeculos(options, specKey);
+      // /acquire returns 202 with a sentinel port; the readiness poll is what publishes
+      // SPECULOS_ADDRESS, without which everything resolves against 127.0.0.1.
+      if (process.env.REMOTE_SPECULOS === "true") await waitForSpeculosReady(device.id);
       apiPort = device.port;
-      setEnv("SPECULOS_API_PORT", device.port);
-      process.env.SPECULOS_API_PORT = String(device.port);
     }
     if (apiPort === undefined) throw new Error("Speculos API port unavailable");
+    // The shared device helpers resolve the device from this env, not from a parameter.
+    setEnv("SPECULOS_API_PORT", apiPort);
+    process.env.SPECULOS_API_PORT = String(apiPort);
+
+    // Morpho calldata has no clear-signing descriptor, so the app answers 6a80 until this is
+    // on. Only for a device we booted; a caller that passed its own port owns its settings.
+    if (ownSpeculos) await enableBlindSigning();
 
     const transport = await DeviceManagementKitTransportSpeculos.open({ apiPort: String(apiPort) });
     const executor = new EvmSpeculosExecutor(transport, {
@@ -245,11 +286,16 @@ export async function runBorrow(options: BorrowFlowOptions): Promise<void> {
     try {
       const address = await executor.getAddress();
       console.log(`Account ${options.account ?? "ETH_4"}: ${address} (Ethereum, staging)`);
+      if (options.flow === "address") {
+        if (options.returnAddress) return address;
+        return;
+      }
       if (options.flow === "open") {
         await open(executor, address, options);
       } else {
         await close(executor, address, options);
       }
+      if (options.returnAddress) return address;
     } finally {
       executor.dispose();
     }
@@ -258,8 +304,6 @@ export async function runBorrow(options: BorrowFlowOptions): Promise<void> {
   }
 }
 
-export const openBorrowPosition = (options: Omit<BorrowFlowOptions, "flow">): Promise<void> =>
-  runBorrow({ ...options, flow: "open" });
-
-export const closeBorrowPosition = (options: Omit<BorrowFlowOptions, "flow">): Promise<void> =>
-  runBorrow({ ...options, flow: "close" });
+export const closeBorrowPosition = (
+  options: Omit<BorrowFlowOptionsWithoutAddress, "flow">,
+): Promise<void> => runBorrow({ ...options, flow: "close" });

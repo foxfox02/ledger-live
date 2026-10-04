@@ -1,12 +1,16 @@
 import { useCallback } from "react";
 import { useDispatch, useSelector } from "LLD/hooks/redux";
 import { Account, AccountLike } from "@ledgerhq/types-live";
+import type { AssetCategory } from "@domain/api-aggregated-assets";
 import { openModal } from "~/renderer/actions/modals";
 import { accountsSelector } from "~/renderer/reducers/accounts";
 import BigNumber from "bignumber.js";
 import { openSendFlowDialog, type SendFlowParams } from "~/renderer/reducers/sendFlow";
 import { useNewSendFlowFeature } from "./useNewSendFlowFeature";
+import { getSendUiConfig } from "@ledgerhq/live-common/flows/send/uiConfig";
 import type { EnhancedModularDrawerConfiguration } from "@ledgerhq/live-common/wallet-api/ModularDrawer/types";
+import { hasDirectRecipient, SEND_FLOW_SOURCE } from "@ledgerhq/live-common/flows/send/types";
+import { PAY_ACCOUNT_UI_USE_CASE } from "LLD/features/ModularDialog/types";
 import {
   closeDialog,
   openDialog,
@@ -15,9 +19,8 @@ import {
 } from "~/renderer/reducers/modularDialog";
 import { HOOKS_TRACKING_LOCATIONS } from "~/renderer/analytics/hooks/variables";
 import { setOriginFlow } from "~/renderer/analytics/originFlow";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import { getSendFlowTrackingProperties } from "../utils/tracking";
-
 const SEND_ACCOUNT_SELECTION_DRAWER_CONFIGURATION: EnhancedModularDrawerConfiguration = {
   assets: { rightElement: "balance" },
   networks: {},
@@ -27,7 +30,9 @@ type WorkflowParams = {
   account?: AccountLike;
   parentAccount?: Account;
   currencyIds?: readonly string[];
+  categories?: readonly AssetCategory[];
   recipient?: string;
+  skipRecipientStep?: boolean;
   amount?: string | BigNumber;
   memo?: string;
   fromMAD?: boolean;
@@ -35,18 +40,36 @@ type WorkflowParams = {
   source?: string;
 };
 
+const toLegacyAmount = (amount?: string | BigNumber) =>
+  typeof amount === "string" ? new BigNumber(amount) : amount;
+
 export function useOpenSendFlow() {
   const dispatch = useDispatch();
   const hasNoAccounts = useSelector(state => accountsSelector(state).length === 0);
-  const { isEnabledForFamily, getFamilyFromAccount, getCurrencyIdFromAccount } =
-    useNewSendFlowFeature();
+  const {
+    isEnabledForFamily,
+    getFamilyFromAccount,
+    getCurrencyIdFromAccount,
+    getCurrencyFromAccount,
+  } = useNewSendFlowFeature();
 
   const openSendFlow = useCallback(
     (params?: WorkflowParams) => {
       setOriginFlow(HOOKS_TRACKING_LOCATIONS.sendModal);
 
+      const resolveShouldUseNewFlow = (account: AccountLike, parentAccount?: Account) => {
+        const family = getFamilyFromAccount(account, parentAccount ?? null);
+        const currencyId = getCurrencyIdFromAccount(account, parentAccount ?? null);
+        const currency = getCurrencyFromAccount(account, parentAccount ?? null);
+        const uiConfig = currency ? getSendUiConfig(currency) : null;
+        return (
+          isEnabledForFamily(family, currencyId) ||
+          (isEnabledForFamily(family) && (uiConfig?.hasBalanceTypeStep ?? false))
+        );
+      };
+
       const openSendFlowImpl = (nextParams?: WorkflowParams) => {
-        const { currencyIds, ...flowParams } = nextParams ?? {};
+        const { currencyIds, categories, ...flowParams } = nextParams ?? {};
 
         if (!flowParams.account) {
           // When there are no accounts, the old modal requires an account and would throw.
@@ -59,18 +82,26 @@ export function useOpenSendFlow() {
             dispatch(
               openDialog({
                 currencies: currencyIds ? [...currencyIds] : [],
+                categories,
                 areCurrenciesFiltered: Boolean(currencyIds?.length),
+                uiUseCase:
+                  flowParams.source === SEND_FLOW_SOURCE.PAY && hasDirectRecipient(flowParams)
+                    ? PAY_ACCOUNT_UI_USE_CASE
+                    : undefined,
                 dialogConfiguration: SEND_ACCOUNT_SELECTION_DRAWER_CONFIGURATION,
                 onAccountSelected: (account: AccountLike, parentAccount?: Account) => {
                   dispatch(closeDialog());
-                  const family = getFamilyFromAccount(account, parentAccount ?? null);
-                  const currencyId = getCurrencyIdFromAccount(account, parentAccount ?? null);
-                  const shouldUseNewFlow = isEnabledForFamily(family, currencyId);
+                  const shouldUseNewFlow = resolveShouldUseNewFlow(account, parentAccount);
                   track("button_clicked", {
                     button: "send",
                     buttonLocation: "quick_action",
                     page: "MAD",
-                    ...getSendFlowTrackingProperties(account, parentAccount, shouldUseNewFlow),
+                    ...getSendFlowTrackingProperties(
+                      account,
+                      parentAccount,
+                      shouldUseNewFlow,
+                      flowParams.source,
+                    ),
                   });
                   openSendFlowImpl({
                     ...flowParams,
@@ -88,35 +119,21 @@ export function useOpenSendFlow() {
           dispatch(
             openModal("MODAL_SEND", {
               ...flowParams,
-              amount:
-                typeof flowParams.amount === "string"
-                  ? new BigNumber(flowParams.amount)
-                  : flowParams.amount,
+              amount: toLegacyAmount(flowParams.amount),
             }),
           );
           return;
         }
 
-        const family = getFamilyFromAccount(flowParams.account, flowParams.parentAccount ?? null);
-        const currencyId = getCurrencyIdFromAccount(
+        const shouldUseNewFlow = resolveShouldUseNewFlow(
           flowParams.account,
-          flowParams.parentAccount ?? null,
+          flowParams.parentAccount,
         );
-        const shouldUseNewFlow = isEnabledForFamily(family, currencyId);
 
         if (shouldUseNewFlow) {
-          let normalizedAmount: string | undefined;
-          if (typeof flowParams.amount === "string") {
-            normalizedAmount = flowParams.amount;
-          } else if (flowParams.amount) {
-            normalizedAmount = flowParams.amount.toString();
-          } else {
-            normalizedAmount = undefined;
-          }
-
           const normalizedParams: SendFlowParams = {
             ...flowParams,
-            amount: normalizedAmount,
+            amount: flowParams.amount?.toString(),
             fromMAD: flowParams.fromMAD ?? false,
           };
           dispatch(
@@ -128,10 +145,7 @@ export function useOpenSendFlow() {
           dispatch(
             openModal("MODAL_SEND", {
               ...flowParams,
-              amount:
-                typeof flowParams.amount === "string"
-                  ? new BigNumber(flowParams.amount)
-                  : flowParams.amount,
+              amount: toLegacyAmount(flowParams.amount),
             }),
           );
         }
@@ -139,7 +153,14 @@ export function useOpenSendFlow() {
 
       openSendFlowImpl(params);
     },
-    [hasNoAccounts, dispatch, isEnabledForFamily, getFamilyFromAccount, getCurrencyIdFromAccount],
+    [
+      hasNoAccounts,
+      dispatch,
+      isEnabledForFamily,
+      getFamilyFromAccount,
+      getCurrencyIdFromAccount,
+      getCurrencyFromAccount,
+    ],
   );
 
   return openSendFlow;

@@ -11,8 +11,13 @@ import type { NavigatorScreenParams } from "@react-navigation/native";
 import type { Transaction } from "@ledgerhq/live-common/generated/types";
 import { AppResult } from "@ledgerhq/live-common/hw/actions/app";
 import { Device } from "@ledgerhq/live-common/hw/actions/types";
-import type { PerpsSignResult } from "@ledgerhq/live-common/wallet-api/Perps/server";
+import type {
+  PerpsDepositUiParams,
+  PerpsSignResult,
+} from "@ledgerhq/live-common/wallet-api/Perps/server";
 import type { SendFlowInitParams } from "@ledgerhq/live-common/flows/send/types";
+import type { DecodedURISchemePayment } from "@ledgerhq/live-common/flows/send/utils/uriScheme";
+import type { PerpsTransactionSignedParams } from "LLM/features/Perps/types";
 import type { AssetDetailNavigatorParamsList } from "LLM/features/AssetDetail/types";
 import type { AssetsNavigatorParamsList } from "LLM/features/Assets/types";
 import type { DeviceSelectionNavigatorParamsList } from "LLM/features/DeviceSelection/types";
@@ -43,6 +48,9 @@ import type { EvmUndelegationFlowParamList } from "../../../families/evm/Undeleg
 import type { EvmClaimRewardsFlowParamList } from "../../../families/evm/ClaimRewardsFlow/types";
 import type { EvmWithdrawFlowParamList } from "../../../families/evm/WithdrawFlow/types";
 import type { BitcoinEditTransactionParamList } from "../../../families/bitcoin/EditTransactionFlow/EditTransactionParamList";
+import type { AleoBondPublicFlowParamList } from "../../../families/aleo/BondPublicFlow/types";
+import type { AleoClaimUnbondFlowParamList } from "../../../families/aleo/ClaimUnbondFlow/types";
+import type { AleoUnbondFlowParamList } from "../../../families/aleo/UnbondFlow/types";
 import type { PolkadotBondFlowParamList } from "../../../families/polkadot/BondFlow/types";
 import type { PolkadotNominateFlowParamList } from "../../../families/polkadot/NominateFlow/types";
 import type { PolkadotRebondFlowParamList } from "../../../families/polkadot/RebondFlow/type";
@@ -53,6 +61,8 @@ import type { StellarAddAssetFlowParamList } from "../../../families/stellar/Add
 import type { TezosDelegationFlowParamList } from "../../../families/tezos/DelegationFlow/types";
 import type { TezosStakeFlowParamList } from "../../../families/tezos/StakeFlow/types";
 import type { TezosUnstakeFlowParamList } from "../../../families/tezos/UnstakeFlow/types";
+import type { InternetComputerStakingFlowParamList } from "../../../families/internet_computer/StakingFlow/types";
+import type { InternetComputerNeuronManageFlowParamList } from "../../../families/internet_computer/NeuronManageFlow/types";
 import type { TronVoteFlowParamList } from "../../../families/tron/VoteFlow/types";
 import type { HederaAssociateTokenFlowParamList } from "../../../families/hedera/AssociateTokenFlow/types";
 import type { CantonOnboardAccountParamList } from "../../../families/canton/Onboard/types";
@@ -140,6 +150,7 @@ export type BaseNavigatorStackParamList = {
     chainId?: string;
     yieldId?: string;
     path?: string;
+    goToURL?: string;
   };
   [NavigatorName.Web3Hub]: NavigatorScreenParams<Web3HubStackParamList>;
   [ScreenName.Recover]: {
@@ -194,6 +205,7 @@ export type BaseNavigatorStackParamList = {
     transaction?: Transaction;
     justScanned?: boolean;
     onScanned?: (address: string) => void;
+    onScannedURI?: (result: DecodedURISchemePayment) => void;
   };
   [ScreenName.BleDevicePairingFlow]: undefined;
   [ScreenName.AnalyticsOperations]: {
@@ -262,6 +274,12 @@ export type BaseNavigatorStackParamList = {
   [NavigatorName.CustomImage]: NavigatorScreenParams<CustomImageNavigatorParamList>;
   [NavigatorName.PostOnboarding]: NavigatorScreenParams<PostOnboardingNavigatorParamList>;
   [NavigatorName.CustomError]: NavigatorScreenParams<CustomErrorNavigatorParamList>;
+
+  // Aleo
+  [NavigatorName.AleoBondPublicFlow]: NavigatorScreenParams<AleoBondPublicFlowParamList>;
+  [NavigatorName.AleoClaimUnbondFlow]: NavigatorScreenParams<AleoClaimUnbondFlowParamList>;
+  [NavigatorName.AleoUnbondFlow]: NavigatorScreenParams<AleoUnbondFlowParamList>;
+
   // Polkadot
   [NavigatorName.PolkadotSimpleOperationFlow]: NavigatorScreenParams<PolkadotSimpleOperationFlowParamList>;
   [NavigatorName.PolkadotNominateFlow]: NavigatorScreenParams<PolkadotNominateFlowParamList>;
@@ -317,6 +335,10 @@ export type BaseNavigatorStackParamList = {
   [NavigatorName.TezosStakeFlow]: NavigatorScreenParams<TezosStakeFlowParamList>;
   [NavigatorName.TezosUnstakeFlow]: NavigatorScreenParams<TezosUnstakeFlowParamList>;
 
+  // Internet Computer
+  [NavigatorName.InternetComputerStakingFlow]: NavigatorScreenParams<InternetComputerStakingFlowParamList>;
+  [NavigatorName.InternetComputerNeuronManageFlow]: NavigatorScreenParams<InternetComputerNeuronManageFlowParamList>;
+
   // Tron
   [NavigatorName.TronVoteFlow]: NavigatorScreenParams<TronVoteFlowParamList>;
 
@@ -354,6 +376,8 @@ export type BaseNavigatorStackParamList = {
     onError: (error: Error) => void;
     onCancel: () => void;
   };
+  [ScreenName.PerpsDeposit]: PerpsDepositUiParams;
+  [ScreenName.PerpsTransactionSigned]: PerpsTransactionSignedParams;
   [ScreenName.DeeplinkInstallAppDeviceSelection]: {
     appKey: string;
   };

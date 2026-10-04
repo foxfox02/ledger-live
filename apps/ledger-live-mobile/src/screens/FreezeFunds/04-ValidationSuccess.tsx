@@ -1,3 +1,4 @@
+import { TrackScreen } from "@shared/analytics-react";
 import React, { useCallback, useMemo } from "react";
 import { View, StyleSheet } from "react-native";
 import { Trans } from "~/context/Locale";
@@ -6,7 +7,6 @@ import { useTronPowerLoading, getLastVotedDate } from "@ledgerhq/live-common/fam
 import { useTimer } from "@ledgerhq/live-common/hooks/useTimer";
 import { CompositeScreenProps, useTheme } from "@react-navigation/native";
 import { TronAccount, Transaction } from "@ledgerhq/live-common/families/tron/types";
-import { TrackScreen } from "~/analytics";
 import { NavigatorName, ScreenName } from "~/const";
 import PreventNativeBack from "~/components/PreventNativeBack";
 import ValidateSuccess from "~/components/ValidateSuccess";
@@ -32,7 +32,7 @@ export default function ValidationSuccess({ navigation, route }: NavigatorProps)
   const time = useTimer(60);
   const isLoading = useTronPowerLoading(account);
   const transaction = route.params.transaction;
-  const resource = (transaction as Transaction)?.resource || "";
+  const resource = (transaction as Transaction)?.familySpecificData?.resource ?? undefined;
   const accountId = account.id;
   const lastVotedDate = useMemo(() => getLastVotedDate(account), [account]);
   const onClose = useCallback(() => {
@@ -68,7 +68,7 @@ export default function ValidationSuccess({ navigation, route }: NavigatorProps)
           <Trans
             i18nKey="freeze.validation.info"
             values={{
-              resource: resource.toLowerCase(),
+              resource: resource?.toLowerCase() ?? "",
             }}
           />
         }

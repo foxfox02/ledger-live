@@ -24,7 +24,10 @@ permissions:
 
 jobs:
   create-rollback:
-    runs-on: ubuntu-24.04
+    runs-on: ledger-wallet-4cpu-aws-public-docker
+    permissions:
+      contents: read
+      id-token: write
     env:
       RELEASE_NOTES: "This release includes small security improvements and minor bug fixes."
       REPO: "ledger-live"
@@ -49,6 +52,8 @@ jobs:
           repositories: |
             ledger-live
             ledger-live-build
+          permission-contents: write
+          permission-actions: write
 
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -64,8 +69,13 @@ jobs:
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           skip-nx-cache: "true"
 
+      - name: JFrog npm auth
+        uses: LedgerHQ/ledger-live/tools/actions/composites/jfrog-npm-auth@develop
+        with:
+          registry: ${{ vars.ARTIFACTORY_URL }}
+
       - name: Install dependencies
-        run: pnpm i -D -F "ledger-live" --ignore-scripts
+        run: pnpm i --frozen-lockfile -D -F "ledger-live" --ignore-scripts
 
       - name: Checkout rollback branch
         run: |

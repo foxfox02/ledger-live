@@ -32,7 +32,7 @@ describe("AccountBalanceSummaryFooter", () => {
 
     const ACCOUNT = {
       type: "Account",
-      cosmosResources: {
+      stakingResources: {
         delegatedBalance: DELEGATE_BALANCE,
         unbondingBalance: DELEGATE_UNBONDING_BALANCE,
       },
@@ -48,8 +48,8 @@ describe("AccountBalanceSummaryFooter", () => {
     it("should display delegated balance and unbound balance when disableDelegation flag is false and unbound balance is greater than 0", () => {
       mockGetCurrencyConfiguration({ disableDelegation: false });
       mockFormatCurrencyUnit(
-        ACCOUNT.cosmosResources.delegatedBalance,
-        ACCOUNT.cosmosResources.unbondingBalance,
+        ACCOUNT.stakingResources.delegatedBalance,
+        ACCOUNT.stakingResources.unbondingBalance,
       );
 
       render(<AccountBalanceSummaryFooter account={ACCOUNT} />);
@@ -62,8 +62,8 @@ describe("AccountBalanceSummaryFooter", () => {
     it("looks up the undelegation timelock from the chain factory by currency id, not a hardcoded constant", () => {
       mockGetCurrencyConfiguration({ disableDelegation: false });
       mockFormatCurrencyUnit(
-        ACCOUNT.cosmosResources.delegatedBalance,
-        ACCOUNT.cosmosResources.unbondingBalance,
+        ACCOUNT.stakingResources.delegatedBalance,
+        ACCOUNT.stakingResources.unbondingBalance,
       );
 
       render(<AccountBalanceSummaryFooter account={ACCOUNT} />);
@@ -79,11 +79,11 @@ describe("AccountBalanceSummaryFooter", () => {
         const account = {
           ...ACCOUNT,
         } as CosmosAccount;
-        account.cosmosResources.unbondingBalance = unboundBalance;
+        account.stakingResources.unbondingBalance = unboundBalance;
 
         mockFormatCurrencyUnit(
-          account.cosmosResources.delegatedBalance,
-          account.cosmosResources.unbondingBalance,
+          account.stakingResources.delegatedBalance,
+          account.stakingResources.unbondingBalance,
         );
 
         render(<AccountBalanceSummaryFooter account={account} />);
@@ -97,8 +97,8 @@ describe("AccountBalanceSummaryFooter", () => {
     it("should not display delegated balance and unbound balance when disableDelegation flag is true", () => {
       mockGetCurrencyConfiguration({ disableDelegation: true });
       mockFormatCurrencyUnit(
-        ACCOUNT.cosmosResources.delegatedBalance,
-        ACCOUNT.cosmosResources.unbondingBalance,
+        ACCOUNT.stakingResources.delegatedBalance,
+        ACCOUNT.stakingResources.unbondingBalance,
       );
 
       render(<AccountBalanceSummaryFooter account={ACCOUNT} />);
@@ -108,12 +108,32 @@ describe("AccountBalanceSummaryFooter", () => {
       expect(screen.queryByText(DELEGATE_UNBONDING_BALANCE_TEXT)).not.toBeInTheDocument();
     });
 
+    it("should render without throwing when there are no staking resources yet", () => {
+      mockGetCurrencyConfiguration({ disableDelegation: false });
+      mockFormatCurrencyUnit(BigNumber(0), BigNumber(0));
+
+      const account = {
+        type: "Account",
+        stakingResources: {
+          delegatedBalance: BigNumber(0),
+          unbondingBalance: BigNumber(0),
+        },
+        currency: {
+          id: "babylon",
+        } as unknown as CryptoCurrency,
+      } as CosmosAccount;
+
+      expect(() => render(<AccountBalanceSummaryFooter account={account} />)).not.toThrow();
+      // no delegated resources → the undelegating section must not be shown
+      expect(screen.queryByText("Undelegating")).not.toBeInTheDocument();
+    });
+
     it("should render the undelegating tooltip without throwing for a testnet id that aliases to a mainnet chain (crypto_org_croeseid)", () => {
       mockGetCurrencyConfiguration({ disableDelegation: false });
 
       const account = {
         type: "Account",
-        cosmosResources: {
+        stakingResources: {
           delegatedBalance: DELEGATE_BALANCE,
           unbondingBalance: DELEGATE_UNBONDING_BALANCE,
         },
@@ -123,8 +143,8 @@ describe("AccountBalanceSummaryFooter", () => {
       } as CosmosAccount;
 
       mockFormatCurrencyUnit(
-        account.cosmosResources.delegatedBalance,
-        account.cosmosResources.unbondingBalance,
+        account.stakingResources.delegatedBalance,
+        account.stakingResources.unbondingBalance,
       );
 
       expect(() => render(<AccountBalanceSummaryFooter account={account} />)).not.toThrow();

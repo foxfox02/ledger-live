@@ -4,37 +4,9 @@
 > **Status: DEPRECATED** — Deprecated. Migrate to `@ledgerhq/lumen-ui-react`.
 
 [![npm](https://img.shields.io/npm/v/@ledgerhq/react-ui)](https://www.npmjs.com/package/@ledgerhq/react-ui)
-[![storybook](https://img.shields.io/badge/Storybook-📚-61DBFB)](https://react-ui-storybook.vercel.app)
-
 ### Design and interface resources for React
 
-#### This package contains [React](https://reactjs.org/) components and styles built on top of our design system and used internally at [Ledger](https://www.ledger.com/).
-
-## Reference
-
-**[🔗 Storybook](https://react-ui-storybook.vercel.app)**
-
-## Installation
-
-### Package
-
-```sh
-npm i @ledgerhq/react-ui
-```
-
-### Peer dependencies
-
-This library uses [styled components](https://styled-components.com/) heavily and relies on it being installed separately (to avoid package duplication).
-
-```sh
-npm i styled-components
-```
-
-And (obviously) if React packages are not already installed:
-
-```sh
-npm i react react-dom
-```
+#### This internal package contains [React](https://reactjs.org/) components and styles built on top of our design system and used internally at [Ledger](https://www.ledger.com/).
 
 ## Usage
 

@@ -3,8 +3,16 @@ import { Provider } from "react-redux";
 import { Store } from "redux";
 import { importPostOnboardingState } from "@ledgerhq/live-common/postOnboarding/actions";
 import { restoreLargeScreenUpsellModalState } from "@ledgerhq/live-engagement/largeScreenUpsellModal";
+import { restorePayCardBalanceFilter } from "@features/flow-pay-balance/state";
+import { restorePayCardFeatureTour } from "@features/flow-pay-feature-tour/state";
+import { restoreReceiveVerifyHint } from "@features/flow-pay-request/state";
+import {
+  restoreCardAuthStatus,
+  restorePayCardLoginIntro,
+} from "@features/flow-pay-card-auth/state";
+import { restorePayCardOnboardingWidget } from "@features/flow-pay-card-widget/state";
 import { backfillOnboardingDate } from "~/logic/postOnboarding/backfillOnboardingDate";
-import { CounterValuesStateRaw } from "@ledgerhq/live-countervalues/types";
+import { CounterValuesStateRaw } from "@domain/entity-market-countervalues";
 import { findCryptoCurrencyById } from "@domain/entity-currency-crypto";
 import mmkvStorageWrapper from "LLM/storage/mmkvStorageWrapper";
 import { logStartupEvent } from "LLM/utils/logStartupTime";
@@ -26,6 +34,7 @@ import {
   getMarketState,
   getMarketListConfig,
   getMarketBannerState,
+  getPayCardState,
   getTrustchainState,
   getWalletExportState,
   getLargeMoverState,
@@ -33,6 +42,7 @@ import {
   getUser,
 } from "../db";
 import { importSettings } from "~/actions/settings";
+import { bootstrapCardSession } from "LLM/utils/bootstrapCardSession";
 import { importStore as importAccountsRaw } from "~/actions/accounts";
 import { importBle } from "~/actions/ble";
 import { importKnownDevices } from "~/reducers/knownDevices";
@@ -46,12 +56,13 @@ import { importMarket } from "~/actions/market";
 import { importMarketListConfig } from "~/reducers/market";
 import { importMarketBannerState } from "~/reducers/marketBanner";
 import { importTrustchainStoreState } from "@ledgerhq/ledger-key-ring-protocol/store";
-import { importWalletState } from "@ledgerhq/live-wallet/store";
+import { importWalletState } from "~/reducers/wallet";
 import { importLargeMoverState } from "~/actions/largeMoverLandingPage";
 import { initHistory } from "~/reducers/history";
 import { restoreTokensToCache, parsePersistedCAL } from "@domain/api-currency-token";
 import { setAllOverrides, setBannerVisible, type PartialFeatures } from "@shared/feature-flags";
 import { initIdentities } from "../helpers/identities";
+import { whenCachedFlagsSettled } from "./whenCachedFlagsSettled";
 
 /**
  * Default local override for the Wallet 4.0 (lwmWallet40) feature flag.
@@ -114,6 +125,9 @@ const LedgerStoreProvider: React.FC<Props> = ({ onInitFinished, children, store 
 
   const init = useCallback(async () => {
     try {
+      // Everything rendered once `ready` flips, including the providers above `WaitForAppReady`,
+      // must resolve flags from the Firebase cache rather than from the compiled defaults.
+      const cachedFlagsSettled = whenCachedFlagsSettled(store);
       const readStorageStart = Date.now();
       mmkvStorageWrapper.monitor(true);
       const [
@@ -126,6 +140,7 @@ const LedgerStoreProvider: React.FC<Props> = ({ onInitFinished, children, store 
         marketState,
         marketListConfigState,
         marketBannerState,
+        payCardState,
         trustchainStore,
         walletStore,
         protect,
@@ -146,6 +161,7 @@ const LedgerStoreProvider: React.FC<Props> = ({ onInitFinished, children, store 
         retry(getMarketState, MAX_RETRIES, RETRY_DELAY),
         retry(getMarketListConfig, MAX_RETRIES, RETRY_DELAY),
         retry(getMarketBannerState, MAX_RETRIES, RETRY_DELAY),
+        retry(getPayCardState, MAX_RETRIES, RETRY_DELAY),
         retry(getTrustchainState, MAX_RETRIES, RETRY_DELAY),
         retry(getWalletExportState, MAX_RETRIES, RETRY_DELAY),
         retry(getProtect, MAX_RETRIES, RETRY_DELAY),
@@ -162,6 +178,9 @@ const LedgerStoreProvider: React.FC<Props> = ({ onInitFinished, children, store 
           mmkvRead: mmkvStorageWrapper.flushAccessedKeys(false),
         });
       });
+
+      await cachedFlagsSettled;
+      logStartupEvent("Feature flags cache settled");
 
       store.dispatch(importBle(bleData));
       if (persistedKnownDevices) {
@@ -192,7 +211,7 @@ const LedgerStoreProvider: React.FC<Props> = ({ onInitFinished, children, store 
 
       // Handle account import with error recovery for async issues
       try {
-        store.dispatch(await importAccountsRaw(accountsData));
+        (await importAccountsRaw(accountsData))(store.dispatch);
       } catch (error) {
         // eslint-disable-next-line no-console
         console.error("Failed to import accounts during initialization:", error);
@@ -222,10 +241,18 @@ const LedgerStoreProvider: React.FC<Props> = ({ onInitFinished, children, store 
         store.dispatch(importMarketBannerState(marketBannerState));
       }
 
+      if (payCardState) {
+        store.dispatch(restorePayCardFeatureTour(payCardState));
+        store.dispatch(restoreReceiveVerifyHint(payCardState));
+        store.dispatch(restorePayCardBalanceFilter(payCardState));
+        store.dispatch(restorePayCardLoginIntro(payCardState));
+        store.dispatch(restorePayCardOnboardingWidget(payCardState));
+      }
+
       store.dispatch(importTrustchainStoreState(trustchainStore));
 
       if (walletStore) {
-        store.dispatch(importWalletState(walletStore));
+        importWalletState(walletStore)(store.dispatch);
       }
 
       if (protect) {
@@ -292,6 +319,8 @@ const LedgerStoreProvider: React.FC<Props> = ({ onInitFinished, children, store 
       // default), so this survives Firebase remote-config fetches that would
       // otherwise disable the new UI.
       store.dispatch(setAllOverrides(WALLET_40_DEFAULT_OVERRIDE));
+      await bootstrapCardSession(store.dispatch);
+      await restoreCardAuthStatus(store.dispatch, store.getState);
 
       setInitialCountervalues(initialCountervalues);
       setReady(true);

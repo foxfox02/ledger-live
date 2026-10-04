@@ -1,10 +1,15 @@
+import { track } from "@shared/analytics";
 import React from "react";
 import { act, renderHook, withFlagOverrides } from "@tests/test-renderer";
 import { Linking } from "react-native";
 import { DeviceModelId } from "@ledgerhq/types-devices";
 import { DeviceModelId as DMKDeviceModelId } from "@ledgerhq/device-management-kit";
-import type { DeviceConnectionParams, DeviceConnectionResult } from "@ledgerhq/device-intent";
+import type {
+  DeviceConnectionParams,
+  DeviceConnectionResult,
+} from "@features/platform-device-intent";
 import {
+  BaseConnectionErrorTypes,
   connectDevice,
   ConnectDeviceUIStateTypes,
   type ConnectDeviceUIState,
@@ -13,7 +18,6 @@ import {
   useDeviceManagementKit,
 } from "@ledgerhq/live-dmk-mobile";
 import type { KnownDevice } from "@ledgerhq/live-dmk-shared";
-import { track } from "~/analytics";
 import { NavigatorName, ScreenName } from "~/const";
 import type { DeviceLike, State } from "~/reducers/types";
 import { urls } from "~/utils/urls";
@@ -23,16 +27,8 @@ import {
 } from "../utils/DeviceIntentTrackingContext";
 import { useDeviceConnectionComponentLWMViewModel } from "./useDeviceConnectionComponentLWMViewModel";
 
-jest.mock("~/analytics", () => {
-  const actual = jest.requireActual("~/analytics");
-  return {
-    ...actual,
-    track: jest.fn(),
-    screen: jest.fn(),
-  };
-});
-
 const mockedTrack = jest.mocked(track);
+const mockReportFailure = jest.fn();
 
 const mockNavigate = jest.fn();
 
@@ -97,17 +93,14 @@ function withViewModelState({
   };
 
   return {
-    overrideInitialState: withFlagOverrides(
-      featureFlagOverrides,
-      (state: State): State => ({
-        ...state,
-        knownDevices: { knownDevices },
-        ble: {
-          ...state.ble,
-          knownDevices: bleKnownDevices,
-        },
-      }),
-    ),
+    overrideInitialState: withFlagOverrides(featureFlagOverrides, (state: State): State => ({
+      ...state,
+      knownDevices: { knownDevices },
+      ble: {
+        ...state.ble,
+        knownDevices: bleKnownDevices,
+      },
+    })),
   };
 }
 
@@ -122,7 +115,9 @@ const layerABaseProperties = {
 
 function SourceFlowWrapper({ children }: { children?: React.ReactNode }) {
   return (
-    <DeviceIntentTrackingProvider value={{ sourceFlow }}>{children}</DeviceIntentTrackingProvider>
+    <DeviceIntentTrackingProvider value={{ sourceFlow, reportFailure: mockReportFailure }}>
+      {children}
+    </DeviceIntentTrackingProvider>
   );
 }
 
@@ -162,7 +157,6 @@ function makeConnectionResult(
   return {
     compatDeviceId: "device-id",
     compatDeviceName: "Ledger Nano X",
-    compatDeviceModelId: DeviceModelId.nanoX,
     compatDeviceWired: false,
     connectedDevice: {
       id: "device-id",
@@ -205,7 +199,7 @@ describe("useDeviceConnectionComponentLWMViewModel", () => {
 
   it("should pass accepted device model ids to the connect device flow", () => {
     // GIVEN
-    const acceptedDeviceModelIds = [DeviceModelId.stax];
+    const acceptedDeviceModelIds = [DMKDeviceModelId.STAX];
 
     // WHEN
     renderViewModel({
@@ -215,7 +209,7 @@ describe("useDeviceConnectionComponentLWMViewModel", () => {
     // THEN
     expect(mockedConnectDevice).toHaveBeenCalledWith(
       expect.objectContaining({
-        acceptedDeviceModelIds,
+        acceptedDeviceModelIds: [DeviceModelId.stax],
       }),
     );
   });
@@ -578,6 +572,51 @@ describe("useDeviceConnectionComponentLWMViewModel", () => {
           expect.objectContaining({ transport: "usb" }),
         );
       });
+    });
+  });
+
+  describe("failure reporting", () => {
+    const unknownConnectionErrorState: ConnectDeviceUIState = {
+      type: ConnectDeviceUIStateTypes.ConnectionError,
+      error: {
+        type: BaseConnectionErrorTypes.Unknown,
+        error: { _tag: "OpeningConnectionError" },
+      },
+      device: makeKnownDevice(),
+      retry: jest.fn(),
+      ignore: jest.fn(),
+    };
+
+    it("should report an unknown connection error as a failure when it is displayed", () => {
+      renderViewModel();
+
+      act(() => {
+        connectDeviceObserver?.next(unknownConnectionErrorState);
+      });
+
+      expect(mockReportFailure).toHaveBeenLastCalledWith({
+        failureType: "ConnectionError",
+        countsAsFailure: true,
+        subError: "OpeningConnectionError",
+        modelId: DeviceModelId.nanoX,
+        transport: "ble",
+      });
+    });
+
+    it("should clear the reported failure when the flow leaves the error state", () => {
+      renderViewModel();
+      act(() => {
+        connectDeviceObserver?.next(unknownConnectionErrorState);
+      });
+
+      act(() => {
+        connectDeviceObserver?.next({
+          type: ConnectDeviceUIStateTypes.Connecting,
+          device: makeKnownDevice(),
+        });
+      });
+
+      expect(mockReportFailure).toHaveBeenLastCalledWith(null);
     });
   });
 });

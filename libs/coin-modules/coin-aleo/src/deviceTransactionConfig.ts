@@ -13,7 +13,14 @@ const mapTransactionModeToMethod: Record<TransactionType, string> = {
   [TRANSACTION_TYPE.TRANSFER_TOKEN_PRIVATE]: "Transfer Token Private",
   [TRANSACTION_TYPE.CONVERT_TOKEN_PUBLIC_TO_PRIVATE]: "Token Shield",
   [TRANSACTION_TYPE.CONVERT_TOKEN_PRIVATE_TO_PUBLIC]: "Token Unshield",
+  [TRANSACTION_TYPE.BOND_PUBLIC]: "Bond Public",
+  [TRANSACTION_TYPE.UNBOND_PUBLIC]: "Unbond Public",
+  [TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC]: "Claim Unbond Public",
 };
+
+// credits.aleo `claim_unbond_public` takes only the staker — the chain decides how much is
+// released, so the signed payload carries no amount and the device's review screen shows none.
+const MODES_WITHOUT_AMOUNT_ROW = new Set<TransactionType>([TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC]);
 
 async function getDeviceTransactionConfig({
   account,
@@ -34,8 +41,11 @@ async function getDeviceTransactionConfig({
     { type: "text", label: "Method", value: method },
     { type: "address", label: "From", address: mainAccount.freshAddress },
     { type: "address", label: "To", address: transaction.recipient },
-    { type: "amount", label: "Amount" },
   );
+
+  if (!MODES_WITHOUT_AMOUNT_ROW.has(transaction.mode)) {
+    fields.push({ type: "amount", label: "Amount" });
+  }
 
   // TODO: restore config.isFeeSponsored check
   // https://ledgerhq.atlassian.net/browse/LIVE-29092

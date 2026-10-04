@@ -7,22 +7,21 @@ import {
   type DiscoveryError,
 } from "@ledgerhq/live-dmk-mobile";
 import type { AppPlatform } from "@ledgerhq/live-common/platform/types";
-import { InfoState } from "LLM/components/InfoState";
+import { getConnectDeviceSubError } from "@ledgerhq/live-dmk-shared";
+import { InfoState } from "@shared/ui-info-state";
 import { useTranslation } from "~/context/Locale";
 import { Box, Spinner, Text } from "@ledgerhq/lumen-ui-rnative";
 import { TrackDIEScreen } from "../../components/TrackDIEScreen";
 import { useDeviceIntentTracking } from "../../utils/DeviceIntentTrackingContext";
 import {
   CONNECT_DEVICE_BUTTON,
-  getTrackingSubError,
   getTrackingTransport,
   PAGE_CONNECT_DEVICE,
-  setIsInTerminalConnectDeviceError,
   trackConnectDeviceButtonClicked,
 } from "../../utils/trackDeviceIntent";
 
 type DiscoveryErrorStateProps = {
-  state: Extract<ConnectDeviceUIState, { type: ConnectDeviceUIStateTypes.DiscoveryError }>;
+  state: Extract<ConnectDeviceUIState, { type: typeof ConnectDeviceUIStateTypes.DiscoveryError }>;
   platform: Exclude<AppPlatform, "desktop">;
 };
 
@@ -48,10 +47,6 @@ type DiscoveryErrorViewStates = {
 const discoveryErrorTranslationBaseKey =
   "deviceIntentExecutor.connectDevice.states.discoveryError.errors";
 
-function isTerminalDiscoveryError(error: DiscoveryError): boolean {
-  return !error.resolution || error.resolution.type === "none";
-}
-
 export function DiscoveryErrorState({
   state,
   platform,
@@ -60,16 +55,11 @@ export function DiscoveryErrorState({
   const { sourceFlow, analyticsProperties } = useDeviceIntentTracking();
   const trackingTransport = getTrackingTransport(state.error.transportId);
 
-  React.useEffect(() => {
-    setIsInTerminalConnectDeviceError(isTerminalDiscoveryError(state.error));
-    return () => setIsInTerminalConnectDeviceError(false);
-  }, [state.error]);
-
   const trackingScreen = (
     <TrackDIEScreen
       category={PAGE_CONNECT_DEVICE.DiscoveryError}
       {...(trackingTransport ? { transport: trackingTransport } : {})}
-      subError={getTrackingSubError(state.error.type)}
+      subError={getConnectDeviceSubError(state.error)}
       refreshSource
     />
   );
@@ -133,7 +123,7 @@ export function DiscoveryErrorState({
     [DiscoveryErrorTypes.BluetoothPermissionUnauthorizedManualSettings]: {
       preset: "info",
       title: `${discoveryErrorTranslationBaseKey}.bluetoothPermissionUnauthorizedManualSettings.title`,
-      description: `${discoveryErrorTranslationBaseKey}.bluetoothPermissionUnauthorizedManualSettings.description`,
+      description: `${discoveryErrorTranslationBaseKey}.bluetoothPermissionUnauthorizedManualSettings.description.platform.${platform}`,
       primaryCta: retryCta(
         `${discoveryErrorTranslationBaseKey}.bluetoothPermissionUnauthorizedManualSettings.cta.platform.${platform}.retry`,
         CONNECT_DEVICE_BUTTON.OpenSettings,

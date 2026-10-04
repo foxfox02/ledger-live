@@ -61,3 +61,231 @@ export class SimulationError extends Error {
     if (fields) Object.assign(this, fields);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Protocol-Level Token (PLT) errors
+// ---------------------------------------------------------------------------
+
+/**
+ * The token's module state has `paused: true`, so every balance-changing
+ * operation is suspended (CIS-7 `pause`). List updates are unaffected.
+ */
+export class ConcordiumTokenPaused extends Error {
+  override name = "ConcordiumTokenPaused";
+  constructor(message?: string, fields?: Record<string, unknown>) {
+    super(message ?? "ConcordiumTokenPaused");
+    if (fields) Object.assign(this, fields);
+  }
+}
+
+/**
+ * The token enforces an allow list and the sender is not on it.
+ *
+ * Distinct from {@link ConcordiumAccountDenied} because the remedy the user is
+ * told differs: one is approval to request, the other a restriction to query.
+ * Both are the issuer's to change — the module exposes `removeDenyList` as well
+ * as `removeAllowList` — so the split is about what to tell the user, not about
+ * what can be undone.
+ */
+export class ConcordiumAccountNotAllowed extends Error {
+  override name = "ConcordiumAccountNotAllowed";
+  constructor(message?: string, fields?: Record<string, unknown>) {
+    super(message ?? "ConcordiumAccountNotAllowed");
+    if (fields) Object.assign(this, fields);
+  }
+}
+
+/**
+ * The token enforces a deny list and the sender is on it.
+ */
+export class ConcordiumAccountDenied extends Error {
+  override name = "ConcordiumAccountDenied";
+  constructor(message?: string, fields?: Record<string, unknown>) {
+    super(message ?? "ConcordiumAccountDenied");
+    if (fields) Object.assign(this, fields);
+  }
+}
+
+/**
+ * The token enforces an allow list and the recipient is not on it, which
+ * includes a recipient the token has never written state for: membership
+ * requires a write, so absence is "not approved".
+ *
+ * Distinct from the sender-side errors because the user's remedy is to change
+ * the recipient, not to get themselves approved. Kept apart from
+ * {@link ConcordiumRecipientDenied} because the remedy the user is told differs,
+ * as it does for {@link ConcordiumAccountNotAllowed} and
+ * {@link ConcordiumAccountDenied}.
+ */
+export class ConcordiumRecipientNotAllowed extends Error {
+  override name = "ConcordiumRecipientNotAllowed";
+  constructor(message?: string, fields?: Record<string, unknown>) {
+    super(message ?? "ConcordiumRecipientNotAllowed");
+    if (fields) Object.assign(this, fields);
+  }
+}
+
+/**
+ * The token enforces a deny list and the recipient is on it.
+ *
+ * Takes precedence over {@link ConcordiumRecipientNotAllowed} on a token that
+ * declares both lists, matching the order the chain rule is evaluated in: a
+ * denied account is refused whatever its allow-list standing.
+ */
+export class ConcordiumRecipientDenied extends Error {
+  override name = "ConcordiumRecipientDenied";
+  constructor(message?: string, fields?: Record<string, unknown>) {
+    super(message ?? "ConcordiumRecipientDenied");
+    if (fields) Object.assign(this, fields);
+  }
+}
+
+/**
+ * The recipient's standing under the token's lists could not be read, so
+ * nothing can be concluded about whether the transfer would be accepted.
+ *
+ * Covers both an undecodable module or account state and a failed lookup. It
+ * blocks, for the reason {@link ConcordiumTokenRestrictionsUnverified} blocks:
+ * letting an unverifiable transfer reach the chain burns a real CCD fee.
+ *
+ * Separate from the sender-side class because the remedy differs. The sender's
+ * standing comes from sync, so "resync and try again" is actionable; the
+ * recipient's needs a live lookup, so a transient proxy failure lands here and
+ * the copy has to read as "could not check, try again" rather than as a refusal.
+ */
+export class ConcordiumRecipientRestrictionsUnverified extends Error {
+  override name = "ConcordiumRecipientRestrictionsUnverified";
+  constructor(message?: string, fields?: Record<string, unknown>) {
+    super(message ?? "ConcordiumRecipientRestrictionsUnverified");
+    if (fields) Object.assign(this, fields);
+  }
+}
+
+/**
+ * The token balance covers the amount but the CCD balance does not cover the
+ * fee.
+ *
+ * Deliberately distinct from {@link ConcordiumInsufficientFunds}: the failing
+ * balance is the parent account's, not the token sub-account's, so the remedy
+ * is to top up CCD rather than to send less of the token.
+ */
+export class ConcordiumInsufficientCcdForFee extends Error {
+  override name = "ConcordiumInsufficientCcdForFee";
+  constructor(message?: string, fields?: Record<string, unknown>) {
+    super(message ?? "ConcordiumInsufficientCcdForFee");
+    if (fields) Object.assign(this, fields);
+  }
+}
+
+/**
+ * The recipient account could not be resolved on chain (`addressNotFound`).
+ */
+export class ConcordiumRecipientNotFound extends Error {
+  override name = "ConcordiumRecipientNotFound";
+  constructor(message?: string, fields?: Record<string, unknown>) {
+    super(message ?? "ConcordiumRecipientNotFound");
+    if (fields) Object.assign(this, fields);
+  }
+}
+
+/**
+ * The device refused the PLT payload the wallet built, or the signer refused it
+ * before sending. The user did nothing wrong, so this is reported as a defect
+ * rather than as a rejected transaction.
+ */
+export class ConcordiumInvalidPltPayloadError extends Error {
+  override name = "ConcordiumInvalidPltPayloadError";
+  constructor(message?: string, fields?: Record<string, unknown>) {
+    super(message ?? "ConcordiumInvalidPltPayloadError");
+    if (fields) Object.assign(this, fields);
+  }
+}
+
+/**
+ * The signer and the device app disagree on the APDU contract: wrong P1/P2,
+ * unexpected state, malformed parameter or derivation path, or a device-side
+ * buffer or crypto failure.
+ */
+export class ConcordiumSignerProtocolError extends Error {
+  override name = "ConcordiumSignerProtocolError";
+  constructor(message?: string, fields?: Record<string, unknown>) {
+    super(message ?? "ConcordiumSignerProtocolError");
+    if (fields) Object.assign(this, fields);
+  }
+}
+
+/**
+ * The installed Concordium app predates PLT support. Kept distinct from the
+ * other signer errors so the send flow can offer an app update instead of
+ * reporting a signing failure.
+ */
+export class ConcordiumAppOutdatedError extends Error {
+  override name = "ConcordiumAppOutdatedError";
+  constructor(message?: string, fields?: Record<string, unknown>) {
+    super(message ?? "ConcordiumAppOutdatedError");
+    if (fields) Object.assign(this, fields);
+  }
+}
+
+/**
+ * The sender may not transfer this token and the cause is not known.
+ *
+ * The fallback of the three sender-side errors, and no longer the usual answer:
+ * it covers a stored verdict that predates the cause being carried, and any
+ * value off the union. {@link ConcordiumAccountNotAllowed} and {@link ConcordiumAccountDenied}
+ * name the cause when the verdict has it.
+ */
+export class ConcordiumTokenTransferNotPermitted extends Error {
+  override name = "ConcordiumTokenTransferNotPermitted";
+  constructor(message?: string, fields?: Record<string, unknown>) {
+    super(message ?? "ConcordiumTokenTransferNotPermitted");
+    if (fields) Object.assign(this, fields);
+  }
+}
+
+/**
+ * The token's restrictions could not be read, so nothing can be concluded about
+ * whether the sender may transfer it.
+ *
+ * Distinct from {@link ConcordiumTokenTransferNotPermitted}: the policy did not
+ * refuse the account, it failed to decode. Telling a permitted user they are
+ * denied is its own defect.
+ */
+export class ConcordiumTokenRestrictionsUnverified extends Error {
+  override name = "ConcordiumTokenRestrictionsUnverified";
+  constructor(message?: string, fields?: Record<string, unknown>) {
+    super(message ?? "ConcordiumTokenRestrictionsUnverified");
+    if (fields) Object.assign(this, fields);
+  }
+}
+
+/**
+ * The token declares more decimals than the device can sign.
+ *
+ * Such a token syncs and shows a balance and can never be sent, so this is
+ * reported in status rather than left to the device. See `PLT_MAX_DECIMALS`.
+ */
+export class ConcordiumUnsupportedTokenDecimals extends Error {
+  override name = "ConcordiumUnsupportedTokenDecimals";
+  constructor(message?: string, fields?: Record<string, unknown>) {
+    super(message ?? "ConcordiumUnsupportedTokenDecimals");
+    if (fields) Object.assign(this, fields);
+  }
+}
+
+/**
+ * The transaction names a token sub-account the account no longer has.
+ *
+ * `subAccountId` survives a raw round-trip independently of the sub-account it
+ * names, so a draft outlives its token: sync can drop one when it is delisted
+ * or blacklisted, and the `enableTokens` kill switch strips them all. Every
+ * layer classifies a transfer by resolving that id, so an unresolved one would
+ * otherwise reclassify the send as native and move CCD at the token's amount.
+ */
+export class ConcordiumTokenAccountUnavailable extends Error {
+  override name = "ConcordiumTokenAccountUnavailable";
+  constructor(message?: string, fields?: Record<string, unknown>) {
+    super(message ?? "ConcordiumTokenAccountUnavailable");
+    if (fields) Object.assign(this, fields);
+  }
+}

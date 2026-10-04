@@ -2,15 +2,17 @@ import BigNumber from "bignumber.js";
 import invariant from "invariant";
 import { log } from "@ledgerhq/logs";
 import { findCryptoCurrencyById } from "@ledgerhq/ledger-wallet-framework/currencies";
-import type { TokenCurrency } from "@ledgerhq/ledger-wallet-framework/types";
 import type {
   Account,
   AccountLike,
   Operation,
+  OperationExtra,
+  OperationExtraRaw,
   OperationType,
   TokenAccount,
 } from "@ledgerhq/types-live";
 import type {
+  AssetInfo,
   Operation as CoinFrameworkOperation,
   MemoNotSupported,
   TransactionIntent,
@@ -21,23 +23,27 @@ import {
   encodeTokenAccountId,
 } from "@ledgerhq/ledger-wallet-framework/account/accountId";
 import { decodeOperationId, encodeOperationId } from "@ledgerhq/ledger-wallet-framework/operation";
-import { getCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
-import { promiseAllBatched } from "@ledgerhq/live-promise";
 import aleoConfig from "../config";
 import {
+  ANNUAL_INFLATION_RATE,
   BALANCED_PRIVATE_RECORDS_PER_TRANSACTION,
   EXPLORER_TRANSFER_TYPES,
   FAST_PRIVATE_RECORDS_PER_TRANSACTION,
   MAX_PRIVATE_RECORDS_PER_TRANSACTION,
   MAX_PRIVATE_TOKEN_RECORDS_PER_TRANSACTION,
+  MAX_VALIDATOR_STAKE_SHARE,
+  MICROCREDITS_PER_CREDIT,
+  MIN_BOND_AMOUNT_MICROCREDITS,
+  MIN_DELEGATOR_STAKE_MICROCREDITS,
+  PRIVATE_TRANSFER_FUNCTIONS,
   PROGRAM_ID,
   SINGLE_CALL_SIGNING_TIME,
+  STAKING_OPERATION_TYPE,
+  TOKEN_RECORD_NAME,
   TRANSACTION_TYPE,
 } from "../constants";
 import type {
-  AleoOperation,
   AleoTransactionType,
-  EnrichedPrivateRecord,
   OperationDetailsExtraField,
   Transaction,
   TransactionType,
@@ -48,17 +54,35 @@ import type {
   Intent,
   AleoTransactionIntentData,
   AleoPublicTransaction,
+  AleoOperation,
   AleoOperationExtra,
+  AleoOperationExtraRaw,
   TransactionPublic,
   TransactionPrivate,
   AleoCoinConfig,
+  AleoPrivateRecord,
+  FeeConfiguration,
   AleoUnspentRecord,
   AleoTransactionIntent,
   SigningStrategy,
   StrategyConfig,
+  AleoContext,
+  AleoTokenDetails,
+  AleoTokenType,
+  EnrichedPrivateRecord,
+  AleoStakingPosition,
+  AleoStakingResources,
+  AleoStakingMode,
+  AleoValidator,
+  AleoUnbondingDisplayState,
+  AleoValidatorNonEarningReason,
 } from "../types";
 
 const MICROCREDITS_REGEX = /^(\d+)u\d+$/;
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 export function normalizeAleoPlaintext(v: string): string {
   return v.trim().replace(/\.(private|public|constant)$/, "");
@@ -78,6 +102,97 @@ export function parseMicrocredits(microcredits: string): string {
 export function parseAmount(raw: string | null): BigNumber {
   if (!raw) return new BigNumber(0);
   return new BigNumber(matchAleoPlaintextAmount(raw) ?? 0);
+}
+
+const VALIDATOR_FIELD_REGEX = /validator:\s*(aleo1[0-9a-z]+)/;
+const MICROCREDITS_FIELD_REGEX = /microcredits:\s*(\d+u64)/;
+const HEIGHT_FIELD_REGEX = /height:\s*(\d+)u32/;
+const ADDRESS_PLAINTEXT_REGEX = /^(aleo1[0-9a-z]+)$/;
+
+function parseBondedMapping(raw: string): { validator: string; microcredits: BigNumber } | null {
+  const validator = VALIDATOR_FIELD_REGEX.exec(raw)?.[1];
+  const microcredits = MICROCREDITS_FIELD_REGEX.exec(raw)?.[1];
+  if (!validator || !microcredits) return null;
+
+  return { validator, microcredits: parseAmount(microcredits) };
+}
+
+function parseUnbondingMapping(raw: string): { microcredits: BigNumber; height: number } | null {
+  const microcredits = MICROCREDITS_FIELD_REGEX.exec(raw)?.[1];
+  const height = HEIGHT_FIELD_REGEX.exec(raw)?.[1];
+  if (!microcredits || !height) return null;
+
+  return { microcredits: parseAmount(microcredits), height: Number(height) };
+}
+
+function parseWithdrawMapping(raw: string): string | null {
+  return ADDRESS_PLAINTEXT_REGEX.exec(normalizeAleoPlaintext(raw))?.[1] ?? null;
+}
+
+function parseStakingMapping<T>(
+  mapping: string,
+  raw: string | null,
+  parse: (raw: string) => T | null,
+): T | null {
+  // `res.data` is an unchecked cast, so treat any empty value as "no entry" rather than
+  // trusting the declared `string | null` — the node answers 200 + JSON null for that case.
+  if (!raw) return null;
+
+  const parsed = parse(raw);
+  if (parsed === null) {
+    log("aleo/stakingPosition", `unparseable ${mapping} mapping value`, { raw });
+    throw new Error(`aleo: unparseable ${mapping} mapping value`);
+  }
+
+  return parsed;
+}
+
+export function toStakingPosition({
+  bondedRaw,
+  unbondingRaw,
+  withdrawRaw,
+}: {
+  bondedRaw: string | null;
+  unbondingRaw: string | null;
+  withdrawRaw: string | null;
+}): AleoStakingPosition {
+  const bonded = parseStakingMapping("bonded", bondedRaw, parseBondedMapping);
+  const unbonding = parseStakingMapping("unbonding", unbondingRaw, parseUnbondingMapping);
+
+  return {
+    bondedBalance: bonded?.microcredits ?? new BigNumber(0),
+    bondedValidator: bonded?.validator ?? null,
+    unbondingBalance: unbonding?.microcredits ?? new BigNumber(0),
+    unbondingHeight: unbonding?.height ?? null,
+    withdrawalAddress: parseStakingMapping("withdraw", withdrawRaw, parseWithdrawMapping),
+  };
+}
+
+export function isTokenRecord(record: AleoPrivateRecord): boolean {
+  return (
+    record.record_name.toLowerCase() === TOKEN_RECORD_NAME.toLowerCase() &&
+    record.program_name !== PROGRAM_ID.CREDITS
+  );
+}
+
+export function classifyAleoTokenType(token: AleoTokenDetails): AleoTokenType {
+  if (token.token_standard?.toLowerCase() === "arc-20") return "arc20";
+  if (token.program_name === PROGRAM_ID.TOKEN_REGISTRY) return "arc21";
+  if (token.program_name.includes("stablecoin")) return "arc22";
+  return "unknown";
+}
+
+export function resolvePrivacyContext(context: AleoContext): {
+  provableId: string;
+  viewKey: string;
+} {
+  invariant(typeof context.provableId === "string", "aleo: provableId is missing");
+  invariant(typeof context.viewKey === "string", "aleo: viewKey is missing");
+
+  return {
+    provableId: context.provableId,
+    viewKey: context.viewKey,
+  };
 }
 
 export function patchAccountWithViewKey(account: Account, viewKey: string): Account {
@@ -156,15 +271,30 @@ export const determineTransactionType = (
   return "public";
 };
 
-function parseTransactionFields(rawTx: AleoPublicTransaction, address: string) {
-  const date = new Date(Number(rawTx.block_timestamp) * 1000);
+export function resolveTransactionAmount(rawTx: AleoPublicTransaction): BigNumber {
+  return new BigNumber(rawTx.amount_u128 ?? rawTx.amount);
+}
+
+export function hasPublicAddress(rawTx: AleoPublicTransaction): boolean {
+  return Boolean(rawTx.sender_address || rawTx.recipient_address);
+}
+
+/** Explorer and scanner both timestamp blocks in seconds. */
+export function toBlockDate(blockTimestamp: string | number): Date {
+  return new Date(Number(blockTimestamp) * 1000);
+}
+
+export function parseTransactionFields(rawTx: AleoPublicTransaction, address: string) {
+  const date = toBlockDate(rawTx.block_timestamp);
   const hasFailed = rawTx.transaction_status !== "Accepted";
   let type: OperationType = "NONE";
   const fee = rawTx.fee;
   const blockHash = rawTx.block_hash;
 
   if (rawTx.program_id === PROGRAM_ID.CREDITS) {
-    type = address === rawTx.recipient_address ? "IN" : "OUT";
+    // The indexer blanks both sides of a staking call, so no address comparison can type it.
+    type =
+      resolveStakingOperationType(rawTx) ?? (address === rawTx.recipient_address ? "IN" : "OUT");
   }
 
   const transactionType = determineTransactionType(rawTx.function_id, type);
@@ -172,103 +302,134 @@ function parseTransactionFields(rawTx: AleoPublicTransaction, address: string) {
   return { type, fee, blockHash, transactionType, date, hasFailed };
 }
 
-export const toCoinFrameworkOperation = (
+/**
+ * A program is only a token of a given standard because the token registry says so — nothing in the
+ * program id tells them apart, so a program the registry does not list stays "unknown".
+ */
+function toOperationAsset(
+  programId: string,
+  tokenTypeByProgramName: ReadonlyMap<string, AleoTokenType>,
+): AssetInfo {
+  return programId === PROGRAM_ID.CREDITS
+    ? { type: "native" }
+    : { type: tokenTypeByProgramName.get(programId) ?? "unknown", assetReference: programId };
+}
+
+/**
+ * `sender`/`recipient` are the addresses after a blank side was substituted with the account's own;
+ * `rawTx` still shows which sides the explorer actually published.
+ *
+ * A token transfer is typed IN/OUT here, where `parseTransactionFields` (still used by the classic
+ * bridge) returns NONE: the framework operation carries the program as its asset, so there is
+ * nothing left for NONE to guard.
+ */
+function resolveOperationType(
   rawTx: AleoPublicTransaction,
   address: string,
-): CoinFrameworkOperation => {
-  const { type, fee, blockHash, transactionType, date, hasFailed } = parseTransactionFields(
-    rawTx,
-    address,
-  );
+  sender: string,
+  recipient: string,
+): OperationType {
+  if (rawTx.sender_address === address && rawTx.recipient_address === address) return "IN";
+  if (sender === address) return "OUT";
+  if (recipient === address) return "IN";
+
+  return "NONE";
+}
+
+/**
+ * The account's own view of a public transaction, merged with what its private records reveal.
+ *
+ * `hasOwnedRecord` means a record the account owns shares this transaction, so an address the
+ * explorer left blank is the account's own private side.
+ *
+ * `resolvedRecipient` is the third-party recipient of a shield read back from the transition inputs
+ * (see resolveThirdPartyShieldRecipients) — the explorer blanks it and no owned record can stand in
+ * for it.
+ */
+export const toPublicOperation = ({
+  rawTx,
+  address,
+  hasOwnedRecord,
+  tokenTypeByProgramName,
+  resolvedRecipient,
+}: {
+  rawTx: AleoPublicTransaction;
+  address: string;
+  hasOwnedRecord: boolean;
+  tokenTypeByProgramName: ReadonlyMap<string, AleoTokenType>;
+  resolvedRecipient?: string;
+}): CoinFrameworkOperation => {
+  const hash = rawTx.transaction_id.trim();
+  const date = toBlockDate(rawTx.block_timestamp);
+  const sender = !rawTx.sender_address && hasOwnedRecord ? address : rawTx.sender_address;
+  const recipient =
+    !rawTx.recipient_address && hasOwnedRecord
+      ? address
+      : rawTx.recipient_address || (resolvedRecipient ?? "");
+  const stakingType = resolveStakingOperationType(rawTx);
+  const type = stakingType ?? resolveOperationType(rawTx, address, sender, recipient);
+  const value = stakingType ? new BigNumber(rawTx.fee) : resolveTransactionAmount(rawTx);
+
   return {
-    id: rawTx.transaction_id,
+    id: hash,
     type,
-    recipients: [rawTx.recipient_address],
-    senders: [rawTx.sender_address],
-    value: BigInt(rawTx.amount.toFixed(0)),
-    asset: { type: "native" },
+    senders: stakingType ? [] : [sender],
+    recipients: stakingType ? [] : [recipient],
+    value: BigInt(value.toFixed(0)),
+    asset: toOperationAsset(rawTx.program_id, tokenTypeByProgramName),
+    // No `validator`/`stakedAmount`: those cost one request per bond (see resolveBondArguments),
+    // which the api path does not spend.
     details: {
       functionId: rawTx.function_id,
-      transactionType,
+      transactionType: determineTransactionType(rawTx.function_id, type),
       ledgerOpType: type,
     },
     tx: {
-      hash: rawTx.transaction_id,
-      fees: BigInt(fee.toFixed(0)),
-      date: date,
+      hash,
+      fees: BigInt(new BigNumber(rawTx.fee).toFixed(0)),
+      date,
       block: {
-        hash: blockHash,
+        hash: rawTx.block_hash,
         height: rawTx.block_number,
         time: date,
       },
-      failed: hasFailed ?? false,
+      failed: rawTx.transaction_status !== "Accepted",
     },
   };
 };
 
-export const toBridgeOperation = (
-  ledgerAccountId: string,
-  rawTx: AleoPublicTransaction,
-  address: string,
-  isTokenTx?: boolean,
-): AleoOperation => {
-  const value = new BigNumber(rawTx.amount);
-  const { type, fee, blockHash, transactionType, date, hasFailed } = parseTransactionFields(
-    rawTx,
-    address,
-  );
-
-  if (value.isNaN() || value.lte(0)) {
-    log("aleo/toBridgeOperation", `Invalid raw transaction details for ${address}`, rawTx);
-  }
-
-  return {
-    id: encodeOperationId(ledgerAccountId, rawTx.transaction_id, type),
-    recipients: [rawTx.recipient_address],
-    senders: [rawTx.sender_address],
-    value,
-    type,
-    hasFailed,
-    hash: rawTx.transaction_id,
-    fee: new BigNumber(fee),
-    blockHeight: rawTx.block_number,
-    blockHash,
-    accountId: ledgerAccountId,
-    date,
-    extra: {
-      functionId: rawTx.function_id,
-      transactionType,
-      ...(isTokenTx && { programId: rawTx.program_id }),
-    },
-  };
-};
-
-export const toPrivateBridgeOperation = (
-  ledgerAccountId: string,
+export const toPrivateOperation = (
   enrichedRecord: EnrichedPrivateRecord,
   address: string,
-): AleoOperation => {
-  const transactionId = enrichedRecord.rawRecord.transaction_id.trim();
-  const blockHeight = enrichedRecord.rawRecord.block_height;
-  const timestamp = new Date(Number(enrichedRecord.rawRecord.block_timestamp) * 1000);
+  tokenTypeByProgramName: ReadonlyMap<string, AleoTokenType>,
+): CoinFrameworkOperation => {
+  const { rawRecord, details } = enrichedRecord;
+  const hash = rawRecord.transaction_id.trim();
+  const date = toBlockDate(rawRecord.block_timestamp);
   const type: OperationType = enrichedRecord.recipient === address ? "IN" : "OUT";
 
   return {
-    id: encodeOperationId(ledgerAccountId, transactionId, type),
+    id: hash,
+    type,
     senders: [enrichedRecord.sender],
     recipients: [enrichedRecord.recipient],
-    value: enrichedRecord.value,
-    type,
-    hasFailed: false,
-    hash: transactionId,
-    fee: new BigNumber(enrichedRecord.details.fee_value),
-    blockHeight,
-    blockHash: enrichedRecord.details.block_hash,
-    accountId: ledgerAccountId,
-    date: timestamp,
-    extra: {
-      functionId: enrichedRecord.rawRecord.function_name,
+    value: BigInt(enrichedRecord.value.toFixed(0)),
+    asset: toOperationAsset(rawRecord.program_name, tokenTypeByProgramName),
+    details: {
+      functionId: rawRecord.function_name,
       transactionType: "private",
+      ledgerOpType: type,
+    },
+    tx: {
+      hash,
+      fees: BigInt(new BigNumber(details.fee_value).toFixed(0)),
+      date,
+      block: {
+        hash: details.block_hash,
+        height: rawRecord.block_height,
+        time: date,
+      },
+      failed: details.status !== "Accepted",
     },
   };
 };
@@ -288,6 +449,22 @@ export function getTransactionType(intent: TransactionIntent): TransactionType {
   invariant(transactionType, `aleo: unsupported transaction intent type: ${intent.type}`);
 
   return transactionType;
+}
+
+export function buildFeeConfigurationForRootIntent({
+  isPrivate,
+  maxBaseFee,
+  maxPriorityFee,
+}: {
+  isPrivate: boolean;
+  maxBaseFee: bigint;
+  maxPriorityFee: bigint;
+}): FeeConfiguration {
+  return {
+    function_name: isPrivate ? "fee_private" : "fee_public",
+    max_base_fee: maxBaseFee.toString(),
+    max_priority_fee: maxPriorityFee.toString(),
+  };
 }
 
 export function getAleoSubAccount(
@@ -341,6 +518,11 @@ function getAmountToSpend({
     return tokenAccount?.transparentBalance ?? new BigNumber(0);
   }
 
+  // unbonding spends the bonded position; the fee is paid from the transparent balance
+  if (transaction.mode === TRANSACTION_TYPE.UNBOND_PUBLIC) {
+    return getAvailableBalance(account, transaction);
+  }
+
   const transparentBalance = account.aleoResources?.transparentBalance ?? new BigNumber(0);
 
   return BigNumber.max(0, transparentBalance.minus(estimatedFees));
@@ -356,7 +538,9 @@ export function calculateAmount({
   estimatedFees: BigNumber;
 }) {
   const amount = getAmountToSpend({ account, transaction, estimatedFees });
-  const totalSpent = isTokenTransaction(transaction) ? amount : amount.plus(estimatedFees);
+  const feePaidFromAnotherBalance =
+    isTokenTransaction(transaction) || transaction.mode === TRANSACTION_TYPE.UNBOND_PUBLIC;
+  const totalSpent = feePaidFromAnotherBalance ? amount : amount.plus(estimatedFees);
 
   return {
     amount,
@@ -386,6 +570,39 @@ export function getOperationTransactionType(transactionType: TransactionType): A
   }
 }
 
+export function getStakingOperationType(functionName: string): OperationType | undefined {
+  return Object.hasOwn(STAKING_OPERATION_TYPE, functionName)
+    ? STAKING_OPERATION_TYPE[functionName as AleoStakingMode]
+    : undefined;
+}
+
+/** Another program may expose a same-named function; only credits.aleo staking counts. */
+export function resolveStakingOperationType(
+  rawTx: AleoPublicTransaction,
+): OperationType | undefined {
+  return rawTx.program_id === PROGRAM_ID.CREDITS
+    ? getStakingOperationType(rawTx.function_id)
+    : undefined;
+}
+
+export function isStakingOperation(op: AleoOperation): boolean {
+  const { functionId, programId } = op.extra ?? {};
+  if (functionId === undefined) return false;
+
+  return programId === PROGRAM_ID.CREDITS && getStakingOperationType(functionId) !== undefined;
+}
+
+/** `functionId` works as the discriminant because no other family's extra carries one. */
+export function isAleoOperationExtra(extra: OperationExtra): extra is AleoOperationExtra {
+  return isRecord(extra) && "functionId" in extra;
+}
+
+export function isAleoOperationExtraRaw(
+  extraRaw: OperationExtraRaw,
+): extraRaw is AleoOperationExtraRaw {
+  return isRecord(extraRaw) && "functionId" in extraRaw;
+}
+
 export function isPublicTokenTransaction(transaction: Pick<Transaction, "mode">): boolean {
   return (
     transaction.mode === TRANSACTION_TYPE.TRANSFER_TOKEN_PUBLIC ||
@@ -404,6 +621,14 @@ export function isTokenTransaction(transaction: Pick<Transaction, "mode">): bool
   return isPublicTokenTransaction(transaction) || isPrivateTokenTransaction(transaction);
 }
 
+/** Unbond and claim move funds within the account itself, so the recipient is the sender. */
+export function isSelfStakingMode(transaction: Pick<Transaction, "mode">): boolean {
+  return (
+    transaction.mode === TRANSACTION_TYPE.UNBOND_PUBLIC ||
+    transaction.mode === TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC
+  );
+}
+
 export function isSelfTransferTransaction(
   transaction: Transaction,
 ): transaction is TransactionSelfTransfer {
@@ -419,6 +644,9 @@ export function isPublicTransaction(transaction: Transaction): transaction is Tr
   return (
     transaction.mode === TRANSACTION_TYPE.CONVERT_PUBLIC_TO_PRIVATE ||
     transaction.mode === TRANSACTION_TYPE.TRANSFER_PUBLIC ||
+    transaction.mode === TRANSACTION_TYPE.BOND_PUBLIC ||
+    transaction.mode === TRANSACTION_TYPE.UNBOND_PUBLIC ||
+    transaction.mode === TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC ||
     isPublicTokenTransaction(transaction)
   );
 }
@@ -450,7 +678,7 @@ export function derivePublicTransactionMode({
 }: {
   isTokenTx: boolean;
   isSelfTransfer: boolean;
-}): TransactionPublic["mode"] {
+}): Exclude<TransactionPublic["mode"], AleoStakingMode> {
   if (isTokenTx) {
     return isSelfTransfer
       ? TRANSACTION_TYPE.CONVERT_TOKEN_PUBLIC_TO_PRIVATE
@@ -511,12 +739,7 @@ export function findBestRecordForFee({
 
 function isPrivateOperation(operation: Operation): boolean {
   const { extra } = operation;
-  return (
-    typeof extra === "object" &&
-    extra !== null &&
-    "transactionType" in extra &&
-    extra.transactionType === "private"
-  );
+  return isRecord(extra) && "transactionType" in extra && extra.transactionType === "private";
 }
 
 export function splitPrivateAndPublicOperations(
@@ -540,7 +763,7 @@ export function hasSpecificIntentData<Type extends AleoTransactionIntentData["ty
   return "data" in txIntent && txIntent.data.type === expectedType;
 }
 
-function validateRecordsCount(transactionType: TransactionType, recordsCount: number): void {
+function validateRecordsCount(transactionType: Transaction["mode"], recordsCount: number): void {
   const isTokenTx = isTokenTransaction({ mode: transactionType });
   const maxRecords = isTokenTx
     ? MAX_PRIVATE_TOKEN_RECORDS_PER_TRANSACTION
@@ -702,6 +925,28 @@ export function mapTransactionIntentToSdkIntent(
         program_id: txIntent.data.programId,
       };
     }
+    case TRANSACTION_TYPE.BOND_PUBLIC: {
+      invariant(hasSpecificIntentData(txIntent, type), `aleo: intent data is required for ${type}`);
+      return {
+        type: "bond_public",
+        amount,
+        validator: to,
+        withdrawal: txIntent.data.withdrawal,
+      };
+    }
+    case TRANSACTION_TYPE.UNBOND_PUBLIC:
+    case TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC: {
+      // The intent carries a single address: for a bond it is the validator, for an unbond or a
+      // claim it is the staker — and the program only accepts the signing account as its own staker.
+      invariant(
+        to === txIntent.sender,
+        `aleo: ${type} staker must be the sender (recipient ${to}, sender ${txIntent.sender})`,
+      );
+
+      return type === TRANSACTION_TYPE.UNBOND_PUBLIC
+        ? { type: "unbond_public", amount, staker: to }
+        : { type: "claim_unbond_public", staker: to };
+    }
     default: {
       throw new Error(`aleo: unsupported intent type: ${type}`);
     }
@@ -715,12 +960,116 @@ export function fromHex<T>(txHex: string): T {
   return JSON.parse(Buffer.from(txHex, "hex").toString());
 }
 
-// this function is used to extract the fields that should be displayed in the operation details
+// `validator` is absent by design: this renders as plain text on both platforms, while desktop
+// shows it as a truncated, copyable address.
 export const getOperationDetailsExtraFields = (
   extra: AleoOperationExtra,
 ): OperationDetailsExtraField[] => {
   return [{ key: "functionId", value: extra.functionId }];
 };
+
+/**
+ * Normalizes a staking position — from the chain or from a previously synced account —
+ * into the slice stored on `aleoResources`.
+ */
+export function toStakingResources(source: AleoStakingResources | undefined): AleoStakingResources {
+  return {
+    bondedBalance: source?.bondedBalance ?? new BigNumber(0),
+    bondedValidator: source?.bondedValidator ?? null,
+    unbondingBalance: source?.unbondingBalance ?? new BigNumber(0),
+    unbondingHeight: source?.unbondingHeight ?? null,
+  };
+}
+
+/**
+ * The part of the balance that is staked: bonded plus unbonding. Owned by the account but
+ * not spendable until unbonded and claimed, so it belongs in `balance` and not
+ * `spendableBalance`. Zero for an empty slice, i.e. whenever staking is disabled.
+ */
+export function sumStakedBalance(resources: AleoStakingResources): BigNumber {
+  return (resources.bondedBalance ?? new BigNumber(0)).plus(resources.unbondingBalance ?? 0);
+}
+
+/**
+ * Unbonded funds become claimable once the chain reaches the height stored in the
+ * credits.aleo `unbonding` mapping. Uses the account's last synced blockHeight.
+ *
+ * Returns zero while staking is disabled, since the slice is then absent.
+ */
+export function getClaimableStakingBalance(account: AleoAccount): BigNumber {
+  const { unbondingBalance, unbondingHeight } = account.aleoResources ?? {};
+  if (!unbondingBalance || unbondingHeight === null || unbondingHeight === undefined)
+    return new BigNumber(0);
+  return account.blockHeight >= unbondingHeight ? unbondingBalance : new BigNumber(0);
+}
+
+/**
+ * The locked part of an unbonding entry. {@link getClaimableStakingBalance} is all-or-nothing, so
+ * the two never overlap.
+ */
+export function getUnstakingBalance(account: AleoAccount): BigNumber {
+  const unbondingBalance = account.aleoResources?.unbondingBalance ?? new BigNumber(0);
+  return unbondingBalance.minus(getClaimableStakingBalance(account));
+}
+
+/**
+ * Whether the unbonding entry is still waiting on the account's own height. Needs no live chain
+ * tip, so callers can use it to decide whether reading that tip is worth it at all.
+ */
+export function isUnbondingCountingDown({
+  unbondingHeight,
+  claimableBalance,
+  syncedHeight,
+}: {
+  unbondingHeight: number | null;
+  claimableBalance: BigNumber;
+  syncedHeight: number;
+}): boolean {
+  return !claimableBalance.gt(0) && unbondingHeight !== null && unbondingHeight > syncedHeight;
+}
+
+/**
+ * `syncedHeight` decides claimability, because the bridge validates the claim against that same
+ * height. `currentHeight` is the live chain tip and only drives the blocks the user reads.
+ * `isSettling` is the gap: chain past the height, account not yet caught up.
+ */
+export function getUnbondingDisplayState({
+  unbondingHeight,
+  claimableBalance,
+  syncedHeight,
+  currentHeight,
+}: {
+  unbondingHeight: number | null;
+  claimableBalance: BigNumber;
+  syncedHeight: number;
+  currentHeight: number;
+}): AleoUnbondingDisplayState {
+  const isClaimable = claimableBalance.gt(0);
+  const isCountingDown = isUnbondingCountingDown({
+    unbondingHeight,
+    claimableBalance,
+    syncedHeight,
+  });
+  const blocksLeft = unbondingHeight !== null ? Math.max(0, unbondingHeight - currentHeight) : null;
+  const isSettling = !isClaimable && blocksLeft === 0;
+
+  return { isClaimable, isCountingDown, isSettling, blocksLeft, currentHeight };
+}
+
+/**
+ * True while an operation of that type is still in the pending pool.
+ *
+ * The staking figures in `aleoResources` are read straight from the `credits.aleo` mappings
+ * on each sync and carry no optimistic adjustment, so between broadcast and the next sync
+ * `bondedBalance` and `unbondingBalance` still describe the pre-transaction chain state.
+ * A CTA driven by them alone would keep offering an amount the chain has already committed
+ * away — hence the guard on the pending pool rather than on the balances.
+ */
+export const hasPendingOperationType = (account: AleoAccount, type: OperationType): boolean =>
+  (account.pendingOperations ?? []).some(op => op.type === type);
+
+export const isFirstBondPending = (account: AleoAccount): boolean =>
+  !account.aleoResources?.bondedValidator && hasPendingOperationType(account, "BOND");
 
 /**
  * Returns the spendable balance for a given Aleo transaction mode.
@@ -736,7 +1085,12 @@ export function getAvailableBalance(account: AleoAccount, transaction: Transacti
     // spending public native balance
     case TRANSACTION_TYPE.TRANSFER_PUBLIC:
     case TRANSACTION_TYPE.CONVERT_PUBLIC_TO_PRIVATE:
+    case TRANSACTION_TYPE.BOND_PUBLIC:
       return account.aleoResources?.transparentBalance ?? new BigNumber(0);
+    case TRANSACTION_TYPE.UNBOND_PUBLIC:
+      return account.aleoResources?.bondedBalance ?? new BigNumber(0);
+    case TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC:
+      return getClaimableStakingBalance(account);
     // spending private native balance
     case TRANSACTION_TYPE.TRANSFER_PRIVATE:
     case TRANSACTION_TYPE.CONVERT_PRIVATE_TO_PUBLIC: {
@@ -841,9 +1195,11 @@ function buildTransactionIntentBase(
 export function createTransactionIntent({
   account,
   transaction,
+  tvks = [],
 }: {
   account: AleoAccount;
   transaction: Transaction;
+  tvks?: string[];
 }): AleoTransactionIntent {
   const tokenAccount = isTokenTransaction(transaction)
     ? getAleoSubAccount(account, transaction.subAccountId)
@@ -853,7 +1209,22 @@ export function createTransactionIntent({
   switch (transaction.mode) {
     case TRANSACTION_TYPE.TRANSFER_PUBLIC:
     case TRANSACTION_TYPE.CONVERT_PUBLIC_TO_PRIVATE:
+    case TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC:
       return base;
+
+    case TRANSACTION_TYPE.BOND_PUBLIC:
+      return {
+        ...base,
+        data: {
+          type: TRANSACTION_TYPE.BOND_PUBLIC,
+          withdrawal: transaction.withdrawal,
+        },
+      };
+    case TRANSACTION_TYPE.UNBOND_PUBLIC:
+      return {
+        ...base,
+        data: { type: TRANSACTION_TYPE.UNBOND_PUBLIC },
+      };
 
     case TRANSACTION_TYPE.TRANSFER_PRIVATE:
     case TRANSACTION_TYPE.CONVERT_PRIVATE_TO_PUBLIC:
@@ -867,6 +1238,7 @@ export function createTransactionIntent({
             maxRecords: MAX_PRIVATE_RECORDS_PER_TRANSACTION,
             findRecord: commitment => getRecordByCommitment({ account, commitment }),
           }),
+          tvks,
         },
       };
 
@@ -897,6 +1269,7 @@ export function createTransactionIntent({
             maxRecords: MAX_PRIVATE_TOKEN_RECORDS_PER_TRANSACTION,
             findRecord: commitment => getRecordByCommitment({ account, commitment, tokenAccount }),
           }),
+          tvks,
         },
       };
     }
@@ -1040,6 +1413,12 @@ export function getFunctionNameFromTransactionType(transactionType: TransactionT
       return "transfer_token_public_to_private";
     case TRANSACTION_TYPE.CONVERT_TOKEN_PRIVATE_TO_PUBLIC:
       return "transfer_token_private_to_public";
+    case TRANSACTION_TYPE.BOND_PUBLIC:
+      return "bond_public";
+    case TRANSACTION_TYPE.UNBOND_PUBLIC:
+      return "unbond_public";
+    case TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC:
+      return "claim_unbond_public";
     default:
       throw new Error(`aleo: unsupported transaction type: ${transactionType}`);
   }
@@ -1135,31 +1514,6 @@ export const getEstimatedSigningTime = (
   return `~${minutes} ${minuteShort}`;
 };
 
-/** CAL lookup by Aleo program name (contract address). Missing programs are omitted. */
-export async function getCalTokens({
-  currencyId,
-  programNames,
-}: {
-  currencyId: string;
-  programNames: string[];
-}): Promise<Map<string, TokenCurrency>> {
-  const calTokens = new Map<string, TokenCurrency>();
-  const uniqueProgramNames = [...new Set(programNames)];
-
-  await promiseAllBatched(4, uniqueProgramNames, async programName => {
-    const token = await getCryptoAssetsStore().findTokenByAddressInCurrency(
-      programName,
-      currencyId,
-    );
-
-    if (token) {
-      calTokens.set(programName, token);
-    }
-  });
-
-  return calTokens;
-}
-
 /** Narrows any cross-family transaction shape down to Aleo's own `Transaction` type. */
 export function isAleoTransaction(tx: { family: string }): tx is Transaction {
   return tx.family === "aleo";
@@ -1171,4 +1525,188 @@ export function isAleoAddressPlaintext(v: string): boolean {
 
 export function isAleoAmountPlaintext(v: string): boolean {
   return /^\d+u\d+$/.test(normalizeAleoPlaintext(v));
+}
+
+/**
+ * Ledger's batching wrappers suffix the wrapped function with the record count
+ * (transfer_private_2, transfer_public_to_private_4), so an exact name match misses them.
+ */
+export function stripBatcherSuffix(functionName: string): string {
+  return functionName.replace(/_\d+$/, "");
+}
+
+/**
+ * Whether a transition's (recipient, amount) arguments can be located by scanning for the first
+ * address-shaped argument. A batching wrapper keeps the wrapped function's argument order.
+ *
+ * Excludes transfer_from_*, whose first address argument is the sender, not the recipient.
+ */
+export function isParsableTransferFunction(functionName: string): boolean {
+  return PRIVATE_TRANSFER_FUNCTIONS.has(stripBatcherSuffix(functionName));
+}
+
+/**
+ * Takes a transfer transition's arguments in order (null where undecryptable or not a value) and
+ * returns the first address-shaped one plus the first amount-shaped one after it.
+ *
+ * No fixed offset works — all three argument layouts are deployed:
+ *   credits.aleo, ARC-20   (record, recipient, amount)
+ *   ARC-21, ARC-22         (recipient, amount, record, …)
+ *   token_registry.aleo    (token_id, recipient, amount, flag) for transfer_public_to_private
+ */
+export function findTransferArguments(plaintexts: (string | null)[]): {
+  recipient: string;
+  amount: string;
+} | null {
+  let recipient: string | null = null;
+
+  for (const plaintext of plaintexts) {
+    if (!plaintext) {
+      continue;
+    }
+
+    if (!recipient) {
+      if (isAleoAddressPlaintext(plaintext)) {
+        recipient = normalizeAleoPlaintext(plaintext);
+      }
+
+      continue;
+    }
+
+    if (isAleoAmountPlaintext(plaintext)) {
+      return {
+        recipient,
+        amount: normalizeAleoPlaintext(plaintext),
+      };
+    }
+  }
+
+  return null;
+}
+
+/** `latest/totalSupply` is untrusted JSON: a bare scalar, in **credits**. */
+export function parseTotalSupply(value: unknown): BigNumber | null {
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  const parsed = new BigNumber(value);
+
+  return parsed.isFinite() && parsed.isGreaterThan(0) ? parsed : null;
+}
+
+/**
+ * The network-wide gross staking rate before any validator commission, as a fraction
+ * (0.078 = 7.8%), or null when the inputs cannot yield one.
+ *
+ * Derived from the delegator's `block_reward * stake / total_stake` share in snarkVM
+ * (synthesizer/src/vm/helpers/rewards.rs).
+ */
+export function estimateGrossRate(
+  totalSupplyCredits: BigNumber,
+  totalStakeMicrocredits: BigNumber,
+): BigNumber | null {
+  if (!totalSupplyCredits.isFinite() || totalSupplyCredits.isLessThanOrEqualTo(0)) return null;
+  if (!totalStakeMicrocredits.isFinite() || totalStakeMicrocredits.isLessThanOrEqualTo(0)) {
+    return null;
+  }
+
+  const totalStakeCredits = totalStakeMicrocredits.dividedBy(MICROCREDITS_PER_CREDIT);
+
+  return totalSupplyCredits.multipliedBy(ANNUAL_INFLATION_RATE).dividedBy(totalStakeCredits);
+}
+
+/** Below this, `credits.aleo` pays the delegator nothing whatever its validator does. */
+export function isDelegatorBelowMinimum(delegatorStakeMicrocredits: BigNumber): boolean {
+  return delegatorStakeMicrocredits.isLessThan(MIN_DELEGATOR_STAKE_MICROCREDITS);
+}
+
+/**
+ * Why a validator pays its delegators nothing, or null when it pays. The single source
+ * of truth for these rules: {@link estimateNetRate} collapses all of them to a rate of
+ * exactly 0, so anything wanting to say *which* must ask here rather than infer.
+ */
+export function getValidatorNonEarningReason({
+  totalStakeMicrocredits,
+  validatorStakeMicrocredits,
+  commissionPercent,
+}: {
+  totalStakeMicrocredits: BigNumber;
+  validatorStakeMicrocredits: BigNumber;
+  commissionPercent: BigNumber;
+}): AleoValidatorNonEarningReason | null {
+  if (
+    validatorStakeMicrocredits
+      .dividedBy(totalStakeMicrocredits)
+      .isGreaterThan(MAX_VALIDATOR_STAKE_SHARE)
+  ) {
+    return "overConcentrated";
+  }
+  if (commissionPercent.isGreaterThanOrEqualTo(100)) return "fullCommission";
+
+  return null;
+}
+
+/**
+ * Whether a delegator may bond to this validator. A full-commission validator stays
+ * bondable — it pays nothing, which the picker warns about, but the network accepts
+ * the stake; a closed, unbonding or over-concentrated one does not.
+ */
+export function isValidatorBondable(
+  validator: Pick<AleoValidator, "isOpen" | "isUnbonding" | "nonEarningReason">,
+): boolean {
+  return (
+    validator.isOpen && !validator.isUnbonding && validator.nonEarningReason !== "overConcentrated"
+  );
+}
+
+/**
+ * What a delegator can expect from one validator: the gross network rate less that
+ * validator's commission, as a fraction (0.07 = 7%). A **lower bound** — every surface
+ * showing it must label it an estimate.
+ *
+ * Null means "cannot be derived", zero means "earns nothing"; not interchangeable.
+ */
+export function estimateNetRate({
+  totalSupplyCredits,
+  totalStakeMicrocredits,
+  validatorStakeMicrocredits,
+  commissionPercent,
+  delegatorStakeMicrocredits,
+}: {
+  totalSupplyCredits: BigNumber;
+  totalStakeMicrocredits: BigNumber;
+  validatorStakeMicrocredits: BigNumber;
+  commissionPercent: BigNumber;
+  /** The delegator's own position. Omit for the generic rate a picker shows. */
+  delegatorStakeMicrocredits?: BigNumber;
+}): BigNumber | null {
+  const grossRate = estimateGrossRate(totalSupplyCredits, totalStakeMicrocredits);
+  if (grossRate === null) return null;
+
+  if (!commissionPercent.isFinite() || commissionPercent.isLessThan(0)) return null;
+
+  const delegatorBelowMinimum =
+    delegatorStakeMicrocredits !== undefined && isDelegatorBelowMinimum(delegatorStakeMicrocredits);
+  const nonEarningReason = getValidatorNonEarningReason({
+    totalStakeMicrocredits,
+    validatorStakeMicrocredits,
+    commissionPercent,
+  });
+  if (delegatorBelowMinimum || nonEarningReason !== null) return new BigNumber(0);
+
+  const keptShare = new BigNumber(1).minus(commissionPercent.dividedBy(100));
+
+  return grossRate.multipliedBy(keptShare);
+}
+
+/**
+ * The smallest bond a delegator may submit given what is already bonded: enough for the
+ * projected total to clear MIN_DELEGATOR_STAKE_MICROCREDITS, never below the absolute
+ * MIN_BOND_AMOUNT_MICROCREDITS floor. Mirrors the two amount checks in
+ * `getTransactionStatus`.
+ */
+export function getMinBondAmount(bondedBalance: BigNumber = new BigNumber(0)): BigNumber {
+  const missingForDelegatorMinimum = new BigNumber(MIN_DELEGATOR_STAKE_MICROCREDITS).minus(
+    bondedBalance,
+  );
+
+  return BigNumber.max(MIN_BOND_AMOUNT_MICROCREDITS, missingForDelegatorMinimum);
 }

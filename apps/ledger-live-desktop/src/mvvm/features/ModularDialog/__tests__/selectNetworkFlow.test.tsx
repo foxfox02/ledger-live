@@ -9,15 +9,20 @@ import {
 } from "../../__mocks__/useSelectAssetFlow.mock";
 import { currencies, mockDomMeasurements, mockOnAssetSelected } from "../../__tests__/shared";
 import ModularDialogFlowManager from "../ModularDialogFlowManager";
+import type { CryptoOrTokenCurrency } from "@domain/entity-currency";
 
 jest.mock("@ledgerhq/live-common/modularDrawer/hooks/useAcceptedCurrency", () => ({
   useAcceptedCurrency: () => mockUseAcceptedCurrency(),
 }));
 
-const mockUseAcceptedCurrency = jest.fn(() => () => true);
+type CurrencyPredicate = (currency: CryptoOrTokenCurrency) => boolean;
+
+const acceptAllCurrencies: CurrencyPredicate = () => true;
+const mockUseAcceptedCurrency = jest.fn((): CurrencyPredicate => acceptAllCurrencies);
 
 beforeEach(() => {
   mockDomMeasurements();
+  mockUseAcceptedCurrency.mockImplementation(() => acceptAllCurrencies);
 });
 
 const dialogParamsMockCurrencies = {
@@ -40,6 +45,14 @@ const dialogParamsMixedCurrencies = {
   isOpen: true,
   dialogParams: {
     currencies: mixedCurrencies.map(currency => currency.id),
+    onAssetSelected: mockOnAssetSelected,
+  },
+};
+
+const dialogParamsWithSelectableNetworks = {
+  isOpen: true,
+  dialogParams: {
+    selectableNetworkIds: [ethereumCurrency.id],
     onAssetSelected: mockOnAssetSelected,
   },
 };
@@ -79,6 +92,68 @@ describe("ModularDialogFlowManager - Select Network Flow", () => {
     await user.click(bitcoinAsset);
 
     expect(mockOnAssetSelected).toHaveBeenCalledWith(bitcoinCurrency);
+  });
+
+  it("should render ineligible assets as disabled and prevent their selection", async () => {
+    // Narrow the catalog so the ineligible group stays within the virtualized window.
+    const displayedIds = new Set<string>([ethereumCurrency.id, bitcoinCurrency.id]);
+    mockUseAcceptedCurrency.mockImplementation(() => currency => displayedIds.has(currency.id));
+
+    const { user } = render(<ModularDialogFlowManager />, {
+      initialState: { modularDialog: dialogParamsWithSelectableNetworks },
+    });
+
+    await waitForSkeletonToBeRemoved();
+
+    expect(screen.getByTestId("asset-selector-unavailable-assets-header")).toBeInTheDocument();
+
+    const bitcoinAsset = screen.getByTestId("asset-item-ticker-btc");
+    expect(bitcoinAsset).toHaveAttribute("aria-disabled", "true");
+
+    await user.click(bitcoinAsset);
+
+    expect(mockOnAssetSelected).not.toHaveBeenCalled();
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("Bitcoin is not supported yet");
+
+    bitcoinAsset.parentElement?.focus();
+
+    expect(bitcoinAsset.parentElement).toHaveFocus();
+    expect(bitcoinAsset.parentElement?.tagName).toBe("BUTTON");
+    expect(bitcoinAsset.parentElement).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("should allow eligible assets to reach the full network list", async () => {
+    const { user } = render(<ModularDialogFlowManager />, {
+      initialState: { modularDialog: dialogParamsWithSelectableNetworks },
+    });
+
+    await waitForSkeletonToBeRemoved();
+
+    const ethereumAsset = screen.getByTestId("asset-item-ticker-eth");
+    expect(ethereumAsset).not.toHaveAttribute("aria-disabled", "true");
+
+    await user.click(ethereumAsset);
+
+    const ethereumNetwork = screen.getByTestId("network-item-name-Ethereum");
+    const arbitrumNetwork = screen.getByTestId("network-item-name-Arbitrum");
+    expect(arbitrumNetwork).toHaveAttribute("aria-disabled", "true");
+
+    await user.click(arbitrumNetwork);
+
+    expect(mockOnAssetSelected).not.toHaveBeenCalled();
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      "Arbitrum network is not supported yet",
+    );
+
+    arbitrumNetwork.parentElement?.focus();
+
+    expect(arbitrumNetwork.parentElement).toHaveFocus();
+    expect(arbitrumNetwork.parentElement?.tagName).toBe("BUTTON");
+    expect(arbitrumNetwork.parentElement).toHaveAttribute("aria-disabled", "true");
+
+    await user.click(ethereumNetwork);
+
+    expect(mockOnAssetSelected).toHaveBeenCalledWith(ethereumCurrency);
   });
 
   it("should navigate to NetworkSelection step after asset selection", async () => {

@@ -13,7 +13,7 @@ import {
   accountUserDataExportSelector,
   walletStateExportShouldDiffer,
   exportWalletState,
-} from "@ledgerhq/live-wallet/store";
+} from "~/renderer/reducers/wallet";
 import {
   trustchainStoreActionTypePrefix,
   trustchainStoreSelector,
@@ -29,10 +29,11 @@ import { marketBannerStoreSelector } from "../reducers/marketBanner";
 import {
   LARGE_SCREEN_UPSELL_MODAL,
   persistedLargeScreenUpsellModalSelector,
-} from "@domain/entity-large-screen-upsell-modal";
+} from "@features/flow-large-screen-upsell";
 import { knownDevicesStoreSelector } from "../reducers/knownDevices";
 import { exportIdentitiesForPersistence } from "@domain/entity-client-identity";
 import { accountsPersistedStateChanged } from "@ledgerhq/live-common/account/index";
+import { isPayAction, persistPayCard } from "./payPersistence";
 
 let DB_MIDDLEWARE_ENABLED = true;
 
@@ -90,7 +91,9 @@ const DBMiddleware: Middleware<object, State> = store => next => action => {
   if (action.type.startsWith(trustchainStoreActionTypePrefix)) {
     const res = next(action);
     const state = store.getState();
-    setKey("app", "trustchain", trustchainStoreSelector(state));
+    if (!state.application.isLocked) {
+      setKey("app", "trustchain", trustchainStoreSelector(state));
+    }
     return res;
   }
 
@@ -130,6 +133,12 @@ const DBMiddleware: Middleware<object, State> = store => next => action => {
     return res;
   }
 
+  if (isPayAction(action.type)) {
+    const res = next(action);
+    persistPayCard(store.getState());
+    return res;
+  }
+
   if (action.type.startsWith("cryptoAssetsApi/")) {
     const res = next(action);
     const state = store.getState();
@@ -148,8 +157,8 @@ const DBMiddleware: Middleware<object, State> = store => next => action => {
     }
   }
 
-  if (walletStateExportShouldDiffer(oldState.wallet, newState.wallet)) {
-    setKey("app", "wallet", exportWalletState(newState.wallet));
+  if (oldState.wallet && walletStateExportShouldDiffer(oldState, newState)) {
+    setKey("app", "wallet", exportWalletState(newState));
   }
 
   if (accountsPersistedStateChanged(oldState.accounts, newState.accounts)) {

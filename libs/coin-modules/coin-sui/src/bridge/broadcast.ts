@@ -1,5 +1,6 @@
 import { patchOperationWithHash } from "@ledgerhq/ledger-wallet-framework/operation";
 import type { AccountBridge } from "@ledgerhq/types-live";
+import suiConfig from "../config";
 import { broadcast as logicBroadcast } from "../logic";
 import { SuiSignedOperation, Transaction } from "../types";
 
@@ -20,16 +21,9 @@ export const broadcast: AccountBridge<Transaction>["broadcast"] = async ({
     signature,
     rawData: { unsigned },
   } = signedOperation as unknown as SuiSignedOperation;
-  const params = {
+  const hash = await logicBroadcast(suiConfig.getCoinConfig(account.currency.id), {
     transactionBlock: unsigned,
     signature,
-    options: {
-      showInput: true,
-      showBalanceChanges: true,
-      showEffects: true,
-      showEvents: true,
-    },
-  };
-  const hash = await logicBroadcast(params, account.currency.id);
+  });
   return patchOperationWithHash(operation, hash);
 };

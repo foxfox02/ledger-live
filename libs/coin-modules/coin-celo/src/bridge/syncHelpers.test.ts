@@ -1,13 +1,17 @@
 import { getCryptoCurrencyById } from "@ledgerhq/ledger-wallet-framework/currencies";
 import { getSyncHash as baseGetSyncHash } from "@ledgerhq/ledger-wallet-framework/account/sync";
 import { getEnv, setEnv } from "@ledgerhq/live-env";
-import type { TokenCurrency, CryptoCurrencyId } from "@ledgerhq/ledger-wallet-framework/types";
+import {
+  CryptoCurrencyIdSchema,
+  type TokenCurrency,
+  type CryptoCurrencyId,
+} from "@ledgerhq/ledger-wallet-framework/types";
 import BigNumber from "bignumber.js";
-import { getCoinConfig } from "@ledgerhq/coin-evm/config";
+import { getCoinConfig } from "../config";
 import { makeAccount, makeOperation, makeTokenAccount } from "./syncHelpers.fixtures";
 import { createSwapHistoryMap, getSyncHash, mergeSubAccounts } from "./syncHelpers";
 
-jest.mock("@ledgerhq/coin-evm/config");
+jest.mock("../config");
 const mockGetConfig = jest.mocked(getCoinConfig);
 
 jest.mock("@ledgerhq/ledger-wallet-framework/account/sync");
@@ -317,23 +321,19 @@ describe("Celo sync helpers", () => {
     it("should provide a new hash if currency is using a new node config", async () => {
       const hash1 = await getSyncHash({
         ...currency,
-        id: "celo",
-        ethereumLikeInfo: { chainId: 42220 },
+        id: CryptoCurrencyIdSchema.parse("celo"),
       });
       const hash2 = await getSyncHash({
         ...currency,
         id: "matic" as CryptoCurrencyId,
-        ethereumLikeInfo: { chainId: 42220 },
       });
       const hash3 = await getSyncHash({
         ...currency,
         id: "anything" as CryptoCurrencyId,
-        ethereumLikeInfo: { chainId: 42220 },
       });
       const hash4 = await getSyncHash({
         ...currency,
         id: "somethingelse" as CryptoCurrencyId,
-        ethereumLikeInfo: { chainId: 42220 },
       });
 
       const hashes = [hash1, hash2, hash3, hash4];
@@ -345,7 +345,7 @@ describe("Celo sync helpers", () => {
     it("should provide a new hash if currency is using a new explorer config", async () => {
       const hash1 = await getSyncHash({
         ...currency,
-        id: "celo",
+        id: CryptoCurrencyIdSchema.parse("celo"),
       });
       const hash2 = await getSyncHash({
         ...currency,

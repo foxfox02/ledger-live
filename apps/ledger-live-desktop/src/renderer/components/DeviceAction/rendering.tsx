@@ -33,7 +33,7 @@ import { Device } from "@ledgerhq/live-common/hw/actions/types";
 import { getMainAccount } from "@ledgerhq/live-common/account/index";
 import { isSyncOnboardingSupported } from "@ledgerhq/live-common/device/use-cases/screenSpecs";
 import { isDmkError } from "@ledgerhq/live-common/deviceSDK/tasks/core";
-import { accountNameSelector, WalletState } from "@ledgerhq/live-wallet/store";
+import { accountNameSelector, WalletState } from "~/renderer/reducers/wallet";
 import {
   DmkError,
   isInvalidGetFirmwareMetadataResponseError,
@@ -50,8 +50,8 @@ import { closeAllModal } from "~/renderer/actions/modals";
 import { closePlatformAppDrawer } from "~/renderer/actions/UI";
 import { setShouldResumeAddAccountAfterOnboarding } from "~/renderer/reducers/onboarding";
 import { HOOKS_TRACKING_LOCATIONS } from "~/renderer/analytics/hooks/variables";
-import { track } from "~/renderer/analytics/segment";
-import TrackPage, { setTrackingSource } from "~/renderer/analytics/TrackPage";
+import { TrackPage } from "@shared/analytics-react";
+import { track, setTrackingSource } from "@shared/analytics";
 import Animation from "~/renderer/animations";
 import Button, { Base as ButtonBase } from "~/renderer/components/Button";
 import TranslatedError from "~/renderer/components/TranslatedError";

@@ -23,13 +23,14 @@ import ToolTip from "~/renderer/components/Tooltip";
 import ClaimRewards from "~/renderer/icons/ClaimReward";
 import DelegateIcon from "~/renderer/icons/Delegate";
 import TableContainer, { TableHeader } from "~/renderer/components/TableContainer";
-import { CosmosAccount } from "@ledgerhq/live-common/families/cosmos/types";
-import cryptoFactory from "@ledgerhq/coin-cosmos/chain/chain";
+import cryptoFactory from "@ledgerhq/live-common/families/cosmos/chain";
 import { useLocalizedUrl } from "~/renderer/hooks/useLocalizedUrls";
 import { useAccountUnit } from "~/renderer/hooks/useAccountUnit";
 import cosmosBase from "@ledgerhq/coin-cosmos/chain/cosmosBase";
 import { useNavigate } from "react-router";
 import { getCurrencyConfiguration } from "@ledgerhq/live-common/config/index";
+import { getAccountUrl } from "~/renderer/utils";
+import type { CosmosAccount } from "@ledgerhq/live-common/families/cosmos/types";
 
 type DelegationActionsModalName =
   | "MODAL_COSMOS_CLAIM_REWARDS"
@@ -46,13 +47,11 @@ const Wrapper = styled(Box).attrs(() => ({
 const Delegation = ({ account }: { account: CosmosAccount }) => {
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  const { cosmosResources } = account;
   const {
     delegations,
     pendingRewardsBalance: _pendingRewardsBalance,
-    /** $FlowFixMe */
     unbondings,
-  } = cosmosResources;
+  } = account.stakingResources;
 
   const stakingUrl = useLocalizedUrl(urls.stakingCosmos);
   const validatorUrl = useLocalizedUrl(urls.ledgerValidator);
@@ -68,7 +67,7 @@ const Delegation = ({ account }: { account: CosmosAccount }) => {
       state: {
         yieldId: "cronos-cro-native-staking",
         accountId: account.id,
-        returnTo: `/account/${account.id}`,
+        returnTo: getAccountUrl(account.id),
       },
     });
   }, [account.id, navigate]);
@@ -127,7 +126,7 @@ const Delegation = ({ account }: { account: CosmosAccount }) => {
   );
   const hasDelegations = delegations.length > 0;
   const hasUnbondings = unbondings && unbondings.length > 0;
-  const hasRewards = _pendingRewardsBalance.gt(0);
+  const hasRewards = _pendingRewardsBalance?.gt(0) ?? false;
   const crypto = cryptoFactory(account.currency.id);
   return (
     <>

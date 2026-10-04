@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import type { DistributionItem } from "@ledgerhq/types-live";
-import { useInterestRatesByCurrencies } from "@ledgerhq/live-common/dada-client/hooks/useInterestRatesByCurrencies";
+import { useInterestRatesByCurrencies } from "@features/platform-aggregated-assets";
 import { getInterestRateForAsset } from "@ledgerhq/live-common/modularDrawer/utils/getInterestRateForAsset";
 import { useTranslation } from "react-i18next";
 import { useSelector } from "LLD/hooks/redux";
@@ -9,11 +9,11 @@ import {
   discreetModeSelector,
   localeSelector,
 } from "~/renderer/reducers/settings";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import { useStake } from "LLD/hooks/useStake";
 import useStakeFlow from "~/renderer/screens/stake";
 import { ASSET_DETAIL_TRACKING_PAGE_NAME } from "LLD/features/AssetDetail/constants";
-import { computeAvailableAndEarnDeposit } from "LLD/features/AssetDetail/utils/computeAvailableAndEarnDeposit";
+import { computeAvailableAndEarnDeposit } from "@ledgerhq/asset-aggregation/assetDistribution/index";
 import { computeFiatPortionsFromDistribution } from "LLD/features/AssetDetail/utils/computeFiatPortionsFromDistribution";
 import { formatFiatBalanceForDisplay } from "LLD/features/AssetDetail/utils/formatFiatBalanceForDisplay";
 
@@ -30,10 +30,11 @@ export function useStakingSectionViewModel(distributionItem: DistributionItem) {
   const fiatUnit = fiatCurrency.units[0];
   const { currency, accounts } = distributionItem;
   const currencyId = currency.id;
+  const referenceMagnitude = currency.units[0]?.magnitude ?? 0;
 
   const { availableBalance, earnDeposit } = useMemo(
-    () => computeAvailableAndEarnDeposit(accounts),
-    [accounts],
+    () => computeAvailableAndEarnDeposit(accounts, referenceMagnitude),
+    [accounts, referenceMagnitude],
   );
 
   const { getCanStakeCurrency } = useStake();

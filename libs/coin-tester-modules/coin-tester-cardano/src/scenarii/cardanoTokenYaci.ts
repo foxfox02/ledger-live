@@ -4,6 +4,7 @@ import type { Scenario } from "@ledgerhq/coin-tester/main";
 import type { GenericTransaction } from "@ledgerhq/live-common/bridge/generic-coin-framework/types";
 import { encodeTokenAccountId } from "@ledgerhq/ledger-wallet-framework/account";
 import type { TokenCurrency } from "@ledgerhq/ledger-wallet-framework/types";
+import { TokenCurrencyIdSchema } from "@ledgerhq/ledger-wallet-framework/types";
 import type { Account, TokenAccount } from "@ledgerhq/types-live";
 import BigNumber from "bignumber.js";
 import { CARDANO_TESTNET, FRESH_ADDRESS_PATH, makeAccount } from "../fixtures";
@@ -38,7 +39,13 @@ export const scenarioCardanoTokenYaci: Scenario<GenericTransaction, Account> = {
     LiveConfig.setConfig({
       config_currency_cardano_testnet: {
         type: "object",
-        default: { status: { type: "active" }, maxFeesWarning: 0, maxFeesError: 0 },
+        default: {
+          status: { type: "active" },
+          name: "Cardano (Testnet)",
+          unit: { name: "ada", code: "tADA", magnitude: 6 },
+          maxFeesWarning: 0,
+          maxFeesError: 0,
+        },
       },
     });
 
@@ -62,7 +69,7 @@ export const scenarioCardanoTokenYaci: Scenario<GenericTransaction, Account> = {
     owner = address;
     const token: TokenCurrency = {
       type: "TokenCurrency",
-      id: `cardano_testnet/native/${assetReference}`,
+      id: TokenCurrencyIdSchema.parse(`cardano_testnet/native/${assetReference}`),
       contractAddress: assetReference,
       parentCurrencyId: CARDANO_TESTNET.id,
       tokenType: "native",

@@ -1,6 +1,7 @@
-import { getNodeApi } from "@ledgerhq/coin-evm/network/node/index";
+import { getNodeApi } from "@ledgerhq/coin-evm/network";
+import type { EvmConfigInfo } from "@ledgerhq/coin-evm/config";
 import type { AccountLike } from "@ledgerhq/types-live";
-
+import { buildContext } from "../../../bridge/generic-coin-framework/api/context";
 /**
  * Check if a transaction has been confirmed on the network
  * A confirmed transaction has been included in a block and
@@ -20,10 +21,12 @@ export const isTransactionConfirmed = async ({
   if (account.type !== "Account") {
     return false;
   }
-  const nodeApi = getNodeApi(account.currency);
+  const evmCtx = buildContext<EvmConfigInfo>(account.currency.id);
+  const config = await evmCtx.config();
+  const nodeApi = getNodeApi(config, account.currency.id, evmCtx.logger);
 
   try {
-    const { blockHeight = null } = await nodeApi.getTransaction(account.currency, hash);
+    const { blockHeight = null } = await nodeApi.getTransaction(account.currency.id, hash);
     return blockHeight !== null;
   } catch (e: unknown) {
     const err = e as { name?: string; status?: number } | null | undefined;

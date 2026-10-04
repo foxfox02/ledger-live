@@ -1,3 +1,4 @@
+import { track } from "@shared/analytics";
 import type { FlashListProps } from "@shopify/flash-list";
 import { getCryptoCurrencyById } from "@domain/entity-currency-crypto";
 import { useCallback, useMemo } from "react";
@@ -6,7 +7,6 @@ import { useFocusEffect, useNavigation } from "@react-navigation/core";
 import { useRefreshAccountsOrdering } from "~/actions/general";
 import { flattenAccountsSelector } from "~/reducers/accounts";
 import { GestureResponderEvent } from "react-native";
-import { track } from "~/analytics";
 import { NavigatorName, ScreenName } from "~/const";
 import {
   BaseNavigationComposite,
@@ -15,10 +15,9 @@ import {
 import { AccountsNavigatorParamList } from "~/components/RootNavigator/types/AccountsNavigator";
 import { PortfolioNavigatorStackParamList } from "~/components/RootNavigator/types/PortfolioNavigator";
 import { Account, TokenAccount } from "@ledgerhq/types-live";
-import { accountNameWithDefaultSelector } from "@ledgerhq/live-wallet/store";
-import { walletSelector } from "~/reducers/wallet";
+import { accountNameWithDefaultSelector, walletSelector } from "~/reducers/wallet";
 import isEqual from "lodash/isEqual";
-import { orderAccountsByFiatValue } from "@ledgerhq/live-countervalues/portfolio";
+import { orderAccountsByFiatValue } from "@ledgerhq/live-common/portfolio/portfolio";
 import { useCountervaluesState } from "@ledgerhq/live-countervalues-react/index";
 import { blacklistedTokenIdsSelector, counterValueCurrencySelector } from "~/reducers/settings";
 import { TrackingEvent } from "../enums";

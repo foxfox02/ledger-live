@@ -1,7 +1,10 @@
+import type { OperationType } from "@ledgerhq/types-live";
+
 export const ALEO_DUMMY_ADDRESS = "aleo14pfq40wgltv8wrhsxqe5tlme4pkp448rfejfvqhd4yj0qycs7c9s2xkcwv";
 
 export const PROGRAM_ID = {
   CREDITS: "credits.aleo",
+  TOKEN_REGISTRY: "token_registry.aleo",
 };
 
 export const EXPLORER_TRANSFER_TYPES = {
@@ -21,7 +24,20 @@ export const TRANSACTION_TYPE = {
   TRANSFER_TOKEN_PRIVATE: "transfer_token_private",
   CONVERT_TOKEN_PRIVATE_TO_PUBLIC: "convert_token_private_to_public",
   CONVERT_TOKEN_PUBLIC_TO_PRIVATE: "convert_token_public_to_private",
+  BOND_PUBLIC: "bond_public",
+  UNBOND_PUBLIC: "unbond_public",
+  CLAIM_UNBOND_PUBLIC: "claim_unbond_public",
 } as const;
+
+// The three staking modes are named exactly after the credits.aleo functions they call, so this
+// one table serves both a mode on the craft path and a `function_id` read back from the indexer.
+export const STAKING_OPERATION_TYPE = {
+  [TRANSACTION_TYPE.BOND_PUBLIC]: "BOND",
+  [TRANSACTION_TYPE.UNBOND_PUBLIC]: "UNBOND",
+  [TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC]: "WITHDRAW_UNBONDED",
+} as const satisfies Record<string, OperationType>;
+
+export const FEE_INTENT_TYPES = new Set(["fee_public", "fee_private"]);
 
 // Function names that represent actual private token transfers between parties.
 // Used to exclude internal operations (split, join, fee_private, etc.) from history.
@@ -29,6 +45,14 @@ export const PRIVATE_TRANSFER_FUNCTIONS = new Set([
   EXPLORER_TRANSFER_TYPES.PRIVATE,
   EXPLORER_TRANSFER_TYPES.PRIVATE_TO_PUBLIC,
   EXPLORER_TRANSFER_TYPES.PUBLIC_TO_PRIVATE,
+]);
+
+// Functions that produce owned records without transferring anything,
+// so their transition holds no recipient and no amount.
+export const NON_TRANSFER_FUNCTIONS = new Set([
+  "join",
+  "split",
+  EXPLORER_TRANSFER_TYPES.FEE_PRIVATE,
 ]);
 
 // Semi-public function names that cross the public/private boundary.
@@ -42,14 +66,16 @@ export const SEMI_PUBLIC_TOKEN_FUNCTIONS = new Set([
 // Each record with this value in `record_name` field is a token record.
 export const TOKEN_RECORD_NAME = "Token";
 
-// Indexes based on aleo credits program args
-// ref: https://developer.aleo.org/concepts/fundamentals/credits/#transfer_public
-export const RECIPIENT_ARG_INDEX = 1;
-export const AMOUNT_ARG_INDEX = 2;
-
 // The maximum amount of records to fetch in a single API call when fetching owned records.
 // This is not a limit on the total number of records that can be fetched, but rather a pagination parameter for the API calls.
 export const DEFAULT_RECORDS_PAGE_SIZE = 1000;
+
+// Pagination parameter for GET /tokens calls when fetching the full token registry.
+export const DEFAULT_TOKENS_PAGE_SIZE = 1000;
+
+// Hard cap of the explorer's public transitions endpoint — above it, 400 "Limit must be between 1
+// and 50". Counts transitions, not transactions: one transaction can span several rows.
+export const MAX_TRANSITIONS_PER_PAGE = 50;
 
 /**
  * Progress phase boundaries for private sync.
@@ -65,6 +91,9 @@ export const PROGRESS_AFTER_PARSING_RECORDS = 30; // 65 → 95
 export const PROGRESS_DONE = 100;
 export const PROGRESS_THROTTLE_MIN_STEP = 5;
 
+// Root transition + up to 30 nested calls, within the device limit of n < 32 per signing session.
+export const MAX_SIGNATURES_PER_TRANSACTION = 31;
+
 // The maximum number of private records that can be included in a single transaction.
 export const MAX_PRIVATE_RECORDS_PER_TRANSACTION = 14;
 
@@ -78,3 +107,22 @@ export const BALANCED_PRIVATE_RECORDS_PER_TRANSACTION = 8;
 
 // The estimated time in milliseconds it takes to sign a single record during transaction signing.
 export const SINGLE_CALL_SIGNING_TIME = 12500;
+
+export const MICROCREDITS_PER_CREDIT = 1_000_000;
+
+// Below this bonded total the protocol pays a delegator nothing at all.
+export const MIN_DELEGATOR_STAKE_MICROCREDITS = 10_000 * MICROCREDITS_PER_CREDIT;
+
+// credits.aleo `bond_public` rejects a bond of less than one credit outright, independently of
+// the delegator total above.
+export const MIN_BOND_AMOUNT_MICROCREDITS = MICROCREDITS_PER_CREDIT;
+
+// snarkVM `block_reward_v2` adds a coinbase share and transaction fees on top, so
+// rates derived from this alone are a lower bound.
+export const ANNUAL_INFLATION_RATE = 0.05;
+
+// A validator above this share of total stake earns zero, not a reduced rate.
+export const MAX_VALIDATOR_STAKE_SHARE = 0.25;
+
+// Short enough that a validator that has just closed is not offered for long.
+export const ALEO_VALIDATORS_CACHE_MINUTES = 5;

@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 env:
-  COIN_TESTER_CURRENCIES: "evm polkadot solana bitcoin tezos tron xrp stellar multiversx cosmos cardano"
+  COIN_TESTER_CURRENCIES: "evm polkadot solana bitcoin tezos tron xrp stellar multiversx cosmos cardano casper vechain near stacks kaspa zcash"
 
 jobs:
   is-affected:
@@ -27,29 +27,12 @@ jobs:
     outputs:
       is-affected: ${{ steps.detect.outputs.is-affected }}
       matrix: ${{ steps.detect.outputs.matrix }}
+    permissions:
+      pull-requests: read
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: develop
-          fetch-depth: 0
-
-      - name: Checkout PR
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          gh pr checkout "$PR_NUMBER"
-
-      - name: Checkout push/ref
-        if: ${{ github.event_name != 'pull_request' }}
-        run: git checkout $GITHUB_SHA
-
       - name: Run live-common-affected
-        uses: LedgerHQ/ledger-live/tools/actions/live-common-affected@develop
+        uses: LedgerHQ/ledger-live/tools/actions/composites/live-common-affected@develop
         id: affected
-        with:
-          ref: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || 'HEAD^' }}
 
       - name: Build matrix from affected paths or manual input
         id: detect
@@ -156,7 +139,25 @@ jobs:
       - name: Setup environment
         uses: LedgerHQ/ledger-live/tools/actions/composites/setup-coin-tester-env@develop
 
+      # coin-tester-stacks builds a patched clarinet from source (~13 min) when its binary is missing.
+      # The key hashes docker/clarinet/**, which holds the pinned commit, patches and toolchain.
+      # Restore and save are split so a successful build is kept even when the tests fail.
+      - name: Restore the patched clarinet binary
+        id: clarinet-cache
+        if: matrix.chain == 'stacks'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: libs/coin-tester-modules/coin-tester-stacks/.clarinet-cache
+          key: ${{ runner.os }}-${{ runner.arch }}-clarinet-${{ hashFiles('libs/coin-tester-modules/coin-tester-stacks/docker/clarinet/**') }}
+
       - name: Run Coin Tester
         uses: LedgerHQ/ledger-live/tools/actions/composites/run-coin-tester@develop
         with:
           chain: ${{ matrix.chain }}
+
+      - name: Save the patched clarinet binary
+        if: always() && matrix.chain == 'stacks' && steps.clarinet-cache.outputs.cache-hit != 'true' && hashFiles('libs/coin-tester-modules/coin-tester-stacks/.clarinet-cache/*/clarinet') != ''
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: libs/coin-tester-modules/coin-tester-stacks/.clarinet-cache
+          key: ${{ steps.clarinet-cache.outputs.cache-primary-key }}

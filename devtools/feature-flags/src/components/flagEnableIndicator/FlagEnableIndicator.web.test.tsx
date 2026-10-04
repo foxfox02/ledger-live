@@ -1,11 +1,11 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen } from "@support/jest-devtools/web";
 import { FlagEnableIndicator } from "./FlagEnableIndicator";
 
 describe("FlagEnableIndicator", () => {
   it("renders 'On' with success styling when enabled", () => {
     const { container } = render(<FlagEnableIndicator enabled={true} />);
     expect(screen.getByText("On")).toBeInTheDocument();
-    expect(container.querySelector(".bg-success")).toBeInTheDocument();
+    expect(container.querySelector(".bg-success-transparent")).toBeInTheDocument();
     expect(container.querySelector(".bg-success-strong")).toBeInTheDocument();
   });
 

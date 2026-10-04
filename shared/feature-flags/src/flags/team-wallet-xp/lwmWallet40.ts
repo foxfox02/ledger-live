@@ -3,7 +3,6 @@ import { flagWith } from "../../define";
 
 export const lwmWallet40 = flagWith(
   {
-    tour: z.boolean(),
     lazyOnboarding: z.boolean(),
     assetSection: z.boolean(),
     operationsList: z.boolean(),
@@ -14,12 +13,10 @@ export const lwmWallet40 = flagWith(
     assetDiscoverability: z.boolean(),
     earnUpselling: z.boolean().optional(),
     earnSimulator: z.boolean().optional(),
-    q2Tour: z.boolean().optional(),
   },
   {
     enabled: true,
     params: {
-      tour: true,
       lazyOnboarding: true,
       assetSection: true,
       operationsList: true,
@@ -29,7 +26,6 @@ export const lwmWallet40 = flagWith(
       assetDiscoverability: true,
       earnUpselling: false,
       earnSimulator: false,
-      q2Tour: false,
     },
   },
 );

@@ -15,8 +15,8 @@ This agent guides you through adding or updating E2E tests for ledger-live-deskt
 
 - `e2e/desktop/tests/specs/` — test scenarios (`.spec.ts`)
 - `e2e/desktop/tests/page/` — Page Objects with reusable actions
-- `e2e/desktop/tests/utils/` — CLI utilities, Speculos helpers
-- `libs/ledger-live-common/src/e2e/` — shared e2e enums and families
+- `e2e/desktop/tests/utils/` — desktop test helpers (tags, feature flags, Allure)
+- `libs/live-e2e-shared/src/` — shared e2e enums, families, and Speculos helpers
 
 ---
 
@@ -41,7 +41,7 @@ When the user wants to add e2e tests for a new coin, follow these steps and **as
 
 ### Step 1: Add Network enum
 
-[File](/libs/ledger-live-common/src/e2e/enum/Network.ts)
+[File](/libs/live-e2e-shared/src/enum/Network.ts)
 
 ```typescript
 NEWCOIN = "NewCoin",
@@ -49,7 +49,7 @@ NEWCOIN = "NewCoin",
 
 ### Step 2: Add AppInfos
 
-[File](/libs/ledger-live-common/src/e2e/enum/AppInfos.ts)
+[File](/libs/live-e2e-shared/src/enum/AppInfos.ts)
 
 ```typescript
 static readonly NEWCOIN = new AppInfos("NewCoin");
@@ -57,7 +57,7 @@ static readonly NEWCOIN = new AppInfos("NewCoin");
 
 ### Step 3: Add Currency
 
-[File](/libs/ledger-live-common/src/e2e/enum/Currency.ts)
+[File](/libs/live-e2e-shared/src/enum/Currency.ts)
 
 **Ask user for:** name, ticker, currency_id
 
@@ -67,7 +67,7 @@ static readonly NEWCOIN = new Currency("NewCoin", "TICKER", "currency_id", AppIn
 
 ### Step 4: Add Accounts
 
-[File](/libs/ledger-live-common/src/e2e/enum/Account.ts)
+[File](/libs/live-e2e-shared/src/enum/Account.ts)
 
 **Ask user for:** account derivation path (BIP44)
 
@@ -78,7 +78,7 @@ static readonly NEWCOIN_2 = new Account(Currency.NEWCOIN, "NewCoin 2", 1, "44'/x
 
 ### Step 5: Add family file (if new family)
 
-[File](/libs/ledger-live-common/src/e2e/families/newcoin.ts)
+[File](/libs/live-e2e-shared/src/families/newcoin.ts)
 
 **Ask user:** "Does this coin belong to an existing family (evm, bitcoin, cosmos...)?"
 
@@ -87,13 +87,13 @@ static readonly NEWCOIN_2 = new Account(Currency.NEWCOIN, "NewCoin 2", 1, "44'/x
 
 ```typescript
 import { Transaction } from "../models/Transaction";
-import { getSendEvents, containsSubstringInEvent } from "../speculos";
+import { getSendEvents, expectSpeculosEventsContain } from "../speculos";
 // implement sendNewCoin function
 ```
 
 ### Step 6: Add to speculos.ts
 
-[File](libs/ledger-live-common/src/e2e/speculos.ts)
+[File](/libs/live-e2e-shared/src/speculos.ts)
 
 **6a. Add to `specs` object:**
 
@@ -120,7 +120,7 @@ case Currency.NEWCOIN.id:
 
 [File](e2e/desktop/tests/specs/send.tx.spec.ts)
 
-**Ask user for:** valid unique xray ticket number
+**Ask user for:** a valid, unused `B2CQA-XXXX` test id
 
 ```typescript
 {
@@ -177,6 +177,13 @@ test.use({
 - **Speculos:** `Account.currency.speculosApp`
 - **CLI commands:** `liveDataCommand`, `liveDataWithAddressCommand`, `liveDataWithRecipientAddressCommand`
 
+### Pay tab
+
+A spec that needs an injected Card session must live under `specs/paytab/`. The card-session reporter
+mints once before workers when a selected spec path contains `/paytab/`. `--grep` is already applied,
+so a smoke run that does not select that spec does not log in. The fixture injects the session when
+the spec path contains `/paytab/`. A Pay tab spec anywhere else launches signed out.
+
 ---
 
 ## Commands
@@ -192,12 +199,13 @@ test.use({
 ## Best Practices
 
 - **Never use hardcoded timeouts** (e.g., `page.waitForTimeout(1000)`)
-- Use `@step` decorator in Page Objects
+- Do not use Playwright's `test.step()`; use the `@step` decorator in Page Objects instead for reusable, consistently reported steps
 - Access methods via `app` fixture (e.g., `app.layout`, `app.send`, `app.speculos`)
 - **MANDATORY:** Test on all 6 device models (LNS, LNSP, LNX, STAX, FLEX, NG5) before marking tests complete
-- **Every `test()` must include a TMS annotation** with a valid Xray ticket ID. Omitting it causes
-  `getDescription(test.info().annotations, "TMS")` to return the literal string `"Type not found"`,
-  which `addTmsLink()` and the JSON reporter then propagate as a bogus Xray entry.
+- **Every `test()` must include a TMS annotation** with a valid `B2CQA-XXXX` id. The `annotationLinks` auto
+  fixture reads that annotation and publishes the Allure TMS link before any other fixture runs, so
+  the link is present even when CLI/Speculos setup fails and the body never executes. Never call
+  `addTmsLink()` from a test body — a test with no annotation simply gets no link.
 
   ```typescript
   const xrayTicket = "B2CQA-XXXX"; // obtain from QA before merging

@@ -1,3 +1,4 @@
+import { TrackScreen } from "@shared/analytics-react";
 import React, { useCallback, useState } from "react";
 import { Slides } from "@ledgerhq/native-ui";
 import Animated from "react-native-reanimated";
@@ -6,14 +7,13 @@ import { LayoutChangeEvent, Platform, StyleSheet, View, useWindowDimensions } fr
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Box, BottomSheetView, IconButton } from "@ledgerhq/lumen-ui-rnative";
 import { Close } from "@ledgerhq/lumen-ui-rnative/symbols";
-import QueuedBottomSheet from "LLM/components/QueuedDrawer/QueuedBottomSheet";
+import { QueuedBottomSheet } from "@shared/ui-queued-bottom-sheet";
+import { ProgressIndicator } from "LLM/components/Slides";
 import { useTranslation } from "~/context/Locale";
-import { TrackScreen } from "~/analytics";
 import { useProductTourControls } from "../context/ProductTourControlsContext";
 import { useProductTourDrawerViewModel } from "./hooks/useProductTourDrawerViewModel";
 import { SlideItem } from "./components/SlideItem";
 import { SlideFooterButton } from "./components/SlideFooterButton";
-import { ProgressIndicator } from "./components/ProgressIndicator";
 import {
   PAGE_TRACKING_PRODUCT_TOUR,
   PRODUCT_TOUR_SHEET_CHROME_HEIGHT,

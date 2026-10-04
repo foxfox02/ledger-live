@@ -1,9 +1,9 @@
+import { track } from "@shared/analytics";
 import React from "react";
 import { Linking } from "react-native";
 import { render, screen } from "@tests/test-renderer";
 import { EarnMenuBottomSheet } from "../EarnMenuBottomSheet";
 import { State } from "~/reducers/types";
-import { track } from "~/analytics";
 import { NavigatorName, ScreenName } from "~/const";
 
 const mockNavigate = jest.fn();
@@ -28,26 +28,32 @@ jest.mock("@ledgerhq/lumen-ui-rnative", () => {
   };
 });
 
-jest.mock("LLM/components/QueuedDrawer/QueuedBottomSheet", () => {
+jest.mock("@shared/ui-queued-bottom-sheet", () => {
+  const actual = jest.requireActual("@shared/ui-queued-bottom-sheet");
   const { View, Text, Pressable } = require("react-native");
-  return function MockQueuedBottomSheet({
-    children,
-    onClose,
-    isRequestingToBeOpened,
-  }: {
-    children: React.ReactNode;
-    onClose: () => void;
-    isRequestingToBeOpened: boolean;
-  }) {
-    return (
-      <View testID="queued-drawer-bottom-sheet">
-        <Text testID="is-requesting-to-be-opened">{isRequestingToBeOpened ? "true" : "false"}</Text>
-        {children}
-        <Pressable testID="close-bottom-sheet" onPress={onClose}>
-          <Text>Close</Text>
-        </Pressable>
-      </View>
-    );
+  return {
+    ...actual,
+    QueuedBottomSheet: function MockQueuedBottomSheet({
+      children,
+      onClose,
+      isRequestingToBeOpened,
+    }: {
+      children: React.ReactNode;
+      onClose: () => void;
+      isRequestingToBeOpened: boolean;
+    }) {
+      return (
+        <View testID="queued-drawer-bottom-sheet">
+          <Text testID="is-requesting-to-be-opened">
+            {isRequestingToBeOpened ? "true" : "false"}
+          </Text>
+          {children}
+          <Pressable testID="close-bottom-sheet" onPress={onClose}>
+            <Text>Close</Text>
+          </Pressable>
+        </View>
+      );
+    },
   };
 });
 

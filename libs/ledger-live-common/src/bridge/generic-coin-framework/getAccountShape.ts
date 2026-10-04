@@ -1,24 +1,46 @@
 import { encodeAccountId, getSyncHash } from "@ledgerhq/ledger-wallet-framework/account/index";
 import { GetAccountShape, mergeOps } from "@ledgerhq/ledger-wallet-framework/bridge/jsHelpers";
+import { getDerivationScheme } from "@ledgerhq/ledger-wallet-framework/derivation";
 import { encodeOperationId } from "@ledgerhq/ledger-wallet-framework/operation";
 import { log } from "@ledgerhq/logs";
 import BigNumber from "bignumber.js";
 import groupBy from "lodash/groupBy";
+import { A4Client } from "./a4/client/index";
+import { deriveA4AccountId } from "./a4/client/accountId";
+import { fetchA4Operations } from "./a4/client/operations";
+import { ensureA4Registered } from "./a4/client/registration";
+import { toA4Network, resolveA4BaseUrl } from "./a4/client/utils";
+import { toA4HttpError } from "./a4/client/errors";
+import { resolveA4ChainConfig } from "./a4/config";
+import { logA4 } from "./a4/log";
 import { getCoinModuleApi } from "./api";
+import { buildContext } from "./api/context";
 import { getBridgeApi } from "./bridge";
-import { adaptCoreOperationToLiveOperation, cleanedOperation, extractBalance } from "./utils";
+import { getAccountRawAssignHooks } from "./accountRawAssign";
+import {
+  adaptCoreOperationToLiveOperation,
+  cleanedOperation,
+  extractBalance,
+  optionalNumeric,
+} from "./utils";
 import { inferSubOperations } from "@ledgerhq/ledger-wallet-framework/serialization";
 import { buildSubAccounts, mergeSubAccounts } from "./buildSubAccounts";
+import { paginateOperations } from "./paginateOperations";
 import type { Balance, Operation, Stake } from "@ledgerhq/coin-module-framework/api/types";
 import type { OperationCommon } from "./types";
 import type {
   Account,
   AccountReadiness,
   StakingDelegation,
+  StakingDelegationStatus,
+  StakingPositionDetails,
   StakingResources,
   StakingUnbonding,
   TokenAccount,
 } from "@ledgerhq/types-live";
+import { UnexpectedGetBalanceError } from "@ledgerhq/coin-module-framework/errors";
+import { CurrencyRegionRestrictedError } from "../../errors";
+import { isRegionRestrictedFailure } from "./regionRestriction";
 
 function isNftCoreOp(operation: Operation): boolean {
   return (
@@ -54,17 +76,40 @@ function hasDeactivatingStake(balance: Balance): balance is Balance & {
   stake: Stake;
 } {
   const state = balance.stake?.state;
-  return state === "deactivating" || state === "withdrawable";
-}
-
-function hasStakeDelegate<T extends Balance & { stake: Stake }>(
-  balance: T,
-): balance is T & { stake: Stake & { delegate: string } } {
-  return typeof balance.stake.delegate === "string" && balance.stake.delegate.length > 0;
+  // `inactive` would otherwise fall through both lists and vanish from `stakingResources`.
+  return state === "deactivating" || state === "withdrawable" || state === "inactive";
 }
 
 function delegatedAmountForStakingResources(b: Balance): bigint {
   return b.stake?.amount ?? 0n;
+}
+
+function deriveDelegationStatus(
+  stakeState: Stake["state"],
+  detailStatus: unknown,
+): StakingDelegationStatus {
+  if (stakeState === "activating") return "activating";
+  if (detailStatus === "unbonding" || detailStatus === "unbonded") return detailStatus;
+  return "bonded";
+}
+
+function stakingPositionDetails(stake: Stake): StakingPositionDetails {
+  const details = stake.details ?? {};
+  const activeAmount = optionalNumeric(details.activeAmount);
+  const inactiveAmount = optionalNumeric(details.inactiveAmount);
+  const withdrawableAmount = optionalNumeric(details.withdrawableAmount);
+  const lockedReserve = optionalNumeric(details.lockedReserve);
+
+  // `!== undefined`, not truthiness: a zero amount is meaningful.
+  return {
+    ...(stake.uid ? { positionId: stake.uid } : {}),
+    ...(activeAmount !== undefined ? { activeAmount } : {}),
+    ...(inactiveAmount !== undefined ? { inactiveAmount } : {}),
+    ...(withdrawableAmount !== undefined ? { withdrawableAmount } : {}),
+    ...(lockedReserve !== undefined ? { lockedReserve } : {}),
+    ...(typeof details.canStake === "boolean" ? { canStake: details.canStake } : {}),
+    ...(typeof details.canWithdraw === "boolean" ? { canWithdraw: details.canWithdraw } : {}),
+  };
 }
 
 /**
@@ -181,11 +226,15 @@ function syntheticParentForTokenOnlyTx(
   subOperations: OperationCommon[],
   internalOperations: OperationCommon[],
 ): OperationCommon {
-  // Parent operation is of type FEES if account has paid fees for the transaction, NONE otherwise.
+  // Parent op is FEES only when the account actually paid a fee; NONE otherwise. A zero fee (e.g. a
+  // token send whose energy/bandwidth is fully covered) is not a FEES row — it stays hidden as NONE
+  // rather than surfacing an empty "0 fee" parent. An undefined fee is treated as paid, preserving the
+  // prior behaviour for ops synced without a fee value.
   const feePayer = getFeePayer(referenceOp);
   const isFeePayer = feePayer !== undefined && isSameAddress(address, feePayer);
-  const parentType = isFeePayer ? "FEES" : "NONE";
-  const parentValue = isFeePayer ? referenceOp.fee : new BigNumber(0);
+  const paysFee = isFeePayer && !referenceOp.fee?.isZero();
+  const parentType = paysFee ? "FEES" : "NONE";
+  const parentValue = paysFee ? referenceOp.fee : new BigNumber(0);
   // In the case of smart contract interaction, the contract must be the recipient of the parent operation => this
   // is why we need to extract this information from the operation details.
   const contract = getTokenContract(referenceOp);
@@ -325,16 +374,88 @@ function buildParentOperations(
   return result;
 }
 
+// A4 being intentionally off for a chain is a per-chain steady-state config fact, not a per-sync
+// event: logged once per chain per process, same reasoning as loggedReadDecisions below.
+const loggedRegisterOffChains = new Set<string>();
+
+async function registerWithA4(currencyId: string, address: string): Promise<void> {
+  const a4Network = toA4Network(currencyId);
+  if (a4Network === null) {
+    return;
+  }
+
+  const { register, environment } = resolveA4ChainConfig(a4Network);
+  if (!register) {
+    if (!loggedRegisterOffChains.has(a4Network)) {
+      loggedRegisterOffChains.add(a4Network);
+      logA4({
+        level: "info",
+        message: "A4 registration is off for this chain",
+        decision: "register_off_intentional",
+        chain: a4Network,
+      });
+    }
+    return;
+  }
+
+  try {
+    const a4AccountId = deriveA4AccountId(address);
+    const url = resolveA4BaseUrl(environment);
+    const client = new A4Client(url, a4Network);
+    await ensureA4Registered(client, a4AccountId, [address], a4Network);
+  } catch (e) {
+    logA4({
+      level: "error",
+      message: `A4 registration setup failed unexpectedly: ${e instanceof Error ? e.message : String(e)}`,
+      decision: "register_setup_error",
+      chain: a4Network,
+      error: e,
+    });
+  }
+}
+
+// Read-vs-delegate is a per-chain steady-state fact, not a per-sync event: logging it every sync
+// (syncs run frequently) would violate the "not spammy for common paths" requirement, so it's
+// logged once per chain per process instead.
+const loggedReadDecisions = new Set<string>();
+
+function logReadDecisionOnce(chain: string, decision: string, message: string): void {
+  const key = `${chain}:${decision}`;
+  if (loggedReadDecisions.has(key)) {
+    return;
+  }
+  loggedReadDecisions.add(key);
+  logA4({ level: "info", message, decision, chain });
+}
+
 export function genericGetAccountShape(network: string, kind: string): GetAccountShape {
   return async (info, syncConfig) => {
     const { address, initialAccount, currency, derivationMode, rest } = info;
     const coinModuleApi = await getCoinModuleApi(currency.id, kind);
+    const context = buildContext(currency.id);
     const bridgeApi = await getBridgeApi(currency, network);
 
     const chainSpecificValidation = bridgeApi.getChainSpecificRules;
     if (chainSpecificValidation) {
       chainSpecificValidation.getAccountShape(address);
     }
+    // `getAccountInfo` (ADR-045) is fetched only when a family declares a mapper: coin-tezos
+    // implements the fetch without one, so an unconditional call would add a request to every tezos
+    // sync for a result nothing reads.
+    //
+    // Deliberately uncaught, unlike `validatorsPromise` / `readinessPromise` below: those are the
+    // framework's own optional enrichments, whereas what this hook returns is the family's contract —
+    // it may be fields that family's screens require (a tron account derives `isAccountEmpty` from
+    // `tronResources.bandwidth.freeLimit`, so a missing `tronResources` breaks that check and hides
+    // its staking actions) or something cosmetic, and the framework cannot tell. Catching here would impose degradation on every family with no way back; a family whose
+    // contribution is optional catches inside its own hook and returns undefined, which this path
+    // already treats as nothing to contribute.
+    const buildShape = bridgeApi.buildAccountShape;
+    const chainSpecificShapePromise = buildShape
+      ? Promise.resolve(coinModuleApi.getAccountInfo?.(context, address)).then(accountInfo =>
+          buildShape(address, accountInfo),
+        )
+      : Promise.resolve(undefined);
     const accountId = encodeAccountId({
       type: "js",
       version: "2",
@@ -343,9 +464,10 @@ export function genericGetAccountShape(network: string, kind: string): GetAccoun
       derivationMode,
     });
 
+    void registerWithA4(currency.id, address);
     const validatorsPromise = bridgeApi.stakingSupported
       ? coinModuleApi
-          .getValidators()
+          .getValidators(context)
           .then(page =>
             page.items.map(validator => ({
               validatorAddress: validator.address,
@@ -368,15 +490,75 @@ export function genericGetAccountShape(network: string, kind: string): GetAccoun
         })
       : Promise.resolve(undefined);
 
-    const [blockInfo, balanceRes, validators, readiness] = await Promise.all([
-      coinModuleApi.lastBlock(),
-      coinModuleApi.getBalance(address, bridgeApi.balanceOptions),
+    const balancePromise = coinModuleApi
+      .getBalance(context, address, bridgeApi.balanceOptions)
+      .catch(async err => {
+        // The config rejects when the currency has none, which is not a region restriction.
+        const config = await context.config().catch(() => undefined);
+        if (isRegionRestrictedFailure(err, config)) {
+          throw new CurrencyRegionRestrictedError(currency.name, err);
+        }
+        throw new UnexpectedGetBalanceError("", err);
+      });
+
+    const [blockInfo, balanceRes, validators, readiness, chainSpecificShape] = await Promise.all([
+      coinModuleApi.lastBlock(context),
+      balancePromise,
       validatorsPromise,
       readinessPromise,
+      chainSpecificShapePromise,
     ]);
 
     const nativeAsset = extractBalance(balanceRes, "native");
-    const allTokenAssetsBalances = balanceRes.filter(b => b.asset.type !== "native");
+    const freshTokenAssetsBalances = balanceRes.filter(b => b.asset.type !== "native");
+
+    // A token account fully swept to zero can disappear entirely from the balance response
+    // (some chains' balance-listing endpoints only return non-zero holdings) rather than being
+    // reported with a 0 value. `buildSubAccounts` below only ever processes tokens present in
+    // this list, so without this, a previously-tracked token that vanished from a fresh balance
+    // read would never be re-processed -- silently freezing its subAccount's balance and
+    // operations at their pre-sweep state forever instead of ever reflecting the sweep.
+    const getAssetFromToken = bridgeApi.getAssetFromToken;
+    // Lower-cased: a chain's balance-listing response and its own `getAssetFromToken` derivation
+    // aren't guaranteed to agree on reference casing (observed on Stacks -- the balance response
+    // lowercases addresses, `getAssetFromToken` returns the contract address verbatim/uppercase),
+    // so a case-sensitive comparison here would misclassify an still-held, non-zero token as
+    // vanished and inject a spurious zero-value duplicate for it.
+    const freshAssetReferences = new Set(
+      freshTokenAssetsBalances
+        .map(b => ("assetReference" in b.asset ? b.asset.assetReference : undefined))
+        .filter((ref): ref is string => !!ref)
+        .map(ref => ref.toLowerCase()),
+    );
+    // Not gated on "fresh list non-empty": a wallet whose only token gets fully swept legitimately
+    // reports an empty token list on the next balance read (some chains, e.g. Stacks, omit
+    // zero-balance entries entirely), and that sweep must still zero the sub-account. Gating this
+    // on list-non-emptiness (to defend against a hypothetical degraded 200 with a truncated token
+    // list) breaks exactly that real case -- reproduced by the coin-tester's "Send max CTT"
+    // scenario, which never converges because the lone token's balance is never seen as "gone".
+    // A family's balance hook throwing/degrading already rejects the `Promise.all` above and
+    // aborts the whole sync, rather than silently reaching this point with a partial result.
+    const vanishedTokenBalances: Balance[] = getAssetFromToken
+      ? (initialAccount?.subAccounts ?? []).flatMap(subAccount => {
+          // A throwing family implementation must not fail the whole sync over one sub-account.
+          let asset: ReturnType<typeof getAssetFromToken>;
+          try {
+            asset = getAssetFromToken(subAccount.token, address);
+          } catch {
+            return [];
+          }
+          if (
+            !asset ||
+            !("assetReference" in asset) ||
+            !asset.assetReference ||
+            freshAssetReferences.has(asset.assetReference.toLowerCase())
+          ) {
+            return [];
+          }
+          return [{ value: 0n, asset }];
+        })
+      : [];
+    const allTokenAssetsBalances = [...freshTokenAssetsBalances, ...vanishedTokenBalances];
 
     const usesStakingPositions = bridgeApi.usesStakingPositions === true;
 
@@ -414,33 +596,40 @@ export function genericGetAccountShape(network: string, kind: string): GetAccoun
         0n,
       );
 
-      const delegations: StakingDelegation[] = activeStakes.filter(hasStakeDelegate).map(b => {
+      const delegations: StakingDelegation[] = activeStakes.map(b => {
         const delegated: bigint = delegatedAmountForStakingResources(b);
         const rewarded: bigint = b.stake.amountRewarded ?? 0n;
         const validatorId = b.stake.details?.validatorId;
         const validatorName = b.stake.details?.validatorName;
         const sharesRaw = b.stake.details?.shares;
+        const detailStatus = b.stake.details?.status;
         return {
-          validatorAddress: b.stake.delegate,
+          ...stakingPositionDetails(b.stake),
+          validatorAddress: b.stake.delegate ?? "",
           amount: new BigNumber(delegated.toString()),
           pendingRewards: new BigNumber(rewarded.toString()),
-          status: b.stake.state === "activating" ? "activating" : "bonded",
+          status: deriveDelegationStatus(b.stake.state, detailStatus),
           ...(typeof validatorId === "string" ? { validatorId } : {}),
           ...(typeof validatorName === "string" ? { validatorName } : {}),
           ...(typeof sharesRaw === "bigint" ? { shares: new BigNumber(sharesRaw.toString()) } : {}),
         };
       });
-      const unbondings: StakingUnbonding[] = deactivatingStakes.filter(hasStakeDelegate).map(b => {
+      const unbondings: StakingUnbonding[] = deactivatingStakes.map(b => {
         const delegated: bigint = delegatedAmountForStakingResources(b);
         const validatorId = b.stake.details?.validatorId;
         const validatorName = b.stake.details?.validatorName;
         const withdrawId = b.stake.details?.withdrawId;
 
         return {
-          validatorAddress: b.stake.delegate,
+          ...stakingPositionDetails(b.stake),
+          validatorAddress: b.stake.delegate ?? "",
           amount: new BigNumber(delegated.toString()),
           completionDate: b.stake.stateUpdatedAt ?? new Date(),
-          status: b.stake.state === "withdrawable" ? "withdrawable" : "deactivating",
+          // `inactive` also covers an idle stake, so trust `actions` rather than the state.
+          status:
+            b.stake.state === "withdrawable" || b.stake.actions?.includes("withdraw")
+              ? "withdrawable"
+              : "deactivating",
           ...(typeof validatorId === "string" ? { validatorId } : {}),
           ...(typeof validatorName === "string" ? { validatorName } : {}),
           ...(typeof withdrawId === "number" ? { withdrawId } : {}),
@@ -465,21 +654,73 @@ export function genericGetAccountShape(network: string, kind: string): GetAccoun
         ? op
         : { ...op, accountId, id: encodeOperationId(accountId, op.hash, op.type) },
     );
-    const cursor = oldOps[0]?.extra?.pagingToken || "";
     const syncHash = await getSyncHash(currency.id, syncConfig.blacklistedTokenIds);
     const syncFromScratch = !initialAccount?.blockHeight || initialAccount?.syncHash !== syncHash;
-    // Calculate minHeight for pagination
+    // Resume position across syncs: `minHeight` alone, derived from the newest stored operation.
+    // It is non-volatile by construction and already persisted, unlike a module cursor (coin-hypercore
+    // documents its own as volatile). Only the cursor varies from page to page below.
     const minHeight = syncFromScratch ? 0 : (oldOps[0]?.blockHeight ?? 0) + 1;
-    const paginationCursor = cursor && !syncFromScratch ? cursor : undefined;
 
-    const { items: newCoreOps } = await coinModuleApi.listOperations(address, {
-      minHeight,
-      cursor: paginationCursor,
-      order: "desc",
-    });
-    const newOps = newCoreOps
-      .filter(op => !isNftCoreOp(op) && (!isIncomingCoreOp(op) || !op.tx.failed))
-      .map(op => adaptCoreOperationToLiveOperation(accountId, op)) as OperationCommon[];
+    const a4Network = toA4Network(currency.id);
+    const a4ChainConfig = a4Network ? resolveA4ChainConfig(a4Network) : null;
+
+    // delegateNewOps is lazy: getAccountRawAssignHooks is only awaited when the coin-module path is taken
+    const delegateNewOps = async (): Promise<OperationCommon[]> => {
+      const coreOps = await paginateOperations(cursor =>
+        coinModuleApi.listOperations(context, address, { minHeight, cursor, order: "desc" }),
+      );
+      // Same hooks the persist/restore path uses, so the family bag on a freshly-synced operation
+      // ends up in the shape a restored one has — the family's `fromOperationExtraRaw` is the
+      // single definition of it. Loaded per sync rather than per operation; the registry caches the import.
+      const { fromOperationExtraRaw: reviveFamilyExtra } = await getAccountRawAssignHooks(network);
+      // Coin module returns NFT and failed-incoming ops; exclude them (A4 adapter handles this internally)
+      return coreOps
+        .filter(op => !isNftCoreOp(op) && (!isIncomingCoreOp(op) || !op.tx.failed))
+        .map(op =>
+          adaptCoreOperationToLiveOperation(accountId, op, reviveFamilyExtra),
+        ) as OperationCommon[];
+    };
+
+    let newOps: OperationCommon[];
+
+    if (a4Network && a4ChainConfig?.read) {
+      try {
+        const url = resolveA4BaseUrl(a4ChainConfig.environment);
+        const a4Client = new A4Client(url, a4Network);
+        const a4AccountId = deriveA4AccountId(address);
+        // NFT and failed-incoming filtering is handled inside adaptA4OperationToLiveOperation (returns [])
+        newOps = (await fetchA4Operations(
+          a4Client,
+          a4AccountId,
+          accountId,
+          address,
+          a4Network,
+          minHeight,
+          a4ChainConfig.maxDcRoamRetries,
+        )) as OperationCommon[];
+        logReadDecisionOnce(a4Network, "read_served_by_a4", "A4 is serving reads for this chain");
+      } catch (e) {
+        const status = toA4HttpError(e).status;
+        logA4({
+          level: "warn",
+          message: `A4 read failed, falling back to delegate: ${e instanceof Error ? e.message : String(e)}`,
+          decision: "read_failover_to_delegate",
+          chain: a4Network,
+          status,
+          error: e,
+        });
+        newOps = await delegateNewOps();
+      }
+    } else {
+      if (a4Network) {
+        logReadDecisionOnce(
+          a4Network,
+          "read_off_intentional",
+          "A4 read is off for this chain, delegate is used",
+        );
+      }
+      newOps = await delegateNewOps();
+    }
 
     const newAssetOperations = newOps.filter(
       operation =>
@@ -495,12 +736,14 @@ export function genericGetAccountShape(network: string, kind: string): GetAccoun
       else newNonInternalOperations.push(op);
     }
 
+    const familyShapes = await bridgeApi.buildTokenAccountShapes?.(address);
     const newSubAccounts = await buildSubAccounts({
       accountId,
       allTokenAssetsBalances,
       syncConfig,
       operations: newAssetOperations,
       getTokenFromAsset: bridgeApi.getTokenFromAsset,
+      familyShapes,
     });
     const subAccounts = syncFromScratch
       ? newSubAccounts
@@ -553,14 +796,20 @@ export function genericGetAccountShape(network: string, kind: string): GetAccoun
       stakingShape = { stakingResources: enrichedStakingResources };
     }
 
+    // A shared xpub makes `sameAccountIdentity` merge the accounts.
+    const isXpubShared =
+      bridgeApi.addressLookup !== undefined &&
+      !getDerivationScheme({ derivationMode, currency }).includes("<account>");
+
     const res: Partial<Account> & {
       stakingResources?: StakingResources;
       stakingPositions?: StakingPositionOnAccount[];
     } = {
+      ...chainSpecificShape,
       id: accountId,
       // `||` (not `??`): a device getAddress may return an empty-string publicKey (e.g. when the
       // chain code is not requested); treat "" as absent and fall back rather than storing a blank xpub.
-      xpub: rest?.publicKey || initialAccount?.xpub || address,
+      xpub: isXpubShared ? undefined : rest?.publicKey || initialAccount?.xpub || address,
       blockHeight: operations.length === 0 ? 0 : blockInfo.height || initialAccount?.blockHeight,
       balance: new BigNumber(nativeBalance.toString()),
       spendableBalance: new BigNumber(spendableBalance.toString()),

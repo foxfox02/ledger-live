@@ -1,9 +1,15 @@
 import { Account } from "@ledgerhq/types-live";
 import BigNumber from "bignumber.js";
 import React from "react";
-import { act, render, screen, userEvent } from "tests/testSetup";
+import { act, render, screen, userEvent, waitFor } from "tests/testSetup";
+import { track, trackPage } from "@shared/analytics";
+import {
+  selectCurrencyRegionRestrictedDialogParams,
+  selectIsCurrencyRegionRestrictedDialogOpen,
+} from "LLD/features/CurrencyRegionRestrictedDialog/currencyRegionRestrictedDialog";
+import { setDrawer } from "~/renderer/drawers/Provider";
+import { CurrencyRegionRestrictedError } from "@ledgerhq/live-common/errors";
 import { openModal } from "~/renderer/actions/modals";
-import { track, trackPage } from "~/renderer/analytics/segment";
 import { State } from "~/renderer/reducers";
 import { AFTER_ONBOARDING_STATE } from "~/renderer/reducers/settings";
 import { ARB_ACCOUNT, BTC_ACCOUNT, HEDERA_ACCOUNT } from "../../__mocks__/accounts.mock";
@@ -11,6 +17,7 @@ import {
   arbitrumCurrency,
   bitcoinCurrency,
   hederaCurrency,
+  hypercoreCurrency,
 } from "../../__mocks__/useSelectAssetFlow.mock";
 import { mockDomMeasurements } from "../../__tests__/shared";
 import ModularDrawerAddAccountFlowManager from "../ModularDrawerAddAccountFlowManager";
@@ -41,6 +48,7 @@ jest.mock("~/renderer/hooks/useConnectAppAction", () => ({
 
 let triggerNext: (account: Account) => void = () => null;
 let triggerComplete: () => void = () => null;
+let triggerError: (error: Error) => void = () => null;
 
 const mockAccountBridge = {
   assignToAccountRaw: () => {},
@@ -63,6 +71,7 @@ jest.mock("@ledgerhq/live-common/bridge/index", () => {
         new Observable((subscriber: any) => {
           triggerNext = (account: Account) => subscriber.next({ account });
           triggerComplete = () => subscriber.complete();
+          triggerError = (error: Error) => subscriber.error(error);
           return () => {};
         }),
       preload: () => Promise.resolve(true),
@@ -158,8 +167,14 @@ jest.mock("~/renderer/actions/modals", () => ({
   openModal: jest.fn().mockReturnValue({ type: "" }),
 }));
 
-jest.mock("~/renderer/analytics/segment", () => ({
-  ...jest.requireActual("~/renderer/analytics/segment"),
+jest.mock("~/renderer/drawers/Provider", () => ({
+  __esModule: true,
+  ...jest.requireActual("~/renderer/drawers/Provider"),
+  setDrawer: jest.fn(),
+}));
+
+jest.mock("@shared/analytics", () => ({
+  ...jest.requireActual("@shared/analytics"),
   track: jest.fn(),
   trackPage: jest.fn(),
 }));
@@ -175,7 +190,9 @@ const setup = (currency = arbitrumCurrency, state?: Partial<State>) => {
     },
   };
 
-  return render(<ModularDrawerAddAccountFlowManager currency={currency} />, { initialState });
+  return render(<ModularDrawerAddAccountFlowManager currency={currency} />, {
+    initialState,
+  });
 };
 
 function expectTrackPage(
@@ -186,12 +203,8 @@ function expectTrackPage(
 ) {
   expect(trackPage).toHaveBeenNthCalledWith(
     n,
-    page,
-    undefined,
-    { ...props, source },
-    true,
-    true,
-    false,
+    { category: page, name: undefined, props: { ...props, source } },
+    { mandatory: false, refreshSource: true, updateRoutes: true },
   );
 }
 
@@ -357,6 +370,33 @@ describe("ModularDrawerAddAccountFlowManager", () => {
     expectTrackPage(3, "cant add new account", { reason: "ALREADY_EMPTY_ACCOUNT" });
   });
 
+  it("should let the user create other BTC address types when the existing account is empty", async () => {
+    const emptyBtcAccount = (derivationMode: Account["derivationMode"], freshAddress: string) => ({
+      ...BTC_ACCOUNT,
+      id: `js:2:bitcoin:xpub-${derivationMode}:${derivationMode}`,
+      xpub: `xpub-${derivationMode}`,
+      derivationMode,
+      freshAddress,
+      used: false,
+      operationsCount: 0,
+      operations: [],
+      balance: new BigNumber(0),
+      spendableBalance: new BigNumber(0),
+    });
+    const nativeSegwit = emptyBtcAccount("native_segwit", "bc1qempty");
+    const taproot = emptyBtcAccount("taproot", "bc1pnew");
+    const segwit = emptyBtcAccount("segwit", "3new");
+
+    setup(bitcoinCurrency, { accounts: [nativeSegwit] });
+
+    await mockScanAccountsSubscription([nativeSegwit, taproot, segwit]);
+
+    expect(screen.queryByText(/A new account cannot be added/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/new account/i)).toBeInTheDocument();
+    expect(screen.getByText("Show all address types")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm" })).not.toBeDisabled();
+  });
+
   it("should allow name edit on already imported empty account", async () => {
     const OLD_NAME = "Arbitrum 2";
     const NEW_NAME = "My Edited Account";
@@ -376,6 +416,21 @@ describe("ModularDrawerAddAccountFlowManager", () => {
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(screen.getByText(NEW_NAME)).toBeInTheDocument();
+  });
+
+  it("should hand a region-restricted scan over to the dedicated dialog", async () => {
+    const { store } = setup(hypercoreCurrency);
+
+    await act(async () => {});
+    await act(() => triggerError(new CurrencyRegionRestrictedError("Hyperliquid")));
+
+    await waitFor(() =>
+      expect(selectIsCurrencyRegionRestrictedDialogOpen(store.getState())).toBe(true),
+    );
+    expect(selectCurrencyRegionRestrictedDialogParams(store.getState())).toEqual({
+      currencyName: "Hyperliquid",
+    });
+    expect(setDrawer).toHaveBeenCalled();
   });
 
   it("should error on a Hedera account with no associated accounts", async () => {

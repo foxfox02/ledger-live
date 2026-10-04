@@ -4,7 +4,7 @@ import { useFeature } from "@features/platform-feature-flags";
 import { trustchainSelector } from "@ledgerhq/ledger-key-ring-protocol/store";
 import { lastSeenDeviceSelector, lastOnboardedDeviceSelector } from "~/renderer/reducers/settings";
 import { DeviceModelId } from "@ledgerhq/types-devices";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import { EntryPoint, EntryPointsData } from "../types";
 import OnboardingEntryPoint from "../components/OnboardingEntryPoint";
 import ManagerEntryPoint from "../components/ManagerEntryPoint";
@@ -14,6 +14,7 @@ import { AnalyticsPage } from "../../WalletSync/hooks/useLedgerSyncAnalytics";
 import PostOnboardingEntryPoint from "../components/PostOnboardingEntryPoint";
 import { LedgerSyncBanner } from "../components/LedgerSyncBanner/LedgerSyncBanner";
 import { LedgerSyncBannerV4 } from "../components/LedgerSyncBannerV4/LedgerSyncBannerV4";
+import SendFlowEntryPoint from "../components/SendFlowEntryPoint";
 
 const isEligibleModelId = (id?: DeviceModelId) => id != null && id !== DeviceModelId.nanoS;
 
@@ -87,6 +88,17 @@ export function useEntryPoint(entryPoint: EntryPoint, needEligibleDevice = true,
         });
       },
       component: PostOnboardingEntryPoint,
+    },
+    [EntryPoint.sendFlow]: {
+      enabled: featureLedgerSyncEntryPoints?.params?.sendFlow ?? false,
+      page: AnalyticsPage.SendFlow,
+      onClick: () => {
+        track("banner_clicked", {
+          banner: "Ledger Sync Activation",
+          page: AnalyticsPage.SendFlow,
+        });
+      },
+      component: SendFlowEntryPoint,
     },
   };
 

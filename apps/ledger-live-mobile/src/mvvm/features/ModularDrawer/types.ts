@@ -1,6 +1,7 @@
 import { AccountLike, Account } from "@ledgerhq/types-live";
 import { EnhancedModularDrawerConfiguration } from "@ledgerhq/live-common/wallet-api/ModularDrawer/types";
 import type { CryptoOrTokenCurrency } from "@domain/entity-currency";
+import type { AssetCategory } from "@domain/api-aggregated-assets";
 
 export enum ModularDrawerStep {
   Asset = "Asset",
@@ -8,7 +9,19 @@ export enum ModularDrawerStep {
   Account = "Account",
 }
 
+export type DisabledItemExplanation = Readonly<{
+  title: string;
+  content: string;
+}>;
+
+export type DisabledItemsExplanation = Readonly<{
+  asset: (assetName: string) => DisabledItemExplanation;
+  network: (networkName: string, assetName: string) => DisabledItemExplanation;
+  onPress: (explanation: DisabledItemExplanation) => void;
+}>;
+
 export const MODULAR_DRAWER_KEY = "modularDrawer";
+export const PAY_ACCOUNT_UI_USE_CASE = "pay";
 
 export type ModularDrawerCompletionMode = "currency";
 export type ModularDrawerPresentation = "drawer" | "embedded";
@@ -20,10 +33,12 @@ export type DrawerExtras = {
 
 export type DrawerBaseParams = {
   currencies?: string[];
+  categories?: AssetCategory[];
   enableAccountSelection?: boolean;
   flow?: string;
   source?: string;
   areCurrenciesFiltered?: boolean;
+  selectableNetworkIds?: string[];
   useCase?: string;
   uiUseCase?: string;
 };
@@ -43,8 +58,9 @@ type CurrencyDrawerCompletion = {
 };
 
 export type DrawerParams<TExtras extends object = DrawerExtras> = DrawerBaseParams &
-  (AccountOrDeviceDrawerCompletion | CurrencyDrawerCompletion) &
-  TExtras;
+  (AccountOrDeviceDrawerCompletion | CurrencyDrawerCompletion) & {
+    onCancel?: () => void;
+  } & TExtras;
 
 type AccountOrDeviceDrawerRemoteCompletion = {
   callbackId?: string;
@@ -59,8 +75,9 @@ type CurrencyDrawerRemoteCompletion = {
 };
 
 export type DrawerRemoteParams<TExtras extends object = DrawerExtras> = DrawerBaseParams &
-  (AccountOrDeviceDrawerRemoteCompletion | CurrencyDrawerRemoteCompletion) &
-  TExtras;
+  (AccountOrDeviceDrawerRemoteCompletion | CurrencyDrawerRemoteCompletion) & {
+    cancelCallbackId?: string;
+  } & TExtras;
 
 export type OpenDrawer<TExtras extends object = DrawerExtras> = (
   params?: DrawerParams<TExtras>,

@@ -1,4 +1,5 @@
-import { getMessageProperties } from "@ledgerhq/coin-evm/logic";
+import { TrackScreen } from "@shared/analytics-react";
+import { getMessageProperties } from "@ledgerhq/live-common/families/evm/utils";
 import { getMainAccount } from "@ledgerhq/live-common/account/index";
 import type { MessageProperties } from "@ledgerhq/types-live";
 import invariant from "invariant";
@@ -6,7 +7,6 @@ import React, { memo, useCallback, useEffect, useState } from "react";
 import { Trans, useTranslation } from "~/context/Locale";
 import { ScrollView, StyleSheet, View } from "react-native";
 import SafeAreaView from "~/components/SafeAreaView";
-import { TrackScreen } from "~/analytics";
 import Button from "~/components/Button";
 import LText from "~/components/LText";
 import CurrencyIcon from "~/components/CurrencyIcon";
@@ -100,8 +100,6 @@ function SignSummary({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [messageFields, setMessageFields] = useState<MessageProperties | null>(null);
 
-  const isACREWithdraw = "type" in messageData && messageData.type === "Withdraw";
-
   useEffect(() => {
     if (messageData.standard === "EIP712") {
       getMessageProperties(messageData).then(setMessageFields);
@@ -153,15 +151,13 @@ function SignSummary({
           ]}
         />
         <ScrollView style={styles.scrollContainer}>
-          {!isACREWithdraw ? (
-            messageData.standard === "EIP712" ? (
-              <MessagePropertiesComp properties={messageFields} />
-            ) : (
-              <View style={styles.messageContainer}>
-                <MessageProperty label={"message"} value={messageData.message ?? ""} />
-              </View>
-            )
-          ) : null}
+          {messageData.standard === "EIP712" ? (
+            <MessagePropertiesComp properties={messageFields} />
+          ) : (
+            <View style={styles.messageContainer}>
+              <MessageProperty label={"message"} value={messageData.message ?? ""} />
+            </View>
+          )}
 
           {messageData.standard === "EIP712" ? (
             <>

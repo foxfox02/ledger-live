@@ -1,10 +1,14 @@
 import { BottomSheetModalProvider } from "@ledgerhq/lumen-ui-rnative";
 import { contactsInitialState } from "@domain/entity-contact";
+import { payCardBalanceInitialState } from "@features/flow-pay-balance/state";
+import { payCardFeatureTourInitialState } from "@features/flow-pay-feature-tour/state";
+import { payRequestVerifyHintInitialState } from "@features/flow-pay-request/state";
 import { initialIdentitiesState } from "@domain/entity-client-identity";
 import { INITIAL_STATE as TRUSTCHAIN_INITIAL_STATE } from "@ledgerhq/ledger-key-ring-protocol/store";
 import { initialState as POST_ONBOARDING_INITIAL_STATE } from "@ledgerhq/live-common/postOnboarding/reducer";
 import { CountervaluesBridge, CountervaluesProvider } from "@ledgerhq/live-countervalues-react";
-import { initialState as WALLET_INITIAL_STATE } from "@ledgerhq/live-wallet/store";
+import { createMockRateSource } from "@domain/api-market-countervalues/mock";
+import { INITIAL_STATE as WALLET_INITIAL_STATE } from "~/reducers/wallet";
 import { NavigationContainer, type InitialState } from "@react-navigation/native";
 import { configureStore } from "@reduxjs/toolkit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -14,9 +18,10 @@ import {
   renderHook as rntlRenderHook,
   userEvent,
 } from "@testing-library/react-native";
-import QueuedDrawersContextProvider from "LLM/components/QueuedDrawer/QueuedDrawersContextProvider";
+import QueuedBottomSheetsProvider from "LLM/components/QueuedDrawer/QueuedBottomSheetsProvider";
 import React, { useMemo } from "react";
 import { I18nextProvider } from "react-i18next";
+import { I18nProvider } from "@shared/i18n";
 import { Provider } from "react-redux";
 import { AnalyticsContextProvider } from "~/analytics/AnalyticsContext";
 import { i18n } from "~/context/Locale";
@@ -25,6 +30,7 @@ import { INITIAL_STATE as ACCOUNTS_INITIAL_STATE } from "~/reducers/accounts";
 import { INITIAL_STATE as APP_STATE_INITIAL_STATE } from "~/reducers/appstate";
 import { INITIAL_STATE as BLE_INITIAL_STATE } from "~/reducers/ble";
 import { INITIAL_STATE as BORROW_INITIAL_STATE } from "~/reducers/borrow";
+import { INITIAL_STATE as CURRENCY_REGION_RESTRICTED_DRAWER_INITIAL_STATE } from "~/reducers/currencyRegionRestrictedDrawer";
 import { INITIAL_STATE as COUNTERVALUES_INITIAL_STATE } from "~/reducers/countervalues";
 import { INITIAL_STATE as DYNAMIC_CONTENT_INITIAL_STATE } from "~/reducers/dynamicContent";
 import { INITIAL_STATE as EARN_INITIAL_STATE } from "~/reducers/earn";
@@ -53,9 +59,8 @@ import { INITIAL_STATE as RECOVER_STATE_INITIAL_STATE } from "~/reducers/recover
 import { FEATURE_FLAGS_INITIAL_STATE, FEATURE_FLAGS_DEFAULTS } from "@shared/feature-flags";
 import type { FeatureId, Features, PartialFeatures, Feature } from "@shared/feature-flags";
 import { getEnv } from "@shared/env";
-import { marketSentimentApiExtra } from "@domain/api-market-sentiment";
-import { altcoinsSentimentApiExtra } from "@domain/api-altcoins-sentiment";
-import { cvsApiExtra } from "@domain/api-currency-fiat";
+import { calApiExtra, coinMarketCapApiExtra, cvsApiExtra } from "@shared/api-services";
+import { LinkingProvider } from "@shared/linking";
 import StyleProvider from "~/StyleProvider";
 import CustomLiveAppProvider from "./CustomLiveAppProvider";
 import { llmRtkApiInitialStates, applyLlmRTKApiMiddlewares } from "~/context/rtkQueryApi";
@@ -70,7 +75,11 @@ const INITIAL_STATE: State = {
   dynamicContent: DYNAMIC_CONTENT_INITIAL_STATE,
   earn: EARN_INITIAL_STATE,
   // Seed the boot-readiness gate as settled so tests mounting `WaitForAppReady` don't block.
-  featureFlags: { ...FEATURE_FLAGS_INITIAL_STATE, remoteFlagsReady: true },
+  featureFlags: {
+    ...FEATURE_FLAGS_INITIAL_STATE,
+    remoteFlagsReady: true,
+    cachedFlagsSettled: true,
+  },
   history: HISTORY_INITIAL_STATE,
   identities: initialIdentitiesState,
   inView: IN_VIEW_INITIAL_STATE,
@@ -79,12 +88,16 @@ const INITIAL_STATE: State = {
   modularDrawer: MODULAR_DRAWER_INITIAL_STATE,
   receiveOptionsDrawer: RECEIVE_OPTIONS_DRAWER_INITIAL_STATE,
   rebornBuyDeviceDrawer: REBORN_BUY_DEVICE_DRAWER_INITIAL_STATE,
+  currencyRegionRestrictedDrawer: CURRENCY_REGION_RESTRICTED_DRAWER_INITIAL_STATE,
   transferDrawer: TRANSFER_DRAWER_INITIAL_STATE,
   notifications: NOTIFICATIONS_INITIAL_STATE,
   postOnboarding: POST_ONBOARDING_INITIAL_STATE,
   postOnboardingHubDrawer: POST_ONBOARDING_HUB_DRAWER_INITIAL_STATE,
   protect: PROTECT_INITIAL_STATE,
   ratings: RATINGS_INITIAL_STATE,
+  payCardBalance: payCardBalanceInitialState,
+  payCardFeatureTour: payCardFeatureTourInitialState,
+  payRequestVerifyHint: payRequestVerifyHintInitialState,
   settings: SETTINGS_INITIAL_STATE,
   toasts: TOASTS_INITIAL_STATE,
   trustchain: TRUSTCHAIN_INITIAL_STATE,
@@ -143,9 +156,14 @@ function createStore({ overrideInitialState }: { overrideInitialState: (state: S
           immutableCheck: false,
           thunk: {
             extraArgument: {
-              ...cvsApiExtra({ countervaluesServiceUrl: getEnv("LEDGER_COUNTERVALUES_API") }),
-              ...marketSentimentApiExtra({ coinMarketCapApiUrl: getEnv("CMC_API_URL") }),
-              ...altcoinsSentimentApiExtra({ coinMarketCapApiUrl: getEnv("CMC_API_URL") }),
+              ...calApiExtra({
+                calServiceUrl: getEnv("CAL_SERVICE_URL"),
+                ledgerClientVersion: getEnv("LEDGER_CLIENT_VERSION"),
+              }),
+              ...cvsApiExtra({
+                getCountervaluesServiceUrl: () => getEnv("LEDGER_COUNTERVALUES_API"),
+              }),
+              ...coinMarketCapApiExtra({ coinMarketCapApiUrl: getEnv("CMC_API_URL") }),
             },
           },
         }),
@@ -233,12 +251,13 @@ function CountervaluesProviders({
   const bridge = useMemo((): CountervaluesBridge => {
     const state = store.getState();
     return {
+      rates: createMockRateSource(),
       setPollingIsPolling: () => {},
       setPollingTriggerLoad: () => {},
       setState: () => {},
       setStateError: () => {},
       setStatePending: () => {},
-      useMarketcapIds: () => [],
+      useSupportedCryptoIds: () => [],
       usePollingIsPolling: () => false,
       usePollingTriggerLoad: () => false,
       useState: () => state.countervalues.countervalues.state,
@@ -295,22 +314,28 @@ function Providers({
       content
     ) : (
       // For default rendering, add new providers here
-      <I18nextProvider i18n={i18n}>
-        <BottomSheetModalProvider>
-          <QueuedDrawersContextProvider>
-            <AnalyticsContextProvider>{content}</AnalyticsContextProvider>
-          </QueuedDrawersContextProvider>
-        </BottomSheetModalProvider>
-      </I18nextProvider>
+      <BottomSheetModalProvider>
+        <QueuedBottomSheetsProvider>
+          <AnalyticsContextProvider>{content}</AnalyticsContextProvider>
+        </QueuedBottomSheetsProvider>
+      </BottomSheetModalProvider>
     );
 
-  // General Providers needed for all render types
+  // General Providers needed for all render types. i18n belongs here rather than in the
+  // non-HOOK branch: `useI18n` throws instead of falling back, so a `renderHook` on any hook
+  // reaching @shared/i18n would crash without a provider above it.
   let providers = (
-    <Provider store={store}>
-      <CountervaluesProviders store={store}>
-        <StyleProvider selectedPalette="dark">{extraProviders}</StyleProvider>
-      </CountervaluesProviders>
-    </Provider>
+    <I18nextProvider i18n={i18n}>
+      <I18nProvider i18n={i18n}>
+        <LinkingProvider config={{ openExternal: () => {} }}>
+          <Provider store={store}>
+            <CountervaluesProviders store={store}>
+              <StyleProvider selectedPalette="dark">{extraProviders}</StyleProvider>
+            </CountervaluesProviders>
+          </Provider>
+        </LinkingProvider>
+      </I18nProvider>
+    </I18nextProvider>
   );
 
   //if React Query is needed

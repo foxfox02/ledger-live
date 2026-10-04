@@ -22,25 +22,25 @@
     "suspicious": "warn",
     "pedantic": "off"
   },
-  "plugins": [
-    "eslint",
-    "import",
-    "oxc",
-    "unicorn",
-    "typescript",
-    "react",
-    "jest"
-  ],
-  "ignorePatterns": [
-    "*.min.js",
-    "src/mvvm/hooks/redux.ts",
-    "tests/artifacts/**"
-  ],
+  "plugins": ["eslint", "import", "oxc", "unicorn", "typescript", "react", "jest"],
+  "ignorePatterns": ["*.min.js", "src/mvvm/hooks/redux.ts", "tests/artifacts/**"],
   "rules": {
     "eslint/no-unused-vars": "warn",
     "eslint/no-empty-pattern": "warn",
     "eslint/no-constant-binary-expression": "warn",
     "react/no-did-mount-set-state": "warn",
+    "react/globals": "warn",
+    "react/immutability": "warn",
+    "react/incompatible-library": "warn",
+    "react/no-did-update-set-state": "warn",
+    "react/preserve-manual-memoization": "warn",
+    "react/purity": "warn",
+    "react/refs": "warn",
+    "react/set-state-in-effect": "warn",
+    "react/static-components": "warn",
+    "react/use-memo": "warn",
+    "react/void-use-memo": "warn",
+    "import/namespace": "warn",
     "unicorn/no-useless-fallback-in-spread": "off",
     "unicorn/no-useless-spread": "off",
     "unicorn/no-new-array": "off",
@@ -66,6 +66,11 @@
             "message": "Import typed hooks from 'LLD/hooks/redux' instead of 'react-redux' to ensure proper TypeScript typing."
           },
           {
+            "name": "i18next",
+            "importNames": ["default", "t", "i18n"],
+            "message": "The app no longer initialises the i18next global singleton. Import the app instance (or its 't') from '~/renderer/i18n/init'."
+          },
+          {
             "name": "@ledgerhq/ledger-wallet-framework/types",
             "importNames": [
               "CryptoCurrency",
@@ -73,7 +78,11 @@
               "Currency",
               "Unit",
               "FiatCurrency",
-              "ExplorerView"
+              "ExplorerView",
+              "CryptoCurrencyId",
+              "TokenCurrencyId",
+              "CryptoCurrencyIdSchema",
+              "TokenCurrencyIdSchema"
             ],
             "message": "Wallet-framework currency types are for coin-modules. Import from @domain/entity-currency-* (unions from @domain/entity-currency)."
           },
@@ -85,30 +94,26 @@
               "Currency",
               "Unit",
               "FiatCurrency",
-              "ExplorerView"
+              "ExplorerView",
+              "CryptoCurrencyId",
+              "TokenCurrencyId",
+              "CryptoCurrencyIdSchema",
+              "TokenCurrencyIdSchema"
             ],
             "message": "Wallet-framework currency types are for coin-modules. Import from @domain/entity-currency-* (unions from @domain/entity-currency)."
           }
         ],
         "patterns": [
           {
-            "group": [
-              "@ledgerhq/live-common/lib/**",
-              "@ledgerhq/live-common/lib-es/**"
-            ],
+            "group": ["@ledgerhq/live-common/lib/**", "@ledgerhq/live-common/lib-es/**"],
             "message": "Please remove the /lib import from live-common import."
           },
           {
-            "group": [
-              "~/mvvm/**"
-            ],
+            "group": ["~/mvvm/**"],
             "message": "Use 'LLD' alias instead of '~/mvvm'. Replace '~/mvvm' with 'LLD' in your imports."
           },
           {
-            "group": [
-              "**/renderer/families/*/**",
-              "~/renderer/families/*/**"
-            ],
+            "group": ["**/renderer/families/*/**", "~/renderer/families/*/**"],
             "message": "families files must not be imported directly. use the bridge or export them through the LLDCoinFamily interface instead."
           },
           {
@@ -155,9 +160,7 @@
       "env": {
         "jest": true
       },
-      "plugins": [
-        "jest"
-      ],
+      "plugins": ["jest"],
       "rules": {
         "typescript/no-explicit-any": "warn"
       }

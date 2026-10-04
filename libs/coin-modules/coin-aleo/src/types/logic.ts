@@ -4,13 +4,16 @@ import type {
   TransactionIntent,
   TxDataNotSupported,
 } from "@ledgerhq/coin-module-framework/api/types";
-import type { TRANSACTION_TYPE } from "../constants";
+import type { STAKING_OPERATION_TYPE, TRANSACTION_TYPE } from "../constants";
 import type {
   AleoRecordScannerStatusResponse,
   AleoPublicTransactionDetailsResponse,
   AleoPrivateRecord,
+  AleoExactTransitionCursor,
 } from "./api";
 import type { AleoDecryptedRecordResponse } from "./sdk";
+
+export type AleoRegistration = { type: "aleo"; provableId: string };
 
 export interface AleoUnspentRecord extends AleoPrivateRecord {
   microcredits: string;
@@ -34,32 +37,88 @@ export type EnrichedPrivateRecord = {
 
 export interface ProvableApi {
   uuid?: string;
-  scannerStatus?: AleoRecordScannerStatusResponse;
+  // Bridge persists only the sync flags; the height fields are read live via getAccountInfo.
+  scannerStatus?: Pick<AleoRecordScannerStatusResponse, "synced" | "percentage">;
 }
+
+export type AleoAccountInfo = {
+  type: "aleo";
+  synced: boolean;
+  percentage: number;
+  startHeight: number;
+  scannedHeight: number;
+};
+
+export type AleoValidatorNonEarningReason = "overConcentrated" | "fullCommission";
+
+export type AleoValidator = {
+  address: string;
+  name?: string;
+  stakeMicrocredits: number;
+  isOpen: boolean;
+  isUnbonding: boolean;
+  commissionPercent: number;
+  /**
+   * Estimated net yearly rate as a fraction (0.07 = 7%). Absent when it could not be
+   * derived; `0` is a real value meaning "earns nothing".
+   */
+  estimatedYearlyRewardsRate?: number;
+  nonEarningReason?: AleoValidatorNonEarningReason;
+};
+
+export type AleoUnbondingDisplayState = {
+  isClaimable: boolean;
+  isCountingDown: boolean;
+  isSettling: boolean;
+  blocksLeft: number | null;
+  currentHeight: number;
+};
+
+export type AleoStakingPosition = {
+  bondedBalance: BigNumber;
+  bondedValidator: string | null;
+  unbondingBalance: BigNumber;
+  unbondingHeight: number | null;
+  withdrawalAddress: string | null;
+};
+
+/** `<maxBlockHeight>:<blockNumber>:<transitionId>` — the pinned ceiling, then the row to resume after. */
+export type OperationsCursor = {
+  maxBlockHeight: number;
+  resumeFrom: AleoExactTransitionCursor;
+};
 
 export type RecordPickingStrategy = "manual" | "auto";
 
+export type AleoTokenType = "arc20" | "arc21" | "arc22" | "unknown";
+
 export type TransactionType = (typeof TRANSACTION_TYPE)[keyof typeof TRANSACTION_TYPE];
+
+export type AleoStakingMode = keyof typeof STAKING_OPERATION_TYPE;
 
 export type AleoTransactionIntentData =
   | TxDataNotSupported
   | {
       type: typeof TRANSACTION_TYPE.TRANSFER_PRIVATE;
       records: AleoDecryptedRecordResponse[];
+      tvks: string[];
     }
   | {
       type: typeof TRANSACTION_TYPE.CONVERT_PRIVATE_TO_PUBLIC;
       records: AleoDecryptedRecordResponse[];
+      tvks: string[];
     }
   | {
       type: typeof TRANSACTION_TYPE.TRANSFER_TOKEN_PRIVATE;
       programId: string;
       records: AleoDecryptedRecordResponse[];
+      tvks: string[];
     }
   | {
       type: typeof TRANSACTION_TYPE.CONVERT_TOKEN_PRIVATE_TO_PUBLIC;
       programId: string;
       records: AleoDecryptedRecordResponse[];
+      tvks: string[];
     }
   | {
       type: "fee_public";
@@ -79,6 +138,13 @@ export type AleoTransactionIntentData =
   | {
       type: typeof TRANSACTION_TYPE.CONVERT_TOKEN_PUBLIC_TO_PRIVATE;
       programId: string;
+    }
+  | {
+      type: typeof TRANSACTION_TYPE.BOND_PUBLIC;
+      withdrawal: string;
+    }
+  | {
+      type: typeof TRANSACTION_TYPE.UNBOND_PUBLIC;
     };
 
 export type AleoTransactionIntent = TransactionIntent<MemoNotSupported, AleoTransactionIntentData>;

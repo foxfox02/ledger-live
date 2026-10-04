@@ -1,12 +1,18 @@
-import { close as closeBridge, findFreePort, init as initBridge } from "../bridge/server";
+import { close as closeBridge, findFreePort, init as initBridge } from "@e2e/bridge/server";
 import { getEnv, setEnv } from "@shared/env";
 import { exec } from "child_process";
 import { device, log } from "detox";
 import { allure } from "jest-allure2-reporter/api";
 import { Device } from "@ledgerhq/live-e2e-shared/enum/Device";
 import { readFile } from "fs/promises";
-import { NANO_APP_CATALOG_PATH } from "../utils/constants";
+import { NANO_APP_CATALOG_PATH } from "@e2e/utils/constants";
+import { isPaytabSpec } from "@e2e/utils/paytab";
 import { sanitizeError } from "@ledgerhq/live-e2e-shared/index";
+import { ledgerSyncEnvironment } from "@ledgerhq/live-e2e-shared/ledgerSync/environment";
+import {
+  CARD_SESSION_BOOTSTRAP_ENV,
+  resolveCardSessionBootstrap,
+} from "@ledgerhq/baanx-test-client";
 
 const BASE_DEEPLINK = "ledgerlive://";
 
@@ -47,10 +53,6 @@ export function isSpeculosRemote(): boolean {
   return process.env.REMOTE_SPECULOS === "true";
 }
 
-export function isRemoteIos(): boolean {
-  return isSpeculosRemote() && isIos();
-}
-
 /**
  * Creates a regex string for Detox URL blacklisting
  * @returns Formatted regex string for Detox
@@ -72,6 +74,10 @@ function createDetoxURLBlacklistRegex(): string {
 }
 
 export async function launchApp(customConfig: Detox.DeviceLaunchAppConfig = {}) {
+  const cardSession = isPaytabSpec()
+    ? { [CARD_SESSION_BOOTSTRAP_ENV]: await resolveCardSessionBootstrap() }
+    : {};
+
   const port = await findFreePort();
   closeBridge();
   initBridge(port);
@@ -81,14 +87,13 @@ export async function launchApp(customConfig: Detox.DeviceLaunchAppConfig = {}) 
       detoxURLBlacklistRegex: createDetoxURLBlacklistRegex(),
       mock: "0",
       disable_broadcast: getEnv("DISABLE_TRANSACTION_BROADCAST") ? 1 : 0,
+      ledger_sync_environment: ledgerSyncEnvironment,
       IS_TEST: true,
+      ...cardSession,
     },
     languageAndLocale: {
       language: "en-US",
       locale: "en-US",
-    },
-    permissions: {
-      camera: "YES",
     },
     ...customConfig,
   });

@@ -1,3 +1,4 @@
+import * as sharedAnalytics from "@shared/analytics";
 import React from "react";
 import { Linking, View } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -5,7 +6,7 @@ import type { InitialState } from "@react-navigation/native";
 import { render, screen, waitFor } from "@tests/test-renderer";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { FEATURE_FLAGS_DEFAULTS } from "@shared/feature-flags";
-import { resolveAnalyticsOptInParams } from "@ledgerhq/live-common/analyticsConsent/index";
+import { resolveAnalyticsOptInParams } from "@features/flow-analytics-consent";
 import * as analytics from "~/analytics";
 import { ScreenName } from "~/const";
 import type { State } from "~/reducers/types";
@@ -65,17 +66,17 @@ function renderAnalyticsPreferencesSettings(options: RenderOptions = {}) {
   });
 }
 
-const { policyVersion: expectedPrivacyPolicyVersion } = resolveAnalyticsOptInParams(
-  FEATURE_FLAGS_DEFAULTS.analyticsOptIn,
-);
+const expectedPrivacyPolicyVersion =
+  resolveAnalyticsOptInParams(FEATURE_FLAGS_DEFAULTS.analyticsOptIn).currentPolicyVersion
+    ?.normalized ?? null;
 
 describe("AnalyticsPreferencesSettings", () => {
-  let trackSpy: jest.SpiedFunction<typeof analytics.track>;
+  let trackSpy: jest.SpiedFunction<typeof sharedAnalytics.track>;
   let updateIdentifySpy: jest.SpiedFunction<typeof analytics.updateIdentify>;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    trackSpy = jest.spyOn(analytics, "track").mockResolvedValue(undefined);
+    trackSpy = jest.spyOn(sharedAnalytics, "track").mockResolvedValue(undefined);
     updateIdentifySpy = jest.spyOn(analytics, "updateIdentify").mockResolvedValue(undefined);
   });
 
@@ -182,8 +183,8 @@ describe("AnalyticsPreferencesSettings", () => {
       expect(consentDate).toEqual(expect.any(String));
       expect(Number.isNaN(Date.parse(consentDate!))).toBe(false);
 
-      expect(analytics.track).toHaveBeenCalledTimes(1);
-      expect(analytics.track).toHaveBeenCalledWith(
+      expect(sharedAnalytics.track).toHaveBeenCalledTimes(1);
+      expect(sharedAnalytics.track).toHaveBeenCalledWith(
         "button_clicked",
         expect.objectContaining({
           button: "analytics_preferences_confirm",
@@ -191,7 +192,7 @@ describe("AnalyticsPreferencesSettings", () => {
           appPerformance: false,
           personalizedExperience: true,
         }),
-        true,
+        { mandatory: true },
       );
       expect(analytics.updateIdentify).toHaveBeenCalledTimes(1);
       expect(analytics.updateIdentify).toHaveBeenCalledWith(undefined, true);
@@ -220,13 +221,13 @@ describe("AnalyticsPreferencesSettings", () => {
       expect(store.getState().settings.analyticsEnabled).toBe(false);
       expect(store.getState().settings.personalizedRecommendationsEnabled).toBe(false);
 
-      expect(analytics.track).toHaveBeenCalledWith(
+      expect(sharedAnalytics.track).toHaveBeenCalledWith(
         "button_clicked",
         expect.objectContaining({
           appPerformance: false,
           personalizedExperience: false,
         }),
-        true,
+        { mandatory: true },
       );
 
       await waitFor(() => {
@@ -248,14 +249,14 @@ describe("AnalyticsPreferencesSettings", () => {
 
       await user.press(screen.getByRole("button", { name: "Confirm" }));
 
-      expect(analytics.track).toHaveBeenCalledWith(
+      expect(sharedAnalytics.track).toHaveBeenCalledWith(
         "button_clicked",
         expect.objectContaining({
           button: "analytics_preferences_confirm",
           appPerformance: false,
           personalizedExperience: false,
         }),
-        true,
+        { mandatory: true },
       );
       expect(analytics.updateIdentify).toHaveBeenCalledWith(undefined, true);
     });

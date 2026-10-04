@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { CryptoOrTokenCurrency } from "@domain/entity-currency";
 import type { CryptoCurrency } from "@domain/entity-currency-crypto";
+import type { EnhancedModularDrawerConfiguration } from "@ledgerhq/live-common/wallet-api/ModularDrawer/types";
 import { useDispatch, useStore } from "LLD/hooks/redux";
 import {
   closeDialog,
   openDialog,
+  setFlowValue,
+  setSourceValue,
   type ModularDialogPresentation,
 } from "~/renderer/reducers/modularDialog";
 
@@ -17,9 +20,12 @@ type PendingCurrencySelection = Readonly<{
 }>;
 
 export type OpenCurrencyFlow = (
-  networkIds: readonly CryptoCurrency["id"][],
+  selectableNetworkIds: readonly CryptoCurrency["id"][],
   options?: Readonly<{
+    dialogConfiguration?: EnhancedModularDrawerConfiguration;
     presentation?: ModularDialogPresentation;
+    flow?: string;
+    source?: string;
   }>,
 ) => Promise<CryptoOrTokenCurrency | null>;
 
@@ -38,7 +44,7 @@ export function useOpenCurrencyFlow(): Readonly<{
   }, [dispatch]);
 
   const openCurrencyFlow = useCallback<OpenCurrencyFlow>(
-    (networkIds, options) => {
+    (selectableNetworkIds, options) => {
       cancelCurrencyFlow();
 
       return new Promise(resolve => {
@@ -63,9 +69,16 @@ export function useOpenCurrencyFlow(): Readonly<{
 
         pendingSelectionRef.current = { requestId, onAssetSelected, settle };
 
+        if (options?.flow !== undefined) {
+          dispatch(setFlowValue(options.flow));
+        }
+        if (options?.source !== undefined) {
+          dispatch(setSourceValue(options.source));
+        }
         dispatch(
           openDialog({
-            networkIds: [...networkIds],
+            dialogConfiguration: options?.dialogConfiguration,
+            selectableNetworkIds: [...selectableNetworkIds],
             presentation: options?.presentation,
             onAssetSelected,
             onClose: () => {

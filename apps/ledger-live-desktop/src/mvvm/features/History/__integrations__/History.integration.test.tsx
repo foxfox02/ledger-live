@@ -1,15 +1,34 @@
 import React, { useState } from "react";
 import { cleanup, render, screen, waitFor, within, withFlagOverrides } from "tests/testSetup";
-import { useNavigate } from "react-router";
+import { http, HttpResponse, server } from "tests/server";
+import { useLocation, useNavigate } from "react-router";
 import { setDrawer } from "~/renderer/drawers/Provider";
 import { useExportOperationsCsv } from "~/renderer/hooks/useExportOperationsCsv";
 import { genAccount } from "@ledgerhq/ledger-wallet-framework/mocks/account";
-import { track } from "~/renderer/analytics/segment";
+import { mockPayCardTransactions } from "@domain/api-card-management/mock/card-transactions";
+import { track, trackPage } from "@shared/analytics";
+
+jest.mock("@shared/analytics", () => ({
+  ...jest.requireActual("@shared/analytics"),
+  track: jest.fn(),
+  trackPage: jest.fn(),
+}));
+
+const mockedTrackPage = jest.mocked(trackPage);
 import { BTC_ACCOUNT, EMPTY_BTC_ACCOUNT } from "../../__mocks__/accounts.mock";
 import { bitcoinCurrency, ethereumCurrency } from "../../__mocks__/useSelectAssetFlow.mock";
 import { AFTER_ONBOARDING_STATE } from "~/renderer/reducers/settings";
 import type { Account } from "@ledgerhq/types-live";
 import History from "../index";
+import {
+  aliceContact,
+  CONTACT_HISTORY_ID,
+  CONTACT_HISTORY_NAME,
+  createEthAccountWithContactTransfers,
+  IN_FROM_CONTACT_OP_ID,
+  OUT_TO_CONTACT_OP_ID,
+  OUT_TO_OTHER_OP_ID,
+} from "./contactHistory.fixtures";
 
 const mockNavigate = jest.fn();
 let mockExportShouldSucceed = true;
@@ -46,6 +65,11 @@ jest.mock("~/renderer/hooks/useExportOperationsCsv");
 const mockedUseExportOperationsCsv = jest.mocked(useExportOperationsCsv);
 
 const mockedUseNavigate = jest.mocked(useNavigate);
+
+function LocationSearch() {
+  const { search } = useLocation();
+  return <output data-testid="history-location-search">{search}</output>;
+}
 
 type ExportHookArgs = {
   onSuccess?: () => void;
@@ -115,6 +139,22 @@ describe("History integration", () => {
     unmount();
 
     expect(store.getState().history.lastSeenOperationDate).not.toBeNull();
+  });
+
+  it("does not mark crypto operations as seen when leaving card history", () => {
+    const { unmount, store } = render(<History />, {
+      initialRoute: "/history?tab=card",
+      initialState: {
+        accounts: [BTC_ACCOUNT],
+        settings: AFTER_ONBOARDING_STATE,
+        history: { lastSeenOperationDate: null },
+        ...withFlagOverrides({ lwdPayTab: { enabled: true, params: { card_native: true } } }),
+      },
+    });
+
+    unmount();
+
+    expect(store.getState().history.lastSeenOperationDate).toBeNull();
   });
 
   it("should render the table header columns", async () => {
@@ -232,6 +272,223 @@ describe("History integration", () => {
     await user.click(await screen.findByTestId("history-actions-menu-button"));
 
     expect(screen.queryByTestId("history-toggle-dust-filter-button")).not.toBeInTheDocument();
+  });
+
+  it("should show the contact in the header and only that contact's send and receive rows", async () => {
+    const account = createEthAccountWithContactTransfers();
+
+    render(<History />, {
+      initialRoute: `/history?contactId=${CONTACT_HISTORY_ID}`,
+      initialState: {
+        accounts: [account],
+        settings: AFTER_ONBOARDING_STATE,
+        contacts: { contacts: [aliceContact()] },
+        ...withFlagOverrides({ lwdPayTab: { enabled: true } }),
+      },
+    });
+
+    expect(await screen.findByTestId("history-contact-scope")).toHaveTextContent(
+      CONTACT_HISTORY_NAME,
+    );
+    expect(screen.getByTestId(`history-operation-row-${OUT_TO_CONTACT_OP_ID}`)).toBeVisible();
+    expect(screen.getByTestId(`history-operation-row-${IN_FROM_CONTACT_OP_ID}`)).toBeVisible();
+    expect(
+      screen.queryByTestId(`history-operation-row-${OUT_TO_OTHER_OP_ID}`),
+    ).not.toBeInTheDocument();
+  });
+
+  it("should leave History unscoped when the contactId is unknown", async () => {
+    const account = createEthAccountWithContactTransfers();
+
+    render(<History />, {
+      initialRoute: "/history?contactId=contact-missing",
+      initialState: {
+        accounts: [account],
+        settings: AFTER_ONBOARDING_STATE,
+        contacts: { contacts: [aliceContact()] },
+        ...withFlagOverrides({ lwdPayTab: { enabled: true } }),
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId(`history-operation-row-${OUT_TO_OTHER_OP_ID}`)).toBeVisible();
+    });
+    expect(screen.queryByTestId("history-contact-scope")).not.toBeInTheDocument();
+  });
+
+  it("should ignore the contactId scope when the lwdPayTab flag is disabled", async () => {
+    const account = createEthAccountWithContactTransfers();
+
+    render(<History />, {
+      initialRoute: `/history?contactId=${CONTACT_HISTORY_ID}`,
+      initialState: {
+        accounts: [account],
+        settings: AFTER_ONBOARDING_STATE,
+        contacts: { contacts: [aliceContact()] },
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId(`history-operation-row-${OUT_TO_OTHER_OP_ID}`)).toBeVisible();
+    });
+    expect(screen.getByTestId(`history-operation-row-${OUT_TO_CONTACT_OP_ID}`)).toBeVisible();
+    expect(screen.getByTestId(`history-operation-row-${IN_FROM_CONTACT_OP_ID}`)).toBeVisible();
+    expect(screen.queryByTestId("history-contact-scope")).not.toBeInTheDocument();
+  });
+
+  it("should show the empty state when the contact has no matching transactions", async () => {
+    render(<History />, {
+      initialRoute: `/history?contactId=${CONTACT_HISTORY_ID}`,
+      initialState: {
+        accounts: [EMPTY_BTC_ACCOUNT],
+        settings: AFTER_ONBOARDING_STATE,
+        contacts: { contacts: [aliceContact()] },
+        ...withFlagOverrides({ lwdPayTab: { enabled: true } }),
+      },
+    });
+
+    expect(await screen.findByText("No transactions yet")).toBeVisible();
+    expect(screen.getByTestId("history-contact-scope")).toHaveTextContent(CONTACT_HISTORY_NAME);
+    expect(screen.queryByTestId("history-table")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("history-type-switcher")).not.toBeInTheDocument();
+  });
+
+  function renderHistoryWithPayTab(initialRoute = "/history") {
+    return render(
+      <>
+        <History />
+        <LocationSearch />
+      </>,
+      {
+        initialRoute,
+        initialState: {
+          accounts: [BTC_ACCOUNT],
+          settings: AFTER_ONBOARDING_STATE,
+          ...withFlagOverrides({ lwdPayTab: { enabled: true, params: { card_native: true } } }),
+        },
+      },
+    );
+  }
+
+  it("should hide the crypto and card switcher when the pay tab is disabled", async () => {
+    renderHistory();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("history-table-body")).toBeVisible();
+    });
+    expect(screen.queryByTestId("history-type-switcher")).not.toBeInTheDocument();
+  });
+
+  it("should hide the crypto and card switcher when the card param is false", async () => {
+    render(<History />, {
+      initialState: {
+        accounts: [BTC_ACCOUNT],
+        settings: AFTER_ONBOARDING_STATE,
+        ...withFlagOverrides({ lwdPayTab: { enabled: true, params: { card_native: false } } }),
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("history-table-body")).toBeVisible();
+    });
+    expect(screen.queryByTestId("history-type-switcher")).not.toBeInTheDocument();
+  });
+
+  it("should hide the crypto and card switcher when the card param is missing", async () => {
+    render(<History />, {
+      initialState: {
+        accounts: [BTC_ACCOUNT],
+        settings: AFTER_ONBOARDING_STATE,
+        ...withFlagOverrides({ lwdPayTab: { enabled: true, params: { card_native: undefined } } }),
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("history-table-body")).toBeVisible();
+    });
+    expect(screen.queryByTestId("history-type-switcher")).not.toBeInTheDocument();
+  });
+
+  it("should show the crypto and card switcher when the pay tab is enabled", async () => {
+    renderHistoryWithPayTab();
+
+    expect(await screen.findByTestId("history-type-switcher")).toBeVisible();
+    expect(screen.getByTestId("history-tab-crypto")).toBeVisible();
+    expect(screen.getByTestId("history-tab-card")).toBeVisible();
+    expect(screen.getByTestId("history-table-body")).toBeVisible();
+  });
+
+  it("should show the signed-out card history when the card tab is selected", async () => {
+    renderHistoryWithPayTab("/history?tab=card");
+
+    expect(screen.queryByTestId("history-card-scope")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("card-history-signed-out-state")).toBeVisible();
+    expect(screen.getByText("Log in to see your card transactions")).toBeVisible();
+    expect(screen.queryByTestId("history-table-body")).not.toBeInTheDocument();
+    expect(screen.getByTestId("history-actions-menu-button")).toBeVisible();
+  });
+
+  it("should scope card history to the asset query param", async () => {
+    server.use(
+      http.get("*/v1/card/transactions", () => HttpResponse.json(mockPayCardTransactions())),
+    );
+
+    render(<History />, {
+      initialRoute: "/history?tab=card&asset=btc",
+      initialState: {
+        accounts: [BTC_ACCOUNT],
+        settings: AFTER_ONBOARDING_STATE,
+        payCardAuth: { hasCard: true, pendingLoginType: null, status: "signedIn" },
+        ...withFlagOverrides({ lwdPayTab: { enabled: true, params: { card_native: true } } }),
+      },
+    });
+
+    expect(screen.getByText("Card · Bitcoin")).toBeVisible();
+    expect(await screen.findByText("STARBUCKS")).toBeVisible();
+    expect(screen.getByText("ATM WITHDRAWAL")).toBeVisible();
+    expect(screen.queryByText("NETFLIX.COM")).not.toBeInTheDocument();
+    expect(screen.getByText("Cashback")).toBeVisible();
+    expect(screen.queryByTestId("history-type-switcher")).not.toBeInTheDocument();
+  });
+
+  it("should not track OperationList when opening card history", async () => {
+    renderHistoryWithPayTab("/history?tab=card");
+
+    expect(await screen.findByTestId("card-history-signed-out-state")).toBeVisible();
+    expect(mockedTrackPage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ category: "OperationList" }),
+      expect.anything(),
+    );
+  });
+
+  it("should track OperationList with the number of operations, not virtualizer rows", async () => {
+    renderHistory();
+
+    const operationRows = await screen.findAllByTestId(/history-operation-row-/);
+    expect(mockedTrackPage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: "OperationList",
+        props: expect.objectContaining({ operationsCount: operationRows.length }),
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("should switch from crypto history to signed-out card history", async () => {
+    const { user } = renderHistoryWithPayTab();
+
+    expect(await screen.findByTestId("history-table-body")).toBeVisible();
+
+    await user.click(screen.getByTestId("history-tab-card"));
+
+    expect(await screen.findByTestId("card-history-signed-out-state")).toBeVisible();
+    expect(screen.queryByTestId("history-table-body")).not.toBeInTheDocument();
+    expect(screen.getByTestId("history-location-search")).toHaveTextContent("?tab=card");
+
+    await user.click(screen.getByTestId("history-tab-crypto"));
+
+    expect(await screen.findByTestId("history-table-body")).toBeVisible();
+    expect(screen.getByTestId("history-location-search")).toBeEmptyDOMElement();
   });
 });
 

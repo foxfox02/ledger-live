@@ -1,11 +1,10 @@
 import { Step } from "jest-allure2-reporter/api";
-import { currencyParam, openDeeplink } from "../../helpers/commonHelpers";
+import { currencyParam, openDeeplink } from "@e2e/helpers/commonHelpers";
 
 export default class SendPage {
   baseLink = "send";
   summaryAmountId = "send-summary-amount";
   summaryMemoTagId = "summary-memo-tag";
-  validationEnsId = "device-validation-domain";
   recipientContinueEnabledButtonId = "enabled-recipient-continue-button";
   recipientContinueDisabledButtonId = "disabled-recipient-continue-button";
   amountContinueEnabledButtonId = "enabled-amount-continue-button";
@@ -22,6 +21,8 @@ export default class SendPage {
   summaryErrorId = "insufficient-fee-error";
   highFeeConfirmButtonID = "enabled-confirmation-modal-confirm-button";
 
+  private readonly validationEnsId = "device-validation-domain";
+
   summaryRecipient = () => getElementById("send-summary-recipient");
   summaryRecipientEns = () => getElementById("send-summary-recipient-ens");
   summaryMemoTag = () => getElementById(this.summaryMemoTagId);
@@ -32,7 +33,7 @@ export default class SendPage {
   summaryContinueButton = () => getElementById(this.summaryContinueEnabledButtonId);
   feeStrategy = (fee: string) => getElementByText(fee);
 
-  @Step("Navigate to send screen")
+  @Step("Navigate to send screen {{{0}}}")
   async navigateToSendScreen(accountName: string) {
     await app.account.openViaDeeplink();
     await app.account.goToAccountByName(accountName);
@@ -44,7 +45,7 @@ export default class SendPage {
     await openDeeplink(this.baseLink);
   }
 
-  @Step("Send via deeplink")
+  @Step("Send via deeplink {{{0}}}")
   async sendViaDeeplink(currencyLong?: string) {
     const link = currencyLong ? this.baseLink + currencyParam + currencyLong : this.baseLink;
     await openDeeplink(link);
@@ -56,7 +57,7 @@ export default class SendPage {
     await detoxExpect(header).toBeVisible();
   }
 
-  @Step("Set recipient and memo tag")
+  @Step("Set recipient {{{0}}} and memo tag {{{1}}}")
   async setRecipient(address: string, memoTag?: string) {
     await waitForElementById(this.recipientInputId); // Issue with RN75 : QAA-370
     await typeTextById(this.recipientInputId, address);
@@ -65,7 +66,7 @@ export default class SendPage {
     }
   }
 
-  @Step("Continue to next step and skip memo tag if needed")
+  @Step("Continue to next step and skip memo tag if needed {{{0}}}")
   async recipientContinue(memoTag?: string) {
     await waitForElementById(this.recipientContinueEnabledButtonId);
     await tapById(this.recipientContinueEnabledButtonId);
@@ -76,12 +77,12 @@ export default class SendPage {
     }
   }
 
-  @Step("Expect recipient error message")
+  @Step("Expect recipient error message {{{0}}}")
   async expectSendRecipientError(errorMessage: string) {
     await this.expectRecipientMessage(errorMessage);
   }
 
-  @Step("Expect recipient warning message")
+  @Step("Expect recipient warning message {{{0}}}")
   async expectSendRecipientWarning(expectedWarningMessage: string | null) {
     await this.expectRecipientMessage(expectedWarningMessage, true);
   }
@@ -104,7 +105,7 @@ export default class SendPage {
     }
   }
 
-  @Step("Expect recipient step success")
+  @Step("Expect recipient step success {{{0}}}")
   async expectSendRecipientSuccess(expectedWarningMessage?: string) {
     const errElem = getElementById(this.recipientErrorId);
     if (!expectedWarningMessage) {
@@ -116,7 +117,7 @@ export default class SendPage {
     await detoxExpect(contBtn).toBeVisible();
   }
 
-  @Step("Set recipient and continue")
+  @Step("Set recipient {{{0}}} and continue")
   async setRecipientAndContinue(address: string | undefined, memoTag?: string) {
     if (!address) {
       throw new Error("Recipient address is not set");
@@ -125,7 +126,7 @@ export default class SendPage {
     await this.recipientContinue(memoTag);
   }
 
-  @Step("Set the amount and return the value")
+  @Step("Set the amount and return the value {{{0}}}")
   async setAmount(amount: string): Promise<string> {
     if (amount === "max") {
       const switchEl = this.amountMaxSwitch();
@@ -152,7 +153,7 @@ export default class SendPage {
     await detoxExpect(contBtn).toBeVisible();
   }
 
-  @Step("Expect amount error message")
+  @Step("Expect amount error message {{{0}}}")
   async expectSendAmountError(errorMessage: string) {
     const errElem = getElementById(this.amountErrorId);
     await detoxExpect(errElem).toHaveText(errorMessage);
@@ -162,7 +163,7 @@ export default class SendPage {
     await detoxExpect(disabledBtn).toBeVisible();
   }
 
-  @Step("Set amount and continue")
+  @Step("Set amount and continue {{{0}}}")
   async setAmountAndContinue(amount: string) {
     await this.setAmount(amount);
     await this.amountContinue();
@@ -174,13 +175,13 @@ export default class SendPage {
     await tapByElement(btn);
   }
 
-  @Step("Expect amount in summary")
+  @Step("Expect amount in summary {{{0}}}")
   async expectSummaryAmount(amount: string) {
     const amt = getElementById(this.summaryAmountId);
     await detoxExpect(amt).toHaveText(amount);
   }
 
-  @Step("Expect max amount is within range in summary")
+  @Step("Expect max amount is within range in summary {{{0}}}")
   async expectSummaryMaxAmount(amount: string, tolerance = 0.00005) {
     const text = await getTextOfElement(this.summaryAmountId);
     const summaryAmount = parseFloat(text.replace(/[^\d.-]/g, ""));
@@ -189,7 +190,7 @@ export default class SendPage {
     jestExpect(summaryAmount).toBeLessThanOrEqual(expected + tolerance);
   }
 
-  @Step("Expect recipient in summary")
+  @Step("Expect recipient in summary {{{0}}}")
   async expectSummaryRecipient(recipient: string | undefined) {
     if (!recipient) {
       throw new Error("Recipient address is not set");
@@ -198,7 +199,7 @@ export default class SendPage {
     await detoxExpect(rec).toHaveText(recipient);
   }
 
-  @Step("Expect error in summary")
+  @Step("Expect error in summary {{{0}}}")
   async expectSendSummaryError(errorMessage: RegExp) {
     const err = await getTextOfElement(this.summaryErrorId);
     jestExpect(err).toMatch(errorMessage);
@@ -208,19 +209,25 @@ export default class SendPage {
     await detoxExpect(disabledBtn).toBeVisible();
   }
 
-  @Step("Expect warning in summary")
+  @Step("Expect warning in summary {{{0}}}")
   async expectSummaryWarning(warningMessage: string) {
     const warn = this.summaryWarning();
     await detoxExpect(warn).toHaveText(warningMessage);
   }
 
-  @Step("Expect recipient ENS in summary")
+  @Step("Expect recipient ENS in summary {{{0}}}")
   async expectSummaryRecipientEns(ensName: string) {
     const ens = this.summaryRecipientEns();
     await detoxExpect(ens).toHaveText(ensName);
   }
 
-  @Step("Expect memo tag in summary")
+  @Step("Expect validation ENS name {{{0}}}")
+  async expectValidationEnsName(ensName: string) {
+    const elem = getElementById(this.validationEnsId);
+    await detoxExpect(elem).toHaveText(ensName);
+  }
+
+  @Step("Expect memo tag in summary {{{0}}}")
   async expectSummaryMemoTag(memoTag?: string) {
     if (memoTag && memoTag !== "noTag") {
       const memoEl = this.summaryMemoTag();
@@ -238,13 +245,7 @@ export default class SendPage {
     }
   }
 
-  @Step("Expect ENS name in device validation screen")
-  async expectValidationEnsName(ensName: string) {
-    const elem = getElementById(this.validationEnsId);
-    await detoxExpect(elem).toHaveText(ensName);
-  }
-
-  @Step("Choose fee strategy")
+  @Step("Choose fee strategy {{{0}}}")
   async chooseFeeStrategy(fee?: string) {
     if (fee) {
       await scrollToText(fee);

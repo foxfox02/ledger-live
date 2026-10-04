@@ -1,8 +1,10 @@
+import { track } from "@shared/analytics";
 import { useNavigation, useRoute } from "@react-navigation/core";
 import { useEffect, useCallback, useState, useRef, useMemo } from "react";
 import { concat, from, Subscription } from "rxjs";
 import { ignoreElements } from "rxjs/operators";
 import { useDispatch } from "~/context/hooks";
+import { openCurrencyRegionRestrictedDrawer } from "~/reducers/currencyRegionRestrictedDrawer";
 import { useTranslation } from "~/context/Locale";
 import { useAccountBridgeOrNull } from "@ledgerhq/live-common/bridge/useAccountBridge";
 import uniq from "lodash/uniq";
@@ -17,13 +19,11 @@ import noAssociatedAccountsByFamily from "~/generated/NoAssociatedAccounts";
 import { getCustomAddAccountFlow } from "LLM/features/Accounts/utils/customAddAccountFlow";
 import { StackNavigatorNavigation } from "~/components/RootNavigator/types/helpers";
 import { BaseNavigatorStackParamList } from "~/components/RootNavigator/types/BaseNavigator";
-import { groupAddAccounts, addAccountsAction } from "@ledgerhq/live-wallet/addAccounts";
-import { useMaybeAccountName } from "~/reducers/wallet";
-import { setAccountName } from "@ledgerhq/live-wallet/store";
+import { groupAddAccounts, addAccountsAction } from "@ledgerhq/live-common/account/addAccounts";
+import { useMaybeAccountName, setAccountName } from "~/reducers/wallet";
 import { isCantonAccount } from "@ledgerhq/coin-canton/bridge/serialization";
 import { isConcordiumAccount } from "@ledgerhq/coin-concordium/bridge/serialization";
 import type { ScanDeviceAccountsNavigationProps, ScanDeviceAccountsViewModelProps } from "./types";
-import { track } from "~/analytics";
 
 const isNoAssociatedAccountsFamily = (
   family: string,
@@ -44,7 +44,7 @@ export default function useScanDeviceAccountsViewModel({
   const { t } = useTranslation();
   const [scanning, setScanning] = useState(true);
   const navigation = useNavigation<ScanDeviceAccountsNavigationProps["navigation"]>();
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<Error | null>(null);
   const [latestScannedAccount, setLatestScannedAccount] = useState<Account | null>(null);
   const [scannedAccounts, setScannedAccounts] = useState<Account[]>([]);
   const [onlyNewAccounts, setOnlyNewAccounts] = useState(true);
@@ -191,14 +191,17 @@ export default function useScanDeviceAccountsViewModel({
     [selectedIds],
   );
 
-  // Close inline flow: drawer + navigation
+  const popInlineScreens = useCallback(() => {
+    const parent = navigation.getParent<StackNavigatorNavigation<BaseNavigatorStackParamList>>();
+    parent?.pop(navigationDepth ?? 2);
+  }, [navigation, navigationDepth]);
+
   const closeInlineFlow = useCallback(() => {
     if (onCloseNavigation) {
       onCloseNavigation();
     }
-    const parent = navigation.getParent<StackNavigatorNavigation<BaseNavigatorStackParamList>>();
-    parent?.pop(navigationDepth ?? 2);
-  }, [navigation, onCloseNavigation, navigationDepth]);
+    popInlineScreens();
+  }, [onCloseNavigation, popInlineScreens]);
 
   const importAccounts = useCallback(() => {
     const accountsToAdd = scannedAccounts.filter(a => selectedIds.includes(a.id));
@@ -262,8 +265,7 @@ export default function useScanDeviceAccountsViewModel({
     const { onSuccess } = route.params;
 
     if (inline) {
-      closeInlineFlow();
-
+      popInlineScreens();
       if (onSuccess) {
         onSuccess({
           scannedAccounts,
@@ -300,7 +302,7 @@ export default function useScanDeviceAccountsViewModel({
     scannedAccounts,
     selectedIds,
     dispatch,
-    closeInlineFlow,
+    popInlineScreens,
     analyticsMetadata?.AccountsFound?.onContinue,
     analyticsMetadata?.AccountsFound?.onAccountsAdded,
   ]);
@@ -413,6 +415,7 @@ export default function useScanDeviceAccountsViewModel({
       } else if (!hasScannedAccounts && CustomNoAssociatedAccounts) {
         navigation.replace(ScreenName.NoAssociatedAccounts, {
           CustomNoAssociatedAccounts,
+          onCloseNavigation,
         });
       }
     }
@@ -442,8 +445,24 @@ export default function useScanDeviceAccountsViewModel({
       }
     : undefined;
 
+  const isRegionRestricted = error?.name === "CurrencyRegionRestrictedError";
+
+  useEffect(() => {
+    if (!isRegionRestricted) return;
+
+    if (inline) {
+      onCancel();
+      onModalHide();
+    } else {
+      navigation.getParent<StackNavigatorNavigation<BaseNavigatorStackParamList>>()?.popToTop();
+    }
+
+    dispatch(openCurrencyRegionRestrictedDrawer(currency.name));
+  }, [isRegionRestricted, inline, onCancel, onModalHide, navigation, dispatch, currency.name]);
+
   return {
     alreadyEmptyAccount,
+    isRegionRestricted,
     alreadyEmptyAccountName,
     cantCreateAccount,
     CustomNoAssociatedAccounts,

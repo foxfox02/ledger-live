@@ -1,10 +1,13 @@
 import { encodeOperationId } from "@ledgerhq/ledger-wallet-framework/operation";
-import { createMockAccount, createMockTransaction, TEST_TRANSFER_IDS } from "../test/fixtures";
-import { getAddress } from "./bridgeHelpers/addresses";
+import BigNumber from "bignumber.js";
+import { CASPER_FEES_MOTES } from "../constants";
+import { createMockAccount, createMockTransaction, TEST_TRANSFER_IDS } from "../__tests__/fixtures";
+import { getAddress } from "../logic/validateAddress";
+import type { Transaction } from "../types";
 import { buildOptimisticOperation } from "./buildOptimisticOperation";
 
 // Mock dependencies
-jest.mock("./bridgeHelpers/addresses", () => ({
+jest.mock("../logic/validateAddress", () => ({
   getAddress: jest.fn(),
 }));
 
@@ -40,8 +43,8 @@ describe("buildOptimisticOperation", () => {
       senders: [mockAddress],
       recipients: [mockTransaction.recipient],
       accountId: mockAccount.id,
-      value: mockTransaction.amount.plus(mockTransaction.fees),
-      fee: mockTransaction.fees,
+      value: mockTransaction.amount.plus(mockTransaction.fees ?? new BigNumber(0)),
+      fee: mockTransaction.fees ?? new BigNumber(0),
       blockHash: null,
       blockHeight: null,
       date: expect.any(Date),
@@ -75,15 +78,23 @@ describe("buildOptimisticOperation", () => {
   });
 
   test("should handle transaction without transferId", () => {
-    const txWithoutTransferId = {
-      ...mockTransaction,
-      transferId: undefined,
-    };
+    const { transferId: _t, ...txWithoutTransferId } = mockTransaction;
 
-    const operation = buildOptimisticOperation(mockAccount, txWithoutTransferId, mockHash);
+    const operation = buildOptimisticOperation(
+      mockAccount,
+      txWithoutTransferId as Transaction,
+      mockHash,
+    );
 
-    expect(operation.extra).toEqual({
-      transferId: undefined,
-    });
+    expect(operation.extra).toEqual({});
+  });
+
+  test("should default fee to estimated fees when fees is null", () => {
+    const txWithoutFees: Transaction = { ...mockTransaction, fees: null };
+
+    const operation = buildOptimisticOperation(mockAccount, txWithoutFees, mockHash);
+
+    expect(operation.fee).toEqual(new BigNumber(CASPER_FEES_MOTES));
+    expect(operation.value).toEqual(mockTransaction.amount.plus(CASPER_FEES_MOTES));
   });
 });

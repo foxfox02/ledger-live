@@ -2,6 +2,13 @@ name: "[Mobile] - Code Check - Called"
 
 on:
   workflow_call:
+    inputs:
+      skip-unit-tests:
+        description: "Skip the unit test job. Set at the merge gate, where no product code executes."
+        type: boolean
+        required: false
+        default: false
+
     outputs:
       coverage_generated:
         value: ${{ jobs.unit-tests.outputs.coverage_generated }}
@@ -50,7 +57,8 @@ jobs:
       NODE_OPTIONS: "--max-old-space-size=7168"
       FORCE_COLOR: 3
       CI_OS: ubuntu-22.04
-    runs-on: ubuntu-22.04
+    runs-on: ledger-wallet-4cpu-aws-public
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -69,15 +77,16 @@ jobs:
           roleName: ${{ secrets.AWS_CACHE_ROLE_NAME }}
           region: ${{ secrets.AWS_CACHE_REGION }}
 
-      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1
+      - name: JFrog npm auth
+        uses: LedgerHQ/ledger-live/tools/actions/composites/jfrog-npm-auth@develop
         with:
-          ruby-version: 3.3.0
+          registry: ${{ vars.ARTIFACTORY_URL }}
 
       - name: Install dependencies
-        run: pnpm i --filter="live-mobile..." --filter="ledger-live" --no-frozen-lockfile --unsafe-perm
+        run: pnpm i --filter="live-mobile..." --filter="ledger-live" --frozen-lockfile --unsafe-perm
 
       - name: Run format check
-        if: github.base_ref == 'develop' || github.ref == 'refs/heads/develop' || github.event_name == 'workflow_dispatch'
+        if: github.base_ref == 'develop' || github.ref == 'refs/heads/develop' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
         run: pnpm exec nx run live-mobile:format:check
 
       - name: Run linter
@@ -95,6 +104,7 @@ jobs:
 
   unit-tests:
     name: "Mobile Unit Tests"
+    if: ${{ !inputs.skip-unit-tests }}
     permissions:
       id-token: write
       contents: read
@@ -130,7 +140,7 @@ jobs:
           registry: ${{ vars.ARTIFACTORY_URL }}
 
       - name: Install dependencies
-        run: pnpm i --filter="live-mobile..." --filter="ledger-live" --unsafe-perm
+        run: pnpm i --frozen-lockfile --filter="live-mobile..." --filter="ledger-live" --unsafe-perm
 
       - name: Build dependencies
         run: pnpm exec nx run live-mobile:build-lib-deps

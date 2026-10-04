@@ -19,7 +19,7 @@ import { getBlockInfo } from "../logic/history/getBlockInfo";
 import { getTransactions } from "../logic/history/getTransactions";
 import { fetchValidators, getEpochInfo } from "../network";
 import type { RosettaTransaction } from "../network/types";
-import type { FetchEpochInfoResponse } from "../network/types";
+import type { FetchEpochInfoResponse, ValidatorInfo } from "../network/types";
 import {
   createMockTxn,
   createMockAccountInfo,
@@ -28,11 +28,15 @@ import {
 } from "../test/fixtures";
 import type { MinaAccount, MinaAccountRaw, MinaOperation } from "../types";
 import {
+  dropSupersededOperations,
   getAccountShape,
   mapRosettaTxnToOperation,
+  refineDelegationTypes,
   assignToAccountRaw,
   assignFromAccountRaw,
 } from "./synchronisation";
+
+const storedOp = (id: string, hash: string): MinaOperation => ({ id, hash }) as MinaOperation;
 
 describe("synchronisation", () => {
   beforeEach(() => {
@@ -81,6 +85,28 @@ describe("synchronisation", () => {
       });
     });
 
+    it("uses the provided block timestamp instead of fetching the block", async () => {
+      const mockTxn = createMockTxn({
+        type: "OUT",
+        senderAddress: mockAddress,
+        receiverAddress: "receiver_address",
+        status: "Success",
+      });
+      // Rosetta /search/transactions does not return a per-tx timestamp in practice.
+      delete (mockTxn as { timestamp?: number }).timestamp;
+
+      const result = await mapRosettaTxnToOperation(
+        mockAccountId,
+        mockAddress,
+        mockTxn,
+        1700000000000,
+      );
+
+      // The pre-resolved block timestamp is used, without a per-tx getBlockInfo fetch.
+      expect(result[0].date).toEqual(new Date(1700000000000));
+      expect(getBlockInfo).not.toHaveBeenCalled();
+    });
+
     it("should map payment transaction (IN)", async () => {
       const mockTxn = createMockTxn({
         type: "IN",
@@ -112,7 +138,7 @@ describe("synchronisation", () => {
       });
     });
 
-    it("should map redelegate transaction", async () => {
+    it("should map a delegate change to a delegate operation", async () => {
       const mockTxn = createMockTxn({
         type: "REDELEGATE",
         senderAddress: mockAddress,
@@ -126,7 +152,7 @@ describe("synchronisation", () => {
       expect(result).toHaveLength(1);
       expect(result[0]).toEqual({
         id: "encoded_operation_id",
-        type: "REDELEGATE",
+        type: "DELEGATE",
         hash: "tx_hash",
         value: new BigNumber(0),
         fee: new BigNumber(0),
@@ -381,7 +407,7 @@ describe("synchronisation", () => {
     });
 
     it("should populate delegateInfo when a validator matches the delegate address", async () => {
-      (fetchValidators as jest.Mock).mockResolvedValue([
+      (fetchValidators as unknown as jest.Mock).mockResolvedValue([
         { address: "validator_address", name: "Validator" },
       ]);
       (getDelegateAddress as jest.Mock).mockResolvedValue("validator_address");
@@ -417,6 +443,53 @@ describe("synchronisation", () => {
 
       // delegateAddress = address (self) → stakingActive = false
       expect(result.resources?.stakingActive).toBe(false);
+    });
+
+    describe("when a staking upstream fails", () => {
+      const previousResources: MinaAccount["resources"] = {
+        blockProducers: [{ address: "validator_address", name: "Validator" } as ValidatorInfo],
+        delegateInfo: undefined,
+        stakingActive: true,
+        epochInfo: { epoch: "1", slot: "1", globalSlot: "1", startTime: "", endTime: "" },
+      };
+
+      it("should still return balance and operations", async () => {
+        (fetchValidators as unknown as jest.Mock).mockRejectedValue(new Error("validators down"));
+        const fakeOp = { type: "IN", id: "op1" } as MinaOperation;
+        (mergeOps as jest.Mock).mockReturnValue([fakeOp]);
+
+        const result = await getAccountShape(createMockAccountInfo(), { paginationConfig: {} });
+
+        expect(result.balance).toEqual(mockAccountData.balance);
+        expect(result.spendableBalance).toEqual(mockAccountData.spendableBalance);
+        expect(result.blockHeight).toBe(mockAccountData.blockHeight);
+        expect(result.operations).toEqual([fakeOp]);
+      });
+
+      it("should keep the resources from the previous sync", async () => {
+        (fetchValidators as unknown as jest.Mock).mockRejectedValue(new Error("validators down"));
+        const mockInfo = createMockAccountInfo();
+        mockInfo.initialAccount = {
+          ...mockInfo.initialAccount,
+          resources: previousResources,
+        } as MinaAccount;
+
+        const result = await getAccountShape(mockInfo, { paginationConfig: {} });
+
+        expect(result.resources).toEqual(previousResources);
+      });
+
+      it("should leave resources unset when there is nothing to fall back on", async () => {
+        (getEpochInfo as jest.Mock).mockRejectedValue(new Error("graphql down"));
+        const mockInfo = { ...createMockAccountInfo(), initialAccount: undefined };
+
+        const result = await getAccountShape(mockInfo as AccountShapeInfo<Account>, {
+          paginationConfig: {},
+        });
+
+        expect(result.resources).toBeUndefined();
+        expect(result.balance).toEqual(mockAccountData.balance);
+      });
     });
   });
 
@@ -469,6 +542,176 @@ describe("synchronisation", () => {
       assignFromAccountRaw(accountRaw, account);
 
       expect(account.resources).toBeUndefined();
+    });
+  });
+
+  describe("refineDelegationTypes", () => {
+    const accountId = "account_id";
+
+    beforeEach(() => {
+      (encodeOperationId as jest.Mock).mockImplementation(
+        (id: string, hash: string, type: string) => `${id}-${hash}-${type}`,
+      );
+    });
+
+    const delegationOp = (
+      overrides: Partial<MinaOperation> & Pick<MinaOperation, "type" | "hash" | "date">,
+    ): MinaOperation =>
+      ({
+        id: `${accountId}-${overrides.hash}-${overrides.type}`,
+        accountId,
+        hasFailed: false,
+        recipients: ["validator_1"],
+        senders: ["sender_address"],
+        ...overrides,
+      }) as MinaOperation;
+
+    it("leaves a lone delegation as a first delegation", () => {
+      const ops = [delegationOp({ type: "DELEGATE", hash: "tx1", date: new Date(1000) })];
+
+      expect(refineDelegationTypes(ops).map(op => op.type)).toEqual(["DELEGATE"]);
+    });
+
+    it("promotes every delegation after the first one to a redelegation", () => {
+      const ops = [
+        delegationOp({ type: "DELEGATE", hash: "tx3", date: new Date(3000) }),
+        delegationOp({ type: "DELEGATE", hash: "tx2", date: new Date(2000) }),
+        delegationOp({ type: "DELEGATE", hash: "tx1", date: new Date(1000) }),
+      ];
+
+      const byHash = new Map(refineDelegationTypes(ops).map(op => [op.hash, op.type]));
+
+      expect(byHash.get("tx1")).toBe("DELEGATE");
+      expect(byHash.get("tx2")).toBe("REDELEGATE");
+      expect(byHash.get("tx3")).toBe("REDELEGATE");
+    });
+
+    it("re-encodes the operation id of the operations it promotes", () => {
+      const ops = [
+        delegationOp({ type: "DELEGATE", hash: "tx1", date: new Date(1000) }),
+        delegationOp({ type: "DELEGATE", hash: "tx2", date: new Date(2000) }),
+      ];
+
+      const [first, second] = refineDelegationTypes(ops);
+
+      expect(first.id).toBe("account_id-tx1-DELEGATE");
+      expect(second.id).toBe("account_id-tx2-REDELEGATE");
+    });
+
+    it("treats a delegation following an undelegation as a first delegation again", () => {
+      const ops = [
+        delegationOp({ type: "DELEGATE", hash: "tx1", date: new Date(1000) }),
+        delegationOp({ type: "UNDELEGATE", hash: "tx2", date: new Date(2000) }),
+        delegationOp({ type: "DELEGATE", hash: "tx3", date: new Date(3000) }),
+      ];
+
+      expect(refineDelegationTypes(ops).map(op => op.type)).toEqual([
+        "DELEGATE",
+        "UNDELEGATE",
+        "DELEGATE",
+      ]);
+    });
+
+    it("does not let a failed delegation start a delegation", () => {
+      const ops = [
+        delegationOp({ type: "DELEGATE", hash: "tx1", date: new Date(1000), hasFailed: true }),
+        delegationOp({ type: "DELEGATE", hash: "tx2", date: new Date(2000) }),
+      ];
+
+      expect(refineDelegationTypes(ops).map(op => op.type)).toEqual(["DELEGATE", "DELEGATE"]);
+    });
+
+    it("does not let a failed undelegation clear the delegation", () => {
+      const ops = [
+        delegationOp({ type: "DELEGATE", hash: "tx1", date: new Date(1000) }),
+        delegationOp({ type: "UNDELEGATE", hash: "tx2", date: new Date(2000), hasFailed: true }),
+        delegationOp({ type: "DELEGATE", hash: "tx3", date: new Date(3000) }),
+      ];
+
+      expect(refineDelegationTypes(ops).map(op => op.type)).toEqual([
+        "DELEGATE",
+        "UNDELEGATE",
+        "REDELEGATE",
+      ]);
+    });
+
+    it("orders delegations of a same block by nonce", () => {
+      const sameDate = new Date(1000);
+      const ops = [
+        delegationOp({
+          type: "DELEGATE",
+          hash: "tx2",
+          date: sameDate,
+          transactionSequenceNumber: new BigNumber(8),
+        }),
+        delegationOp({
+          type: "DELEGATE",
+          hash: "tx1",
+          date: sameDate,
+          transactionSequenceNumber: new BigNumber(7),
+        }),
+      ];
+
+      const byHash = new Map(refineDelegationTypes(ops).map(op => [op.hash, op.type]));
+
+      expect(byHash.get("tx1")).toBe("DELEGATE");
+      expect(byHash.get("tx2")).toBe("REDELEGATE");
+    });
+
+    it("returns the very same list when no operation needs a change", () => {
+      const ops = [
+        delegationOp({ type: "DELEGATE", hash: "tx1", date: new Date(1000) }),
+        { type: "IN", id: "in-1" } as MinaOperation,
+      ];
+
+      expect(refineDelegationTypes(ops)).toBe(ops);
+    });
+
+    it("leaves the non-delegation operations untouched", () => {
+      const payment = { type: "OUT", id: "out-1" } as MinaOperation;
+      const ops = [
+        payment,
+        delegationOp({ type: "DELEGATE", hash: "tx1", date: new Date(1000) }),
+        delegationOp({ type: "DELEGATE", hash: "tx2", date: new Date(2000) }),
+      ];
+
+      expect(refineDelegationTypes(ops)[0]).toBe(payment);
+    });
+  });
+
+  describe("dropSupersededOperations", () => {
+    it("drops a stored operation whose transaction came back under another id", () => {
+      const stored = [storedOp("account_id-tx1-REDELEGATE", "tx1")];
+      const fetched = [storedOp("account_id-tx1-DELEGATE", "tx1")];
+
+      expect(dropSupersededOperations(stored, fetched)).toEqual([]);
+    });
+
+    it("keeps a stored operation the fetch confirms under the same id", () => {
+      const stored = [storedOp("account_id-tx1-DELEGATE", "tx1")];
+      const fetched = [storedOp("account_id-tx1-DELEGATE", "tx1")];
+
+      expect(dropSupersededOperations(stored, fetched)).toEqual(stored);
+    });
+
+    it("keeps a stored operation the fetch does not report at all", () => {
+      const stored = [storedOp("account_id-tx1-OUT", "tx1")];
+      const fetched = [storedOp("account_id-tx2-OUT", "tx2")];
+
+      expect(dropSupersededOperations(stored, fetched)).toEqual(stored);
+    });
+
+    it("keeps the other operations of a transaction that yields several", () => {
+      const stored = [
+        storedOp("account_id-tx1-OUT", "tx1"),
+        storedOp("account_id-tx1-FEES", "tx1"),
+      ];
+      const fetched = [
+        storedOp("account_id-tx1-OUT", "tx1"),
+        storedOp("account_id-tx1-FEES", "tx1"),
+      ];
+
+      expect(dropSupersededOperations(stored, fetched)).toEqual(stored);
     });
   });
 });

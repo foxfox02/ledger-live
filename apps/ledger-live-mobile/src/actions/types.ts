@@ -1,7 +1,7 @@
 import type { Action } from "redux-actions";
-import type { AccountComparator } from "@ledgerhq/live-wallet/ordering";
+import type { AccountComparator } from "@ledgerhq/live-common/account/ordering";
 import type { Device } from "@ledgerhq/live-common/hw/actions/types";
-import type { Account, DeviceInfo, DeviceModelInfo } from "@ledgerhq/types-live";
+import type { Account, AccountUserData, DeviceInfo, DeviceModelInfo } from "@ledgerhq/types-live";
 import type { Payload as PostOnboardingPayload } from "@ledgerhq/live-common/postOnboarding/reducer";
 import type { DeviceModelId } from "@ledgerhq/types-devices";
 import type {
@@ -25,10 +25,8 @@ import type {
   InViewState,
 } from "../reducers/types";
 import type { Unpacked } from "../types/helpers";
-import type { HandlersPayloads } from "@ledgerhq/live-wallet/store";
-import type { ImportAccountsReduceInput } from "@ledgerhq/live-wallet/liveqr/importAccounts";
 import type { Steps } from "LLM/features/WalletSync/types/Activation";
-import type { CounterValuesState } from "@ledgerhq/live-countervalues/types";
+import type { CounterValuesState } from "@domain/entity-market-countervalues";
 import type { UnknownAction } from "redux";
 import type {
   BrazeContentCard,
@@ -39,7 +37,6 @@ import type {
 //  === ACCOUNTS ACTIONS ===
 
 export enum AccountsActionTypes {
-  ACCOUNTS_USER_IMPORT = "ACCOUNTS_USER_IMPORT",
   ADD_ACCOUNT = "ADD_ACCOUNT",
   REORDER_ACCOUNTS = "REORDER_ACCOUNTS",
   SET_ACCOUNTS = "SET_ACCOUNTS",
@@ -50,7 +47,6 @@ export enum AccountsActionTypes {
 }
 
 export type AccountsReorderPayload = AccountComparator;
-export type AccountsImportAccountsPayload = ImportAccountsReduceInput;
 export type AccountsUpdateAccountWithUpdaterPayload = {
   accountId: string;
   updater: (arg0: Account) => Account;
@@ -58,9 +54,8 @@ export type AccountsUpdateAccountWithUpdaterPayload = {
 export type AccountsDeleteAccountPayload = Account;
 export type AccountsReplacePayload = Account[];
 export type AccountsPayload =
-  | HandlersPayloads["INIT_ACCOUNTS"]
+  | { accounts: Account[]; accountsUserData: AccountUserData[] }
   | AccountsReorderPayload
-  | AccountsImportAccountsPayload
   | AccountsUpdateAccountWithUpdaterPayload
   | AccountsDeleteAccountPayload
   | AccountsReplacePayload
@@ -317,10 +312,10 @@ export enum SettingsActionTypes {
 
   ADD_STARRED_MARKET_COINS = "ADD_STARRED_MARKET_COINS",
   REMOVE_STARRED_MARKET_COINS = "REMOVE_STARRED_MARKET_COINS",
-  SET_HAS_SEEN_WALLET_V4_TOUR = "SET_HAS_SEEN_WALLET_V4_TOUR",
   SET_HAS_DISMISSED_CONTACTS_FEATURE_INTRODUCTION = "SET_HAS_DISMISSED_CONTACTS_FEATURE_INTRODUCTION",
   SET_PRODUCT_TOUR_COMPLETED = "SET_PRODUCT_TOUR_COMPLETED",
   SET_HAS_SEEN_Q2_WALLET_V4_TOUR = "SET_HAS_SEEN_Q2_WALLET_V4_TOUR",
+  SET_HAS_SEEN_Q3_WALLET_V4_TOUR = "SET_HAS_SEEN_Q3_WALLET_V4_TOUR",
   SET_DO_NOT_ASK_AGAIN_SKIP_MEMO = "SET_DO_NOT_ASK_AGAIN_SKIP_MEMO",
   DEPRECATION_DO_NOT_REMIND = "DEPRECATION_DO_NOT_REMIND",
   SET_ANALYTICS_CONSENT_INFO = "SET_ANALYTICS_CONSENT_INFO",
@@ -404,12 +399,12 @@ export type SettingsSetGeneralTermsVersionAccepted = SettingsState["generalTerms
 export type SettingsSetHasSeenAnalyticsOptInPrompt = SettingsState["hasSeenAnalyticsOptInPrompt"];
 export type SettingsSetDebugOsUpdateBannerMode = SettingsState["debugOsUpdateBannerMode"];
 export type SettingsSetAnalyticsConsentInfoPayload = SettingsState["analyticsConsentInfo"];
-export type SettingsSetHasSeenWalletV4TourPayload = SettingsState["hasSeenWalletV4Tour"];
 export type SettingsSetHasDismissedContactsFeatureIntroductionPayload =
   SettingsState["hasDismissedContactsFeatureIntroduction"];
 export type SettingsSetDoNotAskAgainSkipMemoPayload = SettingsState["doNotAskAgainSkipMemo"];
 export type SettingsSetProductTourCompletedPayload = SettingsState["productTourCompleted"];
 export type SettingsSetHasSeenQ2WalletV4TourPayload = SettingsState["hasSeenQ2WalletV4Tour"];
+export type SettingsSetHasSeenQ3WalletV4TourPayload = SettingsState["hasSeenQ3WalletV4Tour"];
 export type SettingsSetDismissedContentCardsPayload = SettingsState["dismissedContentCards"];
 export type SettingsClearDismissedContentCardsPayload = string[];
 export type SettingsSetFromLedgerSyncOnboardingPayload = boolean;
@@ -476,11 +471,11 @@ export type SettingsPayload =
   | SettingsSetSelectedTabPortfolioAssetsPayload
   | SettingsAddStarredMarketcoinsPayload
   | SettingsRemoveStarredMarketcoinsPayload
-  | SettingsSetHasSeenWalletV4TourPayload
   | SettingsSetHasDismissedContactsFeatureIntroductionPayload
   | SettingsSetDoNotAskAgainSkipMemoPayload
   | SettingsSetProductTourCompletedPayload
   | SettingsSetHasSeenQ2WalletV4TourPayload
+  | SettingsSetHasSeenQ3WalletV4TourPayload
   | SettingsSetHasClickedRecoverPayload;
 
 // === WALLET CONNECT ACTIONS ===
@@ -587,15 +582,18 @@ export enum WalletSyncActionTypes {
   WALLET_SYNC_SET_MANAGE_KEY_DRAWER = "WALLET_SYNC_SET_MANAGE_KEY_DRAWER",
   LEDGER_SYNC_SET_ACTIVATE_DRAWER = "LEDGER_SYNC_SET_ACTIVATE_DRAWER",
   LEDGER_SYNC_SET_ACTIVATE_STEP = "LEDGER_SYNC_SET_ACTIVATE_STEP",
+  LEDGER_SYNC_SET_RETURNS_TO_ENTRY_SCREEN = "LEDGER_SYNC_SET_RETURNS_TO_ENTRY_SCREEN",
 }
 
 export type WalletSyncSetManageKeyDrawerPayload = boolean;
 export type WalletSyncSetActivateDrawer = boolean;
 export type WalletSyncSetActivateStep = Steps;
+export type WalletSyncSetReturnsToEntryScreen = boolean;
 export type WalletSyncPayload =
   | WalletSyncSetManageKeyDrawerPayload
   | WalletSyncSetActivateDrawer
-  | WalletSyncSetActivateStep;
+  | WalletSyncSetActivateStep
+  | WalletSyncSetReturnsToEntryScreen;
 
 // === AUTH ACTIONS ===
 export enum AuthActionTypes {

@@ -1,0 +1,71 @@
+import React from "react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
+import { mockPayCardCashback } from "@domain/api-card-management/mock/card-cashback";
+import { CARD_CASHBACK_URL, listenToCardApi } from "@support/msw-features-flow-pay-card";
+import { cardApiWrapper } from "../../__tests__/cardApiStore";
+import { REWARD_SUBTITLE } from "../../__tests__/i18nWrapper";
+import { Reward } from "./Reward";
+
+const server = listenToCardApi();
+
+describe("Reward (web)", () => {
+  it("renders nothing while nobody is signed in", () => {
+    server.use(http.get(CARD_CASHBACK_URL, () => HttpResponse.json(mockPayCardCashback())));
+
+    render(<Reward />, { wrapper: cardApiWrapper({ signedIn: false }) });
+
+    expect(screen.queryByTestId("card-details-reward")).not.toBeInTheDocument();
+  });
+
+  it("renders the reward card once the cashback arrives", async () => {
+    server.use(http.get(CARD_CASHBACK_URL, () => HttpResponse.json(mockPayCardCashback())));
+
+    render(<Reward />, { wrapper: cardApiWrapper({ signedIn: true }) });
+
+    await waitFor(() => expect(screen.getByTestId("card-details-reward")).toBeVisible());
+    expect(screen.getByText("0.00294697 BTC")).toBeVisible();
+    expect(screen.getByText(REWARD_SUBTITLE)).toBeVisible();
+  });
+
+  it("renders nothing when the read fails", async () => {
+    let answered = false;
+    server.use(
+      http.get(CARD_CASHBACK_URL, () => {
+        answered = true;
+        return HttpResponse.json({ message: "Internal server error" }, { status: 500 });
+      }),
+    );
+
+    render(<Reward />, { wrapper: cardApiWrapper({ signedIn: true }) });
+
+    await waitFor(() => expect(answered).toBe(true));
+    expect(screen.queryByTestId("card-details-reward")).not.toBeInTheDocument();
+  });
+
+  it("opens the hosted rewards page when the banner is pressed", async () => {
+    const onViewRewards = jest.fn();
+    server.use(http.get(CARD_CASHBACK_URL, () => HttpResponse.json(mockPayCardCashback())));
+
+    render(<Reward onViewRewards={onViewRewards} />, {
+      wrapper: cardApiWrapper({ signedIn: true }),
+    });
+
+    await waitFor(() => expect(screen.getByTestId("card-details-reward")).toBeVisible());
+    await userEvent.click(screen.getByTestId("card-details-reward"));
+
+    expect(onViewRewards).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not make the banner interactive when the host did not provide a handler", async () => {
+    server.use(http.get(CARD_CASHBACK_URL, () => HttpResponse.json(mockPayCardCashback())));
+
+    render(<Reward />, { wrapper: cardApiWrapper({ signedIn: true }) });
+
+    await waitFor(() => expect(screen.getByTestId("card-details-reward")).toBeVisible());
+    await userEvent.click(screen.getByTestId("card-details-reward"));
+
+    expect(screen.getByTestId("card-details-reward")).toBeVisible();
+  });
+});

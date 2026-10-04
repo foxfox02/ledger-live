@@ -3,9 +3,9 @@ import { ScrollView, StyleSheet } from "react-native";
 import { BottomSheetHeader, BottomSheetView, Box, Button, Text } from "@ledgerhq/lumen-ui-rnative";
 import { Search } from "@ledgerhq/lumen-ui-rnative/symbols";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import QueuedBottomSheet from "LLM/components/QueuedDrawer/QueuedBottomSheet";
-import { InfoState } from "LLM/components/InfoState";
-import type { InfoStatePreset, InfoStateProps } from "LLM/components/InfoState/types";
+import { QueuedBottomSheet } from "@shared/ui-queued-bottom-sheet";
+import { InfoState } from "@shared/ui-info-state";
+import type { InfoStatePreset, InfoStateProps } from "@shared/ui-info-state";
 
 const presetOptions: InfoStatePreset[] = [
   "illustration",

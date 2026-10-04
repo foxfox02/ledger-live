@@ -1,3 +1,4 @@
+import { track } from "@shared/analytics";
 import { useCallback, useMemo } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -11,7 +12,7 @@ import { languageSelector, readOnlyModeEnabledSelector } from "~/reducers/settin
 import { accountsCountSelector, useAreAccountsEmpty } from "~/reducers/accounts";
 import { useFeature } from "@features/platform-feature-flags";
 import { resolveRemoteCopy } from "@ledgerhq/live-common/analytics/remoteABTesting/resolveRemoteCopy";
-import { track } from "~/analytics";
+import { getFamilyByCurrencyId } from "@ledgerhq/live-common/currencies/index";
 import { useTransferDrawerController } from "../../hooks/useTransferDrawerController";
 import { useOpenReceiveDrawer } from "LLM/features/Receive";
 import { TransferAction } from "../../types";
@@ -20,7 +21,7 @@ import { useTranslation } from "~/context/Locale";
 import { useReceiveNoahEntry } from "LLM/features/Noah/useNoahEntryPoint";
 import { useNewSendFlowFeature } from "LLM/features/Send/hooks/useNewSendFlowFeature";
 import { useOpenSendFlow } from "LLM/features/Send/hooks/useOpenSendFlow";
-import { getSendFlowTrackingProperties } from "@ledgerhq/ledger-wallet-framework/tracking/send";
+import { getSendFlowTrackingProperties } from "LLM/features/Send/utils/tracking";
 
 // Fiat provider manifest ID for Noah integration
 const FIAT_PROVIDER_MANIFEST_ID = "noah";
@@ -88,15 +89,26 @@ export const useTransferDrawerViewModel = ({
     handleOpenReceiveDrawer();
   }, [closeDrawer, handleOpenReceiveDrawer, sourceScreenName]);
 
-  const { isEnabled: isNewSendFlowEnabled } = useNewSendFlowFeature();
+  const { isEnabledForFamily } = useNewSendFlowFeature();
   const { handleOpenSendFlow } = useOpenSendFlow({
     currency,
     currencyIds: ledgerIds,
     sourceScreenName,
   });
+
+  // The flag also filters on family / excluded currency, so a globally enabled
+  // flag does not mean the asset at hand actually lands in the new send flow.
+  const assetCurrencyId =
+    currency?.type === "TokenCurrency" ? currency.parentCurrencyId : currency?.id;
+  const assetFamily = useMemo(
+    () => (assetCurrencyId ? getFamilyByCurrencyId(assetCurrencyId) : undefined),
+    [assetCurrencyId],
+  );
+  const shouldOpenNewSendFlow = isEnabledForFamily(assetFamily, assetCurrencyId);
+
   const trackingProperties = useMemo(() => {
-    return getSendFlowTrackingProperties(null, null, isNewSendFlowEnabled);
-  }, [isNewSendFlowEnabled]);
+    return getSendFlowTrackingProperties(null, null, shouldOpenNewSendFlow);
+  }, [shouldOpenNewSendFlow]);
 
   const handleSendPress = useCallback(() => {
     track("button_clicked", {
@@ -106,7 +118,7 @@ export const useTransferDrawerViewModel = ({
       page: sourceScreenName,
     });
     closeDrawer();
-    if (isNewSendFlowEnabled && (currency || ledgerIds?.length)) {
+    if (shouldOpenNewSendFlow) {
       handleOpenSendFlow();
       return;
     }
@@ -128,9 +140,9 @@ export const useTransferDrawerViewModel = ({
     closeDrawer,
     currency,
     handleOpenSendFlow,
-    isNewSendFlowEnabled,
     ledgerIds,
     navigation,
+    shouldOpenNewSendFlow,
     sourceScreenName,
     trackingProperties,
   ]);

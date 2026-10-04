@@ -1,4 +1,5 @@
-import { track } from "~/renderer/analytics/segment";
+import type { ContactsFlow } from "@features/flow-contacts";
+import { track } from "@shared/analytics";
 import { Step } from "~/renderer/reducers/walletSync";
 
 export enum AnalyticsPage {
@@ -40,21 +41,42 @@ export enum AnalyticsPage {
   OnboardingSync = "OnboardingSync",
   PostOnboarding = "PostOnboarding",
   Settings = "Settings",
+
+  SendFlow = "SendFlow",
 }
 
 export type AnalyticsFlow = "Ledger Sync";
 export const AnalyticsFlow = "Ledger Sync";
 
+export type WalletSyncFlow = AnalyticsFlow | ContactsFlow;
+
+let walletSyncEntryFlow: WalletSyncFlow | undefined;
+
+export function setWalletSyncEntryFlow(flow?: WalletSyncFlow): void {
+  walletSyncEntryFlow = flow;
+}
+
+export function resolveWalletSyncEntryFlow(fallback?: WalletSyncFlow): WalletSyncFlow | undefined {
+  return walletSyncEntryFlow ?? fallback;
+}
+
+export function walletSyncEntryFlowProperties(
+  fallback?: WalletSyncFlow,
+): Readonly<{ flow: WalletSyncFlow }> | Record<string, never> {
+  const flow = resolveWalletSyncEntryFlow(fallback);
+  return flow ? { flow } : {};
+}
+
 type OnClickTrack = {
   button: string;
   page: string;
-  flow?: AnalyticsFlow;
+  flow?: WalletSyncFlow;
 };
 
 type onActionTrack = {
   button: string;
   step: Step;
-  flow?: AnalyticsFlow;
+  flow?: WalletSyncFlow;
 };
 
 export const StepMappedToAnalytics: Record<Step, string> = {

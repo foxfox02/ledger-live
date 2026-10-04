@@ -7,6 +7,7 @@ import { getAccountIdFromWalletAccountId } from "../converters";
 import { createAccountNotFound, createUnknownError, ServerError } from "@ledgerhq/wallet-api-core";
 import { getMainAccount, getParentAccount } from "../../account";
 import { firstValueFrom, from } from "rxjs";
+import type Transport from "@ledgerhq/hw-transport";
 import { Device } from "../../hw/actions/types";
 import { withDevice } from "../../hw/deviceAccess";
 import { isDmkTransport } from "../../hw/dmkUtils";
@@ -17,6 +18,29 @@ type AppOption = {
   allowPartialDependencies: boolean;
   skipAppInstallIfNotFound: boolean;
 };
+
+export type PerpsDepositParams = {
+  receiverAccountId: string;
+};
+
+export type PerpsDepositResult = {
+  /** Only set when the provider issued one, so the deposit can be tracked. */
+  swapId?: string;
+  /** Amount quoted to land on the receiver account, in its currency's major unit. */
+  amountTo?: string;
+};
+
+export type PerpsDepositUiParams = {
+  receiverAccount: AccountLike;
+};
+
+export type PerpsDepositReviewParams = PerpsDepositUiParams & {
+  depositAccount: AccountLike;
+  amountSent: string;
+  amountTo: string;
+  quoteId?: string;
+};
+
 export type PerpsUiHooks = {
   "signing.execute": (params: {
     appName: string | undefined;
@@ -26,6 +50,11 @@ export type PerpsUiHooks = {
     onError: (error: Error) => void;
     onCancel: () => void;
   }) => void;
+  /**
+   * Returning a promise holds the live app's request open until the deposit settles.
+   * A rejection is forwarded as is, so reject with a `UserRefused*` error when the user abandons.
+   */
+  "deposit.execute"?: (params: PerpsDepositUiParams) => Promise<PerpsDepositResult> | void;
 };
 
 export type PerpsSignParams = {
@@ -45,25 +74,62 @@ export type PerpsSignResult = {
 
 const PERPS_APP_NAME = "Hyperliquid";
 
+async function signActionsOnDevice(
+  transport: Transport,
+  device: Device,
+  derivationPath: string,
+  params: PerpsSignParams,
+): Promise<PerpsSignResult> {
+  if (!isDmkTransport(transport)) {
+    throw new Error("Not DMK transport");
+  }
+  const { dmk, sessionId } = transport;
+
+  const certificate = await calService.getCertificate(device.modelId, "perps_data");
+  const hyperliquidSigner = new DmkSignerHyperliquid(dmk, sessionId);
+  const signatures = await hyperliquidSigner.signActions(
+    derivationPath,
+    convertCertificateToDeviceData(certificate),
+    new Uint8Array(Buffer.from(stripHexPrefix(params.metadataWithSignature), "hex")),
+    params.actions.map(convertAction),
+  );
+
+  return { signatures };
+}
+
+function createSignFactory(derivationPath: string, params: PerpsSignParams) {
+  return (device: Device): Promise<PerpsSignResult> =>
+    firstValueFrom(
+      withDevice(
+        device.deviceId,
+        device.deviceName ? { matchDeviceByName: device.deviceName } : undefined,
+      )(transport => from(signActionsOnDevice(transport, device, derivationPath, params))),
+    );
+}
+
 export const handlers = ({
   accounts,
-  uiHooks: { "signing.execute": uiSigningExecute },
+  uiHooks: { "signing.execute": uiSigningExecute, "deposit.execute": uiDepositExecute },
 }: {
   accounts: AccountLike[];
   uiHooks: PerpsUiHooks;
 }) => {
+  const findAccountOrThrow = (walletAccountId: string): AccountLike => {
+    const accountId = getAccountIdFromWalletAccountId(walletAccountId);
+    const account = accounts.find(acc => acc.id === accountId);
+    if (!account) {
+      throw new ServerError(createAccountNotFound(walletAccountId));
+    }
+    return account;
+  };
+
   return {
     "custom.perps.signActions": customWrapper<PerpsSignParams, PerpsSignResult>(async params => {
       if (!params) {
         throw new ServerError(createUnknownError({ message: "params is undefined" }));
       }
 
-      // Retrieve account
-      const realAccountId = getAccountIdFromWalletAccountId(params.accountId);
-      const account = accounts.find(acc => acc.id === realAccountId);
-      if (!account) {
-        throw new ServerError(createAccountNotFound(params.accountId));
-      }
+      const account = findAccountOrThrow(params.accountId);
 
       const derivationPath = getMainAccount(
         account,
@@ -79,43 +145,32 @@ export const handlers = ({
         uiSigningExecute({
           appName: PERPS_APP_NAME,
           appOptions: params.options,
-          signFactory: (device: Device) =>
-            firstValueFrom(
-              withDevice(
-                device.deviceId,
-                device.deviceName ? { matchDeviceByName: device.deviceName } : undefined,
-              )(transport =>
-                from(
-                  (async () => {
-                    if (!isDmkTransport(transport)) {
-                      throw new Error("Not DMK transport");
-                    }
-                    const { dmk, sessionId } = transport;
-
-                    const certificate = await calService.getCertificate(
-                      device.modelId,
-                      "perps_data",
-                    );
-                    const hyperliquidSigner = new DmkSignerHyperliquid(dmk, sessionId);
-                    const signatures = await hyperliquidSigner.signActions(
-                      derivationPath,
-                      convertCertificateToDeviceData(certificate),
-                      new Uint8Array(
-                        Buffer.from(stripHexPrefix(params.metadataWithSignature), "hex"),
-                      ),
-                      params.actions.map(convertAction),
-                    );
-
-                    return { signatures };
-                  })(),
-                ),
-              ),
-            ),
+          signFactory: createSignFactory(derivationPath, params),
           onSuccess: resolve,
           onError: reject,
           onCancel: () => reject(new Error("User cancelled signing")),
         });
       });
+    }),
+    "custom.perps.deposit": customWrapper<PerpsDepositParams, PerpsDepositResult>(async params => {
+      if (!params) {
+        throw new ServerError(createUnknownError({ message: "params is undefined" }));
+      }
+
+      if (!uiDepositExecute) {
+        throw new ServerError(
+          createUnknownError({ message: "deposit is not supported by this client" }),
+        );
+      }
+
+      const receiverAccount = findAccountOrThrow(params.receiverAccountId);
+
+      try {
+        return (await uiDepositExecute({ receiverAccount })) ?? {};
+      } catch (error) {
+        console.warn("[perps] Deposit request rejected", error);
+        throw error;
+      }
     }),
   };
 };

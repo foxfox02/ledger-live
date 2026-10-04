@@ -1,5 +1,6 @@
 import { encodeAccountId } from "@ledgerhq/ledger-wallet-framework/account";
 import { GetAccountShape, mergeOps } from "@ledgerhq/ledger-wallet-framework/bridge/jsHelpers";
+import type { StakingResources } from "@ledgerhq/types-live";
 import { BigNumber } from "bignumber.js";
 import { isAccountEmpty } from "./helpers";
 import { txToOps } from "./logic/history/txToOps";
@@ -16,16 +17,8 @@ export const getAccountShape: GetAccountShape<CosmosAccount> = async (info: any)
     derivationMode,
   });
 
-  const {
-    accountInfo,
-    balances,
-    blockHeight,
-    txs,
-    delegations,
-    redelegations,
-    unbondings,
-    withdrawAddress,
-  } = await new CosmosAPI(currency.id).getAccountInfo(address, currency);
+  const { accountInfo, balances, blockHeight, txs, delegations, redelegations, unbondings } =
+    await new CosmosAPI(currency.id).getAccountInfo(address, currency);
 
   const oldOperations = initialAccount?.operations || [];
   const newOperations = txToOps({ address, unitCode: currency.units[1].code }, accountId, txs);
@@ -60,11 +53,19 @@ export const getAccountShape: GetAccountShape<CosmosAccount> = async (info: any)
     delegatedBalance,
     pendingRewardsBalance,
     unbondingBalance,
-    withdrawAddress,
     sequence: accountInfo.sequence,
     // Captured from the device at scan (hw-getAddress); plain re-syncs have no device,
     // so carry the previously-persisted value forward.
     publicKey: rest?.publicKey ?? initialAccount?.cosmosResources?.publicKey ?? "",
+  };
+
+  const stakingResources: StakingResources = {
+    delegations,
+    redelegations,
+    unbondings,
+    delegatedBalance,
+    pendingRewardsBalance,
+    unbondingBalance,
   };
 
   const shape = {
@@ -75,6 +76,7 @@ export const getAccountShape: GetAccountShape<CosmosAccount> = async (info: any)
     operationsCount: operations.length,
     blockHeight,
     cosmosResources,
+    stakingResources,
     used: !isAccountEmpty({ balance, cosmosResources }),
   };
 

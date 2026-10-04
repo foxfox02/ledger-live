@@ -1,27 +1,32 @@
+import { parseAnyAccountId, safeParseAnyAccountId } from "@domain/entity-account";
 import React, { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Observable, concat, defer, find, from, ignoreElements, mergeMap, tap } from "rxjs";
 import { Button } from "@ledgerhq/lumen-ui-react";
 import { MemberCredentials, Trustchain } from "@ledgerhq/ledger-key-ring-protocol/types";
 import { useTrustchainSDK } from "../context";
-import { CloudSyncSDK } from "@ledgerhq/live-wallet/cloudsync/index";
+import { CloudSyncSDK } from "@shared/cloud-sync";
+import { type WSState } from "@domain/entity-wallet-sync";
+import { type WalletState } from "./types";
+import { liveSlug } from "./walletSync";
 import {
-  WalletState,
-  handlers as walletHandlers,
-  accountNameWithDefaultSelector,
-  setAccountName as setAccountNameAction,
-  WSState,
-  setAccountNames,
-  walletSyncUpdate,
-  walletSyncStateSelector,
-} from "@ledgerhq/live-wallet/store";
-import walletsync, {
-  liveSlug,
-  DistantState,
-  walletSyncWatchLoop,
+  bindCtx as bindLiveWalletAccountsCtx,
+  type NonImportedAccountInfo,
+} from "@ledgerhq/live-wallet/accounts";
+import { createAggregator } from "@shared/cloud-sync-module";
+import {
+  createWalletSyncWatchLoop,
   makeSaveNewUpdate,
-  LocalState,
   makeLocalIncrementalUpdate,
-} from "@ledgerhq/live-wallet/walletsync/index";
+} from "@features/platform-wallet-sync";
+import {
+  recentAddressesSyncModule,
+  type RecentAddressesState,
+} from "@domain/entity-recent-addresses";
+import {
+  accountNamesSyncModule,
+  accountNameWithDefaultSelector,
+} from "@domain/entity-account-name";
+import { contactsSyncModule, type Contact } from "@domain/entity-contact";
 import { getAccountBridge, getCurrencyBridge } from "@ledgerhq/live-common/bridge/index";
 import { getAccountCurrency } from "@ledgerhq/ledger-wallet-framework/account/helpers";
 import { Account, BridgeCacheSystem, ScanAccountEvent } from "@ledgerhq/types-live";
@@ -36,9 +41,10 @@ import { Loading } from "./Loading";
 import { Tick } from "./Tick";
 import { State } from "./types";
 import { Actionable } from "./Actionable";
+import { createContact, ContactsSync } from "./ContactsSync";
 import getWalletSyncEnvironmentParams from "@ledgerhq/live-common/walletSync/getEnvironmentParams";
 
-const latestWalletStateSelector = (s: State): WSState => walletSyncStateSelector(s.walletState);
+const latestWalletStateSelector = (s: State): WSState => s.walletState.walletSyncState;
 
 const localStateSelector = (state: State) => ({
   accounts: {
@@ -46,6 +52,7 @@ const localStateSelector = (state: State) => ({
     nonImportedAccountInfos: state.nonImportedAccounts,
   },
   accountNames: state.walletState.accountNames,
+  contacts: state.walletState.contacts,
   recentAddresses: state.walletState.recentAddresses,
 });
 
@@ -70,9 +77,13 @@ export default function AppAccountsSync({
   const trustchainSdk = useTrustchainSDK();
 
   const stateRef = useRef(state);
+  const contactsRef = useRef(state.walletState.contacts);
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+  useEffect(() => {
+    contactsRef.current = state.walletState.contacts;
+  }, [state.walletState.contacts]);
   const getState = useCallback(() => stateRef.current, []);
 
   const getCurrentVersion = useCallback(
@@ -99,20 +110,52 @@ export default function AppAccountsSync({
     [bridgeCache],
   );
 
+  const accountsSyncModule = useMemo(() => bindLiveWalletAccountsCtx(ctx), [ctx]);
+
+  const walletsync = useMemo(
+    () =>
+      createAggregator(
+        {
+          accounts: accountsSyncModule,
+          accountNames: accountNamesSyncModule,
+          contacts: contactsSyncModule,
+          recentAddresses: recentAddressesSyncModule,
+        },
+        // warn, not error: a quarantine is recoverable, and this devtool is where a corrupted
+        // slice is most likely to be inspected, so it should stay visible in the console
+        { onModuleError: (_key, error) => console.warn(error.message) },
+      ),
+    [accountsSyncModule],
+  );
+
+  type AggLocalState = {
+    accounts: { list: Account[]; nonImportedAccountInfos: NonImportedAccountInfo[] };
+    accountNames: Map<string, string>;
+    contacts: Contact[];
+    recentAddresses: RecentAddressesState;
+  };
+
   const saveUpdate = useCallback(
-    async (data: DistantState | null, version: number, newLocalState: LocalState | null) => {
+    async (data: unknown, version: number, newLocalState: AggLocalState | null) => {
       setState(s => {
         let walletState = s.walletState;
         if (newLocalState) {
-          walletState = walletHandlers.BULK_SET_ACCOUNT_NAMES(
-            walletState,
-            setAccountNames(newLocalState.accountNames),
-          );
+          const mergedAccountNames = new Map(walletState.accountNames);
+          for (const [id, name] of newLocalState.accountNames) {
+            const accountId = safeParseAnyAccountId(id);
+            if (accountId) mergedAccountNames.set(accountId, name);
+          }
+          contactsRef.current = newLocalState.contacts;
+          walletState = {
+            ...walletState,
+            accountNames: mergedAccountNames,
+            contacts: newLocalState.contacts,
+          };
         }
-        walletState = walletHandlers.WALLET_SYNC_UPDATE(
-          walletState,
-          walletSyncUpdate(data, version),
-        );
+        walletState = {
+          ...walletState,
+          walletSyncState: { data: data as WSState["data"], version },
+        };
         if (newLocalState) {
           return {
             accounts: newLocalState.accounts.list,
@@ -132,14 +175,14 @@ export default function AppAccountsSync({
   const saveNewUpdate = useMemo(
     () =>
       makeSaveNewUpdate({
-        ctx,
+        walletsync,
         getState,
         latestDistantStateSelector,
         latestDistantVersionSelector,
         localStateSelector,
         saveUpdate,
       }),
-    [ctx, getState, saveUpdate],
+    [walletsync, getState, saveUpdate],
   );
 
   const onTrustchainRefreshNeeded = useCallback(
@@ -161,7 +204,6 @@ export default function AppAccountsSync({
       new CloudSyncSDK({
         apiBaseUrl: getWalletSyncEnvironmentParams("STAGING").cloudSyncApiBaseUrl,
         slug: liveSlug,
-        schema: walletsync.schema,
         trustchainSdk,
         getCurrentVersion,
         saveNewUpdate,
@@ -178,14 +220,15 @@ export default function AppAccountsSync({
 
   useEffect(() => {
     const localIncrementUpdate = makeLocalIncrementalUpdate({
-      ctx,
+      walletsync,
       getState,
       latestWalletStateSelector,
       localStateSelector,
       saveUpdate,
     });
 
-    const { unsubscribe, onUserRefreshIntent } = walletSyncWatchLoop({
+    const { unsubscribe, onUserRefreshIntent } = createWalletSyncWatchLoop({
+      walletsync,
       watchConfig,
       walletSyncSdk,
       localIncrementUpdate,
@@ -206,14 +249,13 @@ export default function AppAccountsSync({
 
     return unsubscribe;
   }, [
-    trustchainSdk,
+    walletsync,
     walletSyncSdk,
     trustchain,
     memberCredentials,
     onTrustchainRefreshNeeded,
     getState,
     saveUpdate,
-    ctx,
     watchConfig,
   ]);
 
@@ -226,10 +268,28 @@ export default function AppAccountsSync({
 
   const setAccountName = useCallback(
     (id: string, name: string) => {
-      setState(s => ({
-        ...s,
-        walletState: walletHandlers.SET_ACCOUNT_NAME(s.walletState, setAccountNameAction(id, name)),
-      }));
+      setState(s => {
+        const accountNames = new Map(s.walletState.accountNames);
+        if (!name) {
+          accountNames.delete(parseAnyAccountId(id));
+        } else {
+          accountNames.set(parseAnyAccountId(id), name);
+        }
+        return { ...s, walletState: { ...s.walletState, accountNames } };
+      });
+    },
+    [setState],
+  );
+
+  const handleCreateContact = useCallback(
+    (draftName: string) => {
+      const result = createContact(contactsRef.current, draftName);
+      if (result.contact !== null) {
+        const contacts = [...contactsRef.current, result.contact];
+        contactsRef.current = contacts;
+        setState(s => ({ ...s, walletState: { ...s.walletState, contacts } }));
+      }
+      return result;
     },
     [setState],
   );
@@ -253,6 +313,7 @@ export default function AppAccountsSync({
         setAccountName={setAccountName}
         loading={visualPending}
       />
+      <ContactsSync contacts={state.walletState.contacts} onCreate={handleCreateContact} />
       {state.nonImportedAccounts.length > 0 ? (
         <div className="p-10 text-center text-warning body-2">
           {state.nonImportedAccounts.length} non-imported accounts
@@ -399,7 +460,7 @@ function AccountRow({
       </span>
       <span className="flex-1 min-w-[50%]">
         <EditableAccountNameField
-          name={accountNameWithDefaultSelector(walletState, account)}
+          name={accountNameWithDefaultSelector(walletState.accountNames, account)}
           setName={name => setAccountName(account.id, name)}
         />
       </span>

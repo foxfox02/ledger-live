@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo } from "react";
+import { TrackScreen } from "@shared/analytics-react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { useSelector } from "~/context/hooks";
 import storage from "LLM/storage";
 import semver from "semver";
@@ -11,10 +12,10 @@ import {
 
 import { accountToWalletAPIAccount } from "@ledgerhq/live-common/wallet-api/converters";
 import { useProviderInterstitalEnabled } from "@ledgerhq/live-common/hooks/useShowProviderLoadingTransition";
+import { useNavigation } from "@react-navigation/native";
 import { useTheme } from "styled-components/native";
 import { Flex } from "@ledgerhq/native-ui";
 import InfiniteLoader from "~/components/InfiniteLoader";
-import TrackScreen from "~/analytics/TrackScreen";
 import GenericErrorView from "~/components/GenericErrorView";
 import { BackConfig, WebPTXPlayer } from "~/components/WebPTXPlayer";
 import { PtxNavigatorParamList } from "~/components/RootNavigator/types/PtxNavigator";
@@ -44,6 +45,17 @@ export function PtxScreen({ route, config }: Props) {
   const devMode = useEnv("MANAGER_DEV_MODE").toString();
   const { theme } = useTheme();
   const { platform, ...params } = route.params || {};
+  const goBackOnAccountRequestCancel = (
+    route.params as { goBackOnAccountRequestCancel?: boolean } | undefined
+  )?.goBackOnAccountRequestCancel;
+  const navigation = useNavigation();
+  const shouldGoBackRef = useRef(!!goBackOnAccountRequestCancel);
+  const onAccountRequestCancel = useCallback(() => {
+    if (shouldGoBackRef.current && navigation.canGoBack()) navigation.goBack();
+  }, [navigation]);
+  const onAccountRequestSuccess = useCallback(() => {
+    shouldGoBackRef.current = false;
+  }, []);
   const searchParams = route.path
     ? new URL("ledgerlive://" + route.path).searchParams
     : new URLSearchParams();
@@ -79,14 +91,18 @@ export function PtxScreen({ route, config }: Props) {
         const parentAccount = isTokenAccount(account)
           ? getParentAccount(account, flattenedAccounts)
           : undefined;
-        params.account = accountToWalletAPIAccount(walletState, account, parentAccount).id;
+        params.account = accountToWalletAPIAccount(
+          walletState.accountNames,
+          account,
+          parentAccount,
+        ).id;
       }
     }
 
     if (params?.goToURL) params.goToURL = decodeURIComponent(params.goToURL);
 
     return params;
-  }, [walletState, flattenedAccounts, manifest?.apiVersion, params]);
+  }, [walletState.accountNames, flattenedAccounts, manifest?.apiVersion, params]);
 
   /**
    * Given the user is on an internal app (webview url is owned by LL) we must reset the session
@@ -129,6 +145,8 @@ export function PtxScreen({ route, config }: Props) {
         }}
         config={config}
         softExit={softExit === "true"}
+        onAccountRequestCancel={goBackOnAccountRequestCancel ? onAccountRequestCancel : undefined}
+        onAccountRequestSuccess={goBackOnAccountRequestCancel ? onAccountRequestSuccess : undefined}
         Interstitial={providerInterstitialEnabled ? ProviderInterstitial : undefined}
       />
     </SafeAreaView>

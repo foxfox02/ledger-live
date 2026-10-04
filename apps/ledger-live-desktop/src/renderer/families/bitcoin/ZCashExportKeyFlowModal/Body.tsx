@@ -5,7 +5,7 @@ import { Trans, withTranslation } from "react-i18next";
 import { TFunction } from "i18next";
 import { createStructuredSelector } from "reselect";
 import { SyncSkipUnderPriority } from "@ledgerhq/live-common/bridge/react/index";
-import Track from "~/renderer/analytics/Track";
+import { Track } from "@shared/analytics-react";
 import { StepId, StepperProps, StepProps } from "./types";
 import { Device } from "@ledgerhq/live-common/hw/actions/types";
 import { getCurrentDevice } from "~/renderer/reducers/devices";
@@ -17,7 +17,6 @@ import { BitcoinAccount } from "@ledgerhq/live-common/families/bitcoin/types";
 import { ContinueFooter } from "./shared/ContinueFooter";
 import StepUfvk from "./steps/StepUfvk";
 import StepDevice, { StepDeviceFooter } from "./steps/StepDevice";
-import { ZcashSyncState } from "@ledgerhq/coin-bitcoin/chain-adapters/zcash/types";
 
 export type Data = {
   account: BitcoinAccount;
@@ -30,14 +29,14 @@ type OwnProps = {
   ufvk: string;
   ufvkExportError: Error | undefined | null;
   onStepIdChanged: (stepId: StepId) => void;
-  onUfvkChanged: (ufvk: string, error?: Error | null) => void;
+  onUfvkChanged: (ufvk: string, shieldedAddress?: string | null, error?: Error | null) => void;
   onRetry: () => void;
   birthday: string;
   invalidBirthday: boolean;
   syncFromZero: boolean;
   handleBirthdayChange: (value: string) => void;
   handleSyncFromZero: () => void;
-  handleEnableShieldedBalance: (nextSyncState: ZcashSyncState) => void;
+  handleEnableShieldedBalance: (options: { startSyncNow: boolean }) => void;
 };
 
 type StateProps = {

@@ -1,6 +1,6 @@
 import { useNetworkActivityDevTools } from "@rozenite/network-activity-plugin";
 import { useReactNavigationDevTools } from "@rozenite/react-navigation-plugin";
-import { useMMKVDevTools } from "@rozenite/mmkv-plugin";
+import { createMMKVStorageAdapter, useRozeniteStoragePlugin } from "@rozenite/storage-plugin";
 import { mmkv } from "LLM/storage/mmkvStorageWrapper";
 import { CONFIG_PARAMS } from "LLM/storage/mmkvStorageWrapper/constants";
 import { navigationRef } from "~/rootnavigation";
@@ -13,29 +13,17 @@ const config = {
   },
 };
 
+const storages = [createMMKVStorageAdapter({ storages: { [CONFIG_PARAMS.ID]: mmkv } })];
+
 const HookDevTools = () => {
   useNetworkActivityDevTools({
     inspectors: config.inspectors,
   });
 
   useReactNavigationDevTools({ ref: navigationRef });
-  useMMKVDevTools({
-    storages: { [CONFIG_PARAMS.ID]: mmkv },
-  });
+  useRozeniteStoragePlugin({ storages });
 
   return null;
 };
 
 export default HookDevTools;
-
-/**
- * For performance monitoring, we can use the following metrics:
- *
- * 0. import performance from 'react-native-performance';
- *
- * 1. performance.mark('app-start');
- * 2. performance.mark('data-loaded');
- * 3. performance.measure('app-initialization', 'app-start', 'data-loaded');
- * 4. performance.metric('custom-metric', 42, { detail: 'Additional info' });
- *
- */

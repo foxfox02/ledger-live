@@ -1,4 +1,5 @@
 import {
+  buildRecipientForMemoChange,
   getRecipientDisplayValue,
   getRecipientSearchPrefillValue,
   saveRecentSendRecipient,
@@ -87,6 +88,24 @@ describe("getRecipientDisplayValue", () => {
       "vitalik.eth (0x123456...12345678)",
     );
   });
+
+  it("should return displayLabel alone when set, ignoring address and ensName", () => {
+    expect(
+      getRecipientDisplayValue({
+        address: ADDRESS,
+        ensName: "vitalik.eth",
+        displayLabel: "Private balance",
+      }),
+    ).toBe("Private balance");
+  });
+
+  it("should return displayLabel when address is missing", () => {
+    expect(getRecipientDisplayValue({ displayLabel: "Private balance" })).toBe("Private balance");
+  });
+
+  it("should return empty when neither displayLabel nor address is set", () => {
+    expect(getRecipientDisplayValue({ ensName: "vitalik.eth" })).toBe("");
+  });
 });
 
 describe("getRecipientSearchPrefillValue", () => {
@@ -104,5 +123,79 @@ describe("getRecipientSearchPrefillValue", () => {
     expect(
       getRecipientSearchPrefillValue({ address: "0x1234567890abcdef", ensName: "vitalik.eth" }),
     ).toBe("vitalik.eth");
+  });
+});
+
+describe("buildRecipientForMemoChange", () => {
+  const memo = { value: "", type: "NO_MEMO" };
+
+  it("should use the search value when there is no committed recipient", () => {
+    expect(buildRecipientForMemoChange("rNewRecipient", null, memo)).toEqual({
+      address: "rNewRecipient",
+      ensName: undefined,
+      displayLabel: undefined,
+      memo,
+    });
+  });
+
+  it("should use the new search value after the recipient is edited", () => {
+    expect(
+      buildRecipientForMemoChange(
+        "rNewRecipient",
+        { address: "rOldRecipient", memo: { value: "", type: "NO_MEMO" } },
+        memo,
+      ),
+    ).toEqual({
+      address: "rNewRecipient",
+      ensName: undefined,
+      displayLabel: undefined,
+      memo,
+    });
+  });
+
+  it("should keep the committed address and ENS when the search still matches", () => {
+    expect(
+      buildRecipientForMemoChange(
+        "vitalik.eth",
+        { address: ADDRESS, ensName: "vitalik.eth", displayLabel: "Private balance" },
+        memo,
+      ),
+    ).toEqual({
+      address: ADDRESS,
+      ensName: "vitalik.eth",
+      displayLabel: "Private balance",
+      memo,
+    });
+  });
+
+  it("should keep the selected contact when the memo changes", () => {
+    expect(
+      buildRecipientForMemoChange(
+        ADDRESS,
+        { address: ADDRESS, contactId: "contact-alice", displayLabel: "Alice" },
+        memo,
+      ),
+    ).toEqual({
+      address: ADDRESS,
+      ensName: undefined,
+      displayLabel: "Alice",
+      contactId: "contact-alice",
+      memo,
+    });
+  });
+
+  it("should drop the previous ENS when the search no longer matches", () => {
+    expect(
+      buildRecipientForMemoChange(
+        "rNewRecipient",
+        { address: ADDRESS, ensName: "vitalik.eth", displayLabel: "Private balance" },
+        memo,
+      ),
+    ).toEqual({
+      address: "rNewRecipient",
+      ensName: undefined,
+      displayLabel: undefined,
+      memo,
+    });
   });
 });

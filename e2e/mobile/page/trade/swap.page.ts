@@ -1,13 +1,14 @@
-import CommonPage from "../common.page";
+import CommonPage from "@e2e/page/common.page";
 import { Step } from "jest-allure2-reporter/api";
-import { openDeeplink, normalizeText, isIos } from "../../helpers/commonHelpers";
+import { openDeeplink, normalizeText, isIos } from "@e2e/helpers/commonHelpers";
 import { SwapType } from "@ledgerhq/live-e2e-shared/models/Swap";
 import { SwapProvider } from "@ledgerhq/live-e2e-shared/enum/Provider";
 import fs from "fs/promises";
 import * as path from "path";
-import { FileUtils } from "../../utils/fileUtils";
+import { FileUtils } from "@e2e/utils/fileUtils";
 import { getParentAccountName } from "@ledgerhq/live-e2e-shared/enum/Account";
-import { retryUntilTimeout } from "../../utils/retry";
+import { retryUntilTimeout } from "@e2e/utils/retry";
+import { TIMEOUT } from "@e2e/utils/timeouts";
 
 export default class SwapPage extends CommonPage {
   baseLink = "swap";
@@ -38,7 +39,7 @@ export default class SwapPage extends CommonPage {
     `${this.operationRow.baseFromAmount}${swapId}`;
   specificOperationAmountToId = (swapId: string) => `${this.operationRow.baseToAmount}${swapId}`;
 
-  @Step("Open swap via deeplink")
+  @Step("Open swap via deeplink {{{0}}}")
   async openViaDeeplink(params?: string) {
     const deeplinkPath = params ? `${this.baseLink}?${params}` : this.baseLink;
     await openDeeplink(deeplinkPath);
@@ -54,14 +55,14 @@ export default class SwapPage extends CommonPage {
 
   @Step("Go to swap history")
   async goToSwapHistory() {
-    if (await IsIdVisible(this.topBarSwapHistoryButton, 5000)) {
+    if (await IsIdVisible(this.topBarSwapHistoryButton, TIMEOUT.small)) {
       await tapById(this.topBarSwapHistoryButton);
     } else {
       await tapById(this.historyButton);
     }
   }
 
-  @Step("Check swap operation row details")
+  @Step("Check swap operation row details {{{0}}}")
   async checkSwapOperation(swapId: string, swap: SwapType) {
     await detoxExpect(this.operationRows()).toBeVisible();
     await detoxExpect(this.getSpecificOperation(swapId)).toBeVisible();
@@ -78,7 +79,7 @@ export default class SwapPage extends CommonPage {
     await detoxExpect(getElementById(this.specificOperationAmountToId(swapId))).toBeVisible();
   }
 
-  @Step("Open selected operation by swapId: $0")
+  @Step("Open selected operation by swapId: {{{0}}}")
   async openSelectedOperation(swapId: string) {
     await tapByElement(this.getSpecificOperation(swapId));
   }
@@ -87,13 +88,12 @@ export default class SwapPage extends CommonPage {
   async clickExportOperations() {
     await tapById(this.exportOperationsButton);
     const filePath = path.resolve(__dirname, "../../artifacts/ledgerwallet-swap-history.csv");
-    const fileExists = await FileUtils.waitForFileToExist(filePath, 5000);
+    const fileExists = await FileUtils.waitForFileToExist(filePath);
     jestExpect(fileExists).toBeTruthy();
   }
 
-  @Step("Check swap history feedback form URL")
+  @Step("Check swap history feedback form URL {{{0}}}")
   async checkSwapHistoryFeedbackFormUrl(expectedUrl: string) {
-    await scrollToId(this.swapHistoryFeedbackLink);
     await detoxExpect(getElementById(this.swapHistoryFeedbackLink)).toBeVisible();
     const { value, label } = await getAttributesOfElement(this.swapHistoryFeedbackLink);
     // iOS: accessibilityValue: value; Android: accessibilityLabel: label
@@ -104,7 +104,7 @@ export default class SwapPage extends CommonPage {
     }
   }
 
-  @Step("Check contents of exported operations file")
+  @Step("Check contents of exported operations file {{{2}}}")
   async checkExportedFileContents(swap: SwapType, provider: SwapProvider, id: string) {
     const targetFilePath = path.resolve(__dirname, "../../artifacts/ledgerwallet-swap-history.csv");
     const fileContents = await fs.readFile(targetFilePath, "utf-8");
@@ -120,12 +120,12 @@ export default class SwapPage extends CommonPage {
     jestExpect(fileContents).toContain(swap.accountToCredit.address);
   }
 
-  @Step("Verify the amounts and accept swap")
+  @Step("Verify the amounts and accept swap {{{1}}}")
   async verifyAmountsAndAcceptSwap(swap: SwapType, amount: string) {
     await app.speculos.verifyAmountsAndAcceptSwap(swap, amount);
   }
 
-  @Step("Verify amounts and accept swap for different seed")
+  @Step("Verify amounts {{{1}}} and accept swap for different seed")
   async verifyAmountsAndAcceptSwapForDifferentSeed(
     swap: SwapType,
     amount: string,
@@ -134,14 +134,14 @@ export default class SwapPage extends CommonPage {
     await app.speculos.verifyAmountsAndAcceptSwapForDifferentSeed(swap, amount, errorMessage);
   }
 
-  @Step("Verify the amounts and reject swap")
+  @Step("Verify the amounts and reject swap {{{1}}}")
   async verifyAmountsAndRejectSwap(swap: SwapType, amount: string) {
     await app.speculos.verifyAmountsAndRejectSwap(swap, amount);
   }
 
   @Step("Wait for swap success and continue")
   async waitForSuccessAndContinue() {
-    await waitForElementById(this.swapSuccessTitleId, 120000, {
+    await waitForElementById(this.swapSuccessTitleId, TIMEOUT.xxxlarge, {
       errorElementId: app.swapLiveApp.deviceActionErrorDescriptionId,
     });
     await tapById(app.common.proceedButtonId);
@@ -149,23 +149,23 @@ export default class SwapPage extends CommonPage {
 
   @Step("Wait for swap success and close")
   async waitForSuccessAndClose() {
-    await waitForElementById(this.swapSuccessTitleId, 120000, {
+    await waitForElementById(this.swapSuccessTitleId, TIMEOUT.xxxlarge, {
       errorElementId: app.swapLiveApp.deviceActionErrorDescriptionId,
     });
     let tapped = false;
     await retryUntilTimeout(async () => {
-      if (tapped && !(await IsIdVisible(this.swapSuccessTitleId, 500))) {
+      if (tapped && !(await IsIdVisible(this.swapSuccessTitleId, TIMEOUT.xxxsmall))) {
         return; // already dismissed by a previous tap — nothing left to do
       }
       await app.common.closePage();
       tapped = true;
-      if (await IsIdVisible(this.swapSuccessTitleId, 1000)) {
+      if (await IsIdVisible(this.swapSuccessTitleId, TIMEOUT.xxsmall)) {
         throw new Error("swap-success-title still visible after close tap");
       }
-    }, 60000);
+    }, TIMEOUT.xxlarge);
   }
 
-  @Step("Selected provider: $0")
+  @Step("Selected provider: {{{0}}}")
   async logSelectedProvider(providerName: string) {
     jestExpect(providerName).toBeDefined();
   }

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from "react";
+import React from "react";
 import { View, Pressable } from "react-native";
 import {
   AddressInput,
@@ -16,10 +16,9 @@ import { Close } from "@ledgerhq/lumen-ui-rnative/symbols";
 import { useTranslation } from "~/context/Locale";
 
 import { AddressDisclaimer } from "./AddressDisclaimer";
+import { RecipientContactRow } from "./RecipientContactRow";
+import { useRecipientInputAutoFocus } from "../hooks/useRecipientInputAutoFocus";
 import { useSendHeaderViewModel } from "../hooks/useSendHeaderViewModel";
-import { useSendFlowData } from "../context/SendFlowContext";
-import { useAnalytics } from "~/analytics";
-import { getSendFlowTrackingProperties } from "@ledgerhq/ledger-wallet-framework/tracking/send";
 
 type SendHeaderProps = Readonly<{
   headerRight?: React.ReactNode;
@@ -31,6 +30,7 @@ const DISCLAIMER_HIT_AREA = 56;
 export function SendHeader({ headerRight }: SendHeaderProps) {
   const { t } = useTranslation();
   const viewModel = useSendHeaderViewModel();
+  const recipientInputRef = useRecipientInputAutoFocus(viewModel.isRecipientStep);
   const styles = useStyleSheet(
     theme => ({
       addressInputContainer: {
@@ -45,33 +45,12 @@ export function SendHeader({ headerRight }: SendHeaderProps) {
         position: "absolute",
         top: 0,
         left: 0,
-        // Stops short of the trailing info icon so the disclaimer stays pressable.
-        right: DISCLAIMER_HIT_AREA,
+        right: viewModel.recipientContact ? 0 : DISCLAIMER_HIT_AREA,
         bottom: 0,
       },
     }),
-    [],
+    [viewModel.recipientContact],
   );
-
-  const { state } = useSendFlowData();
-  const { account, parentAccount } = state.account;
-
-  const { track } = useAnalytics();
-  const trackingProperties = useMemo(() => {
-    return getSendFlowTrackingProperties(account ?? null, parentAccount);
-  }, [account, parentAccount]);
-
-  useEffect(() => {
-    if (!viewModel.isRecipientStep) {
-      return;
-    }
-
-    track("send_modal", {
-      ...trackingProperties,
-      name: "step recipient",
-      flow: "send",
-    });
-  }, [track, trackingProperties, viewModel.isRecipientStep]);
 
   return (
     <>
@@ -108,26 +87,34 @@ export function SendHeader({ headerRight }: SendHeaderProps) {
         <View style={styles.addressInputContainer}>
           {viewModel.isRecipientStep ? (
             <AddressInput
+              ref={recipientInputRef}
               testID="recipient-input"
               prefix={t("send.newSendFlow.to")}
               value={viewModel.recipientSearch.value}
-              onChangeText={viewModel.recipientSearch.setValue}
+              onChangeText={viewModel.handleRecipientInputChange}
               onClear={viewModel.clearRecipientSearch}
               onQrCodeClick={viewModel.handleQrCodeClick}
               placeholder={viewModel.recipientPlaceholder}
-              autoFocus
             />
           ) : (
             <>
-              <AddressInput
-                prefix={t("send.newSendFlow.to")}
-                value={viewModel.formattedAddress}
-                editable={false}
-                hideClearButton
-                placeholder={viewModel.recipientPlaceholder}
-                inputStyle={styles.addressValue}
-                suffix={<AddressDisclaimer />}
-              />
+              {viewModel.recipientContact ? (
+                <RecipientContactRow
+                  contact={viewModel.recipientContact}
+                  label={t("send.newSendFlow.to")}
+                  value={viewModel.formattedAddress}
+                />
+              ) : (
+                <AddressInput
+                  prefix={t("send.newSendFlow.to")}
+                  value={viewModel.formattedAddress}
+                  editable={false}
+                  hideClearButton
+                  placeholder={viewModel.recipientPlaceholder}
+                  inputStyle={styles.addressValue}
+                  suffix={<AddressDisclaimer />}
+                />
+              )}
               <Pressable
                 style={styles.editOverlay}
                 accessibilityRole="button"

@@ -3,7 +3,6 @@ import { Device } from "@ledgerhq/live-common/hw/actions/types";
 import { Step } from "~/renderer/components/Stepper";
 import { AccountLike } from "@ledgerhq/types-live";
 import { OpenModal } from "~/renderer/actions/modals";
-import { ZcashSyncState } from "@ledgerhq/coin-bitcoin/chain-adapters/zcash/types";
 
 export type StepId = "birthday" | "ufvk" | "device" | "confirmation";
 
@@ -21,13 +20,13 @@ export type StepProps = {
   ufvk: string;
   ufvkExportError: Error | undefined | null;
   onStepIdChanged: (stepId: StepId) => void;
-  onUfvkChanged: (ufvk: string, error?: Error | null) => void;
+  onUfvkChanged: (ufvk: string, shieldedAddress?: string | null, error?: Error | null) => void;
   birthday: string;
   invalidBirthday: boolean;
   syncFromZero: boolean;
   handleBirthdayChange: (value: string) => void;
   handleSyncFromZero: () => void;
-  handleEnableShieldedBalance: (nextSyncState: ZcashSyncState) => void;
+  handleEnableShieldedBalance: (options: { startSyncNow: boolean }) => void;
 };
 
 export type StepperProps = Step<StepId, StepProps>;

@@ -1,5 +1,5 @@
 import { Account } from "@ledgerhq/live-e2e-shared/enum/Account";
-import { runSendValidAddressTest } from "../send";
+import { runSendValidAddressTest } from "@e2e/specs/send/send";
 
 const transaction = new Transaction(
   Account.BTC_SEGWIT_1,
@@ -7,7 +7,7 @@ const transaction = new Transaction(
   "0.00001",
   Fee.MEDIUM,
 );
-runSendValidAddressTest(transaction, ["B2CQA-2723"], "Segwit", [
+runSendValidAddressTest(transaction, ["B2CQA-2723"], "segwit", [
   "@NanoSP",
   "@LNS",
   "@NanoX",

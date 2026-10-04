@@ -3,7 +3,7 @@ import type { TokenCurrency } from "@domain/entity-currency-token";
 import type { BridgeApi, ChainSpecificRules } from "@ledgerhq/ledger-wallet-framework/api/types";
 import { getCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
 import { StellarBurnAddressError } from "@ledgerhq/coin-stellar/types";
-import { STELLAR_BURN_ADDRESS } from "@ledgerhq/coin-stellar/logic";
+import { STELLAR_BURN_ADDRESS } from "@ledgerhq/coin-stellar/constants";
 
 export const getChainSpecificRules: ChainSpecificRules = {
   getAccountShape: (address: string) => {
@@ -33,10 +33,11 @@ export async function getTokenFromAsset(asset: AssetInfo): Promise<TokenCurrency
   return result;
 }
 
-export function getAssetFromToken(token: TokenCurrency): AssetInfo {
+export function getAssetFromToken(token: TokenCurrency): AssetInfo | undefined {
+  if (!token.tokenIdentifier) return undefined;
   return {
     type: token.tokenType,
-    assetReference: token.name,
+    assetReference: token.tokenIdentifier,
     assetOwner: token.contractAddress,
     name: token.name,
     unit: token.units[0],

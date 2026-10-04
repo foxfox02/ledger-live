@@ -7,7 +7,6 @@ export const robinhood = currency({
   name: "Robinhood Chain",
   managerAppName: "Ethereum",
   ticker: "ETH",
-  deviceTicker: "ETH",
   scheme: "robinhood",
   color: "#00C805",
   family: "evm",
@@ -38,9 +37,6 @@ export const robinhood = currency({
       magnitude: 0,
     },
   ],
-  ethereumLikeInfo: {
-    chainId: 4663,
-  },
   explorerViews: [
     {
       tx: "https://robinhoodchain.blockscout.com/tx/$hash",

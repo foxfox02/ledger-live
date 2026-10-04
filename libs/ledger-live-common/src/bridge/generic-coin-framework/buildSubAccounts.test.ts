@@ -2,7 +2,7 @@ import { TokenCurrency } from "@domain/entity-currency-token";
 import { buildSubAccounts, mergeSubAccounts } from "./buildSubAccounts";
 import { SyncConfig, TokenAccount } from "@ledgerhq/types-live";
 import BigNumber from "bignumber.js";
-import { AssetInfo } from "@ledgerhq/coin-module-framework/api/types";
+import { AssetInfo, Balance } from "@ledgerhq/coin-module-framework/api/types";
 
 describe("buildSubAccounts", () => {
   it("builds sub accounts from asset operations and balances, preserving operations order", async () => {
@@ -236,9 +236,115 @@ describe("buildSubAccounts", () => {
       },
     ]);
   });
+
+  it("falls back to an exact match when either side's assetReference isn't a string", async () => {
+    const subAccounts = await buildSubAccounts({
+      accountId: "accountId",
+      allTokenAssetsBalances: [
+        { value: 10n, asset: { type: "token", assetOwner: "owner" } as unknown as AssetInfo },
+      ],
+      syncConfig: { blacklistedTokenIds: [] } as unknown as SyncConfig,
+      operations: [
+        { hash: "matches", extra: { assetOwner: "owner", ledgerOpType: "IN" } },
+        {
+          hash: "does-not-match",
+          extra: { assetReference: "some-string", assetOwner: "owner", ledgerOpType: "IN" },
+        },
+      ] as any,
+      getTokenFromAsset: async () => ({ id: "tokenNoRef" }) as TokenCurrency,
+    });
+
+    expect(subAccounts[0].operations.map(op => op.id)).toEqual(["accountId+tokenNoRef-matches-IN"]);
+  });
+});
+
+describe("buildSubAccounts family shapes", () => {
+  const balances: Balance[] = [
+    { value: 20n, asset: { type: "token", assetReference: "usdc", assetOwner: "owner" } },
+    { value: 30n, asset: { type: "token", assetReference: "usdt", assetOwner: "owner" } },
+  ];
+
+  const build = (familyShapes?: Record<string, Record<string, unknown>>) =>
+    buildSubAccounts({
+      accountId: "accountId",
+      allTokenAssetsBalances: balances,
+      syncConfig: { blacklistedTokenIds: [] } as unknown as SyncConfig,
+      operations: [],
+      getTokenFromAsset: async asset =>
+        asset.type === "token"
+          ? ({ id: asset.assetReference, contractAddress: asset.assetReference } as TokenCurrency)
+          : undefined,
+      familyShapes,
+    });
+
+  it("puts the family fields on the sub account they belong to", async () => {
+    const subAccounts = await build({ usdc: { state: "frozen" } });
+
+    expect(subAccounts[0]).toMatchObject({ id: expect.any(String), state: "frozen" });
+    expect(subAccounts[1]).not.toHaveProperty("state");
+  });
+
+  it("leaves the accounts untouched when the family contributes nothing", async () => {
+    const subAccounts = await build();
+
+    expect(subAccounts).toHaveLength(2);
+    expect(subAccounts[0]).not.toHaveProperty("state");
+  });
+
+  it("cannot overwrite a framework field", async () => {
+    const subAccounts = await build({ usdc: { id: "hijacked", balance: new BigNumber(999) } });
+
+    expect(subAccounts[0].id).not.toBe("hijacked");
+    expect(subAccounts[0].balance).toEqual(new BigNumber(20));
+  });
 });
 
 describe("mergeSubAccounts", () => {
+  it("keeps the fields the chain does not report on a sub account it still does", () => {
+    const walletOwned = {
+      pendingOperations: [{ id: "op-pending", hash: "h9" }],
+      swapHistory: [{ operationId: "swap-1" }],
+      balanceHistoryCache: { HOUR: { latestDate: 1, balances: [1] } },
+      creationDate: new Date("2019-04-01"),
+    };
+    const stored = [
+      { id: "accountId+usdt", token: { id: "usdt" }, operations: [], ...walletOwned },
+    ] as unknown as Array<TokenAccount>;
+    const fresh = [
+      {
+        id: "accountId+usdt",
+        token: { id: "usdt" },
+        operations: [],
+        pendingOperations: [],
+        swapHistory: [],
+        balanceHistoryCache: {},
+        creationDate: new Date("2020-01-01"),
+      },
+    ] as unknown as Array<TokenAccount>;
+
+    expect(mergeSubAccounts(stored, fresh)[0]).toMatchObject(walletOwned);
+  });
+
+  it("drops a sub account the chain no longer reports", () => {
+    const stored = [
+      {
+        id: "accountId+ataAddress",
+        token: { id: "usdc" },
+        balance: new BigNumber(10),
+        operations: [],
+      },
+      { id: "accountId+usdt", token: { id: "usdt" }, balance: new BigNumber(5), operations: [] },
+    ] as unknown as Array<TokenAccount>;
+    const fresh = [
+      { id: "accountId+usdt", token: { id: "usdt" }, balance: new BigNumber(7), operations: [] },
+    ] as unknown as Array<TokenAccount>;
+
+    const merged = mergeSubAccounts(stored, fresh);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({ id: "accountId+usdt", balance: new BigNumber(7) });
+  });
+
   it("only keeps new sub accounts", () => {
     const oldSubAccounts = [];
     const newSubAccounts = [
@@ -300,7 +406,7 @@ describe("mergeSubAccounts", () => {
     expect(merged).toEqual(newSubAccounts);
   });
 
-  it("adds new unexisting sub accounts as is", () => {
+  it("keeps only what the chain reports, dropping the stored ones it no longer does", () => {
     const oldSubAccounts = [
       {
         id: "accountId+usdc",
@@ -382,10 +488,10 @@ describe("mergeSubAccounts", () => {
     ] as Array<TokenAccount>;
     const merged = mergeSubAccounts(oldSubAccounts, newSubAccounts);
 
-    expect(merged).toEqual([...oldSubAccounts, ...newSubAccounts]);
+    expect(merged).toEqual(newSubAccounts);
   });
 
-  it("updates existing sub accounts with new data", () => {
+  it("updates the sub account the chain still reports, and drops the one it does not", () => {
     const oldSubAccounts = [
       {
         id: "accountId+usdc",
@@ -468,31 +574,6 @@ describe("mergeSubAccounts", () => {
     const merged = mergeSubAccounts(oldSubAccounts, newSubAccounts);
 
     expect(merged).toEqual([
-      {
-        id: "accountId+usdc",
-        type: "TokenAccount",
-        parentId: "accountId",
-        token: { id: "usdc" },
-        balance: new BigNumber(20),
-        spendableBalance: new BigNumber(15),
-        operations: [
-          {
-            id: "accountId+usdc-tx-hash1-OUT",
-            type: "OUT",
-            senders: ["owner"],
-            recipients: ["other"],
-            date: new Date("2019-04-01"),
-          },
-          {
-            id: "accountId+usdc-tx-hash3-IN",
-            type: "IN",
-            senders: ["other"],
-            recipients: ["owner"],
-            date: new Date("2019-04-02"),
-          },
-        ],
-        operationsCount: 2,
-      },
       {
         id: "accountId+usdt",
         type: "TokenAccount",

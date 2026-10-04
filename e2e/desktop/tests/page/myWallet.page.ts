@@ -1,5 +1,5 @@
-import { AppPage } from "./abstractClasses";
-import { step } from "../misc/reporters/step";
+import { AppPage } from "tests/page/abstractClasses";
+import { step } from "tests/misc/reporters/step";
 import { expect } from "@playwright/test";
 
 export class MyWalletPage extends AppPage {
@@ -18,6 +18,7 @@ export class MyWalletPage extends AppPage {
     "topbar-action-button-notifications",
   );
   private readonly myLedgerItemInPopover = this.myWalletPopover.getByTestId("my-wallet-my-ledger");
+  private readonly contactsButton = this.myWalletPopover.getByTestId("my-wallet-contacts-button");
   private readonly modalCloseButton = this.page.getByTestId("modal-close-button");
 
   @step("Open My Wallet popover from avatar")
@@ -29,7 +30,7 @@ export class MyWalletPage extends AppPage {
   }
 
   @step("Expect My Wallet popover to be closed")
-  async waitForMyWalletPopoverToClose() {
+  private async waitForMyWalletPopoverToClose() {
     await expect(this.popoverActionsList).toBeHidden();
   }
 
@@ -62,6 +63,14 @@ export class MyWalletPage extends AppPage {
   async clickMyLedgerFromPopover() {
     await this.myLedgerItemInPopover.click();
     await this.waitForMyWalletPopoverToClose();
+  }
+
+  @step("Open Contacts")
+  async openContacts() {
+    await this.openMyWalletPopover();
+    await this.contactsButton.click();
+    await this.waitForMyWalletPopoverToClose();
+    await expect(this.page).toHaveURL(/\/contacts(?:\/|$|\?)/);
   }
 
   @step("Expect Ledger Recover discovery modal to be displayed")

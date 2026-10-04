@@ -1,5 +1,5 @@
-import { AppPage } from "./abstractClasses";
-import { step } from "../misc/reporters/step";
+import { AppPage } from "tests/page/abstractClasses";
+import { step } from "tests/misc/reporters/step";
 import { expect } from "@playwright/test";
 import { isAssetDiscoverabilityEnabled } from "tests/utils/featureFlagUtils";
 import { PageHeader } from "tests/component/pageHeader.component";
@@ -14,9 +14,6 @@ export class MarketPage extends AppPage {
   private readonly coinPageContainer = this.page
     .getByTestId("market-coin-page-container")
     .or(this.page.getByTestId("asset-detail-header"));
-  private swapButtonOnAsset = this.page.getByTestId("market-coin-swap-button");
-  private readonly embeddedSwapContainer = this.page.getByTestId("embedded-swap-container");
-
   private readonly buyButton = (ticker: string) =>
     this.coinRow(ticker).getByTestId(`market-${ticker}-buy-button-icon`);
   private swapButton = (ticker: string) =>
@@ -73,15 +70,22 @@ export class MarketPage extends AppPage {
     await this.listData.or(this.coinRow("btc")).first().waitFor({ state: "visible" });
 
     // Mid-cap rows mount only once scrolled into range, so scroll until the row appears.
-    for (let attempt = 0; attempt < 40; attempt++) {
-      if ((await row.count()) > 0) {
-        await row.scrollIntoViewIfNeeded();
-        await expect(row).toBeVisible();
-      } else {
-        await this.scrollMarketListBy(600);
-        await this.page.waitForTimeout(150);
-      }
-    }
+    await expect
+      .poll(
+        async () => {
+          if ((await row.count()) > 0) return true;
+          await this.scrollMarketListBy(600);
+          return false;
+        },
+        {
+          timeout: 30_000,
+          intervals: [150],
+          message: `Market row "${ticker}" never mounted while scrolling the list.`,
+        },
+      )
+      .toBe(true);
+
+    await row.scrollIntoViewIfNeeded();
     await expect(row).toBeVisible();
   }
 
@@ -139,18 +143,6 @@ export class MarketPage extends AppPage {
     } else {
       await this.ensureCoinRowVisible(lowerTicker);
       await this.discoSwapButton(lowerTicker).click();
-    }
-  }
-
-  @step("Click on swap button on asset")
-  async clickOnSwapButtonOnAsset() {
-    // Legacy exposes a swap CTA to click; AssetDetail mounts the embedded swap rail (nothing to click).
-    await this.swapButtonOnAsset
-      .or(this.embeddedSwapContainer)
-      .first()
-      .waitFor({ state: "visible" });
-    if (await this.swapButtonOnAsset.isVisible()) {
-      await this.swapButtonOnAsset.click();
     }
   }
 
@@ -218,10 +210,5 @@ export class MarketPage extends AppPage {
   @step("Expect category tab $0 to be selected")
   async expectCategorySelected(value: string) {
     await expect(this.categoryTab(value)).toHaveAttribute("aria-checked", "true");
-  }
-
-  @step("Select category tab $0")
-  async selectCategory(value: string) {
-    await this.categoryTab(value).click();
   }
 }

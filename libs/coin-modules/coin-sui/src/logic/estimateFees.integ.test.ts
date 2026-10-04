@@ -1,15 +1,11 @@
 import type { TransactionIntent } from "@ledgerhq/coin-module-framework/api/index";
-import { getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
 import coinConfig from "../config";
 import { estimateFees } from "./estimateFees";
 
 const SENDER = "0x33444cf803c690db96527cec67e3c9ab512596f4ba2d4eace43f0b4f716e0164";
 const RECIPIENT = "0x33444cf803c690db96527cec67e3c9ab512596f4ba2d4eace43f0b4f716e0164";
 
-// SKIP — Sui JSON-RPC public-endpoint shutdown. This suite targets the public mainnet
-// fullnode (fullnode.mainnet.sui.io), which the Sui Foundation retired (testnet wk of
-// 2026-07-06, mainnet wk of 2026-07-20) as JSON-RPC is deprecated for gRPC/GraphQL.
-// Re-enable after porting the integ config to the GraphQL transport.
+// Skipped until re-validated live against the gRPC transport.
 describe.skip("estimateFees", () => {
   beforeAll(() => {
     coinConfig.setCoinConfig(() => ({
@@ -17,10 +13,12 @@ describe.skip("estimateFees", () => {
         type: "active",
       },
       node: {
-        url: getJsonRpcFullnodeUrl("mainnet"),
         graphqlUrl: "https://graphql.mainnet.sui.io/graphql",
+        grpcUrl: "https://fullnode.mainnet.sui.io:443",
       },
-      features: { graphql: false },
+      features: { transport: "grpc" },
+      name: "Sui",
+      unit: { name: "Sui", code: "SUI", magnitude: 9 },
     }));
   });
 
@@ -34,7 +32,7 @@ describe.skip("estimateFees", () => {
       asset: { type: "native" },
     };
 
-    const { fees, gasBudget } = await estimateFees(transactionIntent);
+    const { fees, gasBudget } = await estimateFees(coinConfig.getCoinConfig(), transactionIntent);
 
     expect(typeof fees).toBe("bigint");
     // Net gas (`fees`) can be negative when a tx nets a storage rebate; the gas budget is the
@@ -60,7 +58,7 @@ describe.skip("estimateFees", () => {
       },
     };
 
-    const { fees, gasBudget } = await estimateFees(transactionIntent);
+    const { fees, gasBudget } = await estimateFees(coinConfig.getCoinConfig(), transactionIntent);
 
     expect(typeof fees).toBe("bigint");
     // Net gas (`fees`) can be negative when a tx nets a storage rebate; the gas budget is the
@@ -83,7 +81,7 @@ describe.skip("estimateFees", () => {
     // Run multiple concurrent estimations
     const promises = Array(5)
       .fill(0)
-      .map(() => estimateFees(transactionIntent));
+      .map(() => estimateFees(coinConfig.getCoinConfig(), transactionIntent));
     const results = await Promise.all(promises);
 
     // All results should be valid

@@ -1,3 +1,4 @@
+import { TrackScreen } from "@shared/analytics-react";
 import React, { useMemo, useState, useCallback, useRef } from "react";
 import { FlatList, FlatListProps, LayoutChangeEvent } from "react-native";
 import Animated, {
@@ -10,7 +11,7 @@ import { Box, Flex } from "@ledgerhq/native-ui";
 import { getCurrencyColor, isCryptoCurrency } from "@ledgerhq/live-common/currencies/index";
 import { useAccountBridgeMany } from "@ledgerhq/live-common/bridge/useAccountBridge";
 import { useTheme } from "styled-components/native";
-import { useAssetsData } from "@ledgerhq/live-common/dada-client/hooks/useAssetsData";
+import { useAssetsData } from "@features/platform-aggregated-assets";
 import VersionNumber from "react-native-version-number";
 import { Loading } from "~/components/Loading";
 import { Account, TokenAccount } from "@ledgerhq/types-live";
@@ -31,7 +32,6 @@ import { ScreenName } from "~/const";
 import EmptyAccountCard from "../Account/EmptyAccountCard";
 import CurrencyBackgroundGradient from "~/components/CurrencyBackgroundGradient";
 import Header from "./Header";
-import { TrackScreen } from "~/analytics";
 import { FabAssetActions } from "~/components/FabActions/actionsList/asset";
 import { AccountsNavigatorParamList } from "~/components/RootNavigator/types/AccountsNavigator";
 import { BaseComposite, StackNavigatorProps } from "~/components/RootNavigator/types/helpers";

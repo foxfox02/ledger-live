@@ -1,3 +1,4 @@
+import { track } from "@shared/analytics";
 import React, { useMemo, useCallback, useRef } from "react";
 import { Platform } from "react-native";
 import {
@@ -9,7 +10,6 @@ import { useTheme as useLumenTheme } from "@ledgerhq/lumen-ui-rnative/styles";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { NavigatorName } from "~/const";
 import { getStackNavigationConfigV4 } from "LLM/components/Navigation";
-import { track } from "~/analytics";
 import { NavigationHeaderBackButton } from "~/components/NavigationHeaderBackButton";
 import CloseWithConfirmation from "LLM/components/CloseWithConfirmation";
 import TransparentHeaderNavigationOptions from "~/navigation/TransparentHeaderNavigationOptions";
@@ -208,8 +208,18 @@ export function FlowStackNavigator<
     };
   }, [defaultStackNavigationConfig, baseScreenOptions]);
 
+  const initialRouteName = useMemo(() => {
+    const { initialStep } = flowConfig;
+
+    if (initialStep === undefined || !screenConfigs.some(config => config.step === initialStep)) {
+      return undefined;
+    }
+
+    return getScreenName ? getScreenName(initialStep) : `Flow${initialStep}`;
+  }, [flowConfig, getScreenName, screenConfigs]);
+
   return (
-    <Stack.Navigator screenOptions={mergedScreenOptions}>
+    <Stack.Navigator initialRouteName={initialRouteName} screenOptions={mergedScreenOptions}>
       {screenConfigs.map(config => (
         <Stack.Screen
           key={config.step}

@@ -3,31 +3,42 @@ import {
   BalanceOptions,
   TransactionIntent,
 } from "@ledgerhq/coin-module-framework/api/types";
-import { createApi } from ".";
-import coinConfig, { TronConfig } from "../config";
+import { withDefaults } from "@ledgerhq/coin-module-framework/api/index";
+import { createApi, createSponsoredSendApi } from ".";
+import { TronCoinConfig, TronContext } from "../config";
+import type { TronMemo, TronTxData } from "../types";
 import {
   broadcast,
   combine,
+  craftRawTransaction,
   craftTransaction,
   estimateFees,
+  estimateTronifyFees,
+  getAccountInfo,
   getBalance,
   lastBlock,
+  listFeeOptions,
   listOperations,
 } from "../logic";
-
-jest.mock("../config", () => ({
-  setCoinConfig: jest.fn(),
-}));
+import { TRONIFY_FEE_OPTION_ID } from ".";
 
 jest.mock("../logic", () => ({
   broadcast: jest.fn(),
   combine: jest.fn(),
+  craftRawTransaction: jest.fn((rawDataHex: string) => ({ transaction: rawDataHex })),
   craftTransaction: jest.fn(),
   estimateFees: jest.fn(),
+  estimateTronifyFees: jest.fn(),
+  getAccountInfo: jest.fn(),
   getBalance: jest.fn(),
+  listFeeOptions: jest.fn(),
   listOperations: jest.fn().mockResolvedValue({ items: [], next: undefined }),
   lastBlock: jest.fn(),
 }));
+
+const mockEstimateFees = jest.mocked(estimateFees);
+const mockEstimateTronifyFees = jest.mocked(estimateTronifyFees);
+const mockListFeeOptions = jest.mocked(listFeeOptions);
 
 jest.mock("../network", () => ({
   defaultFetchParams: { minTimestamp: 0 },
@@ -35,33 +46,87 @@ jest.mock("../network", () => ({
 }));
 
 describe("createApi", () => {
-  const mockTronConfig: TronConfig = { explorer: { url: "iamaurl" } } as TronConfig;
-  let setCoinConfigSpy: jest.SpyInstance;
+  it("omits the capabilities the chain has none of", () => {
+    const impl = createApi();
+
+    for (const method of ["call", "register", "getRewards"] as const) {
+      expect(impl).not.toHaveProperty(method);
+    }
+  });
+
+  const mockRawConfig = jest.fn<Promise<TronCoinConfig>, []>();
+  const withEnergyRentConfigured = (energyRent: unknown) =>
+    mockRawConfig.mockResolvedValue({
+      explorer: { url: "iamaurl" },
+      status: { type: "active" },
+      energyRent,
+    } as unknown as TronCoinConfig);
+
+  // craftRawTransaction resolves the provider from `await context.config()` — must seed via this.
+  const rawTxContext: TronContext = {
+    logger: jest.fn(),
+    config: mockRawConfig,
+  };
+
+  it("craftRawTransaction delegates the pre-built Tronify payment tx through to the logic layer", async () => {
+    withEnergyRentConfigured({
+      provider: "tronify",
+      tronify: { url: "https://open.tronify.io", sourceFlag: "ledgerLive" },
+    });
+    const impl = createApi();
+    const rawDataHex = "0a02abcd220812345678";
+
+    await expect(
+      impl.craftRawTransaction(rawTxContext, rawDataHex, "TSender", "pubkey", 0n),
+    ).resolves.toEqual({ transaction: rawDataHex });
+    expect(craftRawTransaction).toHaveBeenCalledWith(rawDataHex);
+  });
+
+  it("craftRawTransaction refuses when no energy-rent provider is configured", async () => {
+    withEnergyRentConfigured(undefined);
+    const impl = createApi();
+
+    await expect(
+      impl.craftRawTransaction(rawTxContext, "0a02abcd220812345678", "TSender", "pubkey", 0n),
+    ).rejects.toThrow(/energy-rent/i);
+    expect(craftRawTransaction).not.toHaveBeenCalled();
+  });
+
+  it("craftRawTransaction refuses an unsupported provider (unvalidated remote config must not open raw-signing)", async () => {
+    withEnergyRentConfigured({ provider: "rogue-provider" });
+    const impl = createApi();
+
+    await expect(
+      impl.craftRawTransaction(rawTxContext, "0a02abcd220812345678", "TSender", "pubkey", 0n),
+    ).rejects.toThrow(/unsupported energy-rent provider/i);
+    expect(craftRawTransaction).not.toHaveBeenCalled();
+  });
+
+  const mockTronConfig: TronCoinConfig = {
+    explorer: { url: "iamaurl" },
+    status: { type: "active" },
+  } as TronCoinConfig;
+
+  const context: TronContext = {
+    config: jest.fn().mockResolvedValue(mockTronConfig),
+    logger: jest.fn(),
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it("should set the coin config value", () => {
-    setCoinConfigSpy = jest.spyOn(coinConfig, "setCoinConfig");
+  it("should resolve the coin config from the context and thread it down", async () => {
+    const api: CoinModuleApi<TronCoinConfig, TronMemo, TronTxData> = withDefaults(createApi());
+    await api.getBalance(context, "address");
 
-    createApi(mockTronConfig);
-
-    const config = setCoinConfigSpy.mock.calls[0][0]();
-
-    expect(setCoinConfigSpy).toHaveBeenCalled();
-
-    expect(config).toEqual(
-      expect.objectContaining({
-        ...mockTronConfig,
-        status: { type: "active" },
-      }),
-    );
+    expect(context.config).toHaveBeenCalled();
+    expect(getBalance).toHaveBeenCalledWith(context.logger, mockTronConfig, "address");
   });
 
   it("should pass parameters correctly", async () => {
-    const api: CoinModuleApi = createApi(mockTronConfig);
-    const intent: TransactionIntent = {
+    const api: CoinModuleApi<TronCoinConfig, TronMemo, TronTxData> = withDefaults(createApi());
+    const intent: TransactionIntent<TronMemo, TronTxData> = {
       intentType: "transaction",
       type: "send",
       sender: "sender",
@@ -71,25 +136,33 @@ describe("createApi", () => {
         type: "trc10",
         assetReference: "1002000",
       },
+      data: { type: "tron" },
     };
     // Simulate calling all methods
-    await api.broadcast("transaction");
-    api.combine("tx", "signature", "pubkey");
-    await api.craftTransaction(intent);
-    await api.estimateFees(intent);
-    await api.getBalance("address");
-    await api.lastBlock();
+    await api.broadcast(context, "transaction");
+    api.combine(context, "tx", ["signature"], { pubkey: "pubkey" });
+    await api.craftTransaction(context, intent);
+    await api.estimateFees(context, intent);
+    await api.getBalance(context, "address");
+    await api.getAccountInfo!(context, "address");
+    await api.lastBlock(context);
     const minHeight = 14;
-    await api.listOperations("address", { minHeight, order: "asc" });
+    await api.listOperations(context, "address", { minHeight, order: "asc" });
 
-    // Test that each of the methods was called with correct arguments
-    expect(broadcast).toHaveBeenCalledWith("transaction");
-    expect(combine).toHaveBeenCalledWith("tx", "signature", "pubkey");
-    expect(estimateFees).toHaveBeenCalledWith(intent);
-    expect(craftTransaction).toHaveBeenCalledWith(intent);
-    expect(getBalance).toHaveBeenCalledWith("address");
-    expect(lastBlock).toHaveBeenCalled();
-    expect(listOperations).toHaveBeenCalledWith("address", {
+    // Test that each of the methods was called with correct arguments, threading the config
+    expect(broadcast).toHaveBeenCalledWith(context.logger, mockTronConfig, "transaction");
+    expect(combine).toHaveBeenCalledWith("tx", ["signature"]);
+    expect(mockEstimateFees).toHaveBeenCalledWith(context.logger, mockTronConfig, intent);
+    expect(craftTransaction).toHaveBeenCalledWith(
+      context.logger,
+      mockTronConfig,
+      intent,
+      undefined,
+    );
+    expect(getBalance).toHaveBeenCalledWith(context.logger, mockTronConfig, "address");
+    expect(getAccountInfo).toHaveBeenCalledWith(context.logger, mockTronConfig, "address");
+    expect(lastBlock).toHaveBeenCalledWith(context.logger, mockTronConfig);
+    expect(listOperations).toHaveBeenCalledWith(context.logger, mockTronConfig, "address", {
       limit: 200,
       minTimestamp: 0,
       order: "asc",
@@ -98,31 +171,142 @@ describe("createApi", () => {
   });
 
   it("should throw when limit > 200", async () => {
-    const api: CoinModuleApi = createApi(mockTronConfig);
-    await expect(api.listOperations("address", { minHeight: 0, limit: 201 })).rejects.toThrow(
-      "limit must be <= 200 for Tron (TronGrid API restriction)",
-    );
+    const api: CoinModuleApi<TronCoinConfig, TronMemo, TronTxData> = withDefaults(createApi());
+    await expect(
+      api.listOperations(context, "address", { minHeight: 0, limit: 201 }),
+    ).rejects.toThrow("limit must be <= 200 for Tron (TronGrid API restriction)");
     expect(listOperations).not.toHaveBeenCalled();
   });
 
   it("should not throw when limit is exactly 200", async () => {
-    const api: CoinModuleApi = createApi(mockTronConfig);
-    await expect(api.listOperations("address", { minHeight: 0, limit: 200 })).resolves.toEqual({
+    const api: CoinModuleApi<TronCoinConfig, TronMemo, TronTxData> = withDefaults(createApi());
+    await expect(
+      api.listOperations(context, "address", { minHeight: 0, limit: 200 }),
+    ).resolves.toEqual({
       items: [],
       next: undefined,
     });
     expect(listOperations).toHaveBeenCalledWith(
+      context.logger,
+      mockTronConfig,
       "address",
       expect.objectContaining({ limit: 200, minTimestamp: 0 }),
     );
   });
 
+  describe("estimateFees routing", () => {
+    const mockFeeEstimation = { value: 1_000_000n };
+
+    beforeEach(() => {
+      mockEstimateFees.mockResolvedValue(mockFeeEstimation);
+      mockEstimateTronifyFees.mockResolvedValue(mockFeeEstimation);
+    });
+
+    const trc20Intent: TransactionIntent<TronMemo, TronTxData> = {
+      intentType: "transaction",
+      type: "send",
+      sender: "sender",
+      recipient: "recipient",
+      amount: BigInt(1000),
+      asset: { type: "trc20", assetReference: "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t" },
+      data: { type: "tron" },
+    };
+
+    it("should call estimateFees when no feeOption is provided", async () => {
+      const api = createApi();
+      await api.estimateFees(context, trc20Intent, {});
+
+      expect(mockEstimateFees).toHaveBeenCalledWith(context.logger, mockTronConfig, trc20Intent);
+      expect(mockEstimateTronifyFees).not.toHaveBeenCalled();
+    });
+
+    it("should call estimateTronifyFees when feeOptionId is TRONIFY_FEE_OPTION_ID", async () => {
+      const api = createApi();
+      await api.estimateFees(context, trc20Intent, {
+        feeOption: { feeOptionId: TRONIFY_FEE_OPTION_ID },
+      });
+
+      expect(mockEstimateTronifyFees).toHaveBeenCalledWith(
+        context.logger,
+        mockTronConfig,
+        trc20Intent,
+      );
+      expect(mockEstimateFees).not.toHaveBeenCalled();
+    });
+
+    it("should call estimateFees when feeOptionId is an unknown value", async () => {
+      const api = createApi();
+      await api.estimateFees(context, trc20Intent, { feeOption: { feeOptionId: "unknown" } });
+
+      expect(mockEstimateFees).toHaveBeenCalledWith(context.logger, mockTronConfig, trc20Intent);
+      expect(mockEstimateTronifyFees).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("listFeeOptions", () => {
+    const trc20Intent: TransactionIntent<TronMemo, TronTxData> = {
+      intentType: "transaction",
+      type: "send",
+      sender: "sender",
+      recipient: "recipient",
+      amount: BigInt(1000),
+      asset: { type: "trc20", assetReference: "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t" },
+      data: { type: "tron" },
+    };
+
+    it("delegates to the logic layer with the context and intent and returns its result", async () => {
+      const feeOptions = [{ id: TRONIFY_FEE_OPTION_ID, feeAsset: { type: "native" as const } }];
+      mockListFeeOptions.mockResolvedValue(feeOptions);
+      const api = createApi();
+
+      await expect(api.listFeeOptions!(context, trc20Intent)).resolves.toBe(feeOptions);
+      expect(mockListFeeOptions).toHaveBeenCalledWith(context, trc20Intent);
+    });
+  });
+
   describe("getBalance", () => {
     it("should throw an exception when options is provided", async () => {
-      const api = createApi(mockTronConfig);
+      const api = withDefaults(createApi());
       await expect(
-        api.getBalance("random address", {} as unknown as BalanceOptions),
+        api.getBalance(context, "random address", {} as unknown as BalanceOptions),
       ).rejects.toMatchObject({ name: "InvalidParameterError" });
     });
+  });
+});
+
+test("createApi does not carry the energy-rent seam methods (they live in createSponsoredSendApi)", () => {
+  const api = createApi() as unknown as Record<string, unknown>;
+  expect(api.craftEnergyRentTransaction).toBeUndefined();
+  expect(api.submitEnergyRentPayment).toBeUndefined();
+  expect(api.getEnergyRentStatus).toBeUndefined();
+  expect(api.awaitEnergyDelivery).toBeUndefined();
+  expect(api.isEnergyDelivered).toBeUndefined();
+  expect(api.estimateSponsoredFeeQuote).toBeUndefined();
+  expect(api.buildEnergyRentRequest).toBeUndefined();
+});
+
+test("createSponsoredSendApi exposes the energy-rent seam methods", () => {
+  const seamContext: TronContext = {
+    logger: jest.fn(),
+    config: jest.fn<Promise<TronCoinConfig>, []>(),
+  };
+  const seam = createSponsoredSendApi(seamContext) as unknown as Record<string, unknown>;
+  expect(typeof seam.listFeeOptions).toBe("function");
+  expect(typeof seam.craftEnergyRentTransaction).toBe("function");
+  expect(typeof seam.submitEnergyRentPayment).toBe("function");
+  expect(typeof seam.getEnergyRentStatus).toBe("function");
+  expect(typeof seam.awaitEnergyDelivery).toBe("function");
+  expect(typeof seam.isEnergyDelivered).toBe("function");
+  expect(typeof seam.estimateSponsoredFeeQuote).toBe("function");
+  expect(typeof seam.buildEnergyRentRequest).toBe("function");
+  expect(typeof seam.getEnergyRentSignaturePayload).toBe("function");
+  expect(typeof seam.buildSignedEnergyRentTransaction).toBe("function");
+  expect(typeof seam.rentPayment).toBe("function");
+  expect(typeof seam.reservationDedupKey).toBe("function");
+  expect(seam).toMatchObject({
+    feeOptionId: TRONIFY_FEE_OPTION_ID,
+    providerName: "Tronify",
+    waivesErrorKeys: ["gasLimit"],
+    waivesWarningKeys: ["amount"],
   });
 });

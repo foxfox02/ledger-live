@@ -1,8 +1,6 @@
 import { getCryptoCurrencyById } from "@ledgerhq/ledger-wallet-framework/currencies";
 import { setCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
 import type { TokenCurrency } from "@ledgerhq/ledger-wallet-framework/types";
-import type { CryptoAssetsStore } from "@ledgerhq/types-live";
-import { getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
 import BigNumber from "bignumber.js";
 import coinConfig from "../config";
 import { mist, ONE_SUI } from "../constants";
@@ -29,7 +27,7 @@ setCryptoAssetsStore({
     mockedFindTokenByAddressInCurrency(address, currencyId),
   findTokenById: async () => undefined,
   getTokensSyncHash: async () => "0",
-} as unknown as CryptoAssetsStore);
+});
 
 describe("getAccountShape", () => {
   const mockGetAccountBalances = networkModule.getAccountBalances as jest.Mock;
@@ -44,10 +42,12 @@ describe("getAccountShape", () => {
     coinConfig.setCoinConfig(() => ({
       status: { type: "active" },
       node: {
-        url: getJsonRpcFullnodeUrl("mainnet"),
         graphqlUrl: "https://graphql.mainnet.sui.io/graphql",
+        grpcUrl: "https://fullnode.mainnet.sui.io:443",
       },
-      features: { graphql: false },
+      features: { transport: "grpc" },
+      name: "Sui",
+      unit: { name: "Sui", code: "SUI", magnitude: 9 },
     }));
   });
 
@@ -266,6 +266,113 @@ describe("getAccountShape", () => {
     expect(ids).not.toContain("sui:long-form-sui");
   });
 
+  // `clearAccount` empties `operations` but keeps `syncHash`, so resuming from it would leave a
+  // cleared account holding only what arrived after that point — the full history has to be re-read.
+  it("drops the resume point when the account has no operations", async () => {
+    // GIVEN
+    const initialAccount = createFixtureAccount({ operations: [], syncHash: "0xstale-cursor" });
+    mockGetAccountBalances.mockResolvedValue([createAccountBalance()]);
+    mockGetOperations.mockResolvedValue([]);
+    mockGetStakesRaw.mockResolvedValue([]);
+
+    // WHEN
+    await getAccountShape(
+      {
+        index: 0,
+        derivationPath: "44'/784'/0'/0'/0'",
+        currency: getCryptoCurrencyById("sui"),
+        address: "0x6e143fe0a8ca010a86580dafac44298e5b1b7d73efc345356a59a15f0d7824f0",
+        initialAccount,
+        derivationMode: "sui",
+      },
+      { blacklistedTokenIds: [], paginationConfig: {} },
+    );
+
+    // THEN
+    expect(mockGetOperations).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      expect.any(String),
+      null,
+    );
+  });
+
+  // A token-only account has an empty `operations` with its history in the subaccounts, so treating
+  // that as "nothing stored" would re-read the whole history on every sync, forever.
+  it("resumes from the stored syncHash when only a token subaccount holds operations", async () => {
+    // GIVEN
+    const initialAccount = createFixtureAccount({
+      operations: [],
+      syncHash: "0xtoken-cursor",
+      subAccounts: [
+        {
+          type: "TokenAccount",
+          id: "js:2:sui:0x1:sui+token",
+          operations: [createFixtureOperation({ id: "sui:token-op" })],
+          token: { ticker: "USDC", id: "sui/token", contractAddress: "0x9::usdc::USDC" },
+        },
+      ],
+    });
+    mockGetAccountBalances.mockResolvedValue([createAccountBalance()]);
+    mockGetOperations.mockResolvedValue([]);
+    mockGetStakesRaw.mockResolvedValue([]);
+
+    // WHEN
+    await getAccountShape(
+      {
+        index: 0,
+        derivationPath: "44'/784'/0'/0'/0'",
+        currency: getCryptoCurrencyById("sui"),
+        address: "0x6e143fe0a8ca010a86580dafac44298e5b1b7d73efc345356a59a15f0d7824f0",
+        initialAccount,
+        derivationMode: "sui",
+      },
+      { blacklistedTokenIds: [], paginationConfig: {} },
+    );
+
+    // THEN
+    expect(mockGetOperations).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      expect.any(String),
+      "0xtoken-cursor",
+    );
+  });
+
+  it("resumes from the stored syncHash when the account has operations", async () => {
+    // GIVEN
+    const initialAccount = createFixtureAccount({
+      operations: [
+        createFixtureOperation({ id: "sui:kept", extra: { coinType: DEFAULT_COIN_TYPE } }),
+      ],
+      syncHash: "0xresume-here",
+    });
+    mockGetAccountBalances.mockResolvedValue([createAccountBalance()]);
+    mockGetOperations.mockResolvedValue([]);
+    mockGetStakesRaw.mockResolvedValue([]);
+
+    // WHEN
+    await getAccountShape(
+      {
+        index: 0,
+        derivationPath: "44'/784'/0'/0'/0'",
+        currency: getCryptoCurrencyById("sui"),
+        address: "0x6e143fe0a8ca010a86580dafac44298e5b1b7d73efc345356a59a15f0d7824f0",
+        initialAccount,
+        derivationMode: "sui",
+      },
+      { blacklistedTokenIds: [], paginationConfig: {} },
+    );
+
+    // THEN
+    expect(mockGetOperations).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      expect.any(String),
+      "0xresume-here",
+    );
+  });
+
   it("handles multiple token balances and creates subAccounts", async () => {
     // GIVEN
     const initialAccount = createFixtureAccount();
@@ -421,7 +528,7 @@ describe("getAccountShape", () => {
 
       // THEN
       expect(mockGetStakesRaw).toHaveBeenCalledTimes(1);
-      expect(mockGetStakesRaw).toHaveBeenCalledWith(address, "sui");
+      expect(mockGetStakesRaw).toHaveBeenCalledWith(expect.anything(), address);
     });
 
     it("includes empty stakes in suiResources when no stakes are returned", async () => {

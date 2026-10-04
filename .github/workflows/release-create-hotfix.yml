@@ -17,7 +17,10 @@ on:
 jobs:
   create-hotfix:
     name: Create Hotfix
-    runs-on: ubuntu-24.04
+    runs-on: ledger-wallet-4cpu-aws-public-docker
+    permissions:
+      contents: read
+      id-token: write
     env:
       NODE_OPTIONS: "--max-old-space-size=7168"
     steps:
@@ -27,6 +30,9 @@ jobs:
         with:
           app-id: ${{ secrets.GH_BOT_APP_ID }}
           private-key: ${{ secrets.GH_BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
 
       - name: Generate ref/tag version to use during main checkout
         uses: LedgerHQ/ledger-live/tools/actions/composites/generate-tag@develop
@@ -53,8 +59,12 @@ jobs:
           use-mise: true
           gh-token: ${{ secrets.GITHUB_TOKEN }}
           skip-nx-cache: "true"
+      - name: JFrog npm auth
+        uses: LedgerHQ/ledger-live/tools/actions/composites/jfrog-npm-auth@develop
+        with:
+          registry: ${{ vars.ARTIFACTORY_URL }}
       - name: install dependencies
-        run: pnpm i -F "ledger-live"
+        run: pnpm i --frozen-lockfile -F "ledger-live"
       - name: Move minor updates to patch for hotfix branch
         # For more info about why we do this, see this doc:
         # https://ledgerhq.atlassian.net/wiki/spaces/WALLETCO/pages/4710989838/LL+Incident+Recovery+-+Hotfix+in+all+cases

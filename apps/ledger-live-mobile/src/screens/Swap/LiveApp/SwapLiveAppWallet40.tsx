@@ -1,4 +1,5 @@
 import React, { RefObject, useCallback, useMemo } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import { StyleSheet, View } from "react-native";
 import { Flex } from "@ledgerhq/native-ui";
 import InfiniteLoader from "~/components/InfiniteLoader";
@@ -15,7 +16,7 @@ import { useSwapWebviewProps } from "./hooks/useSwapWebviewProps";
 import { DefaultAccountSwapParamList } from "../types";
 import { useSwapWallet40HeaderStateUpdater } from "./navigationHandlers/wallet40/useSwapWallet40HeaderState";
 import { useSwapAndroidHardwareBackPress } from "./navigationHandlers/useSwapAndroidHardwareBackPress";
-import { LiveAppBackground } from "LLM/components/LiveAppBackground";
+import { Wallet40Background } from "LLM/components/Wallet40Background";
 
 type SwapWebviewContentProps = {
   manifest: LiveAppManifest;
@@ -69,7 +70,12 @@ export function SwapLiveAppWallet40({
     defaultParams,
     webviewResetKey,
     resetWebview,
+    ensureWebviewReset,
   } = useSwapLiveAppState(params);
+
+  // A reset requested while this screen was covered (swap success, history redirect) is
+  // re-applied here if the live app came back on the page it was asked to leave.
+  useFocusEffect(ensureWebviewReset);
 
   const updateWallet40HeaderState = useSwapWallet40HeaderStateUpdater(webviewRef);
 
@@ -101,7 +107,7 @@ export function SwapLiveAppWallet40({
 
   return (
     <View style={containerStyle}>
-      <LiveAppBackground type="swap" />
+      <Wallet40Background type="swap" />
       <View style={styles.contentContainer} pointerEvents="box-none">
         {manifest && (
           <SwapWebviewContent

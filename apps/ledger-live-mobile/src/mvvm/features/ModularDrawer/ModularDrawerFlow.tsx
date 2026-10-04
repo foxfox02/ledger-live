@@ -1,5 +1,6 @@
 import React from "react";
 import type { CryptoOrTokenCurrency } from "@domain/entity-currency";
+import type { AssetCategory } from "@domain/api-aggregated-assets";
 import type { EnhancedModularDrawerConfiguration } from "@ledgerhq/live-common/wallet-api/ModularDrawer/types";
 import { useModularDrawerConfiguration } from "@ledgerhq/live-common/modularDrawer/hooks/useModularDrawerConfiguration";
 import type { AccountLike } from "@ledgerhq/types-live";
@@ -12,6 +13,7 @@ import {
 import ModularDrawerFlowManager from "./ModularDrawerFlowManager";
 import { useAssets } from "./hooks/useAssets";
 import { useModularDrawerState } from "./hooks/useModularDrawerState";
+import type { DisabledItemsExplanation } from "./types";
 
 export type ModularDrawerFlowRenderProps = Readonly<{
   /** Existing Modular Drawer flow to render in the chosen presentation shell */
@@ -32,11 +34,15 @@ export type ModularDrawerFlowRenderProps = Readonly<{
 export type ModularDrawerFlowProps = Readonly<{
   /** Whether the drawer flow is open */
   isOpen: boolean;
-  /** Callback fired when the drawer flow is closed */
+  /** Callback fired when the drawer flow is closed (fires cancel callback) */
   onClose?: () => void;
+  /** Hides the drawer UI without firing the cancel callback; used for inline navigation */
+  onSilentClose?: () => void;
 
   /** List of preselected currencies to display in the drawer */
   currencies?: string[];
+  /** DADA asset categories to filter the drawer server-side (e.g. Stablecoins) */
+  categories?: AssetCategory[];
   /** Configuration for assets display */
   assetsConfiguration?: EnhancedModularDrawerConfiguration["assets"];
   /** Configuration for networks display */
@@ -53,6 +59,10 @@ export type ModularDrawerFlowProps = Readonly<{
   uiUseCase?: string;
   /** Whether the currencies are filtered */
   areCurrenciesFiltered?: boolean;
+  /** Network IDs that remain selectable while all MAD rows stay visible. */
+  selectableNetworkIds?: readonly string[];
+  /** Optional explanations displayed when an unavailable asset or network is pressed. */
+  disabledItemsExplanation?: DisabledItemsExplanation;
 
   /** Renders the Modular Drawer flow inside a presentation shell */
   children: (props: ModularDrawerFlowRenderProps) => React.ReactNode;
@@ -61,7 +71,9 @@ export type ModularDrawerFlowProps = Readonly<{
 export function ModularDrawerFlow({
   isOpen,
   onClose,
+  onSilentClose,
   currencies,
+  categories,
   assetsConfiguration,
   networksConfiguration,
   onAccountSelected,
@@ -69,6 +81,8 @@ export function ModularDrawerFlow({
   useCase,
   uiUseCase,
   areCurrenciesFiltered,
+  selectableNetworkIds,
+  disabledItemsExplanation,
   children,
 }: ModularDrawerFlowProps): React.JSX.Element {
   const {
@@ -86,6 +100,7 @@ export function ModularDrawerFlow({
     {
       currencyIds: completionMode === "currency" ? undefined : currencies,
       networkIds: completionMode === "currency" ? currencies : undefined,
+      categories,
       searchedValue: searchValue,
       useCase,
       areCurrenciesFiltered,
@@ -94,6 +109,7 @@ export function ModularDrawerFlow({
 
   const {
     accountCurrency,
+    selectedAssetName,
     handleAsset,
     handleNetwork,
     handleBackButton,
@@ -107,9 +123,11 @@ export function ModularDrawerFlow({
     currencyIds: completionMode === "currency" ? [] : (currencies ?? []),
     isDrawerOpen: isOpen,
     onClose,
+    onSilentClose,
     hasSearchedValue: searchValue.length > 0,
     onAccountSelected,
     onCurrencySelected,
+    selectableNetworkIds,
   });
 
   const content = (
@@ -124,11 +142,19 @@ export function ModularDrawerFlow({
         refetch,
         loadNext,
         assetsSorted,
+        uiUseCase,
+        selectableNetworkIds,
+        disabledAssetExplanation: disabledItemsExplanation?.asset,
+        onDisabledAssetPress: disabledItemsExplanation?.onPress,
       }}
       networksViewModel={{
         onNetworkSelected: handleNetwork,
         availableNetworks,
         networksConfiguration: networkConfigurationSanitized,
+        selectableNetworkIds,
+        disabledNetworkExplanation: disabledItemsExplanation?.network,
+        onDisabledNetworkPress: disabledItemsExplanation?.onPress,
+        selectedAssetName,
       }}
       accountsViewModel={{
         onAddNewAccount,

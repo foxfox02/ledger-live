@@ -14,9 +14,16 @@ export class NewSendModal extends Modal {
   readonly matchedAddressButtons = this.dialog
     .locator('[data-testid="send-matched-address-button"]')
     .filter({ visible: true });
+  private readonly recipientDisplay = this.dialog.getByTestId("send-recipient-display");
+  private readonly recipientContactAvatar = this.dialog.getByTestId(
+    "send-recipient-contact-avatar",
+  );
+  private readonly recipientCard = this.dialog.getByTestId("send-recipient-card");
+  private readonly recipientCardAddContactButton = this.dialog.getByTestId(
+    "send-recipient-card-add-contact",
+  );
   readonly memoInput = this.dialog.getByTestId("send-memo-input");
-  readonly skipMemoLink = this.dialog.getByTestId("send-skip-memo-link");
-  readonly skipMemoConfirmButton = this.dialog.getByTestId("send-skip-memo-confirm-button");
+  readonly skipMemoConfirmButton = this.dialog.getByTestId("send-skip-memo-confirm");
   readonly amountInput = this.dialog.getByTestId("send-amount-input");
   readonly feesMenuTrigger = this.dialog.getByTestId("send-network-fees-menu-trigger");
   readonly reviewButton = this.dialog.getByTestId("send-review-button");
@@ -43,6 +50,12 @@ export class NewSendModal extends Modal {
     return this.page.getByTestId(`send-fees-preset-${preset.toLowerCase()}`);
   }
 
+  private readonly contactRow = (contactId: string) =>
+    this.dialog.getByTestId(`contacts-compact-row-${contactId}`);
+
+  private readonly contactAddressRow = (addressId: string) =>
+    this.dialog.getByTestId(`send-recipient-contact-address-${addressId}`);
+
   private async isCryptoInputMode(): Promise<boolean | null> {
     const secondaryValue = (await this.amountSecondaryValue.textContent())?.trim() ?? "";
     // Return null when the element isn't populated yet so callers can retry.
@@ -60,6 +73,13 @@ export class NewSendModal extends Modal {
     await this.recipientInput.fill(address);
   }
 
+  @step("Send to the matched recipient")
+  async clickRecipientCardSend() {
+    const button = this.dialog.getByTestId("send-recipient-card-send");
+    await expect(button).toBeEnabled();
+    await button.click();
+  }
+
   @step("Select address from list")
   async clickOnSendToButton(account?: AccountType) {
     const label =
@@ -73,6 +93,40 @@ export class NewSendModal extends Modal {
     await button.click();
   }
 
+  @step("Clear the recipient input")
+  async clearRecipient() {
+    await this.recipientInput.fill("");
+    await expect(this.recipientCard).toBeHidden();
+  }
+
+  @step("Select contact $0 from the address book")
+  async selectContact(contactId: string) {
+    await this.contactRow(contactId).click();
+  }
+
+  @step("Select contact address $0")
+  async selectContactAddress(addressId: string) {
+    await this.contactAddressRow(addressId).click();
+  }
+
+  @step("Verify the matched recipient is contact: $0")
+  async expectMatchedContact(contactName: string) {
+    await expect(this.recipientCard).toContainText(contactName);
+    await expect(this.recipientCard.getByTestId("send-recipient-card-avatar")).toBeVisible();
+  }
+
+  @step("Verify the Add contact action is enabled")
+  async expectAddContactEnabled() {
+    await expect(this.recipientCardAddContactButton).toBeVisible();
+    await expect(this.recipientCardAddContactButton).toBeEnabled();
+  }
+
+  @step("Verify the amount step recipient is contact: $0")
+  async expectAmountStepContact(contactName: string) {
+    await expect(this.recipientContactAvatar).toBeVisible();
+    await expect(this.recipientDisplay).toHaveValue(contactName);
+  }
+
   @step("Type memo: $0")
   async typeMemo(memo: string) {
     await this.memoInput.waitFor({ state: "visible" });
@@ -80,12 +134,9 @@ export class NewSendModal extends Modal {
     await expect(this.memoInput).toHaveValue(memo);
   }
 
-  @step("Skip memo")
-  async skipMemo({ confirm = true }: { confirm?: boolean } = {}) {
-    await this.skipMemoLink.click();
-    if (confirm) {
-      await this.skipMemoConfirmButton.click();
-    }
+  @step("Confirm sending without memo")
+  async confirmSkipMemo() {
+    await this.skipMemoConfirmButton.click();
   }
 
   @step("Click View details")
@@ -102,6 +153,23 @@ export class NewSendModal extends Modal {
       await expect.poll(() => this.isCryptoInputMode()).toBe(true);
     }
     await this.amountInput.fill(amount);
+  }
+
+  @step("Verify crypto amount round-trips exactly: $0")
+  async expectCryptoAmount(amount: string) {
+    await expect(this.amountInput).toHaveValue(amount);
+  }
+
+  @step("Verify the amount input pins the currency magnitude at $0")
+  async expectAmountMagnitude(amount: string) {
+    // The exact-value check alone cannot detect a magnitude that is too *large*: an amount
+    // filling N decimals round-trips at any magnitude >= N, so 0.123456789 survives at 9, 10
+    // or 18 alike — and 18 is what a copy-paste from another ERC-20 would introduce. Probing
+    // one decimal deeper closes that side: it must not survive at the intended magnitude.
+    await this.fillCryptoAmount(`${amount}1`);
+    await expect(this.amountInput).not.toHaveValue(`${amount}1`);
+    await this.fillCryptoAmount(amount);
+    await this.expectCryptoAmount(amount);
   }
 
   @step("Click review to proceed to signature")

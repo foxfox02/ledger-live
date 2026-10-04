@@ -1,5 +1,5 @@
 import { getAccountBridge, getCurrencyBridge } from "@ledgerhq/live-common/bridge/index";
-import { addAccountsAction } from "@ledgerhq/live-wallet/addAccounts";
+import { addAccountsAction } from "@ledgerhq/live-common/account/addAccounts";
 import { CryptoCurrency } from "@domain/entity-currency-crypto";
 import { Account } from "@ledgerhq/types-live";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -10,6 +10,7 @@ import { openModal } from "~/renderer/actions/modals";
 import { setDrawer } from "~/renderer/drawers/Provider";
 import * as RX from "rxjs/operators";
 import { useLLDCoinFamily } from "~/renderer/families";
+import { openCurrencyRegionRestrictedDialog } from "LLD/features/CurrencyRegionRestrictedDialog/currencyRegionRestrictedDialog";
 import { accountsSelector } from "~/renderer/reducers/accounts";
 import { blacklistedTokenIdsSelector } from "~/renderer/reducers/settings";
 import {
@@ -51,7 +52,7 @@ export function useScanAccounts({
   const existingAccounts = useSelector(accountsSelector);
   const blacklistedTokenIds = useSelector(blacklistedTokenIdsSelector);
   const familyImpl = useLLDCoinFamily(currency.family);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<Error | null>(null);
   const dispatch = useDispatch();
 
   const [scannedAccounts, setScannedAccounts] = useState<Account[]>([]);
@@ -274,7 +275,7 @@ export function useScanAccounts({
 
     // TODO: by moving this logic to handleConfirm, we can remove the trigger state and calculate it via memoization to avoid this useEffect
     if (!scanning && !hasImportedAccounts) {
-      if (alreadyEmptyAccount && !importableAccounts.length) {
+      if (alreadyEmptyAccount && !importableAccounts.length && !creatableAccounts.length) {
         navigateToWarningScreen(WARNING_REASON.ALREADY_EMPTY_ACCOUNT, alreadyEmptyAccount);
       } else if (
         !importableAccounts.length &&
@@ -296,9 +297,18 @@ export function useScanAccounts({
     scanning,
   ]);
 
+  const isRegionRestricted = error?.name === "CurrencyRegionRestrictedError";
+
+  useEffect(() => {
+    if (!isRegionRestricted) return;
+    setDrawer();
+    dispatch(openCurrencyRegionRestrictedDialog(currency.name));
+  }, [isRegionRestricted, dispatch, currency.name]);
+
   return {
     creatableAccounts,
     error,
+    isRegionRestricted,
     handleConfirm,
     handleDeselectAll,
     handleSelectAll,

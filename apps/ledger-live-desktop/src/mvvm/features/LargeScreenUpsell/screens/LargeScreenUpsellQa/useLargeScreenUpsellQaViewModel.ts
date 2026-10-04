@@ -10,15 +10,13 @@ import {
 import { onboardingDateSelector } from "@ledgerhq/live-common/postOnboarding/reducer";
 import { setPostOnboardingDate } from "@ledgerhq/live-common/postOnboarding/actions";
 import {
+  getLargeScreenUpsellDecision,
   lastSeenUpsellModalSelector,
+  mapDevicesModelListToUpsellInputs,
   resetUpsellModalRetries,
   retriesUpsellModalSelector,
   setLastSeenUpsellModal,
   setUpsellModalRetries,
-} from "@domain/entity-large-screen-upsell-modal";
-import {
-  getLargeScreenUpsellDecision,
-  mapDevicesModelListToUpsellInputs,
 } from "@features/flow-large-screen-upsell";
 import { useDispatch, useSelector } from "LLD/hooks/redux";
 import { saveSettings, setSharePersonalizedRecommendations } from "~/renderer/actions/settings";
@@ -36,21 +34,12 @@ import {
   pastCooldownOffsetDays,
   resolveParamBaseline,
 } from "./utils";
+import { QA_NANO_MODELS, QA_TOUCHSCREEN_MODELS } from "../../constants/qaDeviceModels";
 import { COPY, formatLastSeenDisplay, formatOnboardingDisplay, GATE_LABELS } from "./copy";
 
 const FLAG_KEY = "largeScreenUpsell";
 
-export const QA_NANO_MODELS = [
-  { id: DeviceModelId.nanoS, labelKey: "nanoS" },
-  { id: DeviceModelId.nanoSP, labelKey: "nanoSP" },
-  { id: DeviceModelId.nanoX, labelKey: "nanoX" },
-] as const;
-
-export const QA_TOUCHSCREEN_MODELS = [
-  { id: DeviceModelId.stax, labelKey: "stax" },
-  { id: DeviceModelId.europa, labelKey: "europa" },
-  { id: DeviceModelId.apex, labelKey: "apex" },
-] as const;
+export { QA_NANO_MODELS, QA_TOUCHSCREEN_MODELS };
 
 function handleReload() {
   window.api?.reloadRenderer();
@@ -150,7 +139,7 @@ export function useLargeScreenUpsellQaViewModel() {
           seenNanoModelIds,
           hasSeenTouchscreenDevice,
           onboardingDate,
-          frequency: { retries, lastSeenAt },
+          frequency: { retriesModal: retries, lastSeenAt },
         },
         {
           isFeatureEnabled,

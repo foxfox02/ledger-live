@@ -7,14 +7,40 @@ import { CosmosTx } from "../../types";
 // Default page size when the caller gives no limit — bounds the fetch instead of the full history.
 const PAGE_SIZE = 100;
 
+// The generic framework re-adds the fee to value for these outgoing native types, but the parser
+// already folds it into op.value — so emit value excluding fee to avoid double-counting.
+const FEE_READDED_BY_FRAMEWORK = new Set(["OUT", "DELEGATE", "UNDELEGATE", "REDELEGATE"]);
+
 function toOperation(op: CosmosParsedOperation): Operation {
   const details = toOperationExtraRaw(op.extra) as Record<string, unknown>;
+  const value = FEE_READDED_BY_FRAMEWORK.has(op.type) ? op.value.minus(op.fee) : op.value;
+  const { familyExtra } = op.extra;
+  if (familyExtra) {
+    const rawFamilyExtra: Record<string, unknown> = {};
+    if (familyExtra.validators && familyExtra.validators.length > 0) {
+      rawFamilyExtra.validators = familyExtra.validators.map(v => ({
+        address: v.address,
+        amount: v.amount.toString(),
+      }));
+      const primary = familyExtra.validators[0];
+      details.stake = {
+        address: primary.address,
+        amount: BigInt(primary.amount.integerValue().toFixed()),
+      };
+    }
+    if (familyExtra.sourceValidator) {
+      rawFamilyExtra.sourceValidator = familyExtra.sourceValidator;
+    }
+    if (Object.keys(rawFamilyExtra).length > 0) {
+      details.familyExtra = rawFamilyExtra;
+    }
+  }
   return {
     id: op.hash,
     type: op.type,
     senders: op.senders,
     recipients: op.recipients,
-    value: BigInt(op.value.integerValue().toFixed()),
+    value: BigInt(value.integerValue().toFixed()),
     // Single-asset module — every op reported native (IBC/token denoms not surfaced).
     asset: { type: "native" },
     ...(Object.keys(details).length > 0 ? { details } : {}),

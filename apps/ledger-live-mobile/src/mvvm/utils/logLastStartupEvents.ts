@@ -1,5 +1,5 @@
+import { track } from "@shared/analytics";
 import { DdRumReactNavigationTracking } from "@datadog/mobile-react-navigation";
-import { track } from "~/analytics";
 import { navigationRef } from "~/rootnavigation";
 import { viewNamePredicate } from "~/datadog";
 import { logStartupEvent, type StartupEvent, startupEvents } from "./logStartupTime";
@@ -31,7 +31,7 @@ export async function logLastStartupEvents(eventName: LastStartupEvent): Promise
   const otherStartupEvents = LAST_STARTUP_EVENT_VALUES.filter(e => e !== eventName);
   if (!alreadyLogged.has(eventName) && otherStartupEvents.every(e => alreadyLogged.has(e))) {
     try {
-      DdRumReactNavigationTracking.startTrackingViews(navigationRef.current, viewNamePredicate);
+      DdRumReactNavigationTracking.startTrackingViews(navigationRef.current, { viewNamePredicate });
       const [storageState] = await Promise.all([
         summarizeStorageData(),
         new Promise(resolve => setTimeout(resolve, LAST_EVENTS_BUFFER)), // Wait for potential events right after the last startup event to be logged

@@ -4,9 +4,9 @@ import {
   NotEnoughBalance,
   RecipientRequired,
 } from "@ledgerhq/ledger-wallet-framework/errors";
-import type { Transaction } from "@ledgerhq/coin-evm/types/index";
+import type { Transaction } from "../types";
 import type { AccountBridge, CurrencyBridge } from "@ledgerhq/types-live";
-import { getEvmDummyAddress } from "@ledgerhq/coin-evm/constants";
+import { getEvmDummyAddress } from "../constants";
 import { getMainAccount } from "../../../account";
 import {
   scanAccounts,
@@ -20,12 +20,11 @@ import {
   getSerializedAddressParameters,
   updateTransaction,
 } from "@ledgerhq/ledger-wallet-framework/bridge/jsHelpers";
-import { getGasLimit, isEthAddress } from "@ledgerhq/coin-evm/utils";
+import { isEthAddress } from "@ledgerhq/coin-evm/logic-public";
+import { getGasLimit } from "../utils";
 import { getTypedTransaction } from "../transaction";
-import { getCurrencyConfiguration } from "../../../config";
-import { EvmConfigInfo, setCoinConfig } from "@ledgerhq/coin-evm/config";
 import { validateAddress } from "../../../bridge/validateAddress";
-import { assignFromAccountRaw, assignToAccountRaw } from "@ledgerhq/coin-evm/staking/serialization";
+import { assignFromAccountRaw, assignToAccountRaw } from "../serialization";
 
 const receive = makeAccountBridgeReceive();
 const defaultGetFees = (_a, t: any) => {
@@ -147,16 +146,6 @@ const prepareTransaction = async (_a, t) => {
   });
 };
 
-let isConfigLoaded = false;
-const loadCoinConfig = () => {
-  if (!isConfigLoaded) {
-    setCoinConfig(currencyId => {
-      isConfigLoaded = true;
-      return { info: getCurrencyConfiguration<EvmConfigInfo>(currencyId) };
-    });
-  }
-};
-
 const accountBridge: AccountBridge<Transaction> = {
   createTransaction,
   updateTransaction,
@@ -182,5 +171,4 @@ const currencyBridge: CurrencyBridge = {
 export default {
   currencyBridge,
   accountBridge,
-  loadCoinConfig,
 };

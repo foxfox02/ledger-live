@@ -1,6 +1,6 @@
 import { expect } from "@playwright/test";
 import { step } from "tests/misc/reporters/step";
-import { AppPage } from "./abstractClasses";
+import { AppPage } from "tests/page/abstractClasses";
 import { Currency } from "@ledgerhq/live-e2e-shared/enum/Currency";
 import { isAssetSectionEnabled } from "tests/utils/featureFlagUtils";
 
@@ -95,7 +95,7 @@ export class AccountsPage extends AppPage {
   }
 
   @step("Verify token is not visible in parent account")
-  async verifyTokenNotVisible(childCurrency: Currency) {
+  private async verifyTokenNotVisible(childCurrency: Currency) {
     await expect(this.tokenRow(childCurrency)).not.toBeVisible();
   }
 
@@ -128,7 +128,7 @@ export class AccountsPage extends AppPage {
     await expect(visibleAccountsList).toHaveCount(count, { timeout });
   }
 
-  private async getReduxAccountIds(): Promise<string[]> {
+  async getReduxAccountIds(): Promise<string[]> {
     return this.page.evaluate(() => {
       const store = globalThis.window.__STORE__;
       if (!store?.getState) return [];
@@ -187,7 +187,7 @@ export class AccountsPage extends AppPage {
     await expect(visibleAccountsList).not.toHaveCount(0);
   }
 
-  async getAccountsName() {
+  private async getAccountsName() {
     const visibleAccountsList = await this.getVisibleAccountsList();
     const accountElements = await visibleAccountsList.all();
     const testIdPrefix = await this.getAccountRowTestIdPrefix();

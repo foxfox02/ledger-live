@@ -70,6 +70,36 @@ describe("genericPrepareTransaction", () => {
       account,
       expect.objectContaining(baseTransaction),
       undefined,
+      expect.any(Function), // craftTransactionData closure (framework v6)
+      undefined,
+    );
+  });
+
+  it("estimates fees and forwards memoType and memoValue fields to transactionToIntent", async () => {
+    const fee = new BigNumber(100_000_000);
+    (getCoinModuleApi as jest.Mock).mockReturnValue({
+      estimateFees: jest.fn().mockResolvedValue({ value: fee }),
+    });
+
+    const txWithMemo = {
+      amount: new BigNumber(2_500_000_000),
+      fees: new BigNumber(1),
+      recipient: "0xrecipient",
+      family: "family",
+      memoType: "transferId",
+      memoValue: "42",
+    };
+
+    const prepareTransaction = genericPrepareTransaction("testnet", "local");
+    const result = await prepareTransaction(account, txWithMemo as any);
+
+    expect((result as any).fees.toString()).toBe(fee.toString());
+    expect(transactionToIntent).toHaveBeenCalledTimes(1);
+    expect(transactionToIntent).toHaveBeenCalledWith(
+      account,
+      expect.objectContaining({ memoType: "transferId", memoValue: "42" }),
+      undefined,
+      expect.any(Function),
       undefined,
     );
   });
@@ -272,6 +302,121 @@ describe("genericPrepareTransaction", () => {
     );
   });
 
+  const transferFee = {
+    maxTransferFee: 1000,
+    transferFee: 10,
+    feePercent: 1,
+    feeBps: 100,
+    transferAmountIncludingFee: 1010,
+    transferAmountExcludingFee: 1000,
+  };
+
+  it("propagates a transfer fee from estimation parameters", async () => {
+    (getCoinModuleApi as jest.Mock).mockReturnValue({
+      estimateFees: jest.fn().mockResolvedValue({
+        value: new BigNumber(491),
+        parameters: { transferFee },
+      }),
+    });
+
+    const prepareTransaction = genericPrepareTransaction("testnet", "local");
+    const result = await prepareTransaction(account, {
+      ...baseTransaction,
+      customFees: undefined,
+    } as GenericTransaction);
+
+    expect(result).toEqual(expect.objectContaining({ transferFee }));
+  });
+
+  it("clears a transfer fee kept from a previously selected asset", async () => {
+    (getCoinModuleApi as jest.Mock).mockReturnValue({
+      estimateFees: jest.fn().mockResolvedValue({
+        value: new BigNumber(491),
+        parameters: { gasLimit: 21000n },
+      }),
+    });
+
+    const prepareTransaction = genericPrepareTransaction("testnet", "local");
+    const result = await prepareTransaction(account, {
+      ...baseTransaction,
+      transferFee,
+      customFees: undefined,
+    } as GenericTransaction);
+
+    expect(result.transferFee).toBeUndefined();
+  });
+
+  it("clears a transfer fee the estimation reports in an unusable shape", async () => {
+    (getCoinModuleApi as jest.Mock).mockReturnValue({
+      estimateFees: jest.fn().mockResolvedValue({
+        value: new BigNumber(491),
+        parameters: { transferFee: { ...transferFee, transferFee: "10" } },
+      }),
+    });
+
+    const prepareTransaction = genericPrepareTransaction("testnet", "local");
+    const result = await prepareTransaction(account, {
+      ...baseTransaction,
+      transferFee,
+      customFees: undefined,
+    } as GenericTransaction);
+
+    expect(result.transferFee).toBeUndefined();
+  });
+
+  it("propagates an owner token account and a stake account rent", async () => {
+    (getCoinModuleApi as jest.Mock).mockReturnValue({
+      estimateFees: jest.fn().mockResolvedValue({
+        value: new BigNumber(491),
+        parameters: {
+          ownerTokenAccount: "ata1",
+          stakeAccountRent: 2282880n,
+          recipientTokenAccount: "ata2",
+          userInputType: "sol",
+        },
+      }),
+    });
+
+    const prepareTransaction = genericPrepareTransaction("testnet", "local");
+    const result = await prepareTransaction(account, {
+      ...baseTransaction,
+      customFees: undefined,
+    } as GenericTransaction);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ownerTokenAccount: "ata1",
+        stakeAccountRent: new BigNumber(2282880),
+        recipientTokenAccount: "ata2",
+        userInputType: "sol",
+      }),
+    );
+  });
+
+  it("clears an owner token account and a stake account rent the estimation no longer reports", async () => {
+    (getCoinModuleApi as jest.Mock).mockReturnValue({
+      estimateFees: jest.fn().mockResolvedValue({
+        value: new BigNumber(491),
+        parameters: { gasLimit: 21000n },
+      }),
+    });
+
+    const prepareTransaction = genericPrepareTransaction("testnet", "local");
+    const result = await prepareTransaction(account, {
+      ...baseTransaction,
+      ownerTokenAccount: "ata1",
+      stakeAccountRent: new BigNumber(2282880),
+      recipientTokenAccount: "ata2",
+      userInputType: "sol",
+      customFees: undefined,
+    } as GenericTransaction);
+
+    expect(result.ownerTokenAccount).toBeUndefined();
+    expect(result.stakeAccountRent).toBeUndefined();
+    expect(result.recipientTokenAccount).toBeUndefined();
+    expect(result.userInputType).toBeUndefined();
+  });
+
   it("does not propagate the custom gas limit", async () => {
     (getCoinModuleApi as jest.Mock).mockReturnValue({
       estimateFees: jest.fn().mockResolvedValue({
@@ -295,6 +440,119 @@ describe("genericPrepareTransaction", () => {
         customGasLimit: new BigNumber(22000),
       }),
     );
+  });
+
+  it("carries fee parameters the framework does not model onto feeParameters", async () => {
+    (getCoinModuleApi as jest.Mock).mockReturnValue({
+      estimateFees: jest.fn().mockResolvedValue({
+        value: 700n,
+        parameters: { gasLimit: 21000n, energyRequired: "1200", bandwidthRequired: "268" },
+      }),
+    });
+
+    const prepareTransaction = genericPrepareTransaction("testnet", "local");
+    const result = await prepareTransaction(account, { ...baseTransaction });
+
+    // The whole bag rides through, including the keys `propagateField` recognises — the framework
+    // does not curate what a family's fee descriptor is allowed to read. `bigint` values are
+    // normalised to decimal strings so the bag stays JSON-safe (see the serialization test below).
+    expect((result as any).feeParameters).toEqual({
+      gasLimit: "21000",
+      energyRequired: "1200",
+      bandwidthRequired: "268",
+    });
+  });
+
+  it("keeps the prepared transaction JSON-serializable when the estimation returns bigint fees", async () => {
+    // The regression that crashed EVM swaps (LIVE-35482): `estimation.parameters` holds native
+    // `bigint`, and storing it raw on `feeParameters` made `JSON.stringify(transaction)` throw
+    // "Do not know how to serialize a BigInt" the moment the swap flow serialised the transaction.
+    (getCoinModuleApi as jest.Mock).mockReturnValue({
+      estimateFees: jest.fn().mockResolvedValue({
+        value: 700n,
+        parameters: {
+          gasLimit: 21000n,
+          maxFeePerGas: 30_000_000_000n,
+          gasOptions: { fast: { maxFeePerGas: 30n, maxPriorityFeePerGas: 5n } },
+        },
+      }),
+    });
+
+    const prepareTransaction = genericPrepareTransaction("testnet", "local");
+    const result = await prepareTransaction(account, { ...baseTransaction });
+
+    expect(() => JSON.stringify(result)).not.toThrow();
+    expect((result as any).feeParameters).toEqual({
+      gasLimit: "21000",
+      maxFeePerGas: "30000000000",
+      gasOptions: { fast: { maxFeePerGas: "30", maxPriorityFeePerGas: "5" } },
+    });
+  });
+
+  it("still hits the early return when a bigint estimation stringifies to the stored feeParameters", async () => {
+    // The identity check compares a previously-stored (already string) `feeParameters` against a
+    // fresh estimation whose values are `bigint`. Normalising the fresh bag to strings first keeps
+    // the two comparable, so an unchanged breakdown does not churn referential equality.
+    (getCoinModuleApi as jest.Mock).mockReturnValue({
+      estimateFees: jest.fn().mockResolvedValue({
+        value: BigInt(baseTransaction.fees.toFixed()),
+        parameters: { gasLimit: 21000n },
+      }),
+    });
+
+    const original = { ...baseTransaction, feeParameters: { gasLimit: "21000" } } as any;
+    const prepareTransaction = genericPrepareTransaction("testnet", "local");
+
+    expect(await prepareTransaction(account, original)).toBe(original);
+  });
+
+  it("refreshes feeParameters when the fee value is unchanged but the breakdown is not", async () => {
+    // `fees`/`amount`/asset all match here, so this isolates the `feeParameters` term of the
+    // early-return identity check: the total can hold while the breakdown behind it moves.
+    (getCoinModuleApi as jest.Mock).mockReturnValue({
+      estimateFees: jest.fn().mockResolvedValue({
+        value: BigInt(baseTransaction.fees.toFixed()),
+        parameters: { energyRequired: "2400" },
+      }),
+    });
+
+    const prepareTransaction = genericPrepareTransaction("testnet", "local");
+    const result = await prepareTransaction(account, {
+      ...baseTransaction,
+      feeParameters: { energyRequired: "1200" },
+    } as any);
+
+    expect((result as any).feeParameters).toEqual({ energyRequired: "2400" });
+  });
+
+  it("returns the original transaction when the breakdown is unchanged too", async () => {
+    (getCoinModuleApi as jest.Mock).mockReturnValue({
+      estimateFees: jest.fn().mockResolvedValue({
+        value: BigInt(baseTransaction.fees.toFixed()),
+        parameters: { energyRequired: "1200" },
+      }),
+    });
+
+    const original = { ...baseTransaction, feeParameters: { energyRequired: "1200" } } as any;
+    const prepareTransaction = genericPrepareTransaction("testnet", "local");
+
+    // Identity, not equality: the early return exists so an unchanged estimation does not churn
+    // referential equality for consumers that memoise on it.
+    expect(await prepareTransaction(account, original)).toBe(original);
+  });
+
+  it("clears stale feeParameters when a re-estimation returns none", async () => {
+    (getCoinModuleApi as jest.Mock).mockReturnValue({
+      estimateFees: jest.fn().mockResolvedValue({ value: 900n }),
+    });
+
+    const prepareTransaction = genericPrepareTransaction("testnet", "local");
+    const result = await prepareTransaction(account, {
+      ...baseTransaction,
+      feeParameters: { energyRequired: "1200" },
+    } as any);
+
+    expect((result as any).feeParameters).toBeUndefined();
   });
 
   it("uses customFees.parameters.fees without calling estimateFees", async () => {
@@ -432,37 +690,11 @@ describe("genericPrepareTransaction", () => {
   });
 
   it("uses the token account spendable balance when sending all amount", async () => {
-    (decodeTokenAccountId as jest.Mock).mockResolvedValueOnce({
-      accountId: "test-sub-account",
-      token: undefined,
-    });
-    const estimateFees = jest.fn().mockResolvedValue({ value: new BigNumber(50) });
-    (transactionToIntent as jest.Mock).mockImplementation((_, transaction) => ({
-      amount: BigInt(transaction.amount.toFixed()),
-    }));
-    (getCoinModuleApi as jest.Mock).mockReturnValue({ estimateFees });
-    const prepareTransaction = genericPrepareTransaction("testnet", "local");
-
-    const result = await prepareTransaction(
-      {
-        ...account,
-        subAccounts: [{ id: "test-sub-account", spendableBalance: new BigNumber(100) }],
-      },
-      {
-        subAccountId: "test-sub-account",
-        useAllAmount: true,
-        amount: new BigNumber(0),
-      } as GenericTransaction,
-    );
-
-    expect(estimateFees).toHaveBeenCalledWith(expect.objectContaining({ amount: 100n }), {});
-    expect((result as any).amount.toString()).toBe("100");
-  });
-
-  it("subtracts pending token operations from the token send-max", async () => {
-    (decodeTokenAccountId as jest.Mock).mockResolvedValueOnce({
-      accountId: "test-sub-account",
-      token: undefined,
+    (getBridgeApi as jest.Mock).mockResolvedValue({
+      getAssetFromToken: jest.fn().mockImplementation((token: TokenCurrency, owner: string) => ({
+        assetOwner: owner,
+        assetReference: token.id,
+      })),
     });
     const estimateFees = jest.fn().mockResolvedValue({ value: new BigNumber(50) });
     (transactionToIntent as jest.Mock).mockImplementation((_, transaction) => ({
@@ -477,6 +709,47 @@ describe("genericPrepareTransaction", () => {
         subAccounts: [
           {
             id: "test-sub-account",
+            token: { id: "test-token" },
+            spendableBalance: new BigNumber(100),
+          },
+        ],
+      },
+      {
+        subAccountId: "test-sub-account",
+        useAllAmount: true,
+        amount: new BigNumber(0),
+      } as GenericTransaction,
+    );
+
+    expect(estimateFees).toHaveBeenCalledWith(
+      expect.anything(), // context (framework v6)
+      expect.objectContaining({ amount: 100n }),
+      { customFeesParameters: {} },
+    );
+    expect((result as any).amount.toString()).toBe("100");
+  });
+
+  it("subtracts pending token operations from the token send-max", async () => {
+    (getBridgeApi as jest.Mock).mockResolvedValue({
+      getAssetFromToken: jest.fn().mockImplementation((token: TokenCurrency, owner: string) => ({
+        assetOwner: owner,
+        assetReference: token.id,
+      })),
+    });
+    const estimateFees = jest.fn().mockResolvedValue({ value: new BigNumber(50) });
+    (transactionToIntent as jest.Mock).mockImplementation((_, transaction) => ({
+      amount: BigInt(transaction.amount.toFixed()),
+    }));
+    (getCoinModuleApi as jest.Mock).mockReturnValue({ estimateFees });
+    const prepareTransaction = genericPrepareTransaction("testnet", "local");
+
+    const result = await prepareTransaction(
+      {
+        ...account,
+        subAccounts: [
+          {
+            id: "test-sub-account",
+            token: { id: "test-token" },
             spendableBalance: new BigNumber(100),
             pendingOperations: [{ type: "OUT", value: new BigNumber(30) }],
           },
@@ -536,7 +809,31 @@ describe("genericPrepareTransaction", () => {
         assetReference: "usdc",
       },
       undefined,
+      expect.any(Function), // craftTransactionData closure (framework v6)
       undefined,
     );
+  });
+
+  describe("NEAR: computeIntentType forwarding", () => {
+    it("forwards NEAR's computeIntentType to transactionToIntent", async () => {
+      const { computeIntentType } = await import("../../../families/near/bridge/api");
+      (getBridgeApi as jest.Mock).mockResolvedValue({ computeIntentType });
+      (getCoinModuleApi as jest.Mock).mockReturnValue({
+        estimateFees: jest.fn().mockResolvedValue({ value: 500n }),
+      });
+
+      const nearAccount = { ...account, currency: { id: "near" } } as any;
+      const nearTx = { ...baseTransaction, family: "near", mode: "withdraw" } as any;
+      const prepareTransaction = genericPrepareTransaction("mainnet", "near");
+      await prepareTransaction(nearAccount, nearTx);
+
+      expect(transactionToIntent).toHaveBeenCalledWith(
+        nearAccount,
+        expect.objectContaining({ mode: "withdraw" }),
+        computeIntentType,
+        expect.any(Function),
+        undefined,
+      );
+    });
   });
 });

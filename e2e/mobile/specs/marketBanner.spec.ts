@@ -1,5 +1,5 @@
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { setTeamOwner } from "helpers/allure/allure-helper";
+import { setTeamOwner } from "@e2e/helpers/allure/allure-helper";
 
 const testConfig = {
   tmsLinks: [
@@ -18,7 +18,7 @@ const testConfig = {
 const CURRENCY = Currency.BTC;
 
 setTeamOwner(Team.WALLET_XP);
-describe("Wallet 4.0 - Market Banner", () => {
+describe("Market banner", () => {
   testConfig.tmsLinks.forEach(link => $TmsLink(link));
   testConfig.tags.forEach(tag => $Tag(tag));
 
@@ -26,12 +26,11 @@ describe("Wallet 4.0 - Market Banner", () => {
     await app.init({
       userdata: "1AccountBTC1AccountETHReadOnlyFalse",
     });
-    await app.wallet40Drawers.closeWallet40BlockingDrawersIfVisible(10_000);
     await app.mainNavigation.waitForWallet40Ready();
     await app.wallet40Drawers.closeWallet40BlockingDrawersIfVisible();
   });
 
-  it("should display and interact with market banner", async () => {
+  it(`[${CURRENCY.testLabel}] - Market banner elements, interactions and navigation`, async () => {
     await app.portfolio.expectMarketBannerVisible();
 
     await app.portfolio.expectFearAndGreedCardVisible();

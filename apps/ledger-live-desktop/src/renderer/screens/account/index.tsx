@@ -1,5 +1,6 @@
 import React, { useCallback } from "react";
 import { compose } from "redux";
+import styled from "styled-components";
 import { connect } from "react-redux";
 import { withTranslation } from "react-i18next";
 import { TFunction } from "i18next";
@@ -16,7 +17,7 @@ import {
   useFilterTokenOperationsZeroAmount,
 } from "~/renderer/actions/settings";
 import { countervalueFirstSelector } from "~/renderer/reducers/settings";
-import TrackPage from "~/renderer/analytics/TrackPage";
+import { TrackPage } from "@shared/analytics-react";
 import Box from "~/renderer/components/Box";
 import OperationsList from "~/renderer/components/OperationsList";
 import useTheme from "~/renderer/hooks/useTheme";
@@ -24,6 +25,7 @@ import BalanceSummary from "./BalanceSummary";
 import { AccountWarningBanner, AccountWarningCustomBanner } from "./AccountWarningBanner";
 import AccountHeaderActions from "./AccountHeaderActions";
 import AccountHeaderRow from "./AccountHeaderRow";
+import { PerpsAccountBanner } from "LLD/features/Accounts/components/PerpsAccountBanner";
 import EmptyStateAccount from "./EmptyStateAccount";
 import TokensList from "./TokensList";
 import { AccountStakeBanner } from "~/renderer/screens/account/AccountStakeBanner";
@@ -35,6 +37,13 @@ import { useAddressPoisoningOperationsFamilies } from "@ledgerhq/live-common/hoo
 import { useWalletFeaturesConfig } from "@features/platform-feature-flags";
 import { getAccountsSidebarPath } from "LLD/components/SideBar/utils";
 import { useAccountBackNavigation } from "./hooks/useAccountBackNavigation";
+import { useAccountIdFromRoute } from "~/renderer/hooks/useAccountIdFromRoute";
+
+const AccountHeaderActionsRow = styled(Box)`
+  &:empty {
+    display: none;
+  }
+`;
 
 type Params = {
   id?: string;
@@ -137,7 +146,7 @@ const AccountPage = ({
         showBackButton={showBackButton}
         onBack={navigateBack}
       />
-      <Box
+      <AccountHeaderActionsRow
         horizontal
         pb={3}
         flow={4}
@@ -148,9 +157,10 @@ const AccountPage = ({
         }}
       >
         <AccountHeaderActions account={account} parentAccount={parentAccount} />
-      </Box>
+      </AccountHeaderActionsRow>
       <AccountWarningBanner currency={currency} />
       <AccountWarningCustomBanner currency={currency} />
+      <PerpsAccountBanner currency={currency} />
       {AccountSubHeader ? (
         <AccountSubHeader account={account} parentAccount={parentAccount} />
       ) : null}
@@ -202,12 +212,15 @@ const ConnectedAccountPage = compose<React.ComponentType<OwnProps>>(
   withTranslation(),
 )(AccountPage);
 
-// Wrapper component that extracts route params and passes them to the connected component
+// Wrapper component that resolves the aliased route params and passes them to the connected component
 const AccountPageWrapper = () => {
   const { id, parentId, "*": splat } = useParams<Params & { "*"?: string }>();
+  // legacy links carry a raw account id, whose slashes react-router hands over in the splat
   const fullId =
     id && parentId && splat && splat.indexOf("account/") === -1 ? `${id}/${splat}` : id;
-  return <ConnectedAccountPage id={fullId} parentId={parentId} />;
+  const accountId = useAccountIdFromRoute(fullId);
+  const parentAccountId = useAccountIdFromRoute(parentId);
+  return <ConnectedAccountPage id={accountId} parentId={parentAccountId} />;
 };
 
 export default AccountPageWrapper;

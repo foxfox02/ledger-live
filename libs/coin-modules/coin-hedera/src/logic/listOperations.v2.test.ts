@@ -1,8 +1,9 @@
 import { setCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
 import { encodeTokenAccountId } from "@ledgerhq/ledger-wallet-framework/account/accountId";
 import { encodeOperationId } from "@ledgerhq/ledger-wallet-framework/operation";
-import { getEnv } from "@ledgerhq/live-env";
+import { TokenCurrencyIdSchema } from "@ledgerhq/ledger-wallet-framework/types";
 import BigNumber from "bignumber.js";
+import { STAKING_REWARD_ACCOUNT_ID } from "../constants";
 import { apiClient } from "../network/api";
 import { hgraphClient } from "../network/hgraph";
 import * as networkUtils from "../network/utils";
@@ -12,6 +13,7 @@ import {
   getMockedERC20TokenCurrency,
   getMockedHTSTokenCurrency,
 } from "../test/fixtures/currency.fixture";
+import { getMockedConfig } from "../test/fixtures/config.fixture";
 import { getMockedERC20TokenTransfer } from "../test/fixtures/hgraph.fixture";
 import {
   getMockedMirrorAccount,
@@ -51,6 +53,7 @@ jest.mock("./utils", () => ({
 
 describe("listOperationsV2", () => {
   const mockCurrency = getMockedCurrency();
+  const mockConfig = getMockedConfig();
   const mockMirrorAccount = getMockedMirrorAccount();
   const mockSyntheticBlock: SyntheticBlock = {
     blockHeight: 1000000,
@@ -93,7 +96,7 @@ describe("listOperationsV2", () => {
       nextCursor: null,
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -109,7 +112,7 @@ describe("listOperationsV2", () => {
 
     expect(apiClient.getAccountTransactions).toHaveBeenCalledTimes(1);
     expect(apiClient.getAccountTransactions).toHaveBeenCalledWith({
-      configOrCurrencyId: mockCurrency.id,
+      configOrCurrencyId: mockConfig,
       address: mockMirrorAccount.account,
       fetchAllPages: true,
       pagingToken: null,
@@ -118,7 +121,7 @@ describe("listOperationsV2", () => {
     });
     expect(hgraphClient.getERC20Transfers).toHaveBeenCalledTimes(1);
     expect(hgraphClient.getERC20Transfers).toHaveBeenCalledWith({
-      configOrCurrencyId: mockCurrency.id,
+      configOrCurrencyId: mockConfig,
       address: mockMirrorAccount.account,
       fetchAllPages: true,
       order: mockOrder,
@@ -128,6 +131,93 @@ describe("listOperationsV2", () => {
     expect(hgraphClient.getLatestIndexedConsensusTimestamp).toHaveBeenCalledTimes(1);
     expect(result.coinOperations).toEqual([]);
     expect(result.tokenOperations).toEqual([]);
+  });
+
+  it("forwards minTimestamp to both the mirror and hgraph sources", async () => {
+    (apiClient.getAccountTransactions as jest.Mock).mockResolvedValue({
+      transactions: [],
+      nextCursor: null,
+    });
+
+    await listOperations(mockConfig, {
+      limit: mockLimit,
+      order: mockOrder,
+      currencyId: mockCurrency.id,
+      address: mockMirrorAccount.account,
+      evmAddress: mockMirrorAccount.evm_address,
+      mirrorTokens: [],
+      tokenEvmAddresses: [],
+      fetchAllPages: true,
+      skipFeesForTokenOperations: false,
+      useEncodedHash: false,
+      useSyntheticBlocks: false,
+      minTimestamp: "1787236926.768102104",
+    });
+
+    expect(apiClient.getAccountTransactions).toHaveBeenCalledWith(
+      expect.objectContaining({ minTimestamp: "1787236926.768102104" }),
+    );
+    expect(hgraphClient.getERC20Transfers).toHaveBeenCalledWith(
+      expect.objectContaining({ minTimestamp: "1787236926.768102104" }),
+    );
+  });
+
+  describe("erc20 floor in pagination mode", () => {
+    const paginationParams = {
+      limit: mockLimit,
+      order: "desc" as const,
+      currencyId: mockCurrency.id,
+      address: mockMirrorAccount.account,
+      evmAddress: mockMirrorAccount.evm_address,
+      mirrorTokens: [],
+      tokenEvmAddresses: [],
+      fetchAllPages: false,
+      skipFeesForTokenOperations: false,
+      useEncodedHash: false,
+      useSyntheticBlocks: false,
+    };
+
+    it("floors the hgraph query at the oldest transaction of the mirror page", async () => {
+      (apiClient.getAccountTransactions as jest.Mock).mockResolvedValue({
+        transactions: [
+          getMockedMirrorTransaction({ consensus_timestamp: "1787236926.768102104" }),
+          getMockedMirrorTransaction({ consensus_timestamp: "1787230000.000000000" }),
+        ],
+        nextCursor: "1787230000.000000000",
+      });
+
+      await listOperations(mockConfig, { ...paginationParams, minTimestamp: "1750000000" });
+
+      expect(hgraphClient.getERC20Transfers).toHaveBeenCalledWith(
+        expect.objectContaining({ minTimestamp: "1787230000.000000000" }),
+      );
+    });
+
+    it("keeps the caller's floor when the mirror page is empty", async () => {
+      (apiClient.getAccountTransactions as jest.Mock).mockResolvedValue({
+        transactions: [],
+        nextCursor: null,
+      });
+
+      await listOperations(mockConfig, { ...paginationParams, minTimestamp: "1750000000" });
+
+      expect(hgraphClient.getERC20Transfers).toHaveBeenCalledWith(
+        expect.objectContaining({ minTimestamp: "1750000000" }),
+      );
+    });
+
+    it("leaves the hgraph query unfloored in asc order, which needs a ceiling instead", async () => {
+      (apiClient.getAccountTransactions as jest.Mock).mockResolvedValue({
+        transactions: [getMockedMirrorTransaction({ consensus_timestamp: "1787230000.000000000" })],
+        nextCursor: null,
+      });
+
+      await listOperations(mockConfig, { ...paginationParams, order: "asc" });
+
+      expect(hgraphClient.getERC20Transfers).toHaveBeenCalledWith(
+        expect.not.objectContaining({ minTimestamp: expect.anything() }),
+      );
+    });
   });
 
   it("should parse HBAR transfer transactions correctly", async () => {
@@ -151,7 +241,7 @@ describe("listOperationsV2", () => {
       nextCursor: null,
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -215,7 +305,7 @@ describe("listOperationsV2", () => {
       getTokensSyncHash: async () => "",
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -308,7 +398,7 @@ describe("listOperationsV2", () => {
       getTokensSyncHash: async () => "",
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -401,7 +491,7 @@ describe("listOperationsV2", () => {
       getTokensSyncHash: async () => "",
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -467,7 +557,7 @@ describe("listOperationsV2", () => {
       getTokensSyncHash: async () => "",
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -502,7 +592,7 @@ describe("listOperationsV2", () => {
       nextCursor: null,
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -556,7 +646,7 @@ describe("listOperationsV2", () => {
       nextCursor: null,
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -603,7 +693,7 @@ describe("listOperationsV2", () => {
       nextCursor: null,
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -651,7 +741,7 @@ describe("listOperationsV2", () => {
       nextCursor: null,
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -681,7 +771,7 @@ describe("listOperationsV2", () => {
       nextCursor: null,
     });
 
-    await listOperations({
+    await listOperations(mockConfig, {
       limit: customLimit,
       order: customOrder,
       cursor: lastPagingToken,
@@ -698,7 +788,7 @@ describe("listOperationsV2", () => {
 
     expect(apiClient.getAccountTransactions).toHaveBeenCalledTimes(1);
     expect(apiClient.getAccountTransactions).toHaveBeenCalledWith({
-      configOrCurrencyId: mockCurrency.id,
+      configOrCurrencyId: mockConfig,
       address: mockMirrorAccount.account,
       fetchAllPages: true,
       pagingToken: lastPagingToken,
@@ -728,7 +818,7 @@ describe("listOperationsV2", () => {
       nextCursor: null,
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       address: mockMirrorAccount.account,
@@ -769,7 +859,7 @@ describe("listOperationsV2", () => {
       nextCursor: null,
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       address: mockMirrorAccount.account,
@@ -811,7 +901,7 @@ describe("listOperationsV2", () => {
       nextCursor: null,
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       address: mockMirrorAccount.account,
@@ -836,7 +926,7 @@ describe("listOperationsV2", () => {
         hash: utils.createStakingRewardOperationHash(mockTransaction.transaction_hash ?? ""),
         value: new BigNumber(1000000),
         fee: new BigNumber(0),
-        senders: [getEnv("HEDERA_STAKING_REWARD_ACCOUNT_ID")],
+        senders: [STAKING_REWARD_ACCOUNT_ID],
         recipients: [mockMirrorAccount.account],
       },
       {
@@ -897,7 +987,7 @@ describe("listOperationsV2", () => {
       getTokensSyncHash: async () => "",
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -960,7 +1050,7 @@ describe("listOperationsV2", () => {
     });
     (networkUtils.analyzeStakingOperation as jest.Mock).mockResolvedValue(mockStakingAnalysis);
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -1015,7 +1105,7 @@ describe("listOperationsV2", () => {
     });
     (networkUtils.analyzeStakingOperation as jest.Mock).mockResolvedValue(mockStakingAnalysis);
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -1075,7 +1165,7 @@ describe("listOperationsV2", () => {
       getTokensSyncHash: async () => "",
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -1120,7 +1210,7 @@ describe("listOperationsV2", () => {
       getTokensSyncHash: async () => "",
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -1186,7 +1276,7 @@ describe("listOperationsV2", () => {
       getTokensSyncHash: async () => "",
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -1207,11 +1297,11 @@ describe("listOperationsV2", () => {
   it("should produce two token operations for a swap with two different-token transfers", async () => {
     const sharedHash = "erc20-in-transfer-hash";
     const mockTokenA = getMockedERC20TokenCurrency({
-      id: "hedera/erc20/0xTokenA",
+      id: TokenCurrencyIdSchema.parse("hedera/erc20/0xTokenA"),
       contractAddress: "0xTokenA",
     });
     const mockTokenB = getMockedERC20TokenCurrency({
-      id: "hedera/erc20/0xTokenB",
+      id: TokenCurrencyIdSchema.parse("hedera/erc20/0xTokenB"),
       contractAddress: "0xTokenB",
     });
 
@@ -1257,7 +1347,7 @@ describe("listOperationsV2", () => {
       getTokensSyncHash: async () => "",
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -1309,7 +1399,7 @@ describe("listOperationsV2", () => {
       getTokensSyncHash: async () => "",
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -1349,7 +1439,7 @@ describe("listOperationsV2", () => {
       nextCursor: null,
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -1366,7 +1456,7 @@ describe("listOperationsV2", () => {
     expect(result.coinOperations).toEqual([expect.objectContaining({ hash: "encoded-hash1" })]);
   });
 
-  it("should use synthetic blocks when useSyntheticBlocks is true", async () => {
+  it("should place the operation in the synthetic block of its own consensus timestamp, matching getBlock", async () => {
     const mockTransaction = getMockedMirrorTransaction({
       consensus_timestamp: "1625097600.000000000",
       transaction_hash: "hash1",
@@ -1387,7 +1477,7 @@ describe("listOperationsV2", () => {
       nextCursor: null,
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -1402,6 +1492,7 @@ describe("listOperationsV2", () => {
     });
 
     expect(utils.getSyntheticBlock).toHaveBeenCalledTimes(1);
+    expect(utils.getSyntheticBlock).toHaveBeenCalledWith("1625097600.000000000");
     expect(result.coinOperations).toEqual([
       expect.objectContaining({
         blockHeight: mockSyntheticBlock.blockHeight,
@@ -1460,7 +1551,7 @@ describe("listOperationsV2", () => {
       getTokensSyncHash: async () => "",
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -1532,7 +1623,7 @@ describe("listOperationsV2", () => {
       getTokensSyncHash: async () => "",
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -1589,7 +1680,7 @@ describe("listOperationsV2", () => {
       nextCursor: null,
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -1666,7 +1757,7 @@ describe("listOperationsV2", () => {
       getTokensSyncHash: async () => "",
     });
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -1702,7 +1793,7 @@ describe("listOperationsV2", () => {
     });
     (networkUtils.analyzeStakingOperation as jest.Mock).mockResolvedValue(null);
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,
@@ -1734,7 +1825,7 @@ describe("listOperationsV2", () => {
     });
     (networkUtils.analyzeStakingOperation as jest.Mock).mockResolvedValue(null);
 
-    const result = await listOperations({
+    const result = await listOperations(mockConfig, {
       limit: mockLimit,
       order: mockOrder,
       currencyId: mockCurrency.id,

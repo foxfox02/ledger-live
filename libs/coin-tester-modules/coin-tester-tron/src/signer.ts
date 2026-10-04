@@ -2,7 +2,7 @@ import { secp256k1 } from "@noble/curves/secp256k1";
 import { keccak_256 } from "@noble/hashes/sha3";
 import { sha256 } from "@noble/hashes/sha2";
 import bs58 from "bs58";
-import type { TronSigner } from "@ledgerhq/coin-tron/types/signer";
+import type { TronSigner } from "@ledgerhq/live-common/families/tron/types";
 
 function deriveAddress(publicKeyUncompressed: Uint8Array): string {
   const addr20 = keccak_256(publicKeyUncompressed.slice(1)).slice(-20);
@@ -27,7 +27,7 @@ export function buildTronTestSignerFromPrivateKeyHex(privateKeyHex: string): {
     async sign(_path, rawTxHex, _tokenSignatures) {
       const sig = secp256k1.sign(sha256(Buffer.from(rawTxHex, "hex")), priv, { lowS: true });
       const out = new Uint8Array(65);
-      out.set(sig.toCompactRawBytes(), 0);
+      out.set(sig.toBytes("compact"), 0);
       out[64] = sig.recovery ?? 0;
       return Buffer.from(out).toString("hex");
     },

@@ -11,12 +11,14 @@ on:
         default: develop
 
 permissions:
-  id-token: write
   contents: read
 
 jobs:
   integration-tests:
     name: "Integration Tests"
+    permissions:
+      id-token: write
+      contents: read
     env:
       NODE_OPTIONS: "--max-old-space-size=7168"
       FORCE_COLOR: 3
@@ -27,8 +29,11 @@ jobs:
       matrix:
         os:
           - ubuntu-22.04
+        include:
+          - os: ubuntu-22.04
+            runner: ledger-wallet-4cpu-aws-public
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -45,8 +50,12 @@ jobs:
           accountId: ${{ secrets.AWS_ACCOUNT_ID_PROD }}
           roleName: ${{ secrets.AWS_CACHE_ROLE_NAME }}
           region: ${{ secrets.AWS_CACHE_REGION }}
+      - name: JFrog npm auth
+        uses: LedgerHQ/ledger-live/tools/actions/composites/jfrog-npm-auth@develop
+        with:
+          registry: ${{ vars.ARTIFACTORY_URL }}
       - name: Install dependencies
-        run: pnpm i --filter="live-common..." --filter="ledger-live"
+        run: pnpm i --frozen-lockfile --filter="live-common..." --filter="ledger-live"
       - name: Build
         run: pnpm exec nx run @ledgerhq/live-common:build
       - name: Test

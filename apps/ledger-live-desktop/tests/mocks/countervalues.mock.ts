@@ -1,4 +1,4 @@
-import { CounterValuesStateRaw, CounterValuesStatus } from "@ledgerhq/live-countervalues/types";
+import { CounterValuesStateRaw, CounterValuesStatus } from "@domain/entity-market-countervalues";
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
 export const initialCountervaluesMock = {
@@ -21,6 +21,11 @@ export const initialCountervaluesMock = {
       timestamp: 1749558512861,
     },
     "USD arbitrum": {
+      oldestDateRequested: "2020-04-22T11:51:36.000Z",
+      timestamp: 1749558512861,
+    },
+    // A token, not a coin: the card's wallets and its rewards are priced through these.
+    "USD ethereum/erc20/usd__coin": {
       oldestDateRequested: "2020-04-22T11:51:36.000Z",
       timestamp: 1749558512861,
     },
@@ -64,5 +69,14 @@ export const initialCountervaluesMock = {
     "2023-08-20": 1671.2576000814242,
     "2024-02-23": 2941.9404144517216,
     "2023-10-01": 1680.4357216898898,
+  },
+  // Just off the peg, so a priced amount cannot be mistaken for the balance passed through.
+  "USD ethereum/erc20/usd__coin": {
+    latest: 0.9999,
+    "2023-07-10": 0.9999,
+    "2022-07-10": 0.9999,
+    "2023-08-20": 0.9999,
+    "2024-02-23": 0.9999,
+    "2023-10-01": 0.9999,
   },
 } as unknown as CounterValuesStateRaw;

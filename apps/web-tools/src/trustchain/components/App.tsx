@@ -37,15 +37,21 @@ import { AppRestoreTrustchain } from "./AppRestoreTrustchain";
 import { AppWalletSync } from "./AppCloudSync";
 import { AppSetCloudSyncAPIEnv } from "./AppSetCloudSyncAPIEnv";
 import { DeviceInteractionLayer } from "./DeviceInteractionLayer";
-import { initialState as walletInitialState } from "@ledgerhq/live-wallet/store";
-import { DistantState, trustchainLifecycle } from "@ledgerhq/live-wallet/walletsync/index";
+import { trustchainLifecycle } from "./walletSync";
+import type { DistantDocument } from "@shared/cloud-sync-module";
+import { contactsInitialState } from "@domain/entity-contact";
 import { Loading } from "./Loading";
 import { State } from "./types";
 
 const initialState: State = {
   accounts: [],
   nonImportedAccounts: [],
-  walletState: walletInitialState,
+  walletState: {
+    accountNames: new Map(),
+    contacts: contactsInitialState.contacts,
+    walletSyncState: { data: null, version: 0 },
+    recentAddresses: {},
+  },
 };
 
 // applicationPath is m/0'/<applicationId>'/<index>'
@@ -97,7 +103,7 @@ const App = () => {
   }, [setAccountsSync]);
 
   const [wssdkHandledVersion, setWssdkHandledVersion] = useState(0);
-  const [wssdkHandledData, setWssdkHandledData] = useState<DistantState | null>(null);
+  const [wssdkHandledData, setWssdkHandledData] = useState<DistantDocument | null>(null);
 
   const version = state.walletState.walletSyncState.version || wssdkHandledVersion;
   const data = state.walletState.walletSyncState.data || wssdkHandledData;

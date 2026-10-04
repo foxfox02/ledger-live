@@ -6,8 +6,9 @@ export default class EarnV2DashboardPage {
   maxPotentialRewards = "max-potential-rewards";
   walletHeaderAmount = "wallet-header-amount";
   rewardsSummary = "rewards-summary";
-  tokensToEarnBanner = "tokens-to-earn-banner";
-  iceColdStartEarnCta = "ice-cold-start-earn-cta";
+  crowdFavourites = "crowd-favourites";
+  simulateInvestmentCta = "simulate-investment-cta";
+  earnSimulator = "earn-simulator";
   assetItemTicker = (ticker: string) => `asset-item-ticker-${ticker}`;
   assetEarnCta = (ticker: string) => `asset-earn-cta-${ticker}`;
   depositRowXPath = (identifier: string) =>
@@ -31,9 +32,14 @@ export default class EarnV2DashboardPage {
     await expectWebElementNotVisible(this.walletHeaderAmount);
   }
 
-  @Step("Click ice cold start earn CTA")
-  async clickIceColdStartEarnCTA() {
-    await tapWebElementByTestId(this.iceColdStartEarnCta);
+  @Step("Click simulate investment CTA")
+  async clickSimulateInvestmentCta() {
+    await tapWebElementByTestId(this.simulateInvestmentCta);
+  }
+
+  @Step("Verify earn simulator is visible")
+  async verifyEarnSimulatorVisible() {
+    await waitWebElementByTestId(this.earnSimulator);
   }
 
   // --- Cold Start ---
@@ -45,15 +51,15 @@ export default class EarnV2DashboardPage {
 
   @Step("Verify cold start page")
   async verifyColdStartPage() {
-    await waitWebElementByTestId(this.tokensToEarnBanner);
+    await waitWebElementByTestId(this.crowdFavourites);
   }
 
-  @Step("Verify asset ready to earn")
+  @Step("Verify asset ready to earn {{{0}}}")
   async verifyAssetReadyToEarn(ticker: string) {
     await detoxExpect(getWebElementByTestId(this.assetItemTicker(ticker))).toExist();
   }
 
-  @Step("Click asset earn CTA")
+  @Step("Click asset earn CTA {{{0}}}")
   async clickAssetEarnCta(ticker: string) {
     await tapWebElementByTestId(this.assetEarnCta(ticker));
   }
@@ -70,12 +76,12 @@ export default class EarnV2DashboardPage {
     await detoxExpect(getWebElementByTestId(this.rewardsSummary)).toExist();
   }
 
-  @Step("Verify position row present for $0")
+  @Step("Verify position row present for {{{0}}}")
   async verifyPositionRowPresent(identifier: string) {
     await detoxExpect(getWebElementByXpath(this.depositRowXPath(identifier))).toExist();
   }
 
-  @Step("Click position row for $0")
+  @Step("Click position row for {{{0}}}")
   async clickPositionRow(identifier: string) {
     const row = getWebElementByXpath(this.depositRowXPath(identifier));
     await tapWebElementByElement(row);
@@ -97,7 +103,7 @@ export default class EarnV2DashboardPage {
 
   // --- Staking Flow Verification (native) ---
 
-  @Step("Verify staking flow opened for $0")
+  @Step("Verify staking flow opened for {{{0}}}")
   async verifyStakingFlowOpened(ticker: string) {
     const testId = EarnV2DashboardPage.stakingFlowTestIds[ticker];
     if (!testId) {
@@ -106,7 +112,7 @@ export default class EarnV2DashboardPage {
     await detoxExpect(getElementById(testId)).toBeVisible();
   }
 
-  @Step("Verify earn flow started for $0")
+  @Step("Verify earn flow started for {{{0}}}")
   async verifyEarnFlowStarted(ticker: string) {
     // ETH is redirected into the earn deposit webview (stakePrograms redirect) rather than
     // opening a native staking drawer, so it is verified by URL instead of a native test id.
@@ -132,7 +138,7 @@ export default class EarnV2DashboardPage {
     "stader-eth": "stader-eth",
   };
 
-  @Step("Complete ETH deposit amount step with $0 ETH")
+  @Step("Complete ETH deposit amount step with {{{0}}} ETH")
   async completeEthDepositAmountStep(amount: string) {
     await waitWebElementByTestId(this.ethAmountInput);
     await typeTextByWebTestId(this.ethAmountInput, amount);
@@ -140,7 +146,7 @@ export default class EarnV2DashboardPage {
     await tapWebElementByTestId(this.ethAmountContinueCta);
   }
 
-  @Step("Select ETH provider $0 in deposit webview")
+  @Step("Select ETH provider {{{0}}} in deposit webview")
   async selectEthProviderInWebview(providerId: string) {
     await waitWebElementByTestId(this.ethProviderPanel);
     // The ETH partner-dapp flags pin the deposit cohort to basic_sorting, so the category filter bar
@@ -158,12 +164,12 @@ export default class EarnV2DashboardPage {
     await tapWebElementByTestId(this.ethDepositProviderCta);
   }
 
-  @Step("Tap staking provider in EvmStakingDrawer: $0")
+  @Step("Tap staking provider in EvmStakingDrawer: {{{0}}}")
   async tapStakingProvider(providerId: string) {
     await tapById(this.stakingProvider(providerId));
   }
 
-  @Step("Verify partner dapp loaded (webview URL contains $0)")
+  @Step("Verify partner dapp loaded (webview URL contains {{{0}}})")
   async verifyPartnerDappLoaded(urlSubstring: string) {
     const url = await waitForCurrentWebviewUrlToContain(urlSubstring);
     jestExpect(url.toLowerCase()).toContain(urlSubstring.toLowerCase());
@@ -178,7 +184,7 @@ export default class EarnV2DashboardPage {
 
   // --- EarnMenuDrawer (native bottom sheet) ---
 
-  @Step("Wait for manage drawer and verify options present: $0")
+  @Step("Wait for manage drawer and verify options present: {{{0}}}")
   async waitForManageDrawerAndVerifyOptions(options: string[]) {
     await waitForElementById(this.earnMenuOption(options[0]));
     for (const option of options) {
@@ -186,7 +192,7 @@ export default class EarnV2DashboardPage {
     }
   }
 
-  @Step("Tap manage drawer option")
+  @Step("Tap manage drawer option {{{0}}}")
   async tapManageDrawerOption(optionText: string) {
     await tapById(this.earnMenuOption(optionText));
   }

@@ -1,22 +1,22 @@
 /**
- * Unit tests for the createApi factory — verifies the coin config is set, every
- * CoinModuleApi method is wired and delegates to its logic function with the
- * right arguments, and unsupported methods throw synchronously. Network and
- * logic layers are mocked; no network access.
+ * Unit tests for the createApi factory — verifies every method the module implements is wired and
+ * delegates to its logic function with the right arguments, and that the capabilities the chain has
+ * none of answer "not supported" once the consumer wrapper is applied. Network and logic layers are
+ * mocked; no network access.
  */
 import type {
   Balance,
   BalanceOptions,
-  CoinModuleApi,
   CraftedTransaction,
   FeeEstimation,
   Operation,
   Page,
   TransactionIntent,
 } from "@ledgerhq/coin-module-framework/api/index";
+import { capabilityReport } from "@ledgerhq/coin-module-framework/test-utils";
 import { createApi } from "./index";
-import coinConfig, { type MultiversXCoinConfig } from "../config";
 import type { MultiversXNetworkApi } from "../network/api";
+import { createMockMultiversXContext } from "../test/context";
 import { broadcast } from "../logic/transaction/broadcast";
 import { combine } from "../logic/transaction/combine";
 import { craftTransaction } from "../logic/transaction/craftTransaction";
@@ -49,12 +49,6 @@ jest.mock("../logic/history/listOperations", () => ({ listOperations: jest.fn() 
 jest.mock("../logic/validateAddress", () => ({ validateAddress: jest.fn() }));
 jest.mock("../logic/validateIntent", () => ({ validateIntent: jest.fn() }));
 
-const config: MultiversXCoinConfig = {
-  status: { type: "active" },
-  apiEndpoint: "https://api.multiversx.com",
-  delegationApiEndpoint: "https://delegation-api.multiversx.com",
-};
-
 const SENDER = "erd1spyavw0956vq68xj8y4tenjpq2wd5a9p2c6j8gsz7ztyrnpxrruqzu66jx";
 
 const nativeIntent: TransactionIntent = {
@@ -71,33 +65,19 @@ describe("createApi", () => {
     jest.clearAllMocks();
   });
 
-  it("sets the coin config, forcing status active", () => {
-    const setCoinConfigSpy = jest.spyOn(coinConfig, "setCoinConfig");
-
-    createApi(config, "elrond");
-
-    expect(setCoinConfigSpy).toHaveBeenCalled();
-    const resolved = setCoinConfigSpy.mock.calls[0][0]();
-    expect(resolved).toEqual(expect.objectContaining({ ...config, status: { type: "active" } }));
-  });
-
-  it("returns an object with every CoinModuleApi method", () => {
-    const api = createApi(config, "elrond");
+  it("declares every method the chain supports", () => {
+    const api = createApi();
 
     expect(api).toEqual(
       expect.objectContaining({
         broadcast: expect.any(Function),
         combine: expect.any(Function),
         craftTransaction: expect.any(Function),
-        craftRawTransaction: expect.any(Function),
         craftTransactionData: expect.any(Function),
         estimateFees: expect.any(Function),
         getBalance: expect.any(Function),
         lastBlock: expect.any(Function),
         listOperations: expect.any(Function),
-        getBlock: expect.any(Function),
-        getBlockInfo: expect.any(Function),
-        getRewards: expect.any(Function),
         getStakes: expect.any(Function),
         getValidators: expect.any(Function),
         validateIntent: expect.any(Function),
@@ -109,9 +89,10 @@ describe("createApi", () => {
 
   it("delegates broadcast to the logic function (network api, tx)", async () => {
     jest.mocked(broadcast).mockResolvedValueOnce("txHash");
-    const api = createApi(config, "elrond");
+    const api = createApi();
+    const context = createMockMultiversXContext();
 
-    const result = await api.broadcast("transaction");
+    const result = await api.broadcast(context, "transaction");
 
     expect(broadcast).toHaveBeenCalledWith(mockNetworkApi, "transaction");
     expect(result).toBe("txHash");
@@ -119,11 +100,12 @@ describe("createApi", () => {
 
   it("delegates combine to the logic function (tx, signature, pubkey)", () => {
     jest.mocked(combine).mockReturnValueOnce("signedTx");
-    const api = createApi(config, "elrond");
+    const api = createApi();
+    const context = createMockMultiversXContext();
 
-    const result = api.combine("transaction", "signature");
+    const result = api.combine(context, "transaction", ["signature"]);
 
-    expect(combine).toHaveBeenCalledWith("transaction", "signature", undefined);
+    expect(combine).toHaveBeenCalledWith("transaction", ["signature"], undefined);
     expect(result).toBe("signedTx");
   });
 
@@ -133,10 +115,11 @@ describe("createApi", () => {
       details: { gasLimit: 50000, estimatedFee: "50000000000000" },
     };
     jest.mocked(craftTransaction).mockResolvedValueOnce(crafted);
-    const api = createApi(config, "elrond");
+    const api = createApi();
+    const context = createMockMultiversXContext();
     const customFees: FeeEstimation = { value: 5n };
 
-    const result = await api.craftTransaction(nativeIntent, customFees);
+    const result = await api.craftTransaction(context, nativeIntent, { customFees });
 
     expect(craftTransaction).toHaveBeenCalledWith(mockNetworkApi, nativeIntent, customFees);
     expect(result).toEqual(crafted);
@@ -145,9 +128,10 @@ describe("createApi", () => {
   it("delegates estimateFees to the logic function (intent, params — no network api)", async () => {
     const fees: FeeEstimation = { value: 50000000000000n };
     jest.mocked(estimateFees).mockResolvedValueOnce(fees);
-    const api = createApi(config, "elrond");
+    const api = createApi();
+    const context = createMockMultiversXContext();
 
-    const result = await api.estimateFees(nativeIntent);
+    const result = await api.estimateFees(context, nativeIntent);
 
     expect(estimateFees).toHaveBeenCalledWith(nativeIntent, undefined);
     expect(result).toEqual(fees);
@@ -156,18 +140,22 @@ describe("createApi", () => {
   it("delegates getBalance to the logic function (network api, address)", async () => {
     const balances: Balance[] = [{ value: 1000n, asset: { type: "native" } }];
     jest.mocked(getBalance).mockResolvedValueOnce(balances);
-    const api = createApi(config, "elrond");
+    const api = createApi();
+    const context = createMockMultiversXContext();
 
-    const result = await api.getBalance("address");
+    const result = await api.getBalance(context, "address");
 
     expect(getBalance).toHaveBeenCalledWith(mockNetworkApi, "address");
     expect(result).toEqual(balances);
   });
 
   it("rejects getBalance when the options parameter is provided", async () => {
-    const api = createApi(config, "elrond");
+    const api = createApi();
+    const context = createMockMultiversXContext();
 
-    await expect(api.getBalance("address", {} as unknown as BalanceOptions)).rejects.toMatchObject({
+    await expect(
+      api.getBalance(context, "address", {} as unknown as BalanceOptions),
+    ).rejects.toMatchObject({
       name: "InvalidParameterError",
     });
     expect(getBalance).not.toHaveBeenCalled();
@@ -176,9 +164,10 @@ describe("createApi", () => {
   it("delegates lastBlock to the logic function (network api)", async () => {
     const block = { height: 100, hash: "hash", time: new Date() };
     jest.mocked(lastBlock).mockResolvedValueOnce(block);
-    const api = createApi(config, "elrond");
+    const api = createApi();
+    const context = createMockMultiversXContext();
 
-    const result = await api.lastBlock();
+    const result = await api.lastBlock(context);
 
     expect(lastBlock).toHaveBeenCalledWith(mockNetworkApi);
     expect(result).toEqual(block);
@@ -187,9 +176,10 @@ describe("createApi", () => {
   it("delegates listOperations to the logic function (network api, address, options)", async () => {
     const page: Page<Operation> = { items: [], next: undefined };
     jest.mocked(listOperations).mockResolvedValueOnce(page);
-    const api = createApi(config, "elrond");
+    const api = createApi();
+    const context = createMockMultiversXContext();
 
-    const result = await api.listOperations("address", { minHeight: 14, order: "asc" });
+    const result = await api.listOperations(context, "address", { minHeight: 14, order: "asc" });
 
     expect(listOperations).toHaveBeenCalledWith(mockNetworkApi, "address", {
       minHeight: 14,
@@ -201,9 +191,10 @@ describe("createApi", () => {
   it("delegates getStakes to the logic function (network api, address, cursor)", async () => {
     const page = { items: [], next: undefined };
     jest.mocked(getStakes).mockResolvedValueOnce(page);
-    const api = createApi(config, "elrond");
+    const api = createApi();
+    const context = createMockMultiversXContext();
 
-    const result = await api.getStakes("address");
+    const result = await api.getStakes(context, "address");
 
     expect(getStakes).toHaveBeenCalledWith(mockNetworkApi, "address", undefined);
     expect(result).toEqual(page);
@@ -212,9 +203,10 @@ describe("createApi", () => {
   it("delegates getValidators to the logic function (network api, cursor)", async () => {
     const page = { items: [], next: undefined };
     jest.mocked(getValidators).mockResolvedValueOnce(page);
-    const api = createApi(config, "elrond");
+    const api = createApi();
+    const context = createMockMultiversXContext();
 
-    const result = await api.getValidators();
+    const result = await api.getValidators(context);
 
     expect(getValidators).toHaveBeenCalledWith(mockNetworkApi, undefined);
     expect(result).toEqual(page);
@@ -229,9 +221,10 @@ describe("createApi", () => {
       totalSpent: 0n,
     };
     jest.mocked(validateIntent).mockResolvedValueOnce(validation);
-    const api = createApi(config, "elrond");
+    const api = createApi();
+    const context = createMockMultiversXContext();
 
-    const result = await api.validateIntent(nativeIntent, [], undefined);
+    const result = await api.validateIntent(context, nativeIntent, [], undefined);
 
     expect(validateIntent).toHaveBeenCalledWith(nativeIntent, [], undefined);
     expect(result).toEqual(validation);
@@ -239,9 +232,10 @@ describe("createApi", () => {
 
   it("delegates getNextSequence to the logic function (network api, address)", async () => {
     jest.mocked(getNextSequence).mockResolvedValueOnce(42n);
-    const api = createApi(config, "elrond");
+    const api = createApi();
+    const context = createMockMultiversXContext();
 
-    const result = await api.getNextSequence("address");
+    const result = await api.getNextSequence(context, "address");
 
     expect(getNextSequence).toHaveBeenCalledWith(mockNetworkApi, "address");
     expect(result).toBe(42n);
@@ -249,22 +243,27 @@ describe("createApi", () => {
 
   it("delegates validateAddress to the logic function (address, parameters — no network api)", async () => {
     jest.mocked(validateAddress).mockResolvedValueOnce(true);
-    const api = createApi(config, "elrond");
+    const api = createApi();
+    const context = createMockMultiversXContext();
 
-    const result = await api.validateAddress("address", {});
+    const result = await api.validateAddress(context, "address", {});
 
     expect(validateAddress).toHaveBeenCalledWith("address", {});
     expect(result).toBe(true);
   });
 
-  it("throws for unsupported methods", () => {
-    const api = createApi(config, "elrond");
-
-    expect(() => api.getBlock(1)).toThrow("getBlock is not supported");
-    expect(() => api.getBlockInfo(1)).toThrow("getBlockInfo is not supported");
-    expect(() => (api as CoinModuleApi).getRewards(SENDER)).toThrow("getRewards is not supported");
-    expect(() => api.craftRawTransaction("tx", SENDER, "pubkey", 1n)).toThrow(
-      "craftRawTransaction is not supported",
-    );
+  // Absent, raising "<name> is not supported" through the resolver — exhaustive by `toEqual`.
+  it("omits the capabilities the chain has none of", async () => {
+    await expect(capabilityReport(createApi(), createMockMultiversXContext())).resolves.toEqual({
+      unsupported: [
+        "call",
+        "craftRawTransaction",
+        "getBlock",
+        "getBlockInfo",
+        "getRewards",
+        "register",
+      ],
+      inconsistent: [],
+    });
   });
 });

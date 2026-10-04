@@ -2,11 +2,11 @@ import network from "@ledgerhq/live-network";
 import type { LiveNetworkResponse } from "@ledgerhq/live-network/network";
 import BigNumber from "bignumber.js";
 import { encodeFunctionData, erc20Abi } from "viem";
-import { type HederaCoinConfig } from "../config";
 import { HEDERA_TRANSACTION_NAMES } from "../constants";
 import { HederaAddAccountError } from "../errors";
 import { resolveConfig } from "../logic/utils";
 import type {
+  HederaCoinConfig,
   HederaMirrorAccountTokensResponse,
   HederaMirrorBlocksResponse,
   HederaMirrorTransactionsResponse,
@@ -109,6 +109,7 @@ async function getAccountTransactions({
   limit = 100,
   order = "desc",
   fetchAllPages,
+  minTimestamp,
 }: {
   configOrCurrencyId: HederaCoinConfig | string;
   address: string;
@@ -116,6 +117,7 @@ async function getAccountTransactions({
   limit?: number | undefined;
   order?: "asc" | "desc" | undefined;
   fetchAllPages: boolean;
+  minTimestamp?: string;
 }): Promise<{ transactions: HederaMirrorTransaction[]; nextCursor: string | null }> {
   const config = resolveConfig(configOrCurrencyId);
   const transactions: HederaMirrorTransaction[] = [];
@@ -127,6 +129,9 @@ async function getAccountTransactions({
 
   if (pagingToken) {
     params.append("timestamp", `${getPaginationDirection(fetchAllPages, order)}:${pagingToken}`);
+  }
+  if (minTimestamp) {
+    params.append("timestamp", `gte:${minTimestamp}`);
   }
 
   let nextCursor: string | null = null;

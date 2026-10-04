@@ -7,21 +7,25 @@ import {
   resolveContactsFeatureParams,
   updateContactsFeatureValue,
   type ContactsFeatureValuePatch,
-} from "@features/flow-contacts";
+} from "@features/platform-contacts";
 import { setOverride } from "@shared/feature-flags";
 import { useDispatch, useSelector } from "LLD/hooks/redux";
 import { setHasDismissedContactsFeatureIntroduction } from "~/renderer/actions/settings";
+import { flattenAccountsSelector } from "~/renderer/reducers/accounts";
 import { hasDismissedContactsFeatureIntroductionSelector } from "~/renderer/reducers/settings";
 import { CONTACTS_FLAG } from "../constants";
+import { createContactsFromSendHistory } from "../createContactsFromSendHistory";
 import { ContactsDevToolViewModel } from "../types";
 
 export const useContactsDevToolViewModel = (): ContactsDevToolViewModel => {
   const dispatch = useDispatch();
+  const accounts = useSelector(flattenAccountsSelector);
   const featureFlag = useFeature(CONTACTS_FLAG);
   const hasDismissedFeatureIntroduction = useSelector(
     hasDismissedContactsFeatureIntroductionSelector,
   );
   const [customFamiliesInput, setCustomFamiliesInput] = useState("");
+  const [excludedCurrencyIdsInput, setExcludedCurrencyIdsInput] = useState("");
 
   const isEnabled = featureFlag?.enabled === true;
   const params = useMemo(
@@ -29,10 +33,15 @@ export const useContactsDevToolViewModel = (): ContactsDevToolViewModel => {
     [featureFlag?.params],
   );
   const familiesInput = params.eligibleAddressFamilies.join(", ");
+  const excludedCurrencyIdsString = params.excludedCurrencyIds.join(", ");
 
   useEffect(() => {
     setCustomFamiliesInput(familiesInput);
   }, [familiesInput]);
+
+  useEffect(() => {
+    setExcludedCurrencyIdsInput(excludedCurrencyIdsString);
+  }, [excludedCurrencyIdsString]);
 
   const setContactsOverride = useCallback(
     (patch: ContactsFeatureValuePatch) =>
@@ -64,9 +73,21 @@ export const useContactsDevToolViewModel = (): ContactsDevToolViewModel => {
     handleSetEligibleAddressFamilies(parseEligibleAddressFamiliesInput(customFamiliesInput));
   }, [customFamiliesInput, handleSetEligibleAddressFamilies]);
 
+  const handleApplyExcludedCurrencyIds = useCallback(() => {
+    const ids = excludedCurrencyIdsInput
+      .split(",")
+      .map(id => id.trim())
+      .filter(Boolean);
+    setContactsOverride({ params: { excludedCurrencyIds: ids } });
+  }, [excludedCurrencyIdsInput, setContactsOverride]);
+
   const handleLoadPopulatedContacts = useCallback(() => {
     dispatch(setContacts(mockPopulatedContacts()));
   }, [dispatch]);
+
+  const handleLoadFromSendHistory = useCallback(() => {
+    dispatch(setContacts(createContactsFromSendHistory(accounts)));
+  }, [dispatch, accounts]);
 
   const handleResetContacts = useCallback(() => {
     dispatch(setContacts(mockEmptyContacts()));
@@ -92,7 +113,11 @@ export const useContactsDevToolViewModel = (): ContactsDevToolViewModel => {
     handleSetEligibleAddressFamilies,
     setCustomFamiliesInput,
     handleApplyCustomFamilies,
+    excludedCurrencyIdsInput,
+    setExcludedCurrencyIdsInput,
+    handleApplyExcludedCurrencyIds,
     handleLoadPopulatedContacts,
+    handleLoadFromSendHistory,
     handleResetContacts,
     handleResetOverride,
   };

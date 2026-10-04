@@ -46,25 +46,16 @@ import {
 } from "../actions/constants";
 import { OnboardingUseCase } from "../components/Onboarding/OnboardingUseCase";
 import { Handlers } from "./types";
+import type { AnalyticsConsentInfo } from "@domain/entity-analytics-consent";
 import {
-  needsConsentRenewal,
+  getAnalyticsConsentDecision,
   resolveAnalyticsOptInParams,
-} from "@ledgerhq/live-common/analyticsConsent/index";
+} from "@features/flow-analytics-consent";
 import { selectFeature } from "@shared/feature-flags";
 
+export type { AnalyticsConsentInfo };
+
 /* Initial state */
-
-export type VaultSigner = {
-  enabled: boolean;
-  host: string;
-  workspace: string;
-  token: string;
-};
-
-export type AnalyticsConsentInfo = {
-  consentDate: string | null;
-  privacyPolicyVersion: number | null;
-};
 
 export type SettingsState = {
   loaded: boolean;
@@ -128,7 +119,6 @@ export type SettingsState = {
     selectableCurrencies: string[];
     acceptedProviders: string[];
   };
-  vaultSigner: VaultSigner;
   hasSeenAnalyticsOptInPrompt: boolean;
   dismissedContentCards: { [key: string]: number };
   anonymousBrazeId: string | null;
@@ -139,15 +129,15 @@ export type SettingsState = {
   lastOnboardedDevice: Device | null;
   alwaysShowMemoTagInfo: boolean;
   anonymousUserNotifications: { LNSUpsell?: number } & Record<string, number>;
-  hasSeenWalletV4Tour: boolean;
   hasSeenQ2Tour: boolean;
+  hasSeenQ3Tour: boolean;
   productTourCompleted: boolean;
   hasDismissedContactsFeatureIntroduction: boolean;
   hasClickedRecover: boolean;
   doNotAskAgainSkipMemo: boolean;
   deprecationDoNotRemind: string[];
   lastAnalyticsConsentDate: string | null;
-  privacyPolicyVersion: number | null;
+  privacyPolicyVersion: number | string | null;
 };
 
 export const getInitialLanguageAndLocale = (): { language: Language; locale: Locale } => {
@@ -234,8 +224,6 @@ export const INITIAL_STATE: SettingsState = {
     acceptedProviders: [],
     selectableCurrencies: [],
   },
-  // Vault
-  vaultSigner: { enabled: false, host: "", token: "", workspace: "" },
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
   dismissedContentCards: {} as Record<string, number>,
   anonymousBrazeId: null,
@@ -249,8 +237,8 @@ export const INITIAL_STATE: SettingsState = {
   lastOnboardedDevice: null,
   alwaysShowMemoTagInfo: true,
   anonymousUserNotifications: {},
-  hasSeenWalletV4Tour: false,
   hasSeenQ2Tour: false,
+  hasSeenQ3Tour: false,
   productTourCompleted: false,
   hasDismissedContactsFeatureIntroduction: false,
   hasClickedRecover: false,
@@ -292,7 +280,6 @@ type HandlersPayloads = {
     imageSize: number;
     imageHash: string;
   };
-  SET_VAULT_SIGNER: VaultSigner;
   SET_HAS_SEEN_ANALYTICS_OPT_IN_PROMPT: boolean;
   SET_DISMISSED_CONTENT_CARDS: {
     id: string;
@@ -318,8 +305,8 @@ type HandlersPayloads = {
   [UPDATE_ANONYMOUS_USER_NOTIFICATIONS]: {
     notifications: Record<string, number>;
   };
-  SET_HAS_SEEN_WALLET_V4_TOUR: boolean;
   SET_HAS_SEEN_Q2_TOUR: boolean;
+  SET_HAS_SEEN_Q3_TOUR: boolean;
   [SET_PRODUCT_TOUR_COMPLETED]: boolean;
   [SET_HAS_DISMISSED_CONTACTS_FEATURE_INTRODUCTION]: boolean;
   SET_HAS_CLICKED_RECOVER: boolean;
@@ -442,10 +429,6 @@ const handlers: SettingsHandlers = {
       [payload.key]: payload.value,
     },
   }),
-  SET_VAULT_SIGNER: (state: SettingsState, { payload }) => ({
-    ...state,
-    vaultSigner: payload,
-  }),
   DEPRECATION_DO_NOT_REMIND: (state: SettingsState, { payload }) => {
     return {
       ...state,
@@ -552,13 +535,13 @@ const handlers: SettingsHandlers = {
       ...notifications,
     },
   }),
-  SET_HAS_SEEN_WALLET_V4_TOUR: (state: SettingsState, { payload }) => ({
-    ...state,
-    hasSeenWalletV4Tour: payload,
-  }),
   SET_HAS_SEEN_Q2_TOUR: (state: SettingsState, { payload }) => ({
     ...state,
     hasSeenQ2Tour: payload,
+  }),
+  SET_HAS_SEEN_Q3_TOUR: (state: SettingsState, { payload }) => ({
+    ...state,
+    hasSeenQ3Tour: payload,
   }),
   [SET_PRODUCT_TOUR_COMPLETED]: (state: SettingsState, { payload }) => ({
     ...state,
@@ -810,18 +793,16 @@ export const analyticsConsentInfoSelector = (state: State): AnalyticsConsentInfo
     privacyPolicyVersion: null,
   };
 
-// Plain selector (not createSelector): wall-clock "now" is not in Redux, so the consent window must be recomputed on every read.
 export const trackingEnabledSelector = (state: State) => {
   const s = state.settings;
   const analyticsOptIn = state.featureFlags?.resolved?.analyticsOptIn;
 
   if (analyticsOptIn?.enabled) {
-    if (!s.lastAnalyticsConsentDate) {
-      return false;
-    }
-
-    const { consentValidityDays } = resolveAnalyticsOptInParams(analyticsOptIn);
-    if (needsConsentRenewal(s.lastAnalyticsConsentDate, consentValidityDays)) {
+    const decision = getAnalyticsConsentDecision(
+      analyticsConsentInfoSelector(state),
+      resolveAnalyticsOptInParams(analyticsOptIn),
+    );
+    if (decision.kind === "renewal") {
       return false;
     }
   }
@@ -871,7 +852,6 @@ export const swapSelectableCurrenciesSelector = (state: State) =>
 export const showClearCacheBannerSelector = (state: State) => state.settings.showClearCacheBanner;
 export const overriddenFeatureFlagsSelector = (state: State) => state.featureFlags.overrides;
 export const featureFlagsButtonVisibleSelector = (state: State) => state.featureFlags.bannerVisible;
-export const vaultSignerSelector = (state: State) => state.settings.vaultSigner;
 export const supportedCounterValuesSelector = createSelector(
   selectSupportedFiats,
   getsupportedCountervalues,
@@ -881,7 +861,10 @@ export const hasSeenAnalyticsOptInPromptSelector = (state: State) =>
 export const dismissedContentCardsSelector = (state: State) => state.settings.dismissedContentCards;
 export const anonymousBrazeIdSelector = (state: State) => state.settings.anonymousBrazeId;
 
-export const starredMarketCoinsSelector = (state: State) => state.settings.starredMarketCoins;
+const EMPTY_STARRED_MARKET_COINS: string[] = [];
+
+export const starredMarketCoinsSelector = (state: State): string[] =>
+  state.settings.starredMarketCoins ?? EMPTY_STARRED_MARKET_COINS;
 export const hasBeenUpsoldRecoverSelector = (state: State) => state.settings.hasBeenUpsoldRecover;
 export const onboardingUseCaseSelector = (state: State) => state.settings.onboardingUseCase;
 export const hasBeenRedirectedToPostOnboardingSelector = (state: State) =>
@@ -892,8 +875,8 @@ export const mevProtectionSelector = (state: State) => state.settings.mevProtect
 export const alwaysShowMemoTagInfoSelector = (state: State) => state.settings.alwaysShowMemoTagInfo;
 export const anonymousUserNotificationsSelector = (state: State) =>
   state.settings.anonymousUserNotifications;
-export const hasSeenWalletV4TourSelector = (state: State) => state.settings.hasSeenWalletV4Tour;
 export const hasSeenQ2TourSelector = (state: State) => state.settings.hasSeenQ2Tour;
+export const hasSeenQ3TourSelector = (state: State) => state.settings.hasSeenQ3Tour;
 export const productTourCompletedSelector = (state: State) => state.settings.productTourCompleted;
 
 export const hasDismissedContactsFeatureIntroductionSelector = (state: State) =>

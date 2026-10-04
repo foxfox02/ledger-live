@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { CryptoOrTokenCurrency } from "@domain/entity-currency";
 import { useModularDialogAnalytics } from "../../../../analytics/useModularDialogAnalytics";
 import { MODULAR_DIALOG_PAGE_NAME } from "../../../../analytics/modularDialog.types";
@@ -17,6 +17,8 @@ type NetworkSelectorContentProps = {
   onNetworkSelected: (network: CryptoOrTokenCurrency) => void;
   networksConfig: EnhancedModularDrawerConfiguration["networks"];
   selectedAssetId?: string;
+  selectedAssetName?: string;
+  selectableNetworkIds?: readonly string[];
 };
 
 export const NetworkSelectorContent = ({
@@ -24,8 +26,14 @@ export const NetworkSelectorContent = ({
   onNetworkSelected,
   networksConfig,
   selectedAssetId,
+  selectedAssetName,
+  selectableNetworkIds,
 }: NetworkSelectorContentProps) => {
   const { trackModularDialogEvent } = useModularDialogAnalytics();
+  const selectableNetworkIdSet = useMemo(
+    () => (selectableNetworkIds === undefined ? undefined : new Set(selectableNetworkIds)),
+    [selectableNetworkIds],
+  );
 
   const formattedNetworks = useNetworkConfiguration(networks ?? [], {
     useAccountData,
@@ -42,6 +50,7 @@ export const NetworkSelectorContent = ({
   }
 
   const onClick = (networkId: string) => {
+    if (selectableNetworkIdSet !== undefined && !selectableNetworkIdSet.has(networkId)) return;
     const network = formattedNetworks.find(network =>
       network.type === "CryptoCurrency"
         ? network.id === networkId
@@ -64,6 +73,21 @@ export const NetworkSelectorContent = ({
 
     onNetworkSelected(network);
   };
+  const onDisabledClick = (network: CryptoOrTokenCurrency) => {
+    trackModularDialogEvent("button_clicked", {
+      button: "disabled network tooltip",
+      network: network.name,
+      ...(selectedAssetName ? { asset: selectedAssetName } : {}),
+      page: MODULAR_DIALOG_PAGE_NAME.MODULAR_NETWORK_SELECTION,
+    });
+  };
 
-  return <NetworkVirtualList networks={formattedNetworks} onClick={onClick} />;
+  return (
+    <NetworkVirtualList
+      networks={formattedNetworks}
+      onClick={onClick}
+      onDisabledClick={onDisabledClick}
+      selectableNetworkIdSet={selectableNetworkIdSet}
+    />
+  );
 };

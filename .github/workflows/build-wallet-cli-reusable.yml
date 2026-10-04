@@ -11,17 +11,17 @@ on:
         value: ${{ jobs.build-wallet-cli.outputs.coverage_generated }}
     secrets:
       AWS_ACCOUNT_ID_PROD:
-        required: false
+        required: true
       AWS_CACHE_OIDC_ROLE_ARN_BRANCH:
-        required: false
+        required: true
       AWS_CACHE_OIDC_ROLE_ARN_DEVELOP:
-        required: false
+        required: true
       AWS_CACHE_REGION:
-        required: false
+        required: true
       AWS_CACHE_ROLE_NAME:
-        required: false
+        required: true
       NX_KEY:
-        required: false
+        required: true
   workflow_dispatch:
     inputs:
       ref:
@@ -35,12 +35,11 @@ on:
 permissions:
   id-token: write
   contents: read
-  pull-requests: write
 
 jobs:
   build-wallet-cli:
     name: "Build (all platforms)"
-    runs-on: ubuntu-22.04
+    runs-on: ledger-wallet-4cpu-aws-public
     timeout-minutes: 30
     continue-on-error: true
     outputs:
@@ -64,11 +63,19 @@ jobs:
           roleName: ${{ secrets.AWS_CACHE_ROLE_NAME }}
           region: ${{ secrets.AWS_CACHE_REGION }}
 
+      - name: JFrog npm auth
+        uses: LedgerHQ/ledger-live/tools/actions/composites/jfrog-npm-auth@develop
+        with:
+          registry: ${{ vars.ARTIFACTORY_URL }}
+
+      - name: Install other platforms' optional deps (wallet-cli cross-compilation)
+        uses: LedgerHQ/ledger-live/tools/actions/composites/pnpm-cross-platform-optional-deps@develop
+
       - name: Install dependencies
-        run: pnpm i --filter "@ledgerhq/wallet-cli..." --filter "ledger-live"
+        run: pnpm i --frozen-lockfile --filter "@ledgerhq/wallet-cli..." --filter "ledger-live"
 
       - name: format check wallet-cli
-        if: github.base_ref == 'develop' || github.ref == 'refs/heads/develop' || github.event_name == 'workflow_dispatch'
+        if: github.base_ref == 'develop' || github.ref == 'refs/heads/develop' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
         run: pnpm exec nx run @ledgerhq/wallet-cli:format:check
 
       - name: Build, lint, typecheck and test wallet-cli

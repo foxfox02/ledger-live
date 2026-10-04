@@ -22,15 +22,11 @@ import getAddress from "./getAddress";
 import openApp from "./openApp";
 import quitApp from "./quitApp";
 import { mustUpgrade, getMinVersion, getDeprecationConfig } from "../apps";
+import { buildApplicationDependency } from "../device/buildApplicationDependency";
 import isUpdateAvailable from "./isUpdateAvailable";
 import { LockedDeviceEvent } from "./actions/types";
 import { getLatestFirmwareForDeviceUseCase } from "../device/use-cases/getLatestFirmwareForDeviceUseCase";
-import {
-  type ApplicationDependency,
-  type ApplicationConstraint,
-  type ApplicationVersionConstraint,
-  DeviceModelId,
-} from "@ledgerhq/device-management-kit";
+import type { ApplicationDependency } from "@ledgerhq/device-management-kit";
 import { ConnectAppDeviceAction } from "@ledgerhq/live-dmk-shared";
 import { ConnectAppEventMapper } from "./connectAppEventMapper";
 import { DeviceId } from "@domain/entity-client-identity";
@@ -146,6 +142,10 @@ export type ConnectAppEvent =
   | {
       type: "listed-apps";
       installQueue: string[];
+    }
+  | {
+      type: "installed-app-versions";
+      apps: { name: string; version: string }[];
     }
   | {
       type: "dependencies-resolved";
@@ -530,25 +530,8 @@ const cmd = (transport: Transport, { request }: Input): Observable<ConnectAppEve
   });
 };
 
-const appNameToDependency = (appName: string): ApplicationDependency => {
-  const constraints = Object.values(DeviceModelId).reduce<ApplicationConstraint[]>(
-    (result, model) => {
-      const minVersion = getMinVersion(appName, model);
-      if (minVersion) {
-        result.push({
-          minVersion: minVersion as ApplicationVersionConstraint,
-          applicableModels: [model],
-        });
-      }
-      return result;
-    },
-    [],
-  );
-  return {
-    name: appName,
-    constraints,
-  };
-};
+const appNameToDependency = (appName: string): ApplicationDependency =>
+  buildApplicationDependency(appName, getMinVersion);
 
 export default function connectAppFactory(
   {

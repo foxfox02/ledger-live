@@ -1,6 +1,6 @@
 {
   "name": "@domain/entity-currency-crypto",
-  "version": "0.7.0",
+  "version": "0.13.0",
   "private": true,
   "description": "Domain entity for crypto currencies: Zod schemas and registry",
   "main": "src/index.ts",
@@ -20,11 +20,11 @@
   },
   "dependencies": {
     "@domain/entity-currency-unit": "workspace:*",
-    "@shared/schema-primitives": "workspace:*",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@jest/globals": "catalog:",
+    "@ledgerhq/test-quarantine": "workspace:*",
     "@swc/core": "catalog:",
     "@swc/jest": "catalog:",
     "@types/jest": "catalog:",

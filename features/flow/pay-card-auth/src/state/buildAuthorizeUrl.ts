@@ -1,0 +1,48 @@
+import type { CardLoginOauthConfig } from "./types";
+
+const AUTHORIZE_PATH = "/v1/auth/oauth2/authorize";
+
+/**
+ * Who the user is, and `offline_access` so the token grant includes a refresh token. A live exchange
+ * without it came back with no `refresh_token` at all.
+ */
+const SCOPE = "openid profile email offline_access";
+
+/**
+ * Builds the authorize URL the secure browser opens.
+ *
+ * There is no call to the backend first. The provider owns the page and the redirect, so every value
+ * it needs travels in the query, and the browser goes straight there. `prompt=consent` makes the
+ * provider ask every time, which is what a login has to do.
+ *
+ * The verifier stays on the device. The challenge and the correlation `state` both go on the
+ * authorize URL.
+ *
+ * `state` is not a CSRF check — PKCE already covers that. It travels here only so the redirect
+ * echoes back an id this session can compare against the attempt it is currently waiting on.
+ */
+export function buildAuthorizeUrl(
+  oauthConfig: CardLoginOauthConfig,
+  codeChallenge: string,
+  state: string,
+): string {
+  const url = new URL(AUTHORIZE_PATH, oauthConfig.apiUrl);
+
+  // A misconfigured apiUrl must not open the secure browser on an insecure or unexpected page.
+  if (url.protocol !== "https:") {
+    throw new Error(`buildAuthorizeUrl: apiUrl must be https, got "${url.protocol}"`);
+  }
+
+  url.search = new URLSearchParams({
+    client_id: oauthConfig.clientId,
+    response_type: "code",
+    scope: SCOPE,
+    redirect_uri: oauthConfig.redirectUri,
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256",
+    state,
+    prompt: "consent",
+  }).toString();
+
+  return url.toString();
+}

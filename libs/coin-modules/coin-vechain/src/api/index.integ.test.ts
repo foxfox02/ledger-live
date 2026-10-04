@@ -1,8 +1,9 @@
+import { withDefaults } from "@ledgerhq/coin-module-framework/api/index";
 import type { CoinModuleApi } from "@ledgerhq/coin-module-framework/api/types";
-import type { VechainCoinConfig } from "../config";
+import { VTHO_ADDRESS } from "@vechain/sdk-core";
+import type { VechainCurrencyConfig } from "../config";
 import { createApi } from "./index";
-
-const config: VechainCoinConfig = () => ({ status: { type: "active" } });
+import { createMockVechainContext } from "../test/context";
 
 // Repo-committed VeChain mainnet address, already used by src/datasets/vechain.ts for bridge
 // integration/dataset testing ("account information is fetched from the blockchain"). Reused
@@ -12,40 +13,41 @@ const config: VechainCoinConfig = () => ({ status: { type: "active" } });
 const KNOWN_ADDRESS = "0x0fe6688548f0C303932bB197B0A96034f1d74dba";
 
 describe("createApi (integration)", () => {
-  let api: CoinModuleApi;
+  let api: CoinModuleApi<VechainCurrencyConfig>;
+  const context = createMockVechainContext();
 
   beforeAll(() => {
-    api = createApi(config, "vechain");
+    api = withDefaults(createApi());
   });
 
   // These methods throw synchronously (they never return a promise), so they are asserted with a
   // synchronous `expect(() => …).toThrow`, not `.rejects` (mirrors coin-kaspa's api integ test).
   it("getNextSequence throws (not applicable to Vechain's account model)", () => {
-    expect(() => api.getNextSequence(KNOWN_ADDRESS)).toThrow(
-      "getNextSequence is not applicable for Vechain",
+    expect(() => api.getNextSequence(context, KNOWN_ADDRESS)).toThrow(
+      "getNextSequence is not supported",
     );
   });
 
   it("validates addresses via parseAddress", async () => {
-    await expect(api.validateAddress(KNOWN_ADDRESS, {})).resolves.toBe(true);
-    await expect(api.validateAddress("0xnot-an-address", {})).resolves.toBe(false);
+    await expect(api.validateAddress(context, KNOWN_ADDRESS, {})).resolves.toBe(true);
+    await expect(api.validateAddress(context, "0xnot-an-address", {})).resolves.toBe(false);
   });
 
   it("getStakes / getRewards / getValidators throw (not supported)", () => {
-    expect(() => api.getStakes(KNOWN_ADDRESS)).toThrow("getStakes is not supported");
-    expect(() => api.getRewards(KNOWN_ADDRESS)).toThrow("getRewards is not supported");
-    expect(() => api.getValidators()).toThrow("getValidators is not supported");
+    expect(() => api.getStakes(context, KNOWN_ADDRESS)).toThrow("getStakes is not supported");
+    expect(() => api.getRewards(context, KNOWN_ADDRESS)).toThrow("getRewards is not supported");
+    expect(() => api.getValidators(context)).toThrow("getValidators is not supported");
   });
 
   it("craftRawTransaction throws (not supported)", () => {
-    expect(() => api.craftRawTransaction("raw", KNOWN_ADDRESS, "pubkey", 0n)).toThrow(
+    expect(() => api.craftRawTransaction(context, "raw", KNOWN_ADDRESS, "pubkey", 0n)).toThrow(
       "craftRawTransaction is not supported",
     );
   });
 
   describe("account & block methods (real network)", () => {
     it("getBalance returns both VET and VTHO balances", async () => {
-      const balances = await api.getBalance(KNOWN_ADDRESS);
+      const balances = await api.getBalance(context, KNOWN_ADDRESS);
 
       expect(balances).toHaveLength(2);
       expect(balances.some(b => b.asset.type === "native")).toBe(true);
@@ -57,7 +59,7 @@ describe("createApi (integration)", () => {
     });
 
     it("lastBlock returns the latest confirmed block", async () => {
-      const info = await api.lastBlock();
+      const info = await api.lastBlock(context);
 
       expect(info.height).toBeGreaterThan(0);
       expect(typeof info.hash).toBe("string");
@@ -65,19 +67,57 @@ describe("createApi (integration)", () => {
     });
 
     it("getBlockInfo/getBlock agree on the same known height", async () => {
-      const lastBlockInfo = await api.lastBlock();
+      const lastBlockInfo = await api.lastBlock(context);
       const knownHeight = lastBlockInfo.height - 100;
 
-      const info = await api.getBlockInfo(knownHeight);
-      const block = await api.getBlock(knownHeight);
+      const info = await api.getBlockInfo(context, knownHeight);
+      const block = await api.getBlock(context, knownHeight);
 
       expect(info.height).toBe(knownHeight);
       expect(block.info).toEqual(info);
       expect(Array.isArray(block.transactions)).toBe(true);
     });
 
+    // Regression pin (LIVE-37036). Block 16407374 is final, so its contents never change: both of
+    // its transactions move VTHO only — Thor reports `transfers: []` and a VIP-180 `Transfer` log on
+    // the VTHO contract — which the transfers-only mapping returned as empty `operations`. Asserting
+    // against the live chain (not a fixture) is what makes this fail if the mapping regresses.
+    it("reports VTHO-only transactions of a known historical block", async () => {
+      const block = await api.getBlock(context, 16407374);
+
+      expect(block.transactions).toHaveLength(2);
+
+      const tx = block.transactions.find(
+        t => t.hash === "0x5fdd7191c4d476a8e86060d516366e87421f65667b9b3c14c33a740c04921b10",
+      );
+
+      // Two operations for the single VTHO movement: the signed impact on each side. Reading
+      // through `?.` also asserts the transaction is present: `undefined` fails this comparison.
+      expect(tx?.operations).toEqual([
+        {
+          type: "transfer",
+          address: "0xcf130b42ae31c4931298b4b1c0f1d974b8732957",
+          peer: "0x0fe6688548f0c303932bb197b0a96034f1d74dba",
+          asset: { type: "token", assetReference: VTHO_ADDRESS, name: "VTHO" },
+          amount: -BigInt("10000000000000000000"),
+        },
+        {
+          type: "transfer",
+          address: "0x0fe6688548f0c303932bb197b0a96034f1d74dba",
+          peer: "0xcf130b42ae31c4931298b4b1c0f1d974b8732957",
+          asset: { type: "token", assetReference: VTHO_ADDRESS, name: "VTHO" },
+          amount: BigInt("10000000000000000000"),
+        },
+      ]);
+
+      // No transaction in this block is left without operations — the shape of the original bug.
+      for (const transaction of block.transactions) {
+        expect(transaction.operations.length).toBeGreaterThan(0);
+      }
+    });
+
     it("listOperations returns a page shape for a known address", async () => {
-      const page = await api.listOperations(KNOWN_ADDRESS, { minHeight: 0 });
+      const page = await api.listOperations(context, KNOWN_ADDRESS, { minHeight: 0 });
 
       expect(Array.isArray(page.items)).toBe(true);
       for (const op of page.items) {
@@ -89,7 +129,7 @@ describe("createApi (integration)", () => {
 
   it("craftTransaction fails clearly for an intent with no recipient", async () => {
     await expect(
-      api.craftTransaction({
+      api.craftTransaction(context, {
         intentType: "transaction",
         type: "send",
         sender: KNOWN_ADDRESS,
@@ -101,7 +141,7 @@ describe("createApi (integration)", () => {
   });
 
   it("crafts a native VET transaction and combines it into a signed hex payload", async () => {
-    const crafted = await api.craftTransaction({
+    const crafted = await api.craftTransaction(context, {
       intentType: "transaction",
       type: "send",
       sender: KNOWN_ADDRESS,
@@ -117,7 +157,7 @@ describe("createApi (integration)", () => {
 
     // combine attaches a (dummy) 65-byte signature and returns the hex-encoded signed tx that
     // broadcast would submit — exercising the full craft → combine round trip.
-    const signed = api.combine(crafted.transaction, "aa".repeat(65));
+    const signed = api.combine(context, crafted.transaction, ["aa".repeat(65)]);
     expect(signed).toMatch(/^0x[0-9a-f]+$/);
   });
 });

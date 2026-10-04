@@ -3,8 +3,16 @@ import { getChainAPI } from "../../network";
 import { endpointByCurrencyId } from "../../utils";
 import { getBalance } from "../getBalance";
 import type { Balance } from "@ledgerhq/coin-module-framework/api/types";
+import type { SolanaCoinConfig } from "../../config";
 
-const api = getChainAPI({ endpoint: endpointByCurrencyId("solana") });
+const config: SolanaCoinConfig = {
+  token2022Enabled: false,
+  legacyOCMSMaxVersion: "1.0.0",
+  status: { type: "active" },
+  name: "Solana",
+  unit: { name: "SOL", code: "SOL", magnitude: 9 },
+};
+const api = getChainAPI({ endpoint: endpointByCurrencyId(config, "solana") });
 
 const FUNDED_ADDRESS = "7V4CBuNyQaAhZVHf3fgsNxpk32bR61XRVZuAdR7isRu9";
 const UNFUNDED_ADDRESS = Keypair.generate().publicKey.toBase58();
@@ -25,7 +33,7 @@ function expectStakeBalance(balance: Balance) {
 
   expect(balance.stake?.actions.length).toBeGreaterThan(0);
   for (const action of balance.stake?.actions ?? []) {
-    expect(["delegate", "redelegate", "undelegate", "claim_reward"]).toContain(action);
+    expect(["delegate", "redelegate", "undelegate", "withdraw"]).toContain(action);
   }
 }
 
@@ -45,17 +53,20 @@ describe("getBalance (integration)", () => {
 
     expect(balances.length).toBeGreaterThanOrEqual(1);
 
-    const [native, stake1, stake2, stake3, ...tokenBalances] = balances;
+    const [native, ...rest] = balances;
 
     expect(native.asset).toEqual({ type: "native" });
     expect(native.value).toBeGreaterThan(0n);
     expect(native.locked).toBeGreaterThan(0n);
 
-    expectStakeBalance(stake1);
-    expectStakeBalance(stake2);
-    expectStakeBalance(stake3);
+    // the funded address' stake account count changes on chain, so don't assert on positions
+    const stakeBalances = rest.filter(b => b.stake);
+    expect(stakeBalances.length).toBeGreaterThan(0);
+    for (const b of stakeBalances) {
+      expectStakeBalance(b);
+    }
 
-    for (const b of tokenBalances) {
+    for (const b of rest.filter(b => !b.stake)) {
       expectTokenBalance(b);
     }
   });

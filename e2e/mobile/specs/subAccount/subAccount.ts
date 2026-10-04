@@ -1,17 +1,21 @@
-import { verifyAppValidationSendInfo } from "../../models/send";
+import { verifyAppValidationSendInfo } from "@e2e/models/send";
 import { TransactionType } from "@ledgerhq/live-e2e-shared/models/Transaction";
 import { AccountType } from "@ledgerhq/live-e2e-shared/enum/Account";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
 import { Addresses } from "@ledgerhq/live-e2e-shared/enum/Addresses";
 import { getEnv } from "@shared/env";
 import { TransactionStatus } from "@ledgerhq/live-e2e-shared/enum/TransactionStatus";
-import { setTeamOwner } from "../../helpers/allure/allure-helper";
+import { setTeamOwner } from "@e2e/helpers/allure/allure-helper";
 import invariant from "invariant";
+import { FF_DISABLE_NEW_SEND_FLOW } from "@e2e/utils/featureFlagUtils";
+
+const BST_ADD_SUBACCOUNT_PARENT_CURRENCIES = new Set(["algorand", "sui"]);
 
 const beforeAllFunction = async (transaction: TransactionType, setAccountToCredit: boolean) => {
   await app.init({
     userdata: "skip-onboarding",
     speculosApp: transaction.accountToDebit.currency.speculosApp,
+    featureFlags: FF_DISABLE_NEW_SEND_FLOW,
     cliCommands: [
       liveDataCommand(transaction.accountToDebit),
       ...(setAccountToCredit
@@ -39,12 +43,12 @@ export function runSendSPL(transaction: TransactionType, tmsLinks: string[], tag
   setTeamOwner(Team.COIN_INTEGRATION);
   tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
   tags.forEach(tag => $Tag(tag));
-  describe("Send SPL tokens from 1 account to another", () => {
+  describe("Send - token", () => {
     beforeAll(async () => {
       await beforeAllFunction(transaction, true);
     });
 
-    it(`Send from ${transaction.accountToDebit.accountName} Account to ${transaction.accountToCredit.accountName} Account - ${transaction.accountToDebit.currency.name} - E2E test`, async () => {
+    it(`[${transaction.accountToDebit.currency.testLabel}] - Send`, async () => {
       const addressToCredit = transaction.accountToCredit.address;
       await app.account.navigateToSubAccount(transaction.accountToDebit);
       await app.account.tapSend();
@@ -67,8 +71,7 @@ export function runSendSPL(transaction: TransactionType, tmsLinks: string[], tag
       await app.operationDetails.checkOperationInfos(transaction, true, "OUT");
 
       if (!getEnv("DISABLE_TRANSACTION_BROADCAST")) {
-        const subAccountId = app.account.subAccountId(transaction.accountToCredit);
-        await app.account.navigateToSubAccount(transaction.accountToCredit);
+        const subAccountId = await app.account.navigateToSubAccount(transaction.accountToCredit);
         await app.account.expectAccountBalanceVisible(subAccountId);
         await app.account.scrollToHistoryAndClickOnLastOperation(TransactionStatus.RECEIVED);
         await app.operationDetails.checkOperationInfos(transaction, false);
@@ -86,12 +89,12 @@ export function runSendSPLAddressValid(
   setTeamOwner(Team.COIN_INTEGRATION);
   tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
   tags.forEach(tag => $Tag(tag));
-  describe("Send token - valid address input", () => {
+  describe("Send - token", () => {
     beforeAll(async () => {
       await beforeAllFunction(transaction, false);
     });
 
-    it(`Send from ${transaction.accountToDebit.accountName} to ${transaction.accountToCredit.accountName} - ${transaction.accountToDebit.currency.name} - valid address input`, async () => {
+    it(`[${transaction.accountToDebit.currency.testLabel}] - Send valid address input`, async () => {
       await app.send.openViaDeeplink();
       await app.common.performSearch(transaction.accountToDebit.currency.ticker);
       await app.common.selectAccount(transaction.accountToDebit);
@@ -112,12 +115,12 @@ export function runSendSPLAddressInvalid(
   setTeamOwner(Team.COIN_INTEGRATION);
   tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
   tags.forEach(tag => $Tag(tag));
-  describe("Send token - invalid address input", () => {
+  describe("Send - token", () => {
     beforeAll(async () => {
       await beforeAllFunction(transaction, false);
     });
 
-    it(`Send from ${transaction.accountToDebit.accountName} to ${transaction.accountToCredit.accountName} - ${transaction.accountToCredit.currency.name} - ${expectedErrorMessage}`, async () => {
+    it(`[${transaction.accountToDebit.currency.testLabel}-${transaction.accountToCredit.currency.testLabel}] - Send invalid address error: ${expectedErrorMessage}`, async () => {
       await app.send.openViaDeeplink();
       await app.common.performSearch(transaction.accountToDebit.currency.ticker);
       await app.common.selectAccount(transaction.accountToDebit);
@@ -134,20 +137,25 @@ export function runAddSubAccountTest(testConfig: {
   tags: string[];
   networks?: string[];
 }) {
-  describe("Add subAccount without parent", () => {
+  describe("Add sub-account", () => {
     const { asset, tmslinks, tags, networks } = testConfig;
     beforeAll(async () => {
       await app.init({
         userdata: "skip-onboarding",
         speculosApp: asset.currency.speculosApp,
+        featureFlags: FF_DISABLE_NEW_SEND_FLOW,
       });
       await app.mainNavigation.waitForWallet40Ready();
     });
 
-    setTeamOwner(Team.COIN_INTEGRATION);
+    setTeamOwner(
+      BST_ADD_SUBACCOUNT_PARENT_CURRENCIES.has(asset.parentAccount?.currency.id ?? "")
+        ? Team.BST
+        : Team.COIN_INTEGRATION,
+    );
     tmslinks.forEach(tmsLink => $TmsLink(tmsLink));
     tags.forEach(tag => $Tag(tag));
-    it(`Add Sub Account without parent (${asset.currency.speculosApp.name}) - ${asset.currency.ticker}`, async () => {
+    it(`[${asset.currency.testLabel}] - Add sub-account without parent`, async () => {
       await app.portfolio.addAccount();
       await app.addAccount.importWithYourLedger();
       await app.modularDrawer.performSearchByTicker(asset.currency.ticker);

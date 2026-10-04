@@ -1,6 +1,6 @@
 import { Account } from "@ledgerhq/live-e2e-shared/enum/Account";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { setTeamOwner } from "../helpers/allure/allure-helper";
+import { setTeamOwner } from "@e2e/helpers/allure/allure-helper";
 
 const tags: string[] = [
   "@NanoSP",
@@ -12,7 +12,7 @@ const tags: string[] = [
   "@ethereum",
   "@family-evm",
 ];
-describe("Market page for user with no device", () => {
+describe("Market", () => {
   const nanoApp = AppInfos.ETHEREUM;
   const currency = Currency.ETH;
 
@@ -28,7 +28,7 @@ describe("Market page for user with no device", () => {
   setTeamOwner(Team.WALLET_XP);
   $TmsLink("B2CQA-1879");
   tags.forEach(tag => $Tag(tag));
-  it("should filter starred asset in the list", async () => {
+  it(`[${currency.testLabel}] - Market filters behavior`, async () => {
     await app.portfolio.tapMarketBannerTitle();
     await app.market.searchAsset(currency.ticker);
     await app.market.expectMarketRowTitle(currency);

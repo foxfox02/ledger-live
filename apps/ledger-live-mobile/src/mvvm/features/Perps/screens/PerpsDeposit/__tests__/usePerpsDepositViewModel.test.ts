@@ -1,0 +1,576 @@
+import BigNumber from "bignumber.js";
+import { CryptoCurrencyIdSchema, getCryptoCurrencyById } from "@domain/entity-currency-crypto";
+import { type TokenCurrency, TokenCurrencyIdSchema } from "@domain/entity-currency-token";
+import { genAccount, genTokenAccount } from "@ledgerhq/ledger-wallet-framework/mocks/account";
+import type { Account, TokenAccount } from "@ledgerhq/types-live";
+import type { Device } from "@ledgerhq/live-common/hw/actions/types";
+import { PERPS_DEPOSIT_QUOTE_PROVIDER } from "@ledgerhq/live-common/wallet-api/Perps/depositQuote";
+import { act, renderHook } from "@tests/test-renderer";
+import { ScreenName } from "~/const";
+import { UserRefusedOnDevice } from "@ledgerhq/ledger-wallet-framework/errors";
+import { PERPS_DEPOSIT_DEFAULT_FUNDING_CURRENCY_ID } from "../../../constants/depositFunding";
+import { usePerpsDepositViewModel } from "../usePerpsDepositViewModel";
+import {
+  beginDepositRequest,
+  cancelDepositRequest,
+} from "@ledgerhq/live-common/wallet-api/Perps/depositRequest";
+
+const mockOpenDrawer = jest.fn();
+jest.mock("LLM/features/ModularDrawer", () => ({
+  useModularDrawerController: () => ({ openDrawer: mockOpenDrawer }),
+}));
+
+const mockCalculateCountervalue = jest.fn((_currency: unknown, value: BigNumber) => value);
+jest.mock("@ledgerhq/live-countervalues-react", () => ({
+  ...jest.requireActual("@ledgerhq/live-countervalues-react"),
+  useCalculateCountervalueCallback: () => (currency: unknown, value: BigNumber) =>
+    mockCalculateCountervalue(currency, value),
+  useCountervaluesState: () => ({}),
+}));
+
+// Prices the typed amount back into the funding currency, in its smallest unit.
+const mockCalculate = jest.fn();
+jest.mock("@domain/entity-market-countervalues", () => ({
+  ...jest.requireActual("@domain/entity-market-countervalues"),
+  calculate: (...args: unknown[]) => mockCalculate(...args),
+}));
+
+const mockUsePerpsDepositQuote = jest.fn();
+jest.mock("../usePerpsDepositQuote", () => ({
+  usePerpsDepositQuote: (params: unknown) => mockUsePerpsDepositQuote(params),
+}));
+
+function createAccount(id: string, currencyId: string, spendableBalance: number): Account {
+  return {
+    ...genAccount(id, { currency: getCryptoCurrencyById(currencyId), operationsSize: 0 }),
+    spendableBalance: new BigNumber(spendableBalance),
+    balance: new BigNumber(spendableBalance),
+  };
+}
+
+const receiverAccount = createAccount("receiver-1", "ethereum", 0);
+const fundingAccount = createAccount("funding-1", "ethereum", 10000);
+/** Holds more than the form can ask for, so the balance cap never kicks in. */
+const fundedAccount = createAccount("funding-2", "ethereum", 1e18);
+
+const arbitrumUsdcToken: TokenCurrency = {
+  type: "TokenCurrency",
+  id: TokenCurrencyIdSchema.parse(PERPS_DEPOSIT_DEFAULT_FUNDING_CURRENCY_ID),
+  contractAddress: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+  parentCurrencyId: CryptoCurrencyIdSchema.parse("arbitrum"),
+  tokenType: "erc20",
+  name: "USD Coin",
+  ticker: "USDC",
+  units: [{ name: "USD Coin", code: "USDC", magnitude: 6 }],
+};
+
+const usdcParent = createAccount("usdc-parent", "arbitrum", 0);
+
+/** A USDC-on-Arbitrum token account with a fixed spendable balance (atomic units). */
+function createUsdcTokenAccount(id: string, spendableBalance: number): TokenAccount {
+  return {
+    ...genTokenAccount(0, usdcParent, arbitrumUsdcToken),
+    id,
+    spendableBalance: new BigNumber(spendableBalance),
+    balance: new BigNumber(spendableBalance),
+  };
+}
+
+/** Bundles token accounts under their parent so `flattenAccountsSelector` exposes them. */
+function withUsdcAccounts(...tokenAccounts: TokenAccount[]): Account[] {
+  return [{ ...usdcParent, subAccounts: tokenAccounts }, fundedAccount];
+}
+
+function createProps(navigate = jest.fn(), replace = jest.fn()) {
+  return {
+    props: { navigation: { navigate, replace }, route: { params: { receiverAccount } } } as never,
+    navigate,
+    replace,
+  };
+}
+
+/** The funding account is read back from the store, so it has to live there. */
+function renderViewModel(
+  props: never,
+  discreetMode = false,
+  accounts: Account[] = [fundingAccount, fundedAccount],
+) {
+  return renderHook(() => usePerpsDepositViewModel(props), {
+    overrideInitialState: state => ({
+      ...state,
+      accounts: { ...state.accounts, active: accounts },
+      settings: { ...state.settings, discreetMode },
+    }),
+  });
+}
+
+function selectFundingAccount(account: Account = fundingAccount) {
+  const { onAccountSelected } = mockOpenDrawer.mock.calls[0][0];
+  act(() => onAccountSelected(account));
+}
+
+/** The display-unit amount the form settled on and sent to the provider. */
+function quotedAmount(): string {
+  return mockUsePerpsDepositQuote.mock.lastCall?.[0].amount;
+}
+
+/** The keypad is the only way into the amount, so tests enter digits the same way. */
+function typeAmount(pressAmountKey: (key: string) => void, amount: string) {
+  act(() => [...amount].forEach(key => pressAmountKey(key)));
+}
+
+describe("usePerpsDepositViewModel", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockCalculateCountervalue.mockImplementation((_currency, value) => value);
+    mockCalculate.mockReturnValue(0);
+    mockUsePerpsDepositQuote.mockReturnValue({
+      quote: { amountTo: new BigNumber(42), quoteId: "quote-1" },
+      isLoading: false,
+      isUnavailable: false,
+    });
+  });
+
+  afterEach(() => cancelDepositRequest());
+
+  it("starts with an empty amount and no funding account", () => {
+    const { props } = createProps();
+    const { result } = renderViewModel(props);
+
+    expect(result.current.amountText).toBe("");
+    expect(result.current.depositAmount).toBe(0);
+    expect(result.current.depositAccountName).toBeNull();
+    expect(result.current.depositCurrencyTicker).toBe("USDC");
+    expect(result.current.canReview).toBe(false);
+  });
+
+  it("keeps partially typed decimals and leaves the deposit floor to the live app", () => {
+    const { props } = createProps();
+    const { result } = renderViewModel(props);
+
+    typeAmount(result.current.pressAmountKey, "3.");
+
+    expect(result.current.amountText).toBe("3.");
+    expect(result.current.depositAmount).toBe(3);
+    expect(result.current.statusError).toBeNull();
+    expect(result.current.missingAccount).toBe(true);
+    expect(result.current.canReview).toBe(false);
+  });
+
+  it("types, corrects and clears the amount from the keypad", () => {
+    const { props } = createProps();
+    const { result } = renderViewModel(props);
+
+    act(() => ["5", "0", "0"].forEach(key => result.current.pressAmountKey(key)));
+    expect(result.current.amountText).toBe("500");
+
+    act(() => result.current.pressAmountKey("delete"));
+    expect(result.current.amountText).toBe("50");
+
+    // A leading separator is completed to "0." and repeats are ignored.
+    act(() =>
+      ["delete", "delete", ".", ".", "2", "5"].forEach(key => result.current.pressAmountKey(key)),
+    );
+    expect(result.current.amountText).toBe("0.25");
+
+    // Extra decimals are refused, so the amount always matches what is displayed.
+    act(() => result.current.pressAmountKey("9"));
+    expect(result.current.amountText).toBe("0.25");
+    expect(result.current.depositAmount).toBe(0.25);
+  });
+
+  it("adopts the funding account picked in the modular drawer", () => {
+    const { props } = createProps();
+    const { result } = renderViewModel(props);
+
+    typeAmount(result.current.pressAmountKey, "42");
+    act(() => result.current.pickDepositAccount());
+
+    expect(mockOpenDrawer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enableAccountSelection: true,
+        uiUseCase: "perpetuals:fund",
+      }),
+    );
+
+    selectFundingAccount();
+
+    expect(result.current.depositCurrencyTicker).toBe("ETH");
+    expect(result.current.depositAccountName).not.toBeNull();
+
+    // Switching the funding account keeps the amount the user already typed.
+    expect(result.current.amountText).toBe("42");
+    expect(result.current.depositAmount).toBe(42);
+    expect(result.current.maxAmount).toBe(100);
+  });
+
+  it("flags amounts above the funding balance", () => {
+    const { props } = createProps();
+    const { result } = renderViewModel(props);
+
+    act(() => result.current.pickDepositAccount());
+    selectFundingAccount();
+    typeAmount(result.current.pressAmountKey, "150");
+
+    expect(result.current.exceedsBalance).toBe(true);
+    expect(result.current.statusError).toEqual({
+      labelKey: "perpsDeposit.formErrors.amountExceedsBalance",
+    });
+    expect(result.current.canReview).toBe(false);
+  });
+
+  it("holds back rather than blaming the balance while the funding rate is missing", () => {
+    mockCalculateCountervalue.mockReturnValue(null as unknown as BigNumber);
+    const { props } = createProps();
+    const { result } = renderViewModel(props);
+
+    act(() => result.current.pickDepositAccount());
+    selectFundingAccount();
+    typeAmount(result.current.pressAmountKey, "20");
+
+    expect(result.current.exceedsBalance).toBe(false);
+    expect(result.current.statusError).toBeNull();
+    expect(result.current.maxAmount).toBe(0);
+
+    expect(result.current.canReview).toBe(false);
+    expect(quotedAmount()).toBe("");
+  });
+
+  it("enables the review CTA once a funding account and amount are set", () => {
+    const { props } = createProps();
+    const { result } = renderViewModel(props);
+
+    act(() => result.current.pickDepositAccount());
+    selectFundingAccount();
+    typeAmount(result.current.pressAmountKey, "20");
+
+    expect(result.current.canReview).toBe(true);
+  });
+
+  it("quotes the typed amount converted into the funding currency", () => {
+    // $20 buys 0.025 ETH, which the provider expects in display units.
+    mockCalculate.mockReturnValue(2.5e16);
+    const { props } = createProps();
+    const { result } = renderViewModel(props);
+
+    act(() => result.current.pickDepositAccount());
+    selectFundingAccount(fundedAccount);
+    typeAmount(result.current.pressAmountKey, "20");
+
+    expect(quotedAmount()).toBe("0.025");
+  });
+
+  it("quotes no more than the funding account can spend", () => {
+    // The rate prices the amount above the balance, which caps what we can send.
+    mockCalculate.mockReturnValue(2.5e16);
+    const { props } = createProps();
+    const { result } = renderViewModel(props);
+
+    act(() => result.current.pickDepositAccount());
+    selectFundingAccount();
+    typeAmount(result.current.pressAmountKey, "20");
+
+    expect(result.current.statusError).toBeNull();
+    expect(quotedAmount()).toBe(new BigNumber(10000).shiftedBy(-18).toFixed());
+  });
+
+  it("floors a quote that lands between two atomic units", () => {
+    mockCalculate.mockReturnValue(1.6);
+    const { props } = createProps();
+    const { result } = renderViewModel(props);
+
+    act(() => result.current.pickDepositAccount());
+    selectFundingAccount();
+    typeAmount(result.current.pressAmountKey, "20");
+
+    // Rounding up would price the deposit above what the user typed, so the
+    // conversion stays fractional and only the floor below rounds it.
+    expect(mockCalculate).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ reverse: true, disableRounding: true }),
+    );
+    expect(quotedAmount()).toBe(new BigNumber(1).shiftedBy(-18).toFixed());
+  });
+
+  it("hides both balances when discreet mode is on", () => {
+    const { props } = createProps();
+    const { result } = renderViewModel(props, true);
+
+    act(() => result.current.pickDepositAccount());
+    selectFundingAccount();
+
+    expect(result.current.headerDescription).toContain("***");
+    expect(result.current.depositAccountCounterValue).toBe("$***");
+  });
+
+  it("holds the review CTA back until the quote lands", () => {
+    mockUsePerpsDepositQuote.mockReturnValue({
+      quote: undefined,
+      isLoading: true,
+      isUnavailable: false,
+    });
+    const { props } = createProps();
+    const { result } = renderViewModel(props);
+
+    act(() => result.current.pickDepositAccount());
+    selectFundingAccount();
+    typeAmount(result.current.pressAmountKey, "20");
+
+    // The form itself is valid, so only the missing quote keeps the CTA disabled.
+    expect(result.current.statusError).toBeNull();
+    expect(result.current.canReview).toBe(false);
+    expect(result.current.isQuoteLoading).toBe(true);
+    expect(result.current.formattedQuotedAmount).toBe("");
+  });
+
+  it("stops shimmering and explains itself when the provider has no quote", () => {
+    mockUsePerpsDepositQuote.mockReturnValue({
+      quote: undefined,
+      isLoading: false,
+      isUnavailable: true,
+    });
+    const { props } = createProps();
+    const { result } = renderViewModel(props);
+
+    act(() => result.current.pickDepositAccount());
+    selectFundingAccount();
+    typeAmount(result.current.pressAmountKey, "20");
+
+    // A pair the provider cannot route is an answer, not a pending request.
+    expect(result.current.isQuoteLoading).toBe(false);
+    expect(result.current.canReview).toBe(false);
+    expect(result.current.statusError).toEqual({
+      labelKey: "perpsDeposit.formErrors.quoteUnavailable",
+    });
+  });
+
+  it("blames the balance rather than the provider when both are wrong", () => {
+    mockUsePerpsDepositQuote.mockReturnValue({
+      quote: undefined,
+      isLoading: false,
+      isUnavailable: true,
+    });
+    const { props } = createProps();
+    const { result } = renderViewModel(props);
+
+    act(() => result.current.pickDepositAccount());
+    selectFundingAccount();
+    typeAmount(result.current.pressAmountKey, "150");
+
+    expect(result.current.statusError).toEqual({
+      labelKey: "perpsDeposit.formErrors.amountExceedsBalance",
+    });
+  });
+
+  it("opens the review with the amount converted into the funding currency", () => {
+    // $20 buys 0.025 ETH, which the review shows in the funding currency.
+    mockCalculate.mockReturnValue(2.5e16);
+    const { props } = createProps();
+    const { result } = renderViewModel(props);
+
+    act(() => result.current.pickDepositAccount());
+    selectFundingAccount(fundedAccount);
+    typeAmount(result.current.pressAmountKey, "20");
+
+    act(() => result.current.handleReview());
+
+    expect(result.current.isReviewOpen).toBe(true);
+    expect(result.current.reviewParams).toEqual({
+      depositAccount: fundedAccount,
+      receiverAccount,
+      amountSent: "0.025",
+      amountTo: "42",
+      quoteId: "quote-1",
+    });
+  });
+
+  it("holds the reviewed amounts still while quotes refresh behind it", () => {
+    mockCalculate.mockReturnValue(2.5e16);
+    const { props } = createProps();
+    const { result, rerender } = renderViewModel(props);
+
+    act(() => result.current.pickDepositAccount());
+    selectFundingAccount(fundedAccount);
+    typeAmount(result.current.pressAmountKey, "20");
+    act(() => result.current.handleReview());
+
+    const reviewed = result.current.reviewParams;
+
+    mockUsePerpsDepositQuote.mockReturnValue({
+      quote: undefined,
+      isLoading: true,
+      isUnavailable: false,
+    });
+    act(() => rerender(undefined));
+
+    expect(result.current.isReviewOpen).toBe(true);
+    expect(result.current.reviewParams).toEqual(reviewed);
+  });
+
+  it("keeps the review closed while the form is incomplete", () => {
+    const { props } = createProps();
+    const { result } = renderViewModel(props);
+
+    typeAmount(result.current.pressAmountKey, "20");
+    act(() => result.current.handleReview());
+
+    expect(result.current.isReviewOpen).toBe(false);
+    expect(result.current.reviewParams).toBeNull();
+  });
+
+  it("defaults to the USDC funding account with the highest balance", () => {
+    const { props } = createProps();
+    const { result } = renderViewModel(
+      props,
+      false,
+      withUsdcAccounts(
+        createUsdcTokenAccount("usdc-zero", 0),
+        createUsdcTokenAccount("usdc-low", 5000),
+        createUsdcTokenAccount("usdc-high", 20000),
+      ),
+    );
+
+    // The 20_000-atomic account wins; priced 1:1 into USD (2 decimals) that is a $200 ceiling.
+    expect(result.current.maxAmount).toBe(200);
+    expect(result.current.depositCurrencyTicker).toBe("USDC");
+    expect(result.current.depositAccountName).not.toBeNull();
+  });
+
+  it("ignores zero-balance USDC accounts when choosing the default", () => {
+    const { props } = createProps();
+    const { result } = renderViewModel(
+      props,
+      false,
+      withUsdcAccounts(createUsdcTokenAccount("usdc-zero", 0)),
+    );
+
+    // A null account name means nothing was defaulted; maxAmount only falls back to 0.
+    expect(result.current.depositAccountName).toBeNull();
+    expect(result.current.maxAmount).toBe(0);
+  });
+
+  describe("handing the reviewed deposit over to the device", () => {
+    const device = {
+      deviceId: "device-1",
+      deviceName: "Ledger Stax",
+      modelId: "stax",
+      wired: false,
+    } as unknown as Device;
+
+    function renderReviewedDeposit() {
+      mockCalculate.mockReturnValue(2.5e16);
+      const { props, replace } = createProps();
+      const { result } = renderViewModel(props);
+
+      act(() => result.current.pickDepositAccount());
+      selectFundingAccount(fundedAccount);
+      typeAmount(result.current.pressAmountKey, "20");
+      act(() => result.current.handleReview());
+
+      return { result, replace };
+    }
+
+    it("swaps the summary for the device step once the deposit is handed over", () => {
+      const { result } = renderReviewedDeposit();
+
+      act(() => result.current.handOverToDevice());
+
+      expect(result.current.isReviewOpen).toBe(false);
+      expect(result.current.isSignOpen).toBe(true);
+    });
+
+    it("brings the summary back, amounts intact, when signing is declined", () => {
+      const { result } = renderReviewedDeposit();
+      const reviewed = result.current.reviewParams;
+
+      act(() => result.current.handOverToDevice());
+      act(() => result.current.returnToReview());
+
+      expect(result.current.isSignOpen).toBe(false);
+      expect(result.current.isReviewOpen).toBe(true);
+      expect(result.current.reviewParams).toEqual(reviewed);
+    });
+
+    it("returns to the form after a shortfall, keeping the review closed and the draft", () => {
+      const { result } = renderReviewedDeposit();
+      const reviewed = result.current.reviewParams;
+
+      act(() => result.current.handOverToDevice());
+      act(() => result.current.returnToForm());
+
+      expect(result.current.isSignOpen).toBe(false);
+      expect(result.current.isReviewOpen).toBe(false);
+      expect(result.current.reviewParams).toEqual(reviewed);
+    });
+
+    it("keeps the device after a decline, so handing over again skips the device list", () => {
+      const { result } = renderReviewedDeposit();
+
+      act(() => result.current.handOverToDevice());
+      act(() => result.current.selectSigningDevice(device));
+      act(() => result.current.returnToReview());
+
+      expect(result.current.signingDevice).toEqual(device);
+    });
+
+    it("forgets the device once the deposit lands, so the next one starts at selection", () => {
+      const { result } = renderReviewedDeposit();
+
+      act(() => result.current.handOverToDevice());
+      act(() => result.current.selectSigningDevice(device));
+      act(() => result.current.endSigning({ swapId: "swap-1" }));
+
+      expect(result.current.isSignOpen).toBe(false);
+      expect(result.current.isReviewOpen).toBe(false);
+      expect(result.current.signingDevice).toBeUndefined();
+    });
+
+    it("replaces the form with the receipt, so back leaves the flow", () => {
+      const { result, replace } = renderReviewedDeposit();
+
+      act(() => result.current.handOverToDevice());
+      act(() => result.current.endSigning({ swapId: "swap-1" }));
+
+      expect(replace).toHaveBeenCalledWith(ScreenName.PerpsTransactionSigned, {
+        receiveCurrencyTicker: "ETH",
+        swapId: "swap-1",
+        provider: PERPS_DEPOSIT_QUOTE_PROVIDER,
+      });
+    });
+
+    it("keeps the live app's deposit request open when signing is declined", async () => {
+      const request = beginDepositRequest();
+      const settled = jest.fn();
+      request.then(settled, settled);
+      const { result } = renderReviewedDeposit();
+
+      act(() => result.current.handOverToDevice());
+      act(() => result.current.returnToReview());
+      await act(async () => {});
+
+      expect(settled).not.toHaveBeenCalled();
+    });
+
+    it("abandons the live app's deposit request when the screen is left", async () => {
+      const request = beginDepositRequest();
+      const { props } = createProps();
+      const { unmount } = renderViewModel(props);
+
+      unmount();
+
+      await expect(request).rejects.toBeInstanceOf(UserRefusedOnDevice);
+    });
+
+    it("still shows the receipt when the provider issued no swap id", () => {
+      const { result, replace } = renderReviewedDeposit();
+
+      act(() => result.current.handOverToDevice());
+      act(() => result.current.endSigning({}));
+
+      expect(replace).toHaveBeenCalledWith(
+        ScreenName.PerpsTransactionSigned,
+        expect.objectContaining({ swapId: undefined }),
+      );
+    });
+  });
+});

@@ -1,8 +1,8 @@
 {
   "name": "@features/platform-style",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "private": true,
-  "description": "Single source of truth for StyleProvider across Ledger Live apps — SC ThemeProvider + Lumen integration, DDD-boundary-clean",
+  "description": "Single source of truth for StyleProvider across Ledger Live apps — SC ThemeProvider + Lumen integration, layer-boundary-clean",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {
@@ -10,11 +10,15 @@
       "react-native": "./src/index.native.ts",
       "default": "./src/index.ts"
     },
+    "./hooks": {
+      "react-native": "./src/hooks/index.native.ts",
+      "default": "./src/hooks/index.ts"
+    },
     "./package.json": "./package.json"
   },
   "sideEffects": false,
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.native.json",
     "test": "jest",
     "test:watch": "jest --watch",
     "coverage": "jest --coverage"
@@ -31,6 +35,7 @@
     "styled-components": ">=6"
   },
   "devDependencies": {
+    "@ledgerhq/test-quarantine": "workspace:*",
     "@swc/core": "catalog:",
     "@swc/jest": "catalog:",
     "@testing-library/dom": "catalog:",
@@ -43,6 +48,7 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "styled-components": "catalog:",
+    "tailwindcss": "catalog:",
     "typescript": "catalog:"
   }
 }

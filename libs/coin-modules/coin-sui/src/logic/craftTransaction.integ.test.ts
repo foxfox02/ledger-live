@@ -1,5 +1,4 @@
 import type { TransactionIntent } from "@ledgerhq/coin-module-framework/api/index";
-import { getJsonRpcFullnodeUrl } from "@mysten/sui/jsonRpc";
 import coinConfig from "../config";
 import { extractCoinTypeFromUnsignedTx } from "../test/testUtils";
 import { craftTransaction } from "./craftTransaction";
@@ -7,10 +6,7 @@ import { craftTransaction } from "./craftTransaction";
 const SENDER = "0x33444cf803c690db96527cec67e3c9ab512596f4ba2d4eace43f0b4f716e0164";
 const RECIPIENT = "0x33444cf803c690db96527cec67e3c9ab512596f4ba2d4eace43f0b4f716e0164";
 
-// SKIP — Sui JSON-RPC public-endpoint shutdown. This suite targets the public mainnet
-// fullnode (fullnode.mainnet.sui.io), which the Sui Foundation retired (testnet wk of
-// 2026-07-06, mainnet wk of 2026-07-20) as JSON-RPC is deprecated for gRPC/GraphQL.
-// Re-enable after porting the integ config to the GraphQL transport.
+// Skipped until re-validated live against the gRPC transport.
 describe.skip("craftTransaction", () => {
   beforeAll(() => {
     coinConfig.setCoinConfig(() => ({
@@ -18,10 +14,12 @@ describe.skip("craftTransaction", () => {
         type: "active",
       },
       node: {
-        url: getJsonRpcFullnodeUrl("mainnet"),
         graphqlUrl: "https://graphql.mainnet.sui.io/graphql",
+        grpcUrl: "https://fullnode.mainnet.sui.io:443",
       },
-      features: { graphql: false },
+      features: { transport: "grpc" },
+      name: "Sui",
+      unit: { name: "Sui", code: "SUI", magnitude: 9 },
     }));
   });
 
@@ -35,7 +33,7 @@ describe.skip("craftTransaction", () => {
       asset: { type: "native" },
     };
 
-    const result = await craftTransaction(transactionIntent);
+    const result = await craftTransaction(coinConfig.getCoinConfig(), transactionIntent);
 
     expect(result).toEqual({ unsigned: expect.any(Uint8Array) });
 
@@ -61,7 +59,7 @@ describe.skip("craftTransaction", () => {
       },
     };
 
-    const result = await craftTransaction(transactionIntent);
+    const result = await craftTransaction(coinConfig.getCoinConfig(), transactionIntent);
 
     expect(result).toEqual({ unsigned: expect.any(Uint8Array) });
 
@@ -79,7 +77,7 @@ describe.skip("craftTransaction", () => {
       asset: { type: "native" },
     };
 
-    const result = await craftTransaction(transactionIntent, true);
+    const result = await craftTransaction(coinConfig.getCoinConfig(), transactionIntent, true);
 
     expect(result).toEqual({
       unsigned: expect.any(Uint8Array),
@@ -109,7 +107,7 @@ describe.skip("craftTransaction", () => {
       },
     };
 
-    const result = await craftTransaction(transactionIntent, true);
+    const result = await craftTransaction(coinConfig.getCoinConfig(), transactionIntent, true);
 
     expect(result).toEqual({
       unsigned: expect.any(Uint8Array),

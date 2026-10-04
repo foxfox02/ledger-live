@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback, useState } from "react";
 import { CryptoIcon } from "@ledgerhq/crypto-icons";
 import {
   ListItem,
@@ -7,7 +7,11 @@ import {
   ListItemTitle,
   ListItemDescription,
   ListItemTrailing,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@ledgerhq/lumen-ui-react";
+import { useTranslation } from "react-i18next";
 import { AssetType } from "../../../../types";
 
 const copyToClipboard = async (text: string) => {
@@ -18,6 +22,7 @@ const copyToClipboard = async (text: string) => {
 
 type AssetListItemProps = AssetType & {
   onClick: (asset: AssetType) => void;
+  onDisabledClick?: (asset: AssetType) => void;
 };
 
 const renderDescriptionTag = ({
@@ -53,21 +58,34 @@ export const AssetListItem = ({
   ticker,
   id,
   onClick,
+  onDisabledClick,
   leftElement,
   rightElement,
   numberOfNetworks,
   assetId,
   shouldDisplayId,
+  disabled,
 }: AssetListItemProps) => {
+  const { t } = useTranslation();
+  const [isTooltipOpen, setIsTooltipOpen] = useState(false);
+
+  const handleDisabledItemClick = useCallback(() => {
+    onDisabledClick?.({ name, ticker, id });
+    setIsTooltipOpen(true);
+  }, [id, name, onDisabledClick, ticker]);
+
   const handleClick = () => {
+    if (disabled) return;
     onClick({ name, ticker, id });
   };
 
-  return (
+  const listItem = (
     <ListItem
       className="-outline-offset-2"
-      onClick={handleClick}
+      disabled={disabled}
+      onClick={disabled ? undefined : handleClick}
       data-testid={`asset-item-ticker-${ticker.toLowerCase()}`}
+      aria-disabled={disabled || undefined}
     >
       <ListItemLeading>
         <CryptoIcon size={48} ledgerId={id} ticker={ticker} />
@@ -86,5 +104,27 @@ export const AssetListItem = ({
       </ListItemLeading>
       <ListItemTrailing>{rightElement}</ListItemTrailing>
     </ListItem>
+  );
+
+  if (!disabled) {
+    return listItem;
+  }
+
+  return (
+    <Tooltip open={isTooltipOpen} onOpenChange={setIsTooltipOpen}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="block w-full border-0 bg-transparent p-0 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+          aria-disabled
+          onClick={handleDisabledItemClick}
+        >
+          {listItem}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {t("modularAssetDrawer.unsupportedAssetTooltip", { asset: name })}
+      </TooltipContent>
+    </Tooltip>
   );
 };

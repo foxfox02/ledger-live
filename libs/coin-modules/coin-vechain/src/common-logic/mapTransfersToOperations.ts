@@ -3,16 +3,18 @@ import { Operation } from "@ledgerhq/types-live";
 import { EventLog, TransferLog } from "../types";
 import { encodeOperationId } from "@ledgerhq/ledger-wallet-framework/operation";
 import { getFees } from "../network/getFees";
-import { ABIEvent, Hex, VIP180_ABI } from "@vechain/sdk-core";
+import type { VechainCurrencyConfig } from "../config";
+import { decodeVip180Transfer } from "./vip180";
 
 export const mapVetTransfersToOperations = async (
+  config: VechainCurrencyConfig,
   txs: TransferLog[],
   accountId: string,
   addr: string,
 ): Promise<Operation[]> => {
   return Promise.all(
     txs.map(async tx => {
-      const fees = await getFees(tx.meta.txID);
+      const fees = await getFees(config, tx.meta.txID);
       return {
         id: encodeOperationId(
           accountId,
@@ -36,36 +38,24 @@ export const mapVetTransfersToOperations = async (
 };
 
 export const mapTokenTransfersToOperations = async (
+  config: VechainCurrencyConfig,
   events: EventLog[],
   accountId: string,
   addr: string,
 ): Promise<Operation[]> => {
   return Promise.all(
     events.map(async event => {
-      const decoded = ABIEvent.parseLog(VIP180_ABI, {
-        data: Hex.of(event.data),
-        topics: event.topics.map(topic => Hex.of(topic)),
-      }) as {
-        eventName: "Transfer";
-        args: {
-          from: string;
-          to: string;
-          value: bigint;
-        };
-      };
-      const from = decoded.args.from;
-      const to = decoded.args.to;
-      const value = decoded.args.value;
-      const type = to.toLowerCase() === addr.toLowerCase() ? "IN" : "OUT";
-      const fees = await getFees(event.meta.txID);
+      const { from, to, value } = decodeVip180Transfer(event);
+      const type = to === addr.toLowerCase() ? "IN" : "OUT";
+      const fees = await getFees(config, event.meta.txID);
       return {
         id: encodeOperationId(accountId, event.meta.txID, type),
         hash: event.meta.txID,
         type,
         value: new BigNumber(value.toString()),
         fee: fees,
-        senders: [from.toLowerCase()],
-        recipients: [to.toLowerCase()],
+        senders: [from],
+        recipients: [to],
         blockHeight: event.meta.blockNumber,
         blockHash: event.meta.blockID,
         accountId,

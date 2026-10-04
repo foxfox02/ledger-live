@@ -10,11 +10,15 @@ import {
   getAccountCurrency,
 } from "@ledgerhq/live-common/account/index";
 import { useBridgeRecipientValidation } from "@ledgerhq/live-common/flows/send/recipient/hooks/useBridgeRecipientValidation";
+import { findMatchedContact } from "@ledgerhq/live-common/flows/send/recipient/utils/findMatchedContact";
+import { genTokenAccount } from "@ledgerhq/ledger-wallet-framework/mocks/account";
+import { mockContact, mockContactAddress } from "@domain/entity-contact/schema.mock";
 import { useFormattedAccountBalance } from "LLM/hooks/useFormattedAccountBalance";
-import { useMaybeAccountName, useBatchMaybeAccountName } from "~/reducers/wallet";
+import { accountsSelector } from "~/reducers/accounts";
+import { useMaybeAccountName } from "~/reducers/wallet";
 import { sendFeatures } from "@ledgerhq/live-common/bridge/descriptor/send/features";
 import type { Transaction } from "@ledgerhq/live-common/generated/types";
-import { createMockAccount, createMockCurrency } from "./accounts";
+import { createMockAccount, createMockCurrency, createMockTokenCurrency } from "./accounts";
 
 jest.mock("~/context/hooks");
 jest.mock("~/reducers/wallet");
@@ -22,6 +26,7 @@ jest.mock("@ledgerhq/domain-service/hooks/index");
 jest.mock("@ledgerhq/ledger-wallet-framework/sanction/index");
 jest.mock("@ledgerhq/live-common/account/index");
 jest.mock("@ledgerhq/live-common/flows/send/recipient/hooks/useBridgeRecipientValidation");
+jest.mock("@ledgerhq/live-common/flows/send/recipient/utils/findMatchedContact");
 jest.mock("LLM/hooks/useFormattedAccountBalance");
 jest.mock("@ledgerhq/live-common/bridge/descriptor/send/features");
 
@@ -32,9 +37,9 @@ const mockedGetRecentAddressesStore = jest.mocked(getRecentAddressesStore);
 const mockedGetMainAccount = jest.mocked(getMainAccount);
 const mockedGetAccountCurrency = jest.mocked(getAccountCurrency);
 const mockedUseBridgeRecipientValidation = jest.mocked(useBridgeRecipientValidation);
+const mockedFindMatchedContact = jest.mocked(findMatchedContact);
 const mockedUseFormattedAccountBalance = jest.mocked(useFormattedAccountBalance);
 const mockedUseMaybeAccountName = jest.mocked(useMaybeAccountName);
-const mockedUseBatchMaybeAccountName = jest.mocked(useBatchMaybeAccountName);
 const mockedSendFeatures = jest.mocked(sendFeatures);
 
 const mockAccount = createMockAccount({ id: "account_1" });
@@ -80,8 +85,8 @@ describe("useAddressValidation", () => {
       formattedCounterValue: "$50,000",
     });
     mockedUseMaybeAccountName.mockReturnValue("My Account");
-    mockedUseBatchMaybeAccountName.mockReturnValue([]);
     mockedSendFeatures.getSelfTransferPolicy.mockReturnValue("impossible");
+    mockedFindMatchedContact.mockReturnValue(undefined);
   });
 
   it("returns idle status for empty search", () => {
@@ -128,6 +133,29 @@ describe("useAddressValidation", () => {
     });
   });
 
+  it("checks token recipients against the parent currency sanctions", async () => {
+    const tokenCurrency = createMockTokenCurrency();
+    const tokenAccount = genTokenAccount(0, mockEthereumAccount, tokenCurrency);
+    mockedIsAddressSanctioned.mockResolvedValue(true);
+
+    const { result } = renderHook(() =>
+      useAddressValidation({
+        searchValue: "sanctioned_address",
+        currency: tokenCurrency,
+        account: tokenAccount,
+        parentAccount: mockEthereumAccount,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.result.status).toBe("sanctioned");
+    });
+    expect(mockedIsAddressSanctioned).toHaveBeenCalledWith(
+      mockEthereumAccount.currency,
+      "sanctioned_address",
+    );
+  });
+
   it("resolves ENS names when recipientSupportsDomain is true", async () => {
     const ensResolution = {
       domain: "vitalik.eth",
@@ -160,6 +188,52 @@ describe("useAddressValidation", () => {
     });
   });
 
+  it("revalidates sanctions against the resolved ENS address", async () => {
+    const ensResolution = {
+      domain: "sanctioned.eth",
+      address: "0xSanctioned",
+      type: "forward" as const,
+      registry: "ens" as const,
+    };
+    const validationProps = {
+      searchValue: ensResolution.domain,
+      currency: mockEthereumAccount.currency,
+      account: mockEthereumAccount,
+      recipientSupportsDomain: true,
+    };
+    mockedUseDomain.mockReturnValue({ status: "loading" });
+    mockedIsAddressSanctioned.mockImplementation(
+      async (_currency, address) => address === ensResolution.address,
+    );
+
+    const { result, rerender } = renderHook(
+      (props: typeof validationProps) => useAddressValidation(props),
+      { initialProps: validationProps },
+    );
+
+    await waitFor(() => {
+      expect(mockedIsAddressSanctioned).toHaveBeenCalledWith(
+        mockEthereumAccount.currency,
+        ensResolution.domain,
+      );
+    });
+
+    mockedUseDomain.mockReturnValue({
+      status: "loaded",
+      resolutions: [ensResolution],
+      updatedAt: Date.now(),
+    });
+    rerender(validationProps);
+
+    await waitFor(() => {
+      expect(result.current.result.status).toBe("sanctioned");
+    });
+    expect(mockedIsAddressSanctioned).toHaveBeenCalledWith(
+      mockEthereumAccount.currency,
+      ensResolution.address,
+    );
+  });
+
   it("shows loading state during ENS resolution", () => {
     mockedUseDomain.mockReturnValue({
       status: "loading",
@@ -171,10 +245,14 @@ describe("useAddressValidation", () => {
         currency: createMockCurrency({ id: "ethereum", name: "Ethereum", ticker: "ETH" }),
         account: mockEthereumAccount,
         recipientSupportsDomain: true,
+        canSearchContactsByName: true,
       }),
     );
 
     expect(result.current.isLoading).toBe(true);
+    expect(mockedFindMatchedContact).toHaveBeenCalledWith([], "test.eth", "ethereum", undefined, {
+      matchName: false,
+    });
   });
 
   it("matches user accounts by address", () => {
@@ -184,11 +262,10 @@ describe("useAddressValidation", () => {
     });
 
     mockedUseSelector.mockReturnValue([mockAccount, otherAccount]);
-    mockedUseBatchMaybeAccountName.mockReturnValue(["Account 1", "Account 2"]);
 
     const { result } = renderHook(() =>
       useAddressValidation({
-        searchValue: "matching",
+        searchValue: "matching_address",
         currency: mockAccount.currency,
         account: mockAccount,
         currentAccountId: mockAccount.id,
@@ -217,6 +294,96 @@ describe("useAddressValidation", () => {
 
     expect(result.current.result.matchedRecentAddress).toBeDefined();
     expect(result.current.result.matchedRecentAddress?.address).toBe("recent_matching_address");
+  });
+
+  it("matches a saved contact by resolved address", () => {
+    const contactAddress = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
+    const remiContact = mockContact({
+      id: "contact-remi",
+      name: "Remi",
+      addresses: [
+        mockContactAddress({
+          id: "address-remi-ethereum",
+          currencyId: "ethereum",
+          label: "Ethereum Network",
+          address: contactAddress,
+        }),
+      ],
+    });
+    const matchedContact = {
+      contactId: "contact-remi",
+      contactName: "Remi",
+      isMe: false,
+      addressId: "address-remi-ethereum",
+      addressLabel: "Ethereum Network",
+      address: contactAddress,
+    };
+
+    mockedUseSelector.mockImplementation(selector =>
+      selector === accountsSelector ? [mockEthereumAccount] : [remiContact],
+    );
+    mockedFindMatchedContact.mockReturnValue(matchedContact);
+
+    mockedUseDomain.mockReturnValue({
+      status: "loaded",
+      resolutions: [
+        { domain: "vitalik.eth", address: contactAddress, registry: "ens", type: "forward" },
+      ],
+      updatedAt: Date.now(),
+    });
+
+    const { result } = renderHook(() =>
+      useAddressValidation({
+        searchValue: "vitalik.eth",
+        currency: mockEthereumAccount.currency,
+        account: mockEthereumAccount,
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    expect(result.current.result.matchedContact).toEqual(matchedContact);
+    expect(result.current.result.ensName).toBe("vitalik.eth");
+    expect(mockedFindMatchedContact).toHaveBeenCalledWith(
+      [remiContact],
+      "vitalik.eth",
+      "ethereum",
+      contactAddress,
+      { matchName: false },
+    );
+  });
+
+  it("validates a contact name using the contact address", async () => {
+    const contactAddress = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
+    mockedFindMatchedContact.mockReturnValue({
+      contactId: "contact-benoit",
+      contactName: "Benoit",
+      isMe: false,
+      addressId: "address-benoit-ethereum",
+      addressLabel: "Ethereum Network",
+      address: contactAddress,
+    });
+
+    const { result } = renderHook(() =>
+      useAddressValidation({
+        searchValue: "Benoit",
+        currency: mockEthereumAccount.currency,
+        account: mockEthereumAccount,
+        recipientSupportsDomain: true,
+        canSearchContactsByName: true,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.result.status).toBe("valid");
+    });
+    expect(result.current.result.resolvedAddress).toBe(contactAddress);
+    expect(mockedUseBridgeRecipientValidation).toHaveBeenCalledWith(
+      expect.objectContaining({ recipient: contactAddress }),
+    );
+    expect(mockedIsAddressSanctioned).toHaveBeenCalledWith(
+      mockEthereumAccount.currency,
+      contactAddress,
+    );
   });
 
   it("excludes current account from matches when self-transfer is impossible", () => {
@@ -258,16 +425,24 @@ describe("useAddressValidation", () => {
     expect(result.current.result.matchedAccounts?.[0].account.id).toBe(mockAccount.id);
   });
 
-  it("includes current account match by name when self-transfer is allowed", () => {
+  it("includes current account match when a contact name resolves to the current account address", () => {
     mockedSendFeatures.getSelfTransferPolicy.mockReturnValue("free");
-    mockedUseMaybeAccountName.mockReturnValue("Ethereum 3");
+    mockedFindMatchedContact.mockReturnValue({
+      contactId: "contact-me",
+      contactName: "My contact",
+      isMe: false,
+      addressId: "address-me",
+      addressLabel: "Bitcoin",
+      address: mockAccount.freshAddress,
+    });
 
     const { result } = renderHook(() =>
       useAddressValidation({
-        searchValue: "Ethereum 3",
+        searchValue: "My contact",
         currency: mockAccount.currency,
         account: mockAccount,
         currentAccountId: mockAccount.id,
+        canSearchContactsByName: true,
       }),
     );
 
@@ -275,31 +450,27 @@ describe("useAddressValidation", () => {
     expect(result.current.result.matchedAccounts?.[0].account.id).toBe(mockAccount.id);
   });
 
-  it("searches by account name", () => {
+  it("does not search by account name anymore", () => {
     const namedAccount = createMockAccount({
       id: "account_2",
       freshAddress: "named_account_address",
     });
 
-    // Mock the selector to return both accounts
     mockedUseSelector.mockReturnValue([mockAccount, namedAccount]);
-    // useBatchMaybeAccountName is called with userAccountsForCurrency which excludes currentAccount
-    // So it only receives namedAccount
-    mockedUseBatchMaybeAccountName.mockReturnValue(["My Savings Account"]);
+    mockedUseMaybeAccountName.mockReturnValue("Ethereum 3");
+    mockedSendFeatures.getSelfTransferPolicy.mockReturnValue("free");
 
     const { result } = renderHook(() =>
       useAddressValidation({
-        searchValue: "savings",
+        searchValue: "Ethereum 3",
         currency: mockAccount.currency,
         account: mockAccount,
         currentAccountId: mockAccount.id,
+        canSearchContactsByName: true,
       }),
     );
 
-    // The hook filters accounts by currency and excludes current account
-    // Then searches by name in the remaining accounts
-    expect(result.current.result.matchedAccounts).toHaveLength(1);
-    expect(result.current.result.matchedAccounts?.[0].account.id).toBe("account_2");
+    expect(result.current.result.matchedAccounts).toHaveLength(0);
   });
 
   it("includes bridge validation errors", () => {

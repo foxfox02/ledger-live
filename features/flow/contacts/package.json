@@ -1,6 +1,6 @@
 {
   "name": "@features/flow-contacts",
-  "version": "0.3.0",
+  "version": "0.12.0",
   "private": true,
   "description": "Shared Contacts flow package",
   "main": "src/index.ts",
@@ -11,11 +11,15 @@
       "react-native": "./src/index.native.ts",
       "default": "./src/index.ts"
     },
+    "./model": "./src/model.ts",
+    "./jest.native": "./src/jest.native.ts",
     "./package.json": "./package.json"
   },
   "sideEffects": false,
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "format": "oxfmt src",
+    "format:check": "oxfmt src --check",
+    "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.native.json",
     "test": "jest",
     "test:watch": "jest --watch",
     "coverage": "jest --coverage",
@@ -24,11 +28,15 @@
   "dependencies": {
     "@domain/entity-contact": "workspace:*",
     "@domain/entity-currency-crypto": "workspace:*",
-    "@domain/entity-currency-token": "workspace:*",
+    "@features/flow-contacts-add-contact": "workspace:^",
+    "@features/flow-contacts-edit-address": "workspace:^",
+    "@features/flow-contacts-edit-contact": "workspace:^",
+    "@features/flow-contacts-delete-contact": "workspace:^",
+    "@features/flow-contacts-introduction": "workspace:^",
+    "@features/flow-contacts-list": "workspace:^",
+    "@features/platform-contacts": "workspace:^",
     "@ledgerhq/crypto-icons": "catalog:",
-    "@features/platform-feature-flags": "workspace:^",
-    "@shared/feature-flags": "workspace:^",
-    "@shared/qr-code": "workspace:*"
+    "@shared/ui-qr-code": "workspace:*"
   },
   "peerDependencies": {
     "react": ">=19.0.0",
@@ -57,7 +65,7 @@
     }
   },
   "devDependencies": {
-    "@features/platform-jest-config": "workspace:*",
+    "@support/jest-features-flow": "workspace:*",
     "@ledgerhq/lumen-design-core": "catalog:",
     "@ledgerhq/lumen-ui-react": "catalog:",
     "@ledgerhq/lumen-ui-rnative": "catalog:",
@@ -74,6 +82,7 @@
     "@testing-library/jest-dom": "catalog:",
     "@testing-library/react": "catalog:",
     "@testing-library/react-native": "catalog:",
+    "@testing-library/user-event": "catalog:",
     "@types/jest": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
@@ -81,6 +90,7 @@
     "clsx": "catalog:",
     "jest": "catalog:",
     "jest-environment-jsdom": "catalog:",
+    "oxfmt": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-native": "catalog:",

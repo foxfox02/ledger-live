@@ -1,5 +1,4 @@
-import { CryptoCurrencyIdSchema } from "@shared/schema-primitives";
-import type { CryptoCurrency } from "./schema";
+import { CryptoCurrencyIdSchema, type CryptoCurrency } from "./schema";
 
 export function mockCryptoCurrency(overrides?: Partial<CryptoCurrency>): CryptoCurrency {
   return {
@@ -22,7 +21,6 @@ export function mockCryptoCurrency(overrides?: Partial<CryptoCurrency>): CryptoC
         address: "https://blockstream.info/address/$address",
       },
     ],
-    bitcoinLikeInfo: { P2PKH: 0, P2SH: 5 },
     ...overrides,
   };
 }
@@ -48,8 +46,6 @@ export function mockEthereumCurrency(overrides?: Partial<CryptoCurrency>): Crypt
         address: "https://etherscan.io/address/$address",
       },
     ],
-    bitcoinLikeInfo: undefined,
-    ethereumLikeInfo: { chainId: 1 },
     blockAvgTime: 15,
     tokenTypes: ["erc20"],
     ...overrides,

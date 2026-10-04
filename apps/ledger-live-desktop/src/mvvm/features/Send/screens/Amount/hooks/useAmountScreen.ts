@@ -10,9 +10,11 @@ import {
   type SendFlowTransactionActions,
   type SendFlowUiConfig,
 } from "@ledgerhq/live-common/flows/send/types";
-import { trackPage } from "~/renderer/analytics/segment";
-import { getSendFlowTrackingProperties } from "../../../utils/tracking";
+import { trackPage } from "@shared/analytics";
+import { useSendFlowTrackingProperties } from "../../../hooks/useSendFlowTrackingProperties";
 import { openURL } from "~/renderer/linking";
+import { useSendFlowTracking } from "../../../context/SendFlowTrackingContext";
+import { STANDARD_FEE_OPTION_ID, useSponsoredSend } from "../../../context/SponsoredSendContext";
 
 type AmountScreenViewModelBase = Readonly<{
   onReview: () => void;
@@ -39,15 +41,26 @@ export type AmountScreenViewModel =
 export function useAmountScreen(): AmountScreenViewModel {
   const { state, uiConfig } = useSendFlowData();
   const { transaction: transactionActions, close } = useSendFlowActions();
+  const { recipientType } = useSendFlowTracking();
   const { navigation } = useFlowWizard();
   const navigate = useNavigate();
   const location = useLocation();
   const { account, parentAccount } = state.account;
   const { bridgePending, bridgeError, status, transaction } = state.transaction;
+  const sendFlowTrackingProperties = useSendFlowTrackingProperties();
+  const {
+    selectedFeeOptionId,
+    sponsoredFeeOptionId,
+    available: sponsoredAvailable,
+    intentReady: sponsoredIntentReady,
+  } = useSponsoredSend();
 
   const trackingProperties = useMemo(
-    () => getSendFlowTrackingProperties(account, parentAccount ?? null),
-    [account, parentAccount],
+    () => ({
+      ...sendFlowTrackingProperties,
+      recipientType,
+    }),
+    [sendFlowTrackingProperties, recipientType],
   );
 
   const isReady = Boolean(account && transaction && status && uiConfig && transactionActions);
@@ -55,7 +68,10 @@ export function useAmountScreen(): AmountScreenViewModel {
   const hasTrackedRef = useRef(false);
   if (!hasTrackedRef.current && isReady) {
     hasTrackedRef.current = true;
-    trackPage("Modal send - step amount", null, trackingProperties);
+    trackPage({
+      category: "Modal send - step amount",
+      props: trackingProperties,
+    });
   }
 
   const onGetFunds = useCallback(() => {
@@ -125,15 +141,36 @@ export function useAmountScreen(): AmountScreenViewModel {
   );
 
   const onReview = useCallback(() => {
+    if (selectedFeeOptionId !== STANDARD_FEE_OPTION_ID) {
+      // Wait rather than go to SIGNATURE: the tx is marked sponsored, so its native fee wouldn't be locked.
+      // An unavailable pick is reverted to standard by the provider, which clears the mark.
+      const sponsoredReady =
+        selectedFeeOptionId === sponsoredFeeOptionId && sponsoredAvailable && sponsoredIntentReady;
+      if (!sponsoredReady) return;
+      navigation.goToStep(SEND_FLOW_STEP.SPONSORED_RENT_SIGNATURE);
+      return;
+    }
     navigation.goToStep(SEND_FLOW_STEP.SIGNATURE);
-  }, [navigation]);
+  }, [
+    navigation,
+    selectedFeeOptionId,
+    sponsoredFeeOptionId,
+    sponsoredAvailable,
+    sponsoredIntentReady,
+  ]);
 
   const onSelectCoinControl = useCallback(() => {
     navigation.goToStep(SEND_FLOW_STEP.COIN_CONTROL);
   }, [navigation]);
 
   if (!account || !transaction || !status || !uiConfig || !transactionActions) {
-    return { ready: false, onReview, onGetFunds, onSelectCoinControl, onMessageLinkPress };
+    return {
+      ready: false,
+      onReview,
+      onGetFunds,
+      onSelectCoinControl,
+      onMessageLinkPress,
+    };
   }
 
   return {

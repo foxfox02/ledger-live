@@ -1,0 +1,155 @@
+import React from "react";
+import { I18nTestProvider } from "@shared/i18n/testing";
+import { LinkingProvider } from "@shared/linking";
+
+export const CARD_DISCLAIMER = "Disclaimer placeholder";
+
+export const CARD_COPY = {
+  freeze: "Freeze",
+  unfreeze: "Unfreeze",
+  goBack: "Go back",
+  freezeTitle: "Freezing means you cannot use the card anymore",
+  freezeDescription: "You can unfreeze your card at any time.",
+  freezeConfirm: "Freeze now",
+  freezeErrorTitle: "Freeze failed",
+  unfreezeTitle: "Unfreeze your card?",
+  unfreezeConfirm: "Unfreeze now",
+  unfreezeErrorTitle: "Unfreeze failed",
+  errorDescription: "Something went wrong. Please try again.",
+  retry: "Try again",
+  topUp: "Top up",
+  chooseCardType: "Choose card type",
+  details: "Details",
+  numbersReveal: "View",
+  numbersHide: "Hide",
+  numbersFailed: "Couldn't load card numbers",
+  numbersImageAlt: "Card numbers",
+  reward: "Total cashback · {{ratePercent}}% in {{ticker}}",
+} as const;
+
+/** {@link CARD_COPY.reward} as the banner renders it for the mocked cashback. */
+export const REWARD_SUBTITLE = "Total cashback · 1% in BTC";
+
+export const ADD_TO_WALLET_COPY = {
+  entry: "Add to {{wallet}} Pay",
+  title: "Add to Apple Pay",
+  step1: "Go to Apple Wallet app and tap add (+)",
+  step2: "Select Debit or Credit Card",
+  step3: "Follow the instructions",
+  cta: "Go to Apple Wallet",
+} as const;
+
+export const MORE_COPY = {
+  tile: "More",
+  title: "More",
+  rows: {
+    managePin: "Card PIN",
+    accessBaanx: "Access to Baanx",
+    help: "Help",
+    legal: "Legal agreement",
+    logout: "Logout",
+  },
+} as const;
+
+export const CARD_TRANSACTIONS_COPY = {
+  title: "Transactions",
+  categories: {
+    SUBSCRIPTIONS: "Subscriptions",
+    FOOD: "Food",
+    TRAVEL: "Travel",
+    ENTERTAINMENT: "Entertainment",
+    HEALTH: "Health",
+    ATM: "ATM",
+    UTILITIES: "Utilities",
+    MISC: "Other",
+  },
+  detail: {
+    amount: "Amount",
+    status: "Status",
+    card: "Card",
+    cardInfo: "The last four digits of the card used for this payment.",
+    fundingSource_one: "Funding source",
+    fundingSource_other: "Funding sources",
+    transactionId: "Transaction ID",
+    copyTransactionId: "Copy transaction ID",
+    today: "Today {{time}}",
+    yesterday: "Yesterday {{time}}",
+    dateTime: "{{date}} {{time}}",
+    statusValues: {
+      CONFIRMED: "Confirmed",
+      PENDING: "Pending",
+      DECLINED: "Declined",
+      REVERTED: "Reverted",
+    },
+  },
+} as const;
+
+export const CARD_RESOURCES = {
+  en: {
+    translation: {
+      payTab: {
+        disclaimer: CARD_DISCLAIMER,
+        card: {
+          freeze: CARD_COPY.freeze,
+          unfreeze: CARD_COPY.unfreeze,
+          goBack: CARD_COPY.goBack,
+          topUp: CARD_COPY.topUp,
+          chooseCardType: CARD_COPY.chooseCardType,
+          details: CARD_COPY.details,
+          freezeConfirm: {
+            title: CARD_COPY.freezeTitle,
+            description: CARD_COPY.freezeDescription,
+            confirm: CARD_COPY.freezeConfirm,
+            errorTitle: CARD_COPY.freezeErrorTitle,
+          },
+          unfreezeConfirm: {
+            title: CARD_COPY.unfreezeTitle,
+            confirm: CARD_COPY.unfreezeConfirm,
+            errorTitle: CARD_COPY.unfreezeErrorTitle,
+          },
+          confirmError: {
+            description: CARD_COPY.errorDescription,
+            retry: CARD_COPY.retry,
+          },
+          numbers: {
+            reveal: CARD_COPY.numbersReveal,
+            hide: CARD_COPY.numbersHide,
+            failed: CARD_COPY.numbersFailed,
+            imageAlt: CARD_COPY.numbersImageAlt,
+          },
+          reward: {
+            title: CARD_COPY.reward,
+          },
+          addToWallet: ADD_TO_WALLET_COPY.entry,
+        },
+        cardOnboarding: {
+          addToWallet: {
+            ios: {
+              title: ADD_TO_WALLET_COPY.title,
+              step1: ADD_TO_WALLET_COPY.step1,
+              step2: ADD_TO_WALLET_COPY.step2,
+              step3: ADD_TO_WALLET_COPY.step3,
+              cta: ADD_TO_WALLET_COPY.cta,
+            },
+          },
+        },
+        cardMore: {
+          tile: MORE_COPY.tile,
+          title: MORE_COPY.title,
+          rows: MORE_COPY.rows,
+        },
+        cardTransactions: CARD_TRANSACTIONS_COPY,
+      },
+    },
+  },
+};
+
+export const openExternalMock = jest.fn();
+
+export function I18nWrapper({ children }: { children: React.ReactNode }) {
+  return (
+    <I18nTestProvider resources={CARD_RESOURCES}>
+      <LinkingProvider config={{ openExternal: openExternalMock }}>{children}</LinkingProvider>
+    </I18nTestProvider>
+  );
+}

@@ -1,19 +1,33 @@
+// tsconfig-paths for the Jest controller (globalSetup/globalTeardown) and workers.
+// Must be first (CJS has no hoisting). Explicit baseUrl: __dirname keeps this CWD-independent.
+const { register } = require("tsconfig-paths");
+const { compilerOptions } = require("./tsconfig.json");
+register({ baseUrl: __dirname, paths: compilerOptions.paths });
+
+// Workers are separate processes that don't inherit the register() call above.
+// Setting NODE_OPTIONS here propagates to workers via fork() environment inheritance.
+const tsconfigPathsRegister = require.resolve("tsconfig-paths/register");
+if (!process.env.NODE_OPTIONS?.includes(tsconfigPathsRegister)) {
+  process.env.NODE_OPTIONS = [process.env.NODE_OPTIONS, `--require ${tsconfigPathsRegister}`]
+    .filter(Boolean)
+    .join(" ");
+}
+
 const path = require("node:path");
 const { parseExtraFeatureFlags } = require("@ledgerhq/live-e2e-shared/featureFlagsJsonUtils");
-const { compilerOptions } = require("./tsconfig.json");
+// Node strips the types at require time, so specs that extend the default budget read the same value.
+const { TEST_TIMEOUT } = require("./utils/timeouts.ts");
 
 function pathsToModuleNameMapper(paths, { prefix = "<rootDir>/" } = {}) {
   const jestPaths = {};
   if (!paths) return jestPaths;
 
   Object.keys(paths).forEach(pathKey => {
-    // tsconfig uses "*": ["./*"] instead of baseUrl; mapping (.*) -> $1 breaks every module in Jest
-    if (pathKey === "*") return;
     const pathEntry = paths[pathKey];
     const pathValues = Array.isArray(pathEntry) ? pathEntry : [pathEntry];
     pathValues.forEach(pathValue => {
       const jestKey = `^${pathKey.replace(/\*$/, "(.*)")}$`;
-      const jestValue = pathValue.replace(/\*/g, "$1");
+      const jestValue = pathValue.replace(/^\.\//, "").replace(/\*/g, "$1");
       jestPaths[jestKey] = `${prefix}${jestValue}`;
     });
   });
@@ -23,10 +37,22 @@ function pathsToModuleNameMapper(paths, { prefix = "<rootDir>/" } = {}) {
 
 const platform = process.env.DETOX_CONFIGURATION?.startsWith("ios") ? "ios" : "android";
 
+// Same set jest.environment.ts narrows the run to on a Detox retry. Present only on a retry pass.
+const retryTestNames = process.env.E2E_RETRY_TEST_NAMES
+  ? new Set(JSON.parse(process.env.E2E_RETRY_TEST_NAMES))
+  : undefined;
+
+// jest-allure2-reporter appends descriptions rather than replacing — QAA-1547
+const dedupeParagraphs = paragraphs => [...new Set(paragraphs ?? [])];
+
 const jestAllure2ReporterOptions = {
   extends: "detox-allure2-adapter/preset-detox",
   resultsDir: "artifacts",
   testCase: {
+    description: ({ testCaseMetadata }) =>
+      dedupeParagraphs(testCaseMetadata.description).join("\n\n"),
+    descriptionHtml: ({ testCaseMetadata }) =>
+      dedupeParagraphs(testCaseMetadata.descriptionHtml).join("\n"),
     links: {
       issue: "https://ledgerhq.atlassian.net/browse/{{name}}",
       tms: "https://ledgerhq.atlassian.net/browse/{{name}}",
@@ -42,6 +68,14 @@ const jestAllure2ReporterOptions = {
     },
     status: ({ value }) => (value === "broken" ? "failed" : value),
     historyId: ({ value }) => `${value}:${platform}`,
+    // On a Detox retry, jest.environment.ts marks the tests we are not retrying as skipped rather
+    // than deleting them, because deleting desynchronises jest's result list from jest-metadata's
+    // registry and the reporter pairs those positionally (losing a result entirely). They are
+    // still reported, though, so drop them here: they share a historyId with their previous
+    // attempt, and a later-timestamped "skipped" would override that verdict in the report.
+    // Inert outside a retry pass, when retryTestNames is undefined.
+    ignored: ({ value, testCase }) =>
+      value || (!!retryTestNames && !retryTestNames.has(testCase.fullName)),
   },
   overwrite: false,
   environment: async ({ $ }) => ({
@@ -110,7 +144,9 @@ const config = {
 
   setupFilesAfterEnv: ["<rootDir>/setup.ts"],
   testMatch: ["<rootDir>/specs/**/*.spec.ts"],
-  testTimeout: 300_000,
+  // CI shards exclude `.skip.spec.ts` (apps/ledger-live-mobile/scripts/shard-tests.mjs).
+  testPathIgnorePatterns: ["\\.skip\\.spec\\.ts$"],
+  testTimeout: TEST_TIMEOUT,
   reporters: [
     "detox/runners/jest/reporter",
     ["jest-allure2-reporter", jestAllure2ReporterOptions],

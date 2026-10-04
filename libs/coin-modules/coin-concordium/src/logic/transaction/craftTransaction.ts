@@ -36,6 +36,9 @@ export async function craftTransaction(
       sender: AccountAddress.fromBase58(account.address),
       nonce: BigInt(account.nextSequenceNumber || 0),
       expiry: BigInt(expiryEpochSeconds),
+      // Still reachable, so not removable: the api path crafts without an
+      // energy (`api/index.ts`), while the bridge always passes an estimate.
+      // 0 NRG is rejected at broadcast, after the device ceremony has completed.
       energyAmount: transaction.energy ?? BigInt(0),
     },
     payload: {

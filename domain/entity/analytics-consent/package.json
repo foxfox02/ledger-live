@@ -1,6 +1,6 @@
 {
   "name": "@domain/entity-analytics-consent",
-  "version": "0.1.0",
+  "version": "0.2.2",
   "private": true,
   "description": "Domain entity for analytics consent: privacy policy version value object and stored consent state",
   "main": "src/index.ts",
@@ -23,6 +23,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@ledgerhq/test-quarantine": "workspace:*",
     "@swc/core": "catalog:",
     "@swc/jest": "catalog:",
     "@types/jest": "catalog:",

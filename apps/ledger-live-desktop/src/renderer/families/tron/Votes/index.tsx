@@ -33,8 +33,9 @@ import { urls } from "~/config/urls";
 import { useDateFromNow } from "~/renderer/hooks/useDateFormatter";
 import { useNavigate } from "react-router";
 import { stakeDefaultTrack } from "~/renderer/screens/stake/constants";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import { useAccountUnit } from "~/renderer/hooks/useAccountUnit";
+import { getAccountUrl } from "~/renderer/utils";
 
 const Wrapper = styled(Box).attrs(() => ({
   p: 3,
@@ -95,7 +96,7 @@ const Delegation = ({ account }: { account: TronAccount }) => {
         pendingaction: "REVOTE",
         yieldId: "tron-trx-native-staking",
         accountId: account.id,
-        returnTo: `/account/${account.id}`,
+        returnTo: getAccountUrl(account.id),
       },
     });
   };
@@ -115,7 +116,7 @@ const Delegation = ({ account }: { account: TronAccount }) => {
         pendingaction: "CLAIM_REWARDS",
         yieldId: "tron-trx-native-staking",
         accountId: account.id,
-        returnTo: `/account/${account.id}`,
+        returnTo: getAccountUrl(account.id),
       },
     });
   };

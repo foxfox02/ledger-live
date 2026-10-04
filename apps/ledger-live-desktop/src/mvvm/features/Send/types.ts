@@ -17,6 +17,7 @@ export type SendStepConfig = FlowStepConfig<SendFlowStep> &
     backTarget?: SendFlowStep;
     /** Whether the "Available $XX" description is shown in the header. Defaults to true when showTitle is true. */
     showAvailable?: boolean;
+    headerDensity?: "compact" | "expanded";
   }>;
 
 export type SendFlowConfig = FlowConfig<SendFlowStep, SendStepConfig>;
@@ -32,3 +33,16 @@ export type SendFlowContextValue = SendFlowBusinessContext &
     direction: NavigationDirection;
     currentStepConfig: SendStepConfig;
   }>;
+
+/** A fee amount: `value` leads, `secondaryValue` follows dimmed (the crypto amount when `value` is fiat). */
+export type FeeAmountDisplay = Readonly<{ value: string; secondaryValue: string | null }>;
+
+/** Each fee option priced in its own unit; only fiat is struck through, as both options share it. */
+export type SponsoredFeeAmounts = Readonly<{
+  sponsored: FeeAmountDisplay &
+    Readonly<{
+      /** The standard fee's fiat price, struck through; null unless both fiat prices exist and the sponsored one is lower. */
+      originalValue: string | null;
+    }>;
+  standard: FeeAmountDisplay;
+}>;

@@ -63,7 +63,7 @@ import type {
   TransactionRaw as evmTransactionRaw,
   TransactionStatus as evmTransactionStatus,
   TransactionStatusRaw as evmTransactionStatusRaw,
-} from "@ledgerhq/coin-evm/types/index";
+} from "../families/evm/types";
 import type {
   Transaction as filecoinTransaction,
   TransactionRaw as filecoinTransactionRaw,
@@ -123,7 +123,7 @@ import type {
   TransactionRaw as solanaTransactionRaw,
   TransactionStatus as solanaTransactionStatus,
   TransactionStatusRaw as solanaTransactionStatusRaw,
-} from "@ledgerhq/coin-solana/types";
+} from "../families/solana/types";
 import type {
   Transaction as stacksTransaction,
   TransactionRaw as stacksTransactionRaw,
@@ -159,7 +159,7 @@ import type {
   TransactionRaw as tronTransactionRaw,
   TransactionStatus as tronTransactionStatus,
   TransactionStatusRaw as tronTransactionStatusRaw,
-} from "@ledgerhq/coin-tron/types/index";
+} from "../families/tron/types";
 import type {
   Transaction as vechainTransaction,
   TransactionRaw as vechainTransactionRaw,

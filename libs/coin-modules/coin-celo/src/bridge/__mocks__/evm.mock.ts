@@ -8,8 +8,9 @@ jest.mock("../getTokenFromAsset", () => {
 });
 
 export const mockCoinConfig = jest.fn();
-jest.mock("@ledgerhq/coin-evm/config", () => {
+jest.mock("../../config", () => {
   return {
+    ...jest.requireActual("../../config"),
     getCoinConfig: () => mockCoinConfig(),
   };
 });
@@ -17,6 +18,8 @@ jest.mock("@ledgerhq/coin-evm/config", () => {
 mockCoinConfig.mockResolvedValue({
   info: {
     status: { type: "active" },
+    name: "Celo",
+    unit: { name: "CELO", code: "CELO", magnitude: 18 },
     node: { type: "external", uri: "https://celo.coin.ledger.com/archive" },
     explorer: { type: "blockscout", uri: "https://celo.blockscout.com/api" },
   },
@@ -38,7 +41,7 @@ getSyncHash.mockReturnValue("0x0000000000000000000000000000000000001d00");
 createSwapHistoryMap.mockReturnValue(new Map<string, SwapOperation[]>([]));
 
 const getNodeApi = jest.fn();
-jest.mock("@ledgerhq/coin-evm/network/node/index", () => {
+jest.mock("@ledgerhq/coin-evm/network", () => {
   return {
     getNodeApi: () => getNodeApi(),
   };

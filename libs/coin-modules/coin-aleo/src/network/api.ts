@@ -8,11 +8,16 @@ import type {
   AleoRegisterForRecordsResponse,
   AleoGetScannerPublicKeyResponse,
   AleoGetProvePublicKeyResponse,
+  AleoGetTokensResponse,
   AleoPrivateRecord,
   DelegatedProvingResponse,
+  AleoTransitionCursor,
+  AleoCommitteeResponse,
+  AleoValidatorMetadataResponse,
+  AleoTotalSupplyResponse,
 } from "../types/api";
 import type { AleoCoinConfig } from "../types";
-import { PROGRAM_ID } from "../constants";
+import { MAX_TRANSITIONS_PER_PAGE, PROGRAM_ID } from "../constants";
 
 async function getLatestBlock(config: AleoCoinConfig): Promise<AleoLatestBlockResponse> {
   const { apiUrls, networkType } = config;
@@ -31,6 +36,77 @@ async function getAccountBalance(config: AleoCoinConfig, address: string): Promi
   const res = await network<string | null>({
     method: "GET",
     url: `${apiUrls.node}/v2/${networkType}/program/${PROGRAM_ID.CREDITS}/mapping/account/${address}`,
+  });
+
+  return res.data;
+}
+
+async function getBondedMapping(config: AleoCoinConfig, address: string): Promise<string | null> {
+  const { apiUrls, networkType } = config;
+
+  const res = await network<string | null>({
+    method: "GET",
+    url: `${apiUrls.node}/v2/${networkType}/program/${PROGRAM_ID.CREDITS}/mapping/bonded/${address}`,
+  });
+
+  return res.data;
+}
+
+async function getUnbondingMapping(
+  config: AleoCoinConfig,
+  address: string,
+): Promise<string | null> {
+  const { apiUrls, networkType } = config;
+
+  const res = await network<string | null>({
+    method: "GET",
+    url: `${apiUrls.node}/v2/${networkType}/program/${PROGRAM_ID.CREDITS}/mapping/unbonding/${address}`,
+  });
+
+  return res.data;
+}
+
+async function getWithdrawMapping(config: AleoCoinConfig, address: string): Promise<string | null> {
+  const { apiUrls, networkType } = config;
+
+  const res = await network<string | null>({
+    method: "GET",
+    url: `${apiUrls.node}/v2/${networkType}/program/${PROGRAM_ID.CREDITS}/mapping/withdraw/${address}`,
+  });
+
+  return res.data;
+}
+
+async function getCommittee(config: AleoCoinConfig): Promise<AleoCommitteeResponse> {
+  const { apiUrls, networkType } = config;
+
+  const res = await network<AleoCommitteeResponse>({
+    method: "GET",
+    url: `${apiUrls.node}/v2/${networkType}/committee/latest`,
+  });
+
+  return res.data;
+}
+
+async function getValidatorMetadata(
+  config: AleoCoinConfig,
+): Promise<AleoValidatorMetadataResponse> {
+  const { apiUrls, networkType } = config;
+
+  const res = await network<AleoValidatorMetadataResponse>({
+    method: "GET",
+    url: `${apiUrls.node}/v2/${networkType}/committee/validator-metadata`,
+  });
+
+  return res.data;
+}
+
+async function getTotalSupply(config: AleoCoinConfig): Promise<AleoTotalSupplyResponse> {
+  const { apiUrls, networkType } = config;
+
+  const res = await network<AleoTotalSupplyResponse>({
+    method: "GET",
+    url: `${apiUrls.node}/v2/${networkType}/latest/totalSupply`,
   });
 
   return res.data;
@@ -60,6 +136,41 @@ async function getTokenBalance(
   return res.data;
 }
 
+/**
+ * Fetches the registry of known tokens on the network (ARC-20, ARC-21 and ARC-22 alike).
+ *
+ * @param config - The Aleo coin config
+ * @param params.limit - Max items to return (server default: 20)
+ * @param params.offset - Number of items to skip (server default: 0)
+ */
+async function getTokens({
+  config,
+  options = {},
+}: {
+  config: AleoCoinConfig;
+  options?: {
+    verified?: boolean;
+    symbol?: string;
+    limit?: number;
+    offset?: number;
+  };
+}): Promise<AleoGetTokensResponse> {
+  const { apiUrls, networkType } = config;
+  const params = new URLSearchParams({
+    ...(options.symbol && { symbol: options.symbol }),
+    ...(typeof options.verified === "boolean" && { verified: options.verified.toString() }),
+    ...(typeof options.limit === "number" && { limit: options.limit.toString() }),
+    ...(typeof options.offset === "number" && { offset: options.offset.toString() }),
+  });
+
+  const res = await network<AleoGetTokensResponse>({
+    method: "GET",
+    url: `${apiUrls.node}/v2/${networkType}/tokens?${params.toString()}`,
+  });
+
+  return res.data;
+}
+
 async function getTransactionById(
   config: AleoCoinConfig,
   transactionId: string,
@@ -78,13 +189,13 @@ async function getAccountPublicTransactions({
   config,
   address,
   cursor,
-  limit = 50,
+  limit = MAX_TRANSITIONS_PER_PAGE,
   order = "asc",
   direction = "next",
 }: {
   config: AleoCoinConfig;
   address: string;
-  cursor?: string;
+  cursor?: AleoTransitionCursor;
   limit?: number;
   order?: "asc" | "desc";
   direction?: "prev" | "next";
@@ -92,11 +203,16 @@ async function getAccountPublicTransactions({
   const { apiUrls, networkType } = config;
   const params = new URLSearchParams({
     metadata: "true",
-    limit: limit.toString(),
+    limit: Math.min(limit, MAX_TRANSITIONS_PER_PAGE).toString(),
     sort: order,
     direction,
     token_info: "true",
-    ...(cursor && { cursor_block_number: cursor }),
+    ...(cursor && {
+      cursor_block_number: cursor.blockNumber.toString(),
+      // Sending the block alone resumes after the *whole* block, silently dropping the transitions of
+      // it that were not read yet. Verified against mainnet: 10 of 357 rows lost on one account.
+      ...(cursor.transitionId && { cursor_transition_id: cursor.transitionId }),
+    }),
   });
 
   const res: LiveNetworkResponse<AleoPublicTransactionsResponse> = await network({
@@ -166,6 +282,7 @@ async function getAccountOwnedRecords({
   uuid,
   unspent,
   start,
+  end,
   resultsPerPage,
   page,
   programs,
@@ -175,6 +292,7 @@ async function getAccountOwnedRecords({
   uuid: string;
   unspent?: boolean;
   start?: number;
+  end?: number;
   resultsPerPage?: number;
   page?: number;
   programs?: string[];
@@ -184,6 +302,7 @@ async function getAccountOwnedRecords({
 
   const filter = {
     ...(typeof start === "number" && { start }),
+    ...(typeof end === "number" && { end }),
     ...(typeof resultsPerPage === "number" && { results_per_page: resultsPerPage }),
     ...(typeof page === "number" && { page }),
     ...(programs && programs.length > 0 && { programs }),
@@ -282,7 +401,14 @@ async function submitEncryptedDelegatedProvingRequest({
 export const apiClient = {
   getLatestBlock,
   getAccountBalance,
+  getBondedMapping,
+  getUnbondingMapping,
+  getWithdrawMapping,
+  getCommittee,
+  getValidatorMetadata,
+  getTotalSupply,
   getTokenBalance,
+  getTokens,
   getTransactionById,
   getAccountPublicTransactions,
   getRecordScannerStatus,

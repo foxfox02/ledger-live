@@ -29,8 +29,13 @@ const appConfig: Record<string, ConfigInfo> = {
   config_nanoapp_ethereum: {
     type: "object",
     default: {
-      minVersion: "1.20.1",
-      nanosMinVersion: "1.16.0",
+      minVersion: "1.22.5",
+      nanoxMinVersion: "1.22.5",
+      nanospMinVersion: "1.22.5",
+      flexMinVersion: "1.22.5",
+      staxMinVersion: "1.22.5",
+      apexpMinVersion: "1.22.5",
+      nanosMinVersion: "1.16.2",
     },
   },
   config_nanoapp_solana: {
@@ -49,7 +54,8 @@ const appConfig: Record<string, ConfigInfo> = {
   config_nanoapp_cardano_ada: {
     type: "object",
     default: {
-      minVersion: "4.1.0",
+      minVersion: "8.0.8",
+      nanosMinVersion: "7.1.4",
     },
   },
   config_nanoapp_zcash: {

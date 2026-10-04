@@ -1,9 +1,9 @@
-import { WebViewAppPage } from "./webViewApp.page";
+import { WebViewAppPage } from "tests/page/webViewApp.page";
 import { step } from "tests/misc/reporters/step";
-import { expect, Page } from "@playwright/test";
+import { expect, Page, test } from "@playwright/test";
 import { Account } from "@ledgerhq/live-e2e-shared/enum/Account";
 import { sendDeepLink } from "tests/utils/deeplink";
-import { ChooseAssetDrawer } from "./drawer/choose.asset.drawer";
+import { ChooseAssetDrawer } from "tests/page/drawer/choose.asset.drawer";
 import { SwapProvider } from "@ledgerhq/live-e2e-shared/enum/Provider";
 import { Device } from "@ledgerhq/live-e2e-shared/enum/Device";
 import { Swap } from "@ledgerhq/live-e2e-shared/models/Swap";
@@ -28,6 +28,12 @@ export class SwapPage extends WebViewAppPage {
     __dirname,
     "../artifacts/ledgerwallet-swap-history.csv",
   );
+  private static readonly QUOTE_CARD_PROVIDER_NAME_PREFIX = "compact-quote-card-provider-name-";
+  private static readonly AMOUNT_LABEL_SUFFIX = "amount-label";
+  private static readonly FIAT_AMOUNT_LABEL_SUFFIX = "fiatAmount-label";
+  private static readonly NETWORK_FEES_HEADING_SUFFIX = "networkFees-heading";
+  private static readonly EXTRA_FEES_CONTAINER_SUFFIX = "extraFeesContainer";
+  private static readonly RATE_INFO_ICON_SUFFIX = "rate-infoIcon";
 
   private readonly fullSwapContainer = this.page.getByTestId("swap-web-app-container-full");
   private readonly embeddedSwapContainer = this.page.getByTestId("swap-web-app-container-embedded");
@@ -41,9 +47,10 @@ export class SwapPage extends WebViewAppPage {
   private readonly noQuotesPlaceholder = "quotes-error-state";
   private toAccountCoinSelector = "to-account-coin-selector";
   private readonly toAccountAccountNameTag = "to-account-account-name-tag";
-  private quoteCardProviderName = "compact-quote-card-provider-";
-  private specificQuoteCardProviderName = (provider: string) =>
-    `[data-testid^='compact-quote-card-provider-name-${provider.toLowerCase()}']`;
+  private readonly toAccountAmountInput = "to-account-amount-input";
+  private readonly fromAccountAmountInactive = "from-account-amount-inactive";
+  private specificQuoteCardProviderName = (prefix: string, provider: string) =>
+    `[data-testid^='${prefix}${provider.toLowerCase()}']`;
   private providerContainerSelector = (provider: string) =>
     `[data-testid^="quote-container-${provider}"]`;
   private providerContainerInfoSelector = (provider: string, suffix: string) =>
@@ -91,6 +98,16 @@ export class SwapPage extends WebViewAppPage {
     this.page.getByTestId(`swap-history-to-amount-${swapId}`);
   private chooseAssetDrawer = new ChooseAssetDrawer(this.page);
 
+  // Landing page (no active quote) panel
+  private readonly topGainersContainer = "top-gainers-container";
+  private readonly topGainersInfoIcon = "top-gainers-info-icon";
+  private readonly topGainersDateTrigger = "top-gainers-date-select-trigger";
+  private readonly topGainersItems = '[data-testid^="top-gainers-item-"]';
+  private readonly topGainersDateOptions = '[data-testid^="top-gainers-date-option-"]';
+  private readonly topStablecoinsContainer = "top-stablecoins-container";
+  private readonly topStablecoinsInfoIcon = "top-stablecoins-info-icon";
+  private readonly topStablecoinsItems = '[data-testid^="top-stablecoins-item-"]';
+
   private async waitForSelectorPopulated(webview: Page, testId: string, timeout: number) {
     await webview.waitForFunction(
       selectorTestId => {
@@ -106,6 +123,33 @@ export class SwapPage extends WebViewAppPage {
     await this.maxSpendableToggle.click();
   }
 
+  // Only asserts the CTA testid is present and usable; ignores its label so an
+  // A/B-tested label cannot fail callers that only need the button to exist.
+  @step("Check exchange CTA presence: $0")
+  async checkQuoteCardCtaPresence(providerUiName: string) {
+    const webview = await this.getWebView();
+    const providerName = SwapProvider.getNameByUiName(providerUiName);
+    if (!providerName) {
+      throw new Error(`Unknown provider UI name: "${providerUiName}"`);
+    }
+    const buttonLocator = webview
+      .locator(this.providerContainerSelector(providerName))
+      .getByTestId(this.swapBtn)
+      .first();
+    await expect(buttonLocator).toBeVisible();
+    await expect(buttonLocator).toBeEnabled();
+    return buttonLocator;
+  }
+
+  // approvalRequired must reflect real allowance state: false for native assets,
+  // deposit-based providers (no contractAddress), or an already-approved token.
+  @step("Check exchange CTA text: $0")
+  async checkQuoteCardCtaLabel(providerUiName: string, approvalRequired = false): Promise<void> {
+    const buttonLocator = await this.checkQuoteCardCtaPresence(providerUiName);
+    const ctaVerb = approvalRequired ? "Approve spending" : "Swap";
+    await expect.soft(buttonLocator).toHaveText(`${ctaVerb} with ${providerUiName}`);
+  }
+
   @step("Get provider list")
   async getProviderList() {
     const webview = await this.getWebView();
@@ -114,9 +158,13 @@ export class SwapPage extends WebViewAppPage {
     await expect(webview.getByTestId(this.bestValueInfoIcon)).toBeVisible();
     await expect(webview.getByTestId(this.quotesCountdown)).toBeVisible();
 
-    return await webview
-      .locator(`[data-testid^='${this.quoteCardProviderName}']`)
+    const providerList = await webview
+      .locator(`[data-testid^='${SwapPage.QUOTE_CARD_PROVIDER_NAME_PREFIX}']`)
       .allTextContents();
+    if (providerList.length === 0) {
+      throw new Error("No quote providers were returned");
+    }
+    return providerList;
   }
 
   @step("Check elements presence on swap approval step")
@@ -132,35 +180,54 @@ export class SwapPage extends WebViewAppPage {
     await this.continueBtn.click();
   }
 
+  @step("Get quote card amount texts for $0")
+  async getQuoteAmountTexts(providerUiName: string) {
+    const webview = await this.getWebView();
+    const provider = SwapProvider.getNameByUiName(providerUiName);
+    const amount = await webview
+      .locator(this.providerContainerInfoSelector(provider, SwapPage.AMOUNT_LABEL_SUFFIX))
+      .first()
+      .textContent();
+    const fiatAmount = await webview
+      .locator(this.providerContainerInfoSelector(provider, SwapPage.FIAT_AMOUNT_LABEL_SUFFIX))
+      .first()
+      .textContent();
+    return { amount, fiatAmount };
+  }
+
   @step("Check quotes container infos")
   async checkQuotesContainerInfos(providerList: string[], ticker: string) {
     const webview = await this.getWebView();
     const provider = SwapProvider.getNameByUiName(providerList[0]);
 
     await webview
-      .locator(this.providerContainerInfoSelector(provider, "amount-label"))
+      .locator(this.providerContainerInfoSelector(provider, SwapPage.AMOUNT_LABEL_SUFFIX))
       .first()
       .click();
     await expect(
-      webview.locator(this.providerContainerInfoSelector(provider, "amount-label")),
+      webview.locator(this.providerContainerInfoSelector(provider, SwapPage.AMOUNT_LABEL_SUFFIX)),
     ).toBeVisible();
     await expect(
-      webview.locator(this.providerContainerInfoSelector(provider, "fiatAmount-label")),
+      webview.locator(
+        this.providerContainerInfoSelector(provider, SwapPage.FIAT_AMOUNT_LABEL_SUFFIX),
+      ),
     ).toBeVisible();
     await expect(
-      webview.locator(this.providerContainerInfoSelector(provider, "networkFees-heading")),
+      webview.locator(
+        this.providerContainerInfoSelector(provider, SwapPage.NETWORK_FEES_HEADING_SUFFIX),
+      ),
     ).toBeVisible();
     await expect(
       webview
-        .locator(this.providerContainerInfoSelector(provider, "extraFeesContainer"))
+        .locator(this.providerContainerInfoSelector(provider, SwapPage.EXTRA_FEES_CONTAINER_SUFFIX))
         .getByText(/Floating rate|Fixed rate/),
     ).toBeVisible();
     await expect(
-      webview.locator(this.providerContainerInfoSelector(provider, "rate-infoIcon")),
+      webview.locator(this.providerContainerInfoSelector(provider, SwapPage.RATE_INFO_ICON_SUFFIX)),
     ).toBeVisible();
     await expect(
       webview
-        .locator(this.providerContainerInfoSelector(provider, "extraFeesContainer"))
+        .locator(this.providerContainerInfoSelector(provider, SwapPage.EXTRA_FEES_CONTAINER_SUFFIX))
         .getByText(ticker),
     ).toBeVisible();
     if (
@@ -171,16 +238,20 @@ export class SwapPage extends WebViewAppPage {
     ) {
       await expect(
         webview
-          .locator(this.providerContainerInfoSelector(provider, "extraFeesContainer"))
+          .locator(
+            this.providerContainerInfoSelector(provider, SwapPage.EXTRA_FEES_CONTAINER_SUFFIX),
+          )
           .getByText("Max Slippage"),
       ).toBeVisible();
       await expect(
         webview
-          .locator(this.providerContainerInfoSelector(provider, "extraFeesContainer"))
+          .locator(
+            this.providerContainerInfoSelector(provider, SwapPage.EXTRA_FEES_CONTAINER_SUFFIX),
+          )
           .getByText("%"),
       ).toBeVisible();
     }
-    await this.checkExchangeButton(providerList[0]);
+    await this.checkQuoteCardCtaLabel(providerList[0]);
   }
 
   @step("Select specific provider")
@@ -190,8 +261,9 @@ export class SwapPage extends WebViewAppPage {
     const providersList = await this.getProviderList();
 
     if (providersList.includes(provider.uiName)) {
+      const prefix = SwapPage.QUOTE_CARD_PROVIDER_NAME_PREFIX;
       const providerLocator = webview
-        .locator(this.specificQuoteCardProviderName(provider.name))
+        .locator(this.specificQuoteCardProviderName(prefix, provider.name))
         .first();
 
       await providerLocator.click();
@@ -227,7 +299,11 @@ export class SwapPage extends WebViewAppPage {
       throw new Error(`No providers without KYC found: ${providersList.join(", ")}`);
     }
 
-    await webview.locator(this.specificQuoteCardProviderName(provider.name)).first().click();
+    const prefix = SwapPage.QUOTE_CARD_PROVIDER_NAME_PREFIX;
+    await webview
+      .locator(this.specificQuoteCardProviderName(prefix, provider.name))
+      .first()
+      .click();
     return provider;
   }
 
@@ -247,9 +323,11 @@ export class SwapPage extends WebViewAppPage {
           entry.provider !== undefined,
       );
 
+    const prefix = SwapPage.QUOTE_CARD_PROVIDER_NAME_PREFIX;
+
     for (const { providerName, provider } of providers) {
       const providerLocator = webview
-        .locator(this.specificQuoteCardProviderName(provider.name))
+        .locator(this.specificQuoteCardProviderName(prefix, provider.name))
         .first();
 
       if (await providerLocator.isVisible()) {
@@ -308,21 +386,16 @@ export class SwapPage extends WebViewAppPage {
   async checkBestOffer() {
     const quoteContainers = await this.getAllSwapProviders();
     const quotes = await this.extractQuotesAndFees(quoteContainers);
-    const bestOffer = quotes.reduce<{ rate: number; fees: number; quote: string } | null>(
+    const bestOffer = quotes.reduce<{
+      rate: number;
+      fees: number;
+      quote: string;
+    } | null>(
       (max, current) =>
         current && (!max || current.rate - current.fees > max.rate - max.fees) ? current : max,
       null,
     );
     expect(bestOffer?.quote).toMatch(quoteContainers[0]);
-  }
-
-  @step("Check exchange button is visible and enabled")
-  async checkExchangeButton(provider: string) {
-    const webview = await this.getWebView();
-
-    const buttonLocator = webview.getByRole("button", { name: new RegExp(provider, "i") });
-    await expect(buttonLocator).toBeVisible();
-    await expect(buttonLocator).toBeEnabled();
   }
 
   @step("Click Exchange button")
@@ -360,6 +433,18 @@ export class SwapPage extends WebViewAppPage {
   async getAmountToSend() {
     const webview = await this.getWebView();
     return await webview.getByTestId(this.fromAccountAmountInput).inputValue();
+  }
+
+  @step("Retrieve send currency countervalue text")
+  async getSendCountervalueText() {
+    const webview = await this.getWebView();
+    return await webview.getByTestId(this.fromAccountAmountInactive).textContent();
+  }
+
+  @step("Retrieve receive currency amount value")
+  async getAmountToReceive() {
+    const webview = await this.getWebView();
+    return await webview.getByTestId(this.toAccountAmountInput).textContent();
   }
 
   @step("Click switch button")
@@ -526,6 +611,89 @@ export class SwapPage extends WebViewAppPage {
     // Quotes are confirmed loaded once the best-offer info icon (rendered next
     // to the "Best Offer" title in the quotes list) is visible.
     await expect(webview.getByTestId(this.bestValueInfoIcon)).toBeVisible();
+  }
+
+  // Non-critical panel: errors are caught and attached, not thrown.
+  @step("Soft-assert Trending Assets panel")
+  async softAssertTrendingAssetsPanel() {
+    try {
+      const webview = await this.getWebView();
+
+      const topGainersRows = webview.locator(this.topGainersItems);
+      await this.softExpect(async soft => {
+        await soft(webview.getByTestId(this.topGainersContainer)).toBeVisible();
+        await soft(webview.getByTestId(this.topGainersContainer)).toContainText("Trending Assets");
+        await soft(topGainersRows).toHaveCount(5);
+      });
+      const topGainersTexts = await topGainersRows.allTextContents();
+      await this.softExpect(async soft => {
+        for (const text of topGainersTexts) {
+          await soft(text).toMatch(/[-+]?\d{1,10}\.\d{2}%$/);
+        }
+      });
+
+      const dateTrigger = webview.getByTestId(this.topGainersDateTrigger);
+      const dateOptions = webview.locator(this.topGainersDateOptions);
+      await this.softExpect(async soft => {
+        await soft(dateTrigger).toBeVisible();
+      });
+      const initialDateLabel = await dateTrigger.textContent();
+      await dateTrigger.click();
+      await this.softExpect(async soft => {
+        await soft(dateOptions).toHaveCount(4);
+      });
+      const dateOptionTexts = await dateOptions.allTextContents();
+      await this.softExpect(async soft => {
+        for (const label of ["1D", "1W", "1M", "1Y"]) {
+          await soft(dateOptionTexts).toContain(label);
+        }
+      });
+      const nextDateOption = dateOptions.filter({ hasNotText: initialDateLabel ?? "" }).first();
+      await nextDateOption.click();
+      await this.softExpect(async soft => {
+        await soft(dateTrigger).not.toContainText(initialDateLabel ?? "");
+        await soft(topGainersRows).toHaveCount(5);
+      });
+
+      await this.softExpect(async soft => {
+        await soft(webview.getByTestId(this.topGainersInfoIcon)).toBeVisible();
+      });
+    } catch (error) {
+      await test.info().attach("Trending Assets panel check failed (non-blocking)", {
+        body: String(error),
+        contentType: "text/plain",
+      });
+    }
+  }
+
+  // Non-critical panel: errors are caught and attached, not thrown.
+  @step("Soft-assert Stablecoins panel")
+  async softAssertStablecoinsPanel() {
+    try {
+      const webview = await this.getWebView();
+
+      const topStablecoinsRows = webview.locator(this.topStablecoinsItems);
+      await this.softExpect(async soft => {
+        await soft(webview.getByTestId(this.topStablecoinsContainer)).toBeVisible();
+        await soft(webview.getByTestId(this.topStablecoinsContainer)).toContainText("Stablecoins");
+        await soft(topStablecoinsRows).toHaveCount(2);
+      });
+      const topStablecoinsTexts = await topStablecoinsRows.allTextContents();
+      await this.softExpect(async soft => {
+        for (const text of topStablecoinsTexts) {
+          await soft(text).toMatch(/\d{1,10}\.\d{2}% APY$/);
+        }
+      });
+
+      await this.softExpect(async soft => {
+        await soft(webview.getByTestId(this.topStablecoinsInfoIcon)).toBeVisible();
+      });
+    } catch (error) {
+      await test.info().attach("Stablecoins panel check failed (non-blocking)", {
+        body: String(error),
+        contentType: "text/plain",
+      });
+    }
   }
 
   @step("Go and wait for Swap app to be ready")
@@ -751,7 +919,9 @@ export class SwapPage extends WebViewAppPage {
   async clickGiveAuthorizationButton() {
     const webview = await this.getWebView();
     const authorizationButton = webview.getByTestId(this.signPermitButton);
-    await expect(authorizationButton).toBeVisible({ timeout: APPROVAL_PROCESSING_TIMEOUT });
+    await expect(authorizationButton).toBeVisible({
+      timeout: APPROVAL_PROCESSING_TIMEOUT,
+    });
     await authorizationButton.click();
   }
 
@@ -760,8 +930,8 @@ export class SwapPage extends WebViewAppPage {
     expect(providerName).toBeDefined();
   }
 
-  @step("Check swap widget balance is masked in discreet mode for $0")
-  async checkWidgetBalanceIsDiscreet(ticker: string) {
+  @step("Check from-account balance is masked in discreet mode for $0")
+  async checkFromAccountBalanceIsDiscreet(ticker: string) {
     const webview = await this.getWebView();
     const text = webview.getByTestId(this.fromAccountBalance);
     await expect(text).toContainText(new RegExp(`\\*\\*\\*\\s+${ticker}`, "i"));

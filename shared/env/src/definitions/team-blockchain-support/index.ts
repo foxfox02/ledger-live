@@ -2,7 +2,7 @@ import { boolParser, stringParser } from "@ledgerhq/live-env";
 
 const teamBlockchainSupport = {
   APTOS_API_ENDPOINT: {
-    def: "https://apt.coin.ledger.com/node/v1",
+    def: "https://apt.coin.ledger.com/node",
     parser: stringParser,
     desc: "API endpoint for Aptos",
   },
@@ -12,7 +12,7 @@ const teamBlockchainSupport = {
     desc: "API endpoint for Aptos testnet",
   },
   APTOS_INDEXER_ENDPOINT: {
-    def: "https://apt.coin.ledger.com/node/v1/graphql",
+    def: "https://apt.coin.ledger.com/indexer",
     parser: stringParser,
     desc: "Indexer endpoint for Aptos",
   },
@@ -40,6 +40,16 @@ const teamBlockchainSupport = {
     parser: stringParser,
     def: "https://stacks.coin.ledger.com",
     desc: "Stacks API url",
+  },
+  API_STACKS_NETWORK: {
+    parser: stringParser,
+    def: "mainnet",
+    desc: "Stacks network for legacy-bridge address derivation (mainnet | testnet)",
+  },
+  API_STACKS_SKIP_FEE_ESTIMATE: {
+    parser: boolParser,
+    def: false,
+    desc: "Coin-tester only: skip the network fee estimate and keep the transaction's own pre-set fee (devnet has no historical fee data)",
   },
   API_KASPA_ENDPOINT: {
     parser: stringParser,

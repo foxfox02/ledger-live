@@ -1,7 +1,12 @@
+import { delegateTransaction } from "@ledgerhq/live-common/families/solana/transactions";
 import { addPendingOperation } from "@ledgerhq/live-common/account/index";
 import { SyncSkipUnderPriority } from "@ledgerhq/live-common/bridge/react/index";
 import useBridgeTransaction from "@ledgerhq/live-common/bridge/useBridgeTransaction";
 import { useAccountBridge } from "@ledgerhq/live-common/bridge/useAccountBridge";
+import {
+  requireStakePositionId,
+  solanaActivationState,
+} from "@ledgerhq/live-common/families/solana/logic";
 import {
   Transaction,
   SolanaStakeWithMeta,
@@ -9,6 +14,7 @@ import {
 } from "@ledgerhq/live-common/families/solana/types";
 import { Operation, Account } from "@ledgerhq/types-live";
 import invariant from "invariant";
+import { assertStakingResources } from "../shared/assertStakingResources";
 import React, { useCallback, useState } from "react";
 import { Trans, withTranslation } from "react-i18next";
 import { TFunction } from "i18next";
@@ -20,7 +26,7 @@ import logger from "~/renderer/logger";
 import { updateAccountWithUpdater } from "~/renderer/actions/accounts";
 import { OpenModal, openModal } from "~/renderer/actions/modals";
 
-import Track from "~/renderer/analytics/Track";
+import { Track } from "@shared/analytics-react";
 import Stepper from "~/renderer/components/Stepper";
 import GenericStepConnectDevice from "~/renderer/modals/Send/steps/GenericStepConnectDevice";
 import { getCurrentDevice } from "~/renderer/reducers/devices";
@@ -90,19 +96,13 @@ const Body = ({ t, stepId, device, onClose, openModal, onChangeStepId, params }:
   } = useBridgeTransaction(bridge, () => {
     const { account, stakeWithMeta } = params;
     const { stake } = stakeWithMeta;
-    invariant(account && account.solanaResources, "solana: account and solana resources required");
+    assertStakingResources(account);
     invariant(
-      stake.delegation && stake.activation.state === "deactivating",
+      stake.validatorAddress && solanaActivationState(stake) === "deactivating",
       "solana: can reactivate only delegated stake in <deactivating> state",
     );
     const transaction = bridge.updateTransaction(bridge.createTransaction(account), {
-      model: {
-        kind: "stake.delegate",
-        uiState: {
-          stakeAccAddr: stake.stakeAccAddr,
-          voteAccAddr: stake.delegation.voteAccAddr,
-        },
-      },
+      ...delegateTransaction(requireStakePositionId(stake), stake.validatorAddress),
     });
     return {
       account,

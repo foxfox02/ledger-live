@@ -123,22 +123,35 @@ type TransactionContract = {
 };
 
 //-- Transaction details
+/**
+ * A single event emitted by a smart contract during a transaction.
+ * `address` is the emitting contract: it is the only place the token contract shows up for a
+ * transfer that no `TriggerSmartContract` parameter describes (a constructor mint, for instance).
+ */
+export type TransactionLogAPI = {
+  /** Emitting contract, as a 20-byte hex address — without TRON's `41` prefix, EVM-style. */
+  address: string;
+  topics: string[];
+  data?: string;
+};
+
 export type TransactionInfoTronAPI = {
   id: string;
-  fee: number;
-  blockNumber: number;
-  blockTimeStamp: number;
-  contractResult: string[];
-  receipt: {
+  fee?: number;
+  blockNumber?: number;
+  blockTimeStamp?: number;
+  contractResult?: string[];
+  /** `41`-prefixed hex address of the contract created by, or called by, the transaction. */
+  contract_address?: string;
+  log?: TransactionLogAPI[];
+  receipt?: {
     net_usage?: number;
     net_fee?: number;
+    result?: string;
   };
 };
 
-export type TransactionInfoByBlockNumAPI = {
-  id: string;
-  fee: number;
-};
+export type TransactionInfoByBlockNumAPI = TransactionInfoTronAPI;
 
 export function isTransactionTronAPI(tx: unknown): tx is TransactionTronAPI {
   return (tx as TransactionTronAPI).txID !== undefined;
@@ -238,6 +251,9 @@ export type ChainParameters = {
   transactionFee: number;
   createAccountFee: number;
   createNewAccountFeeInSystemContract: number;
+  // Flat fee burned when a transaction carries a memo (`raw_data.data`), regardless of contract type
+  // (TIP-387). 0 on chains that predate the feature.
+  memoFee: number;
 };
 
 //-- Trigger constant contract
@@ -250,10 +266,14 @@ export type TriggerConstantContractParams = {
 
 export type TriggerConstantContractResponse = {
   energy_used?: number;
+  energy_penalty?: number;
   constant_result?: string[];
   result?: {
     result?: boolean;
     code?: string;
     message?: string;
+  };
+  transaction?: {
+    ret?: { ret?: string }[];
   };
 };

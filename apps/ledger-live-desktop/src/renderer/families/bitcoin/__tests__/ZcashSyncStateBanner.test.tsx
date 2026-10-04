@@ -1,6 +1,6 @@
 import React from "react";
 import { Observable } from "rxjs";
-import { DEFAULT_ZCASH_PRIVATE_INFO } from "@ledgerhq/coin-bitcoin/chain-adapters/zcash/constants";
+import { DEFAULT_ZCASH_PRIVATE_INFO } from "@ledgerhq/coin-zcash/constants";
 import { render, screen, waitFor, withFlagOverrides } from "tests/testSetup";
 import { createFixtureAccount } from "@ledgerhq/coin-bitcoin/fixtures/common.fixtures";
 import { CryptoCurrency } from "@domain/entity-currency-crypto";
@@ -72,6 +72,25 @@ describe("ZcashSyncStateBanner", () => {
     renderBanner(buildAccount(), "private");
     expect(screen.getByTestId("zcash-sync-banner-stopped")).toBeInTheDocument();
     expect(screen.getByTestId("zcash-resume-sync-button")).toBeInTheDocument();
+  });
+
+  it("ready state (post-export, not yet synced) + private sender renders the same warning banner as stopped", () => {
+    renderBanner(buildAccount({ syncState: "ready" }), "private");
+    expect(screen.getByTestId("zcash-sync-banner-stopped")).toBeInTheDocument();
+    expect(screen.getByTestId("zcash-resume-sync-button")).toBeInTheDocument();
+  });
+
+  it("stopped state with a recorded sync error renders the failed banner instead, distinguishing it from a manual stop", () => {
+    renderBanner(buildAccount({ syncState: "stopped", lastSyncError: "timeout" }), "private");
+    expect(screen.getByTestId("zcash-sync-banner-failed")).toBeInTheDocument();
+    expect(screen.queryByTestId("zcash-sync-banner-stopped")).not.toBeInTheDocument();
+    expect(screen.getByTestId("zcash-resume-sync-button")).toBeInTheDocument();
+  });
+
+  it("stopped state without a recorded sync error still renders the plain stopped banner (manual stop)", () => {
+    renderBanner(buildAccount({ syncState: "stopped", lastSyncError: null }), "private");
+    expect(screen.getByTestId("zcash-sync-banner-stopped")).toBeInTheDocument();
+    expect(screen.queryByTestId("zcash-sync-banner-failed")).not.toBeInTheDocument();
   });
 
   it("running state + private sender renders progress banner with percentage", () => {

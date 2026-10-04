@@ -109,4 +109,95 @@ describe("transaction", () => {
       expect("properties" in result).toBe(false);
     },
   );
+
+  // `withdrawal` is the address unbonded funds are later released to. It is the one field a
+  // bond carries beyond the common shape, so dropping it here would silently unpin the
+  // withdrawal on any transaction that round-trips through storage.
+  describe("bond_public", () => {
+    const WITHDRAWAL = "aleo1a2ehlgqhvs3p7d4hqhs0tvgk954dr8gafu9kxse2mzu9a5sqxvpsrn98pr";
+
+    it("should preserve the withdrawal address when deserializing from raw", () => {
+      const raw = getMockedTransactionRaw({
+        mode: TRANSACTION_TYPE.BOND_PUBLIC,
+        withdrawal: WITHDRAWAL,
+      });
+
+      const result = fromTransactionRaw(raw);
+
+      expect(result.mode).toBe(TRANSACTION_TYPE.BOND_PUBLIC);
+      expect(result).toHaveProperty("withdrawal", WITHDRAWAL);
+    });
+
+    it("should preserve the withdrawal address when serializing to raw", () => {
+      const transaction = getMockedTransaction({
+        mode: TRANSACTION_TYPE.BOND_PUBLIC,
+        withdrawal: WITHDRAWAL,
+      });
+
+      const result = toTransactionRaw(transaction);
+
+      expect(result.mode).toBe(TRANSACTION_TYPE.BOND_PUBLIC);
+      expect(result).toHaveProperty("withdrawal", WITHDRAWAL);
+    });
+
+    it("should not include properties", () => {
+      const transaction = getMockedTransaction({
+        mode: TRANSACTION_TYPE.BOND_PUBLIC,
+        withdrawal: WITHDRAWAL,
+      });
+
+      expect("properties" in toTransactionRaw(transaction)).toBe(false);
+    });
+  });
+
+  describe.each([
+    ["unbond_public", TRANSACTION_TYPE.UNBOND_PUBLIC],
+    ["claim_unbond_public", TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC],
+  ] as const)("%s", (_label, mode) => {
+    it("survives toTransactionRaw -> fromTransactionRaw unchanged", () => {
+      const transaction = getMockedTransaction({
+        mode,
+        amount: new BigNumber(42),
+        recipient: "aleo1a2ehlgqhvs3p7d4hqhs0tvgk954dr8gafu9kxse2mzu9a5sqxvpsrn98pr",
+        fees: new BigNumber(10),
+      });
+
+      const raw = toTransactionRaw(transaction);
+      const result = fromTransactionRaw(raw);
+
+      expect(result).toEqual(transaction);
+      expect("withdrawal" in result).toBe(false);
+      expect("properties" in result).toBe(false);
+    });
+
+    it("preserves mode, amount, recipient and fees deserializing from raw", () => {
+      const raw = getMockedTransactionRaw({
+        mode,
+        amount: "42",
+        recipient: "aleo1a2ehlgqhvs3p7d4hqhs0tvgk954dr8gafu9kxse2mzu9a5sqxvpsrn98pr",
+        fees: "10",
+      });
+
+      const result = fromTransactionRaw(raw);
+
+      expect(result.mode).toBe(mode);
+      expect(result.amount).toStrictEqual(new BigNumber(42));
+      expect(result.recipient).toBe(
+        "aleo1a2ehlgqhvs3p7d4hqhs0tvgk954dr8gafu9kxse2mzu9a5sqxvpsrn98pr",
+      );
+      expect(result.fees).toStrictEqual(new BigNumber(10));
+      expect("withdrawal" in result).toBe(false);
+      expect("properties" in result).toBe(false);
+    });
+
+    it("does not include properties or withdrawal when serializing to raw", () => {
+      const transaction = getMockedTransaction({ mode });
+
+      const result = toTransactionRaw(transaction);
+
+      expect(result.mode).toBe(mode);
+      expect("withdrawal" in result).toBe(false);
+      expect("properties" in result).toBe(false);
+    });
+  });
 });

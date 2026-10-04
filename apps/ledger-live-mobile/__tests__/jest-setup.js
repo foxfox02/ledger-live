@@ -4,6 +4,10 @@ import { LiveConfig } from "@ledgerhq/live-config/LiveConfig";
 import { liveConfig } from "@ledgerhq/live-common/config/sharedConfig";
 import { setCurrenciesResolver } from "@ledgerhq/ledger-wallet-framework/currencies";
 import { setCryptoAssetsStore as setFrameworkCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
+import { setRateLookup as setAssetAggregationRateLookup } from "@ledgerhq/asset-aggregation/rateLookup";
+import { setRateLookup as setWalletAnalyticsRateLookup } from "@ledgerhq/wallet-analytics";
+import { calculate, historyKey, inferCurrencyAPIID } from "@domain/entity-market-countervalues";
+import { setRateLookup as setWalletPnlRateLookup } from "@ledgerhq/wallet-pnl";
 import {
   getCryptoCurrencyById,
   findCryptoCurrencyById,
@@ -28,6 +32,10 @@ setFrameworkCryptoAssetsStore({
   findTokenByAddressInCurrency: () => Promise.resolve(undefined),
   getTokensSyncHash: () => Promise.resolve(""),
 });
+
+setAssetAggregationRateLookup({ calculate });
+setWalletAnalyticsRateLookup({ calculate });
+setWalletPnlRateLookup({ calculate, historyKey, currencyApiId: inferCurrencyAPIID });
 import "react-native-gesture-handler/jestSetup";
 import "@shopify/flash-list/jestSetup";
 import "@mocks/console";
@@ -40,12 +48,9 @@ import mockAsyncStorage from "@react-native-async-storage/async-storage/jest/asy
 import mockLocalize from "react-native-localize/mock";
 import { EventEmitter } from "events";
 
-jest.mock("expo-crypto", () => ({
-  CryptoDigestAlgorithm: { SHA256: "SHA-256" },
-  CryptoEncoding: { BASE64: "base64" },
-  getRandomBytesAsync: jest.fn(() => Promise.resolve(new Uint8Array(32))),
-  digestStringAsync: jest.fn(() => Promise.resolve("Y29kZS1jaGFsbGVuZ2U=")),
-}));
+function mockBottomSheetFooter({ children }) {
+  return children;
+}
 
 // Disable max listeners warning for MSW (known issue with multiple tests)
 EventEmitter.defaultMaxListeners = 0;
@@ -121,12 +126,6 @@ jest.mock("react-native-gesture-handler", () => {
 
 jest.mock("react-native-gesture-handler/ReanimatedSwipeable");
 
-jest.mock("react-native-haptic-feedback", () => ({
-  default: {
-    trigger: jest.fn(),
-  },
-}));
-
 jest.mock("expo-haptics", () => ({
   impactAsync: jest.fn().mockResolvedValue(undefined),
   notificationAsync: jest.fn().mockResolvedValue(undefined),
@@ -147,6 +146,17 @@ jest.mock("expo-haptics", () => ({
 
 jest.mock("react-native-launch-arguments", () => ({}));
 
+// Dev-only tooling: its runtime loads ESM-only deps (nanoid) and opens a bridge client
+jest.mock("@rozenite/redux-devtools-plugin", () => ({
+  rozeniteDevToolsEnhancer: () => next => next,
+}));
+
+NativeModules.AppVisibilityModule = {
+  isInForeground: () => true,
+  addListener: () => {},
+  removeListeners: () => {},
+};
+
 NativeModules.BluetoothHelperModule = {
   E_BLE_CANCELLED: "BLE_UNKNOWN_STATE",
 };
@@ -155,8 +165,45 @@ NativeModules.ReduceTransparencyModule = {
   getReduceTransparencyEnabled: () => Promise.resolve(false),
 };
 
+// react-native-keychain reads this module when it loads, and every call goes straight to it. The app
+// password needs it (see AuthPass), and so does the Pay Card session, which any suite that builds
+// the real store pulls in through cardApiExtra. One entry per service, in memory, is a device with
+// an empty keychain.
+const keychainEntries = new Map();
+
+NativeModules.RNKeychainManager = {
+  setGenericPasswordForOptions: async ({ service = "default" } = {}, username, password) => {
+    keychainEntries.set(service, { username, password });
+    return { service, storage: "KeystoreAESGCM_NoAuth" };
+  },
+  getGenericPasswordForOptions: async ({ service = "default" } = {}) => {
+    const entry = keychainEntries.get(service);
+    return entry ? { ...entry, service, storage: "KeystoreAESGCM_NoAuth" } : false;
+  },
+  hasGenericPasswordForOptions: async ({ service = "default" } = {}) =>
+    keychainEntries.has(service),
+  resetGenericPasswordForOptions: async ({ service = "default" } = {}) =>
+    keychainEntries.delete(service),
+  getAllGenericPasswordServices: async () => [...keychainEntries.keys()],
+  getSupportedBiometryType: async () => null,
+};
+
 jest.mock("react-native-share", () => ({
-  default: jest.fn(),
+  __esModule: true,
+  default: { open: jest.fn(() => Promise.resolve({ success: true })) },
+}));
+
+jest.mock(
+  "react-native-fit-image",
+  () => {
+    const { Image } = require("react-native");
+    return { __esModule: true, default: Image };
+  },
+  { virtual: true },
+);
+
+jest.mock("react-native-view-shot", () => ({
+  captureRef: jest.fn(() => Promise.resolve("file://mock.png")),
 }));
 
 // Global mocks for Lottie and env config (used by LaunchScreen and other components)
@@ -204,18 +251,23 @@ jest.mock("react-native-vision-camera", () => {
 });
 
 jest.mock("~/analytics/segment", () => ({
-  track: jest.fn(),
   setAnalyticsFeatureFlagMethod: jest.fn(),
-  screen: jest.fn(),
-  useAnalytics: jest.fn(() => ({
-    track: jest.fn(),
-    screen: jest.fn(),
-    identify: jest.fn(),
-    group: jest.fn(),
-    alias: jest.fn(),
-    reset: jest.fn(),
-  })),
+  usePageNameFromRoute: jest.fn(() => "portfolio_navigator"),
 }));
+
+jest.mock("@shared/analytics", () => ({
+  ...jest.requireActual("@shared/analytics"),
+  track: jest.fn(),
+  trackPage: jest.fn(),
+}));
+
+jest.mock("@shared/analytics-react", () => {
+  const actual = jest.requireActual("@shared/analytics-react");
+  return {
+    ...actual,
+    TrackScreen: jest.fn(props => actual.TrackScreen(props)),
+  };
+});
 
 // Mock of Native Modules
 jest.mock("react-native-localize", () => mockLocalize);
@@ -237,17 +289,40 @@ jest.mock("react-redux", () => {
 jest.mock("@react-native-async-storage/async-storage", () => mockAsyncStorage);
 
 // Upstream mock's dismiss() is a no-op that never fires onDismiss, breaking any
-// queued-drawer cleanup that relies on it. Patched locally until the fix is merged:
+// queued-bottom-sheet cleanup that relies on it. Patched locally until the fix is merged:
 // https://github.com/gorhom/react-native-bottom-sheet/pull/2714
 // TODO: remove this override once @gorhom/bottom-sheet ships the fix.
+// The upstream mock also renders children only, so it drops the footerComponent slot and omits
+// BottomSheetFooter: a sheet's primary action would be missing from every test. Both are restored
+// here, rendering the footer inline after the content.
 jest.mock("@gorhom/bottom-sheet", () => {
+  const React = require("react");
+
   class BottomSheetModal extends mockGorhomBottomSheet.BottomSheetModal {
     dismiss() {
       super.dismiss();
       this.props?.onDismiss?.();
     }
+
+    render() {
+      const FooterComponent = this.props?.footerComponent;
+      if (!FooterComponent) return super.render();
+
+      return React.createElement(
+        React.Fragment,
+        null,
+        super.render(),
+        React.createElement(FooterComponent, { animatedFooterPosition: {} }),
+      );
+    }
   }
-  return { ...mockGorhomBottomSheet, BottomSheetModal };
+
+  return {
+    ...mockGorhomBottomSheet,
+    BottomSheetModal,
+    BottomSheetFooter: mockBottomSheetFooter,
+    useBottomSheetInternal: () => null,
+  };
 });
 
 jest.mock("react-native-version-number", () => ({
@@ -270,9 +345,19 @@ jest.mock("react-native-worklets", () => require("react-native-worklets/lib/modu
 // Setup Reanimated testing environment
 require("react-native-reanimated").setUpTests();
 
+// useAnimatedScrollHandler needs the worklets Babel transform, which Jest (SWC) doesn't run.
+jest.mock("LLM/components/Wallet40Background/useScrollOffset", () => {
+  const { useSharedValue } = jest.requireActual("react-native-reanimated");
+  return {
+    useScrollOffset: scrollY => {
+      const ownScrollY = useSharedValue(0);
+      return { scrollY: scrollY ?? ownScrollY, onScroll: undefined };
+    },
+  };
+});
+
 jest.mock("~/analytics", () => ({
   ...jest.requireActual("~/analytics"),
-  track: jest.fn(),
   updateIdentify: jest.fn(),
 }));
 
@@ -318,9 +403,9 @@ jest.mock("@react-native-firebase/remote-config", () => {
 // Inert mock — avoids the real module's `getRemoteConfig()` + `LiveConfig` import side
 // effects. Boot readiness comes from the Redux `remoteFlagsReady` flag instead.
 jest.mock("~/firebase/remoteConfig", () => ({
+  readCachedFlags: jest.fn().mockResolvedValue({}),
   fetchRemoteFlags: jest.fn().mockResolvedValue({}),
   subscribeToRemoteFlags: jest.fn(() => () => {}),
-  whenReady: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock("@braze/react-native-sdk", () => ({
@@ -332,6 +417,12 @@ jest.mock("@braze/react-native-sdk", () => ({
     logContentCardClicked: jest.fn(),
     logContentCardImpression: jest.fn(),
     requestContentCardsRefresh: jest.fn(),
+    addListener: jest.fn(() => ({ remove: jest.fn() })),
+    Events: {
+      CONTENT_CARDS_UPDATED: "contentCardsUpdated",
+    },
+    wipeData: jest.fn(),
+    enableSDK: jest.fn(),
     getContentCards: jest.fn().mockResolvedValue([]),
     getInitialPushPayload: jest.fn(),
   },

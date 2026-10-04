@@ -1,11 +1,26 @@
 import { getCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
 import * as accountIndex from "@ledgerhq/ledger-wallet-framework/account/index";
+import { setEnv } from "@ledgerhq/live-env";
 import { log } from "@ledgerhq/logs";
 import { Account } from "@ledgerhq/types-live";
+import { getAddressFromPublicKey } from "@stacks/transactions";
 import BigNumber from "bignumber.js";
+import { getStakes } from "../logic/getStakes";
 import { TransactionResponse } from "../network";
-import { TokenPrefix } from "../types";
-import { buildTokenAccounts, createTokenAccount } from "./synchronization";
+import {
+  fetchAllTokenBalances,
+  fetchBalances,
+  fetchBlockHeight,
+  fetchFullMempoolTxs,
+  fetchFullTxs,
+} from "../network/api";
+import { StakingPosition, TokenPrefix } from "../types";
+import {
+  buildTokenAccounts,
+  calculateSpendableBalance,
+  createTokenAccount,
+  getAccountShape,
+} from "./synchronization";
 
 jest.mock("@ledgerhq/ledger-wallet-framework/cryptoAssetsStore");
 jest.mock("@ledgerhq/logs");
@@ -13,6 +28,9 @@ jest.mock("@ledgerhq/ledger-wallet-framework/account/index", () => ({
   ...jest.requireActual("@ledgerhq/ledger-wallet-framework/account/index"),
   encodeTokenAccountId: jest.fn(),
 }));
+jest.mock("@stacks/transactions", () => ({ getAddressFromPublicKey: jest.fn() }));
+jest.mock("../network/api");
+jest.mock("../logic/getStakes");
 
 let mockFindTokenById: jest.Mock;
 let mockFindTokenByAddressInCurrency: jest.Mock;
@@ -599,6 +617,194 @@ describe("buildTokenAccounts", () => {
 
       expect(result).toHaveLength(3);
     });
+  });
+});
+
+describe("calculateSpendableBalance", () => {
+  it("should subtract fee and amount for a pending native token_transfer", () => {
+    const result = calculateSpendableBalance(new BigNumber(1_000_000), [
+      { tx_type: "token_transfer", fee_rate: "1000", token_transfer: { amount: "50000" } },
+    ]);
+
+    expect(result).toEqual(new BigNumber(1_000_000 - 1000 - 50000));
+  });
+
+  it("should only subtract the fee for a pending contract_call (e.g. SIP-010 transfer)", () => {
+    const result = calculateSpendableBalance(new BigNumber(1_000_000), [
+      { tx_type: "contract_call", fee_rate: "10000" },
+    ]);
+
+    expect(result).toEqual(new BigNumber(1_000_000 - 10000));
+  });
+
+  it("should handle a mix of pending native and contract-call transactions", () => {
+    const result = calculateSpendableBalance(new BigNumber(1_000_000), [
+      { tx_type: "token_transfer", fee_rate: "1000", token_transfer: { amount: "50000" } },
+      { tx_type: "contract_call", fee_rate: "10000" },
+    ]);
+
+    expect(result).toEqual(new BigNumber(1_000_000 - 1000 - 50000 - 10000));
+  });
+
+  it("should return the full balance when there are no pending transactions", () => {
+    const result = calculateSpendableBalance(new BigNumber(1_000_000), []);
+
+    expect(result).toEqual(new BigNumber(1_000_000));
+  });
+});
+
+describe("getAccountShape", () => {
+  const mockPublicKey = "02" + "ab".repeat(32);
+  const info = {
+    currency: { id: "stacks" },
+    rest: { publicKey: mockPublicKey },
+    derivationMode: "",
+  } as Parameters<typeof getAccountShape>[0];
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (fetchBlockHeight as jest.Mock).mockResolvedValue({ chain_tip: { block_height: 100 } });
+    (fetchBalances as jest.Mock).mockResolvedValue({ balance: "0" });
+    (fetchFullTxs as jest.Mock).mockResolvedValue([[], {}]);
+    (fetchAllTokenBalances as jest.Mock).mockResolvedValue({});
+    (fetchFullMempoolTxs as jest.Mock).mockResolvedValue([]);
+    (getAddressFromPublicKey as jest.Mock).mockReturnValue("SP_TEST_ADDRESS");
+    (getStakes as jest.Mock).mockResolvedValue({ items: [] });
+  });
+
+  it("attaches no stakingPositions when the address has no active stake", async () => {
+    const result = await getAccountShape(info, { paginationConfig: {} });
+
+    expect(result.stakingPositions).toEqual([]);
+  });
+
+  it("excludes the locked (staked) STX from spendableBalance, while `balance` keeps the full total", async () => {
+    (fetchBalances as jest.Mock).mockResolvedValue({ balance: "1000000", locked: "400000" });
+
+    const result = await getAccountShape(info, { paginationConfig: {} });
+
+    expect(result.balance).toEqual(new BigNumber(1_000_000));
+    expect(result.spendableBalance).toEqual(new BigNumber(1_000_000 - 400_000));
+  });
+
+  it("converts a stake's bigint amount to a BigNumber on the account shape", async () => {
+    (getStakes as jest.Mock).mockResolvedValue({
+      items: [
+        {
+          uid: "SP_TEST_ADDRESS",
+          address: "SP_TEST_ADDRESS",
+          delegate: "SP1pool.native-pool-signer-manager",
+          state: "active",
+          actions: ["undelegate"],
+          asset: { type: "native" },
+          amount: 1_000_000n,
+          details: { firstRewardCycle: 10, numCycles: 6, rewardAsset: "sbtc", amountRewarded: "0" },
+        },
+      ],
+    });
+
+    const result = await getAccountShape(info, { paginationConfig: {} });
+
+    expect(result.stakingPositions).toHaveLength(1);
+    expect(result.stakingPositions?.[0].amount).toBeInstanceOf(BigNumber);
+    expect(result.stakingPositions?.[0].amount.toString()).toBe("1000000");
+    expect(result.stakingPositions?.[0].state).toBe("active");
+  });
+
+  it("does not fail the whole account sync when the stake lookup fails", async () => {
+    (getStakes as jest.Mock).mockRejectedValue(new Error("pox lookup failed"));
+
+    await getAccountShape(info, { paginationConfig: {} });
+
+    expect(mockLog).toHaveBeenCalledWith(
+      "error",
+      "stacks error fetching stakes",
+      expect.any(Error),
+    );
+  });
+
+  describe("when the stake lookup fails", () => {
+    const knownPosition: StakingPosition = {
+      uid: "SP_TEST_ADDRESS",
+      address: "SP_TEST_ADDRESS",
+      delegate: "SP1pool.native-pool-signer-manager",
+      state: "active",
+      actions: ["undelegate"],
+      asset: { type: "native" },
+      amount: new BigNumber(1_000_000),
+      details: { firstRewardCycle: 10, numCycles: 6, rewardAsset: "sbtc", amountRewarded: "0" },
+    };
+    const withLastKnown = (stakingPositions: StakingPosition[] | undefined) =>
+      ({ ...info, initialAccount: { stakingPositions } }) as Parameters<typeof getAccountShape>[0];
+
+    beforeEach(() => {
+      (getStakes as jest.Mock).mockRejectedValue(new Error("pox lookup failed"));
+    });
+
+    // The key must be present (even as `undefined`): jsHelpers' `{ ...initialAccount, ...shape }`
+    // merge would otherwise fall through to the stale last-known value.
+    it("reports a known-empty position as unknown rather than keeping `[]`, so Stake isn't re-exposed", async () => {
+      const result = await getAccountShape(withLastKnown([]), { paginationConfig: {} });
+
+      expect("stakingPositions" in result).toBe(true);
+      expect(result.stakingPositions).toBeUndefined();
+    });
+
+    it("reports unknown when no position was ever known", async () => {
+      const result = await getAccountShape(withLastKnown(undefined), { paginationConfig: {} });
+
+      expect("stakingPositions" in result).toBe(true);
+      expect(result.stakingPositions).toBeUndefined();
+    });
+
+    it("keeps a known position for display but strips its actions, so Unstake isn't offered on stale data", async () => {
+      const result = await getAccountShape(withLastKnown([knownPosition]), {
+        paginationConfig: {},
+      });
+
+      expect(result.stakingPositions).toEqual([{ ...knownPosition, actions: [] }]);
+    });
+  });
+
+  it("derives the address for mainnet when API_STACKS_NETWORK is unset", async () => {
+    await getAccountShape(info, { paginationConfig: {} });
+
+    expect(getAddressFromPublicKey).toHaveBeenCalledWith(mockPublicKey, "mainnet");
+  });
+
+  it("derives the address for the configured network when API_STACKS_NETWORK is a valid override", async () => {
+    setEnv("API_STACKS_NETWORK", "testnet");
+
+    await getAccountShape(info, { paginationConfig: {} });
+
+    expect(getAddressFromPublicKey).toHaveBeenCalledWith(mockPublicKey, "testnet");
+
+    setEnv("API_STACKS_NETWORK", "");
+  });
+
+  it("falls back to mainnet for an invalid API_STACKS_NETWORK value", async () => {
+    setEnv("API_STACKS_NETWORK", "not-a-real-network");
+
+    await getAccountShape(info, { paginationConfig: {} });
+
+    expect(getAddressFromPublicKey).toHaveBeenCalledWith(mockPublicKey, "mainnet");
+
+    setEnv("API_STACKS_NETWORK", "");
+  });
+
+  it("uses the account's own address directly when reconciliatePublicKey falls back to it, instead of hex-decoding it as a public key", async () => {
+    const knownAddress = "SP26AZ1JSFZQ82VH5W2NJSB2QW15EW5YKT6WMD69J";
+    const infoWithNoLivePublicKey = {
+      currency: { id: "stacks" },
+      rest: {},
+      initialAccount: { id: `js:2:stacks:${knownAddress}:` },
+      derivationMode: "",
+    } as Parameters<typeof getAccountShape>[0];
+
+    const result = await getAccountShape(infoWithNoLivePublicKey, { paginationConfig: {} });
+
+    expect(getAddressFromPublicKey).not.toHaveBeenCalled();
+    expect(result.freshAddress).toBe(knownAddress);
   });
 });
 

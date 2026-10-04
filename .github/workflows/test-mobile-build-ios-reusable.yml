@@ -49,19 +49,27 @@ on:
 
     secrets:
       AWS_ACCOUNT_ID_PROD:
-        required: false
+        required: true
       AWS_CACHE_OIDC_ROLE_ARN_BRANCH:
-        required: false
+        required: true
       AWS_CACHE_OIDC_ROLE_ARN_DEVELOP:
-        required: false
+        required: true
       AWS_CACHE_REGION:
-        required: false
+        required: true
       AWS_CACHE_ROLE_NAME:
+        required: true
+      CARD_BAANX_API_URL:
+        required: false
+      CARD_BAANX_CLIENT_KEY:
+        required: false
+      CARD_BAANX_HOSTED_UI:
+        required: false
+      CARD_OAUTH_REDIRECT_URI:
         required: false
       NX_KEY:
-        required: false
+        required: true
       S3_DIRECTCONNECT_ENDPOINT:
-        required: false
+        required: true
   workflow_dispatch:
     inputs:
       ref:
@@ -164,14 +172,18 @@ jobs:
         with:
           max_attempts: 2
           timeout_minutes: 15
-          command: pnpm i --filter="live-mobile..." --filter="@ledgerhq/dummy-*-app..." --filter="ledger-live" --unsafe-perm
-          new_command_on_retry: rm -rf ~/.cocoapods/ && pnpm clean && pnpm i --filter="live-mobile..." --filter="@ledgerhq/dummy-*-app..." --filter="ledger-live" --unsafe-perm && pnpm nx:write-cache-config --cache-key-prefix "${{ steps.setup-caches.outputs.nx-cache-key-prefix }}"
+          command: pnpm i --frozen-lockfile --filter="live-mobile..." --filter="@ledgerhq/dummy-*-app..." --filter="ledger-live" --unsafe-perm
+          new_command_on_retry: rm -rf ~/.cocoapods/ && pnpm clean && pnpm i --frozen-lockfile --filter="live-mobile..." --filter="@ledgerhq/dummy-*-app..." --filter="ledger-live" --unsafe-perm && pnpm nx:write-cache-config --cache-key-prefix "${{ steps.setup-caches.outputs.nx-cache-key-prefix }}"
 
       - name: Build iOS app for Detox test run
         uses: LedgerHQ/ledger-live/tools/actions/composites/nx-step@develop
         env:
           SKIP_JS_BUNDLING: "true"
           PRODUCTION: ${{ inputs.production_firebase }}
+          CARD_BAANX_API_URL: ${{ secrets.CARD_BAANX_API_URL }}
+          CARD_BAANX_CLIENT_KEY: ${{ secrets.CARD_BAANX_CLIENT_KEY }}
+          CARD_BAANX_HOSTED_UI: ${{ secrets.CARD_BAANX_HOSTED_UI }}
+          CARD_OAUTH_REDIRECT_URI: ${{ secrets.CARD_OAUTH_REDIRECT_URI }}
         with:
           command: pnpm exec nx run live-mobile:e2e:ci -- -p ios -b $([[ "$PRODUCTION" == "true" ]] && printf %s '--production')
           disable_cache: ${{ inputs.disable-nx-cache || false }}
@@ -200,7 +212,7 @@ jobs:
       LANG: en_US.UTF-8
       LANGUAGE: en_US.UTF-8
       LC_ALL: en_US.UTF-8
-    runs-on: [ledger-live-linux-8CPU-32RAM]
+    runs-on: ledger-wallet-8cpu-aws-public
     outputs:
       js-bundle-size: ${{ steps.output-js-bundle-size.outputs.size }}
     steps:
@@ -243,11 +255,16 @@ jobs:
         with:
           max_attempts: 2
           timeout_minutes: 15
-          command: pnpm i --filter="live-mobile..." --filter="@ledgerhq/dummy-*-app..." --filter="ledger-live" --unsafe-perm
-          new_command_on_retry: rm -rf ~/.cocoapods/ && pnpm clean && pnpm i --filter="live-mobile..." --filter="@ledgerhq/dummy-*-app..." --filter="ledger-live" --unsafe-perm
+          command: pnpm i --frozen-lockfile --filter="live-mobile..." --filter="@ledgerhq/dummy-*-app..." --filter="ledger-live" --unsafe-perm
+          new_command_on_retry: rm -rf ~/.cocoapods/ && pnpm clean && pnpm i --frozen-lockfile --filter="live-mobile..." --filter="@ledgerhq/dummy-*-app..." --filter="ledger-live" --unsafe-perm
 
       - name: Build JS bundle and minify for size analysis
         uses: LedgerHQ/ledger-live/tools/actions/composites/nx-step@develop
+        env:
+          CARD_BAANX_API_URL: ${{ secrets.CARD_BAANX_API_URL }}
+          CARD_BAANX_CLIENT_KEY: ${{ secrets.CARD_BAANX_CLIENT_KEY }}
+          CARD_BAANX_HOSTED_UI: ${{ secrets.CARD_BAANX_HOSTED_UI }}
+          CARD_OAUTH_REDIRECT_URI: ${{ secrets.CARD_OAUTH_REDIRECT_URI }}
         with:
           command: pnpm exec nx run live-mobile:e2e:ci -- -p ios --bundle --bundle-size
           disable_cache: ${{ inputs.disable-nx-cache || false }}

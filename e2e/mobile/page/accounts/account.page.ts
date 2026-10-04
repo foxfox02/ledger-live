@@ -1,11 +1,13 @@
+import invariant from "invariant";
 import { Step } from "jest-allure2-reporter/api";
-import { openDeeplink } from "../../helpers/commonHelpers";
-import { VISIBILITY_PROBE_TIMEOUT } from "../../helpers/elementHelpers";
+import { openDeeplink } from "@e2e/helpers/commonHelpers";
+import { TIMEOUT } from "@e2e/utils/timeouts";
 import { Account, AccountType } from "@ledgerhq/live-e2e-shared/enum/Account";
 
 export default class AccountPage {
   baseLink = "account";
   accountListTitleId = "accounts-list-title";
+  accountsListId = "accounts-list";
   accountScreenScrollView = "account-screen-scrollView";
   accountAdvancedLogsId = "account-advanced-logs";
   earnButtonId = "account-quick-action-button-earn";
@@ -16,7 +18,6 @@ export default class AccountPage {
   accountNameRegExp = new RegExp(`${this.baseAccountName}.*`);
   operationRowRegexp = /operation-row-.*/;
   operationHistorySection = "operations-history-";
-  operationHistorySectionRegexp = new RegExp(this.operationHistorySection + ".*");
   accountSettingsButtonId = "account-settings-button";
   receiveButtonId = "account-quick-action-button-receive";
   sendButtonId = "account-quick-action-button-send";
@@ -36,11 +37,10 @@ export default class AccountPage {
   accountRenameRow = () => getElementById("account-settings-rename-row");
   getSpecificOperation = (operationType: string) =>
     getElementByIdAndText(this.operationRowRegexp, operationType, 0);
-  subAccountId = (account: Account) =>
-    `js:2:${account.currency.id}:${account.parentAccount ? account.parentAccount.address : account.address}:${account.currency.id}Sub+${account.address}`;
   accountGraphId = (accountId: string) => `account-graph-${accountId}`;
+  expandTokenListId = "enabled-account-expand-token-list";
 
-  @Step("Wait for account screen and verify account name")
+  @Step("Wait for account screen and verify account name {{{0}}}")
   async waitAndVerifyAccountName(accountName: string) {
     await waitForElementById(this.accountScreenScrollView);
     await detoxExpect(getElementByText(accountName, 0)).toBeVisible();
@@ -60,32 +60,32 @@ export default class AccountPage {
   }
 
   @Step("Check if account detail is visible")
-  async isAccountDetailVisible(timeout = VISIBILITY_PROBE_TIMEOUT) {
+  async isAccountDetailVisible(timeout = TIMEOUT.xxsmall) {
     return await IsIdVisible(this.accountScreenScrollView, timeout);
   }
 
-  @Step("Go to the account with the name")
+  @Step("Go to the account with the name {{{0}}}")
   async goToAccountByName(name: string) {
-    await scrollToId(this.baseAccountName + name);
+    await scrollToId(this.baseAccountName + name, this.accountsListId);
     await tapById(this.baseAccountName + name);
   }
 
-  @Step("Go to the account with id")
+  @Step("Go to the account with id {{{0}}}")
   async goToAccountById(id: string) {
     const elementId = this.baseAccountRow + id;
     const element = getElementById(elementId);
-    await scrollToId(elementId);
+    await scrollToId(elementId, this.accountsListId);
     await waitForElement(element);
     await detoxExpect(element).toBeVisible();
     await tapByElement(element);
   }
 
-  @Step("Expect the account name at index")
+  @Step("Expect the account name {{{0}}}")
   async expectAccountName(accountName: string, index = 0) {
     jestExpect(await this.getAccountName(index)).toBe(accountName);
   }
 
-  @Step("Get the account name at index")
+  @Step("Get the account name at index {{{0}}}")
   async getAccountName(index = 0) {
     return await getTextOfElement(this.accountNameRegExp, index);
   }
@@ -116,54 +116,37 @@ export default class AccountPage {
     await tapByElement(this.accountRenameRow());
   }
 
-  @Step("Enter new account name and submit")
+  @Step("Enter new account name and submit {{{0}}}")
   async enterNewAccountName(name: string) {
     await typeTextById(this.accountRenameTextInputId, name);
   }
 
-  // The operations history section wraps the whole operations list, so it is
-  // taller than the viewport and can never reach the default 75% visibility.
-  // A lower threshold still proves the section scrolled into view.
-  operationHistoryVisibilityPercentage = 35;
-
-  @Step("Expect operation history to be visible")
+  @Step("Expect operation history to be visible {{{0}}}")
   async expectOperationHistoryVisible(accountId: string) {
-    const id = this.operationHistorySectionId(accountId);
-    await scrollToId(
-      id,
-      this.accountScreenScrollView,
-      250,
-      "down",
-      undefined,
-      this.operationHistoryVisibilityPercentage,
-    );
-    await detoxExpect(getElementById(id)).toBeVisible(this.operationHistoryVisibilityPercentage);
+    await scrollToId(this.operationRowRegexp, this.accountScreenScrollView, 250, "down");
+    await detoxExpect(getElementById(this.operationHistorySectionId(accountId))).toExist();
+    await detoxExpect(getElementById(this.operationRowRegexp, 0)).toBeVisible();
   }
 
   @Step("Scroll to operation history")
   async scrollToTransactions() {
     await waitForElementById(this.accountScreenScrollView);
-    await scrollToId(
-      this.operationHistorySectionRegexp,
-      this.accountScreenScrollView,
-      300,
-      "bottom",
-    );
+    await scrollToId(this.operationRowRegexp, this.accountScreenScrollView, 300, "down");
   }
 
-  @Step("Scroll to a Specific SubAccount Row")
+  @Step("Scroll to a Specific SubAccount Row {{{0}}}")
   async scrollToSubAccount(subAccountId: string) {
     await waitForElementById(this.accountScreenScrollView);
-    await scrollToId(subAccountId, this.accountScreenScrollView, 650, "down");
+    await scrollToId(subAccountId, this.accountScreenScrollView);
   }
 
-  @Step("Expect account balance to be visible")
+  @Step("Expect account balance to be visible {{{0}}}")
   async expectAccountBalanceVisible(accountId: string) {
     await detoxExpect(this.accountGraph(accountId)).toBeVisible();
     await detoxExpect(this.accountBalance(accountId)).toBeVisible();
   }
 
-  @Step("Get visible account address label")
+  @Step("Get visible account address label {{{0}}}")
   async getVisibleAccountAddressLabel(accountId: string) {
     await scrollToId(this.accountAddressId(accountId), this.accountScreenScrollView);
     await detoxExpect(this.accountAddress(accountId)).toBeVisible();
@@ -177,7 +160,7 @@ export default class AccountPage {
     await detoxExpect(getElementById(this.sendButtonId)).toBeVisible();
   }
 
-  @Step("Expect address index")
+  @Step("Expect address index {{{0}}}")
   async expectAddressIndex(indexNumber: number) {
     await this.openAccountSettings();
     await this.openAccountAdvancedLogs();
@@ -216,22 +199,55 @@ export default class AccountPage {
     await tapById(this.buyButtonId);
   }
 
-  @Step("Navigate to token in account")
+  @Step("Navigate to token in account {{{0.accountName}}}")
   async navigateToTokenInAccount(subAccount: Account) {
     const subAccountId = this.baseSubAccountRow + subAccount.currency.ticker;
-    await this.scrollToSubAccount(subAccountId);
+    try {
+      await this.scrollToSubAccount(subAccountId);
+    } catch {
+      await revealForTap(this.expandTokenListId, { container: this.accountScreenScrollView });
+      await tapById(this.expandTokenListId);
+      await this.scrollToSubAccount(subAccountId);
+    }
     await tapById(subAccountId);
   }
 
-  @Step("Navigate to sub account")
+  @Step("Navigate to sub account {{{0.accountName}}}")
   async navigateToSubAccount(account: AccountType) {
-    const subAccountId = this.subAccountId(account);
+    const { parentAccount } = account;
+    invariant(parentAccount, `${account.accountName} has no parent account`);
+
+    const parentAddress = parentAccount.address;
+    invariant(parentAddress, `${parentAccount.accountName} has no address`);
+
     await this.openViaDeeplink();
-    await this.goToAccountById(subAccountId);
-    await waitForElement(this.accountGraph(subAccountId));
+    await this.goToAccountByName(parentAccount.accountName);
+    await this.navigateToTokenInAccount(account);
+
+    const graphIdRegexp = new RegExp(`^${this.accountGraphId("")}.+\\+.+`);
+    await waitForElementById(graphIdRegexp, undefined, { checkVisibility: false });
+    const graphCount = await countElements(getElementsById(graphIdRegexp));
+    let graphId: string | undefined;
+    for (let index = 0; index < graphCount; index++) {
+      const graph = getElementById(graphIdRegexp, index);
+      try {
+        await detoxExpect(graph).toBeVisible();
+        graphId = (await getIdOfElement(graph)).replace(this.accountGraphId(""), "");
+        break;
+      } catch {
+        continue;
+      }
+    }
+    invariant(graphId, `no visible account graph after opening ${account.accountName}`);
+
+    invariant(
+      graphId.includes(parentAddress),
+      `expected a sub-account of ${parentAccount.accountName}, landed on ${graphId}`,
+    );
+    return graphId;
   }
 
-  @Step("Scroll to history and click on last operation")
+  @Step("Scroll to history and click on last operation {{{0}}}")
   async scrollToHistoryAndClickOnLastOperation(operationType: string) {
     await this.scrollToTransactions();
     await tapByElement(this.getSpecificOperation(operationType));

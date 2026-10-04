@@ -10,6 +10,7 @@ import BigNumber from "bignumber.js";
 import semver from "semver";
 import cryptoFactory from "../chain/chain";
 import cosmosBase from "../chain/cosmosBase";
+import { type CosmosCoinConfig } from "../config";
 import {
   CosmosDelegation,
   CosmosDelegationStatus,
@@ -66,8 +67,12 @@ export class CosmosAPI {
     return this._cosmosSDKVersion;
   }
 
-  constructor(currencyId: string, options?: { endpoint: string | undefined; version: string }) {
-    const crypto = cryptoFactory(currencyId);
+  constructor(
+    currencyId: string,
+    options?: { endpoint: string | undefined; version: string },
+    config?: CosmosCoinConfig,
+  ) {
+    const crypto = cryptoFactory(currencyId, config);
     this.currencyId = currencyId;
     this.chainInstance = crypto;
     this.defaultEndpoint = options?.endpoint?.toString() ?? crypto.lcd;
@@ -91,68 +96,32 @@ export class CosmosAPI {
     delegations: CosmosDelegation[];
     redelegations: CosmosRedelegation[];
     unbondings: CosmosUnbonding[];
-    withdrawAddress: string;
     accountInfo: { sequence: number; accountNumber: number };
   }> => {
     try {
-      const [
-        accountInfo,
-        balances,
+      const [accountInfo, balances, blockHeight, txs, delegations, redelegations, unbondings] =
+        await Promise.all([
+          this.getAccount(address),
+          this.getAllBalances(address, currency),
+          this.getHeight(),
+          this.getTransactions(address, 100),
+          this.getDelegations(address, currency),
+          this.getRedelegations(address),
+          this.getUnbondings(address),
+        ]);
+
+      const staking = await this.mergeQueuedStaking(
+        { delegations, redelegations, unbondings },
+        address,
+        currency,
         blockHeight,
-        txs,
-        delegations,
-        redelegations,
-        unbondings,
-        withdrawAddress,
-      ] = await Promise.all([
-        this.getAccount(address),
-        this.getAllBalances(address, currency),
-        this.getHeight(),
-        this.getTransactions(address, 100),
-        this.getDelegations(address, currency),
-        this.getRedelegations(address),
-        this.getUnbondings(address),
-        this.getWithdrawAddress(address),
-      ]);
-
-      let staking = { delegations, redelegations, unbondings };
-
-      if (this.chainInstance.epochedStaking) {
-        staking.unbondings = staking.unbondings.map(u =>
-          u.creationHeight === undefined
-            ? u
-            : {
-                ...u,
-                completionDate: estimateEpochedUnbondingCompletion(
-                  u.creationHeight,
-                  blockHeight,
-                  this.chainInstance.unbondingPeriod,
-                ),
-              },
-        );
-
-        const queued = await fetchQueuedStakingMessages(
-          this.defaultEndpoint,
-          address,
-          currency.units[1].code,
-        );
-        // at or past the boundary the queued msgs have already executed into `delegations`
-        // (the queue runs in the boundary block's EndBlocker), so merging would double-count
-        if (queued && queued.messages.length > 0 && blockHeight < queued.epochBoundary) {
-          staking = mergeQueuedMessages(staking, queued.messages, {
-            blockHeight,
-            epochBoundary: queued.epochBoundary,
-            unbondingPeriodDays: this.chainInstance.unbondingPeriod,
-          });
-        }
-      }
+      );
 
       return {
         accountInfo,
         balances,
         blockHeight,
         txs,
-        withdrawAddress,
         ...staking,
       };
     } catch (e) {
@@ -165,6 +134,97 @@ export class CosmosAPI {
         throw new Error(`Error during ${currency.id} synchronization: ${error.message}`);
       }
     }
+  };
+
+  /**
+   * Merge Babylon's queued x/epoching staking into the base staking. `blockHeight` is optional —
+   * getAccountInfo passes its own to avoid a second getHeight.
+   */
+  private mergeQueuedStaking = async (
+    staking: {
+      delegations: CosmosDelegation[];
+      redelegations: CosmosRedelegation[];
+      unbondings: CosmosUnbonding[];
+    },
+    address: string,
+    currency: CryptoCurrency,
+    blockHeight?: number,
+  ): Promise<{
+    delegations: CosmosDelegation[];
+    redelegations: CosmosRedelegation[];
+    unbondings: CosmosUnbonding[];
+  }> => {
+    if (!this.chainInstance.epochedStaking) return staking;
+    const denom = currency.units[1]?.code;
+    if (!denom) return staking;
+    const [height, queued] = await Promise.all([
+      blockHeight !== undefined ? Promise.resolve(blockHeight) : this.getHeight(),
+      fetchQueuedStakingMessages(this.defaultEndpoint, address, denom),
+    ]);
+    // re-anchor epoched unbondings to the fast-unbonding estimate — the chain's completion_time is the
+    // full unbonding period and wrong for the fast path; skip when creation_height is missing.
+    const reanchored = {
+      ...staking,
+      unbondings: staking.unbondings.map(u =>
+        u.creationHeight === undefined
+          ? u
+          : {
+              ...u,
+              completionDate: estimateEpochedUnbondingCompletion(
+                u.creationHeight,
+                height,
+                this.chainInstance.unbondingPeriod,
+              ),
+            },
+      ),
+    };
+    // at/after the boundary the queue already executed into the base staking — merging double-counts
+    if (queued && queued.messages.length > 0 && height < queued.epochBoundary) {
+      return mergeQueuedMessages(reanchored, queued.messages, {
+        blockHeight: height,
+        epochBoundary: queued.epochBoundary,
+        unbondingPeriodDays: this.chainInstance.unbondingPeriod,
+      });
+    }
+    return reanchored;
+  };
+
+  getStakingPositions = async (
+    address: string,
+    currency: CryptoCurrency,
+  ): Promise<{ delegations: CosmosDelegation[]; unbondings: CosmosUnbonding[] }> => {
+    const [delegations, unbondings] = await Promise.all([
+      this.getDelegations(address, currency),
+      this.getUnbondings(address),
+    ]);
+    const merged = await this.mergeQueuedStaking(
+      { delegations, redelegations: [], unbondings },
+      address,
+      currency,
+    );
+    return { delegations: merged.delegations, unbondings: merged.unbondings };
+  };
+
+  /**
+   * Executed + (epoched chains only) queued x/epoching redelegations.
+   * Fetches delegations only when epoched — the queued-redelegate merge needs them to clamp.
+   */
+  getRedelegationsWithQueued = async (
+    address: string,
+    currency: CryptoCurrency,
+  ): Promise<CosmosRedelegation[]> => {
+    const executed = await this.getRedelegations(address);
+    if (!this.chainInstance.epochedStaking) return executed;
+    const [delegations, unbondings] = await Promise.all([
+      this.getDelegations(address, currency),
+      this.getUnbondings(address),
+    ]);
+    const merged = await this.mergeQueuedStaking(
+      { delegations, redelegations: executed, unbondings },
+      address,
+      currency,
+    );
+    return merged.redelegations;
   };
 
   private getCosmosSDKVersion = async (): Promise<string> => {
@@ -458,20 +518,6 @@ export class CosmosAPI {
     return unbondings;
   };
 
-  /**
-   * @sdk https://docs.cosmos.network/api#tag/Query/operation/DelegatorWithdrawAddress
-   */
-  getWithdrawAddress = async (address: string): Promise<string> => {
-    const {
-      data: { withdraw_address: withdrawAddress },
-    } = await network<CosmosSDKTypes.GetDelegatorWithdrawAddress>({
-      method: "GET",
-      url: `${this.defaultEndpoint}/cosmos/distribution/${this.version}/delegators/${address}/withdraw_address`,
-    });
-
-    return withdrawAddress;
-  };
-
   getTransactions = async (address: string, paginationSize: number): Promise<CosmosTx[]> => {
     const senderTxs = await this.fetchAllTransactions(address, "message.sender", paginationSize);
     const recipientTxs = await this.fetchAllTransactions(
@@ -492,7 +538,7 @@ export class CosmosAPI {
       let allTxs: CosmosTx[] = [];
       let paginationOffset = 0;
       let page = 1;
-      let maxTxs = 0;
+      let hasMore: boolean;
 
       // Unparseable version → legacy params: semver.gte throws, and the catch would hide it as empty history.
       const coerced = semver.coerce(await this.cosmosSDKVersion);
@@ -511,16 +557,22 @@ export class CosmosAPI {
           params.set("pagination.reverse", "true");
         }
 
-        const { txs, total } = await this.fetchTransactions(params);
+        // A failed page reads as an empty one: the walk ends, keeping the pages already fetched.
+        const { txs, total } = await this.fetchTransactions(params).catch(e => {
+          log("debug", "Could not fetch txs page", { e, page, paginationOffset });
+          return { txs: [] as CosmosTx[], total: 0 };
+        });
 
         if (useModernParams) {
           page += 1;
         } else {
           paginationOffset += paginationSize;
         }
-        maxTxs = total;
         allTxs = allTxs.concat(txs);
-      } while (allTxs.length < maxTxs);
+        // The walk only advances on the txs it receives, so an empty page never reaches `total`:
+        // without the `txs.length` term, a node counting more than it serves is paged forever.
+        hasMore = txs.length > 0 && allTxs.length < total;
+      } while (hasMore);
 
       return allTxs;
     } catch (e) {
@@ -593,9 +645,10 @@ export class CosmosAPI {
       url: `${this.defaultEndpoint}/cosmos/tx/${this.version}/txs?${params.toString()}`,
     });
 
+    // The wire is looser than the type: empty results come back as `null`, uint64 total as a string.
     return {
-      txs: data.tx_responses,
-      total: "total" in data ? data.total : data.pagination.total,
+      txs: data.tx_responses ?? [],
+      total: Number("total" in data ? data.total : data.pagination.total),
     };
   }
 

@@ -1,19 +1,7 @@
 import BigNumber from "bignumber.js";
-import coinConfig from "../config";
 import { decodeTransaction, getTronResources } from "./utils";
 
 describe("decodeTransaction", () => {
-  beforeAll(() => {
-    coinConfig.setCoinConfig(() => ({
-      status: {
-        type: "active",
-      },
-      explorer: {
-        url: "http://localhost",
-      },
-    }));
-  });
-
   it("creates a TRX transaction in TronWeb format", async () => {
     const result = await decodeTransaction(
       "0a020ee522082e5fc67747a428af40f0e2ace4d3325a66080112620a2d747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e5472616e73666572436f6e747261637412310a1541fd49eda0f23ff7ec1d03b52c3a45991c24cd440e12154198927ffb9f554dc4a453c64b2e553a02d6df514b18e80770fd9ca9e4d332",
@@ -109,6 +97,20 @@ describe("decodeTransaction", () => {
       },
       raw_data_hex:
         "0a02054a22089334553fd5c2cb624098abbfbfd4325aae01081f12a9010a31747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e54726967676572536d617274436f6e747261637412740a1541fd49eda0f23ff7ec1d03b52c3a45991c24cd440e12154142a1e39aefa49290f2b3f9ed688d7cecf86cd6e02244a9059cbb00000000000000000000004115208ef33a926919ed270e2fa61367b2da3753da0000000000000000000000000000000000000000000000000000000000000032708de6bbbfd43290018094ebdc03",
+    });
+  });
+
+  it("surfaces a non-zero call_value on a TriggerSmartContract", async () => {
+    const result = await decodeTransaction(
+      "0a02054a22089334553fd5c2cb624098abbfbfd4325ab001081f12ab010a31747970652e676f6f676c65617069732e636f6d2f70726f746f636f6c2e54726967676572536d617274436f6e747261637412760a1541fd49eda0f23ff7ec1d03b52c3a45991c24cd440e12154142a1e39aefa49290f2b3f9ed688d7cecf86cd6e018012244a9059cbb00000000000000000000004115208ef33a926919ed270e2fa61367b2da3753da0000000000000000000000000000000000000000000000000000000000000032708de6bbbfd43290018094ebdc03",
+    );
+
+    expect(result.txID).toBe("65c90f8016ac47d1f2d42ef9dc4c2a76ed3c57592daaafc6d4d139ab39a06b1a");
+    expect(result.raw_data.contract[0].parameter.value).toEqual({
+      data: "a9059cbb00000000000000000000004115208ef33a926919ed270e2fa61367b2da3753da0000000000000000000000000000000000000000000000000000000000000032",
+      owner_address: "41fd49eda0f23ff7ec1d03b52c3a45991c24cd440e",
+      contract_address: "4142a1e39aefa49290f2b3f9ed688d7cecf86cd6e0",
+      call_value: 1,
     });
   });
 });

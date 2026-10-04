@@ -3,8 +3,6 @@ import * as path from "path";
 import { expect } from "@playwright/test";
 import { test } from "tests/fixtures/common";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { addTmsLink } from "tests/utils/allureUtils";
-import { getDescription } from "tests/utils/customJsonReporter";
 import { Account, TokenAccount } from "@ledgerhq/live-e2e-shared/enum/Account";
 import { waitForIdentitiesInAppJson } from "tests/utils/userdata";
 import { FileUtils } from "tests/utils/fileUtils";
@@ -18,14 +16,12 @@ test.describe("Settings", () => {
   });
 
   test(
-    `ERC20 token with 0 balance is hidden if 'hide empty token accounts' is ON`,
+    `[${TokenAccount.ETH_USDT_1.currency.testLabel}] - Hide empty token accounts hides a zero-balance ERC20 token`,
     {
       tag: [...DEVICE_TAGS, "@ethereum", "@family-evm"],
       annotation: [{ type: "TMS", description: "B2CQA-817" }],
     },
     async ({ app }) => {
-      await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
       await app.mainNavigation.openTargetFromMainNavigation("accounts");
       await app.accounts.showParentAccountTokens(Account.ETH_1.accountName);
       await app.accounts.verifyTokenVisibility(TokenAccount.ETH_USDT_1.currency);
@@ -42,7 +38,7 @@ test.describe("Settings", () => {
   );
 });
 
-test.describe("Password", () => {
+test.describe("Settings", () => {
   const account = Account.ETH_1;
   test.use({
     teamOwner: Team.WALLET_XP,
@@ -53,7 +49,7 @@ test.describe("Password", () => {
   });
 
   test(
-    "The user enter his password to access to the app",
+    `[${account.currency.testLabel}] - Unlock the app with the correct password`,
     {
       tag: [...DEVICE_TAGS, "@ethereum", "@family-evm"],
       annotation: {
@@ -62,8 +58,6 @@ test.describe("Password", () => {
       },
     },
     async ({ app }) => {
-      await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
       await app.mainNavigation.openTargetFromMainNavigation("accounts");
       await app.accounts.expectCryptoAccountRowVisible(account.accountName);
       const countBeforeLock = await app.accounts.countAccounts();
@@ -84,7 +78,7 @@ test.describe("Password", () => {
   );
 });
 
-test.describe("counter value selection", () => {
+test.describe("Settings", () => {
   const account = Account.BTC_NATIVE_SEGWIT_1;
   test.use({
     teamOwner: Team.WALLET_XP,
@@ -95,7 +89,7 @@ test.describe("counter value selection", () => {
   });
 
   test(
-    "User can select a counter value to display amount",
+    `[${account.currency.testLabel}] - Select a counter value to display amounts`,
     {
       tag: [...DEVICE_TAGS, "@bitcoin", "@family-bitcoin"],
       annotation: {
@@ -104,14 +98,11 @@ test.describe("counter value selection", () => {
       },
     },
     async ({ app }) => {
-      await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
       await app.mainNavigation.openSettings();
       await app.settings.changeCounterValue("euro");
       await app.settings.expectCounterValue("Euro - EUR");
       await app.mainNavigation.openTargetFromMainNavigation("home");
 
-      await app.layout.waitForAccountsSyncToBeDone();
       await app.portfolio.expectTotalBalanceCounterValue("€");
 
       await app.portfolio.expectBalanceDiffCounterValue("%");
@@ -122,14 +113,14 @@ test.describe("counter value selection", () => {
   );
 });
 
-test.describe("Ledger Support (web link)", () => {
+test.describe("Settings", () => {
   test.use({
     teamOwner: Team.WALLET_XP,
     userdata: "skip-onboarding-with-last-seen-device",
   });
 
   test(
-    "Verify that user can access to Ledger Support (Web Link)",
+    "Access Ledger Support web link",
     {
       tag: [...DEVICE_TAGS],
       annotation: {
@@ -138,8 +129,6 @@ test.describe("Ledger Support (web link)", () => {
       },
     },
     async ({ app }) => {
-      await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
       await app.mainNavigation.openSettings();
       await app.settings.goToHelpTab();
 
@@ -148,14 +137,14 @@ test.describe("Ledger Support (web link)", () => {
   );
 });
 
-test.describe("Reset app", () => {
+test.describe("Settings", () => {
   test.use({
     teamOwner: Team.WALLET_XP,
     userdata: "1AccountBTC1AccountETH",
   });
 
   test(
-    "Verify that user can Reset app",
+    "Reset the app",
     {
       tag: [...DEVICE_TAGS, "@ethereum", "@family-evm"],
       annotation: {
@@ -164,8 +153,6 @@ test.describe("Reset app", () => {
       },
     },
     async ({ app, userdataFile, userdataDestinationPath }) => {
-      await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
       await app.mainNavigation.openSettings();
       const { userId: userIdBefore } = await waitForIdentitiesInAppJson(userdataFile);
 
@@ -186,14 +173,14 @@ test.describe("Reset app", () => {
   );
 });
 
-test.describe("Settings - Export Log", () => {
+test.describe("Settings", () => {
   test.use({
     teamOwner: Team.WALLET_XP,
     userdata: "1AccountBTC1AccountETH",
   });
 
   test(
-    "Verify that user can view user data folder and export logs",
+    "Export logs",
     {
       tag: [...DEVICE_TAGS, "@ethereum", "@family-evm"],
       annotation: {
@@ -202,8 +189,6 @@ test.describe("Settings - Export Log", () => {
       },
     },
     async ({ app }) => {
-      await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
       await app.mainNavigation.openSettings();
       await app.settings.goToHelpTab();
       await app.settings.checkViewUserDataButtonIsEnabled();
@@ -241,7 +226,7 @@ const languageTestData = [
   },
 ];
 
-test.describe("Language change", () => {
+test.describe("Settings", () => {
   test.use({
     teamOwner: Team.WALLET_XP,
     userdata: "skip-onboarding-with-last-seen-device",
@@ -249,14 +234,12 @@ test.describe("Language change", () => {
 
   for (const l10n of languageTestData) {
     test(
-      `Settings — change app language to ${l10n.lang}`,
+      `Change app language to ${l10n.lang}`,
       {
         tag: [...DEVICE_TAGS],
         annotation: { type: "TMS", description: "B2CQA-2344" },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
         await app.mainNavigation.openSettings();
         await app.settings.changeLanguage(l10n.lang);
         await app.settings.expectLanguageSelected(l10n.lang);

@@ -2,7 +2,9 @@ module.exports = {
   testEnvironment: "jsdom",
   roots: ["<rootDir>/src"],
   testMatch: ["**/*.test.ts?(x)"],
-  setupFilesAfterEnv: ["<rootDir>/jest.setup.js"],
+  // Web files import through suffix-free barrels; the native ones always pin `.native`.
+  moduleFileExtensions: ["web.tsx", "web.ts", "tsx", "ts", "js", "jsx", "json", "node"],
+  setupFilesAfterEnv: ["<rootDir>/jest.setup.js", "@ledgerhq/test-quarantine/jest-retries"],
   transform: {
     "^.+\\.(t|j)sx?$": [
       "@swc/jest",
@@ -22,5 +24,6 @@ module.exports = {
   reporters: [
     "default",
     ["jest-sonar", { outputName: "sonar-executionTests-report.xml", reportedFilePath: "absolute" }],
+    "@ledgerhq/test-quarantine/jest",
   ],
 };

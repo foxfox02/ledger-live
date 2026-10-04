@@ -16,8 +16,7 @@ import { useTranslation } from "react-i18next";
 import { useDispatch, useSelector } from "LLD/hooks/redux";
 import { userIdSelector } from "@domain/entity-client-identity";
 import { openExchangeDrawer } from "~/renderer/actions/UI";
-import { currentRouteNameRef } from "~/renderer/analytics/screenRefs";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import { OperationDetails } from "~/renderer/drawers/OperationDetails";
 import { setDrawer } from "~/renderer/drawers/Provider";
 import { mevProtectionSelector, shareAnalyticsSelector } from "~/renderer/reducers/settings";
@@ -30,15 +29,16 @@ import { flattenAccountsSelector } from "~/renderer/reducers/accounts";
 import BigSpinner from "../BigSpinner";
 import { NetworkErrorScreen } from "./NetworkError";
 import { DappAccountGate } from "./DappAccountGate";
-import { useWebviewState } from "./helpers";
+import { getAttachedWebview, useWebviewState } from "./helpers";
 import { Loader as StyledLoader } from "./styled";
 import { WebviewAPI, WebviewProps, WebviewTag } from "./types";
 import { HOOKS_TRACKING_LOCATIONS } from "~/renderer/analytics/hooks/variables";
 import { setFlowValue, setSourceValue } from "~/renderer/reducers/modularDialog";
-import { useDrawerConfiguration } from "@ledgerhq/live-common/dada-client/hooks/useDrawerConfiguration";
+import { useDrawerConfiguration } from "@ledgerhq/live-common/wallet-api/ModularDrawer/useDrawerConfiguration";
 import { useOpenAssetAndAccount } from "LLD/features/ModularDialog/Web3AppWebview/AssetAndAccountDrawer";
 import { useFeature } from "@features/platform-feature-flags";
 import { setOriginFlow } from "~/renderer/analytics/originFlow";
+import { getTrackingRouteLiveAppSource } from "./analytics";
 
 const wallet = { name: "ledger-live-desktop", version: __APP_VERSION__ };
 
@@ -48,10 +48,7 @@ function useUiHook(manifest: AppManifest, tracking: TrackingAPI): UiHook {
   const dispatch = useDispatch();
   const { createDrawerConfiguration } = useDrawerConfiguration();
 
-  const source =
-    currentRouteNameRef.current === "Platform Catalog"
-      ? "Discover"
-      : (currentRouteNameRef.current ?? "Unknown");
+  const source = getTrackingRouteLiveAppSource();
 
   const flow = manifest.name;
 
@@ -316,7 +313,7 @@ function useWebView(
 
   const webviewHook = useMemo(() => {
     return {
-      reload: () => webviewRef.current?.reloadIgnoringCache(),
+      reload: () => getAttachedWebview(webviewRef)?.reloadIgnoringCache(),
       postMessage: (message: string) => {
         const webview = webviewRef.current;
         if (webview) {
@@ -332,7 +329,7 @@ function useWebView(
   const walletState = useSelector(walletSelector);
 
   const { widgetLoaded, onLoad, onReload, onMessage, server } = useWalletAPIServer({
-    walletState,
+    accountNames: walletState.accountNames,
     manifest,
     accounts,
     tracking,
@@ -452,12 +449,9 @@ export const WalletAPIWebview = forwardRef<WebviewAPI, WebviewProps>(
               eventName,
               {
                 ...properties,
-                flowInitiatedFrom:
-                  currentRouteNameRef.current === "Platform Catalog"
-                    ? "Discover"
-                    : currentRouteNameRef.current,
+                flowInitiatedFrom: getTrackingRouteLiveAppSource(),
               },
-              mandatory,
+              { mandatory: !!mandatory },
             ),
         ),
       [],

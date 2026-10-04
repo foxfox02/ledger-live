@@ -3,8 +3,8 @@
 /// <reference path=".//global.d.ts" />
 import type { Subject } from "rxjs";
 import type { Server, WebSocket } from "ws";
-import type { Application } from "../page";
-import type { MessageData, ServerData } from "../bridge/types";
+import type { Application } from "page";
+import type { MessageData, ServerData } from "@e2e/bridge/types";
 import type expect from "expect";
 import type {
   $TmsLink as $TmsLinkType,
@@ -13,7 +13,7 @@ import type {
   $Owner as $OwnerType,
   $ParentSuite as $ParentSuiteType,
 } from "jest-allure2-reporter/api";
-import { NativeElementHelpers, WebElementHelpers } from "../helpers/elementHelpers";
+import { NativeElementHelpers, WebElementHelpers } from "@e2e/helpers/elementHelpers";
 import { Currency as CurrencyType } from "@ledgerhq/live-e2e-shared/enum/Currency";
 import { Delegate as DelegateType } from "@ledgerhq/live-e2e-shared/models/Delegate";
 import {
@@ -24,7 +24,8 @@ import { Transaction as TransactionType } from "@ledgerhq/live-e2e-shared/models
 import { Fee as FeeType } from "@ledgerhq/live-e2e-shared/enum/Fee";
 import { AppInfos as AppInfosType } from "@ledgerhq/live-e2e-shared/enum/AppInfos";
 import { Swap as SwapType } from "@ledgerhq/live-e2e-shared/models/Swap";
-import { CLI as CLIType } from "../utils/cliUtils";
+import { CLI as CLIType } from "@e2e/utils/cliUtils";
+import type { OptionalFeatureMap } from "@shared/feature-flags";
 
 declare global {
   var IS_FAILED: boolean;
@@ -32,6 +33,7 @@ declare global {
   var speculosStartupErrorMessage: string | undefined;
   var speculosFailureStderr: string | undefined;
   var speculosFailedRunIds: Set<string> | undefined;
+  var mergedFeatureFlags: OptionalFeatureMap | undefined;
   var webSocket: {
     wss: Server | undefined;
     ws: WebSocket | undefined;
@@ -75,6 +77,7 @@ declare global {
   var getLabelOfElement: typeof NativeElementHelpers.getLabelOfElement;
   var IsIdPresent: typeof NativeElementHelpers.isIdPresent;
   var IsIdVisible: typeof NativeElementHelpers.isIdVisible;
+  var revealForTap: typeof NativeElementHelpers.revealForTap;
   var scrollByPixels: typeof NativeElementHelpers.scrollByPixels;
   var scrollToId: typeof NativeElementHelpers.scrollToId;
   var scrollToText: typeof NativeElementHelpers.scrollToText;
@@ -87,6 +90,7 @@ declare global {
   var waitForElement: typeof NativeElementHelpers.waitForElement;
   var waitForElementById: typeof NativeElementHelpers.waitForElementById;
   var waitForElementByText: typeof NativeElementHelpers.waitForElementByText;
+  var waitForFullyVisibleById: typeof NativeElementHelpers.waitForFullyVisibleById;
   var waitForElementNotVisible: typeof NativeElementHelpers.waitForElementNotVisible;
 
   var expectWebElementNotVisible: typeof WebElementHelpers.expectWebElementNotVisible;
@@ -100,6 +104,7 @@ declare global {
   var getWebElementsByIdAndText: typeof WebElementHelpers.getWebElementsByIdAndText;
   var getWebElementsText: typeof WebElementHelpers.getWebElementsText;
   var getWebElementText: typeof WebElementHelpers.getWebElementText;
+  var isWebElementPresent: typeof WebElementHelpers.isWebElementPresent;
   var scrollToWebElement: typeof WebElementHelpers.scrollToWebElement;
   var tapWebElementByElement: typeof WebElementHelpers.tapWebElementByElement;
   var tapWebElementByTestId: typeof WebElementHelpers.tapWebElementByTestId;

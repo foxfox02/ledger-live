@@ -1,4 +1,3 @@
-import invariant from "invariant";
 import React, { useCallback, useState } from "react";
 import { withTranslation } from "react-i18next";
 import { TFunction } from "i18next";
@@ -17,7 +16,7 @@ import logger from "~/renderer/logger";
 import { updateAccountWithUpdater } from "~/renderer/actions/accounts";
 import { OpenModal, openModal } from "~/renderer/actions/modals";
 
-import Track from "~/renderer/analytics/Track";
+import { Track } from "@shared/analytics-react";
 import Stepper from "~/renderer/components/Stepper";
 import { getCurrentDevice } from "~/renderer/reducers/devices";
 import { useSteps } from "./steps";
@@ -76,7 +75,6 @@ function Body({
     bridgePending,
     status,
   } = useBridgeTransaction(bridge, () => {
-    invariant(accountProp.nearResources, "near: account and near resources required");
     const initTx = bridge.createTransaction(accountProp);
     const mode = "unstake";
     const recipient = validatorAddress;

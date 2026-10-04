@@ -5,8 +5,6 @@ import {
   TokenAccount,
   getParentAccountName,
 } from "@ledgerhq/live-e2e-shared/enum/Account";
-import { addTmsLink } from "tests/utils/allureUtils";
-import { getDescription } from "tests/utils/customJsonReporter";
 import type { Application } from "tests/page";
 import {
   addEmptyAccountCommand,
@@ -14,7 +12,12 @@ import {
 } from "@ledgerhq/live-e2e-shared/cliCommandsUtils";
 import { buildTags } from "tests/utils/tagsUtils";
 
-const nativeAccounts = [
+type ReceiveTestCase = {
+  account: Account;
+  xrayTicket: string;
+};
+
+const nativeAccounts: ReceiveTestCase[] = [
   { account: Account.BTC_NATIVE_SEGWIT_1, xrayTicket: "B2CQA-2559, B2CQA-2687" },
   { account: Account.ETH_1, xrayTicket: "B2CQA-2561, B2CQA-2688, B2CQA-2697" },
   { account: Account.SOL_1, xrayTicket: "B2CQA-2563, B2CQA-2689" },
@@ -25,6 +28,7 @@ const nativeAccounts = [
   { account: Account.ATOM_1, xrayTicket: "B2CQA-2560, B2CQA-2694" },
   { account: Account.XTZ_1, xrayTicket: "B2CQA-2564, B2CQA-2695" },
   { account: Account.BSC_1, xrayTicket: "B2CQA-2686, B2CQA-2696, B2CQA-2698" },
+  { account: Account.ZEC_1, xrayTicket: "B2CQA-6604" },
 ];
 
 const tokenAccount = { account: TokenAccount.ETH_USDT_1, xrayTicket: "B2CQA-5694" };
@@ -46,16 +50,16 @@ async function verifySendCurrencyTokensWarning(app: Application, account: Accoun
 }
 
 for (const receive of nativeAccounts) {
-  test.describe("Receive native coin", () => {
+  test.describe("Receive", () => {
     test.use({
-      teamOwner: Team.WALLET_XP,
+      teamOwner: Team.COIN_INTEGRATION,
       userdata: "skip-onboarding-with-last-seen-device",
       speculosApp: receive.account.currency.speculosApp,
       cliCommands: [liveDataCommand(receive.account)],
     });
 
     test(
-      `[${receive.account.currency.name}] Receive`,
+      `[${receive.account.currency.testLabel}] - Verify address`,
       {
         tag: buildTags({
           currencyId: receive.account.currency.id,
@@ -67,7 +71,6 @@ for (const receive of nativeAccounts) {
         },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
         await app.mainNavigation.openTargetFromMainNavigation("accounts");
         await app.accounts.navigateToAccountByName(receive.account.accountName);
         await app.account.expectAccountVisibility(receive.account.accountName);
@@ -83,17 +86,17 @@ for (const receive of nativeAccounts) {
   });
 }
 
-test.describe("Receive TRX empty balance", () => {
+test.describe("Receive", () => {
   const account = Account.TRX_3;
   test.use({
-    teamOwner: Team.WALLET_XP,
+    teamOwner: Team.COIN_INTEGRATION,
     userdata: "skip-onboarding-with-last-seen-device",
     speculosApp: account.currency.speculosApp,
     cliCommands: [addEmptyAccountCommand(account)],
   });
 
   test(
-    `${account.currency.ticker} empty balance Receive displays address activation warning message`,
+    `[${account.currency.testLabel}] - Verify address activation warning on empty account`,
     {
       tag: buildTags({ currencyId: account.currency.id }),
       annotation: {
@@ -102,8 +105,6 @@ test.describe("Receive TRX empty balance", () => {
       },
     },
     async ({ app }) => {
-      await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
       await app.mainNavigation.openTargetFromMainNavigation("accounts");
       await app.accounts.navigateToAccountByName(account.accountName);
       await app.account.expectAccountVisibility(account.accountName);
@@ -114,15 +115,15 @@ test.describe("Receive TRX empty balance", () => {
   );
 });
 
-test.describe("Receive token", () => {
+test.describe("Receive", () => {
   test.use({
-    teamOwner: Team.WALLET_XP,
+    teamOwner: Team.COIN_INTEGRATION,
     userdata: "speculos-subAccount",
     speculosApp: tokenAccount.account.currency.speculosApp,
   });
 
   test(
-    `[${tokenAccount.account.currency.name}] Receive`,
+    `[${tokenAccount.account.currency.testLabel}] - Verify address`,
     {
       tag: buildTags({ currencyId: tokenAccount.account.currency.id }),
       annotation: {
@@ -131,8 +132,6 @@ test.describe("Receive token", () => {
       },
     },
     async ({ app }) => {
-      await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
       await app.mainNavigation.openTargetFromMainNavigation("accounts");
       await app.accounts.navigateToAccountByName(getParentAccountName(tokenAccount.account));
       await app.account.expectAccountVisibility(getParentAccountName(tokenAccount.account));

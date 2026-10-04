@@ -4,17 +4,17 @@ on:
   workflow_call:
     secrets:
       AWS_ACCOUNT_ID_PROD:
-        required: false
+        required: true
       AWS_CACHE_OIDC_ROLE_ARN_BRANCH:
-        required: false
+        required: true
       AWS_CACHE_OIDC_ROLE_ARN_DEVELOP:
-        required: false
+        required: true
       AWS_CACHE_REGION:
-        required: false
+        required: true
       AWS_CACHE_ROLE_NAME:
-        required: false
+        required: true
       NX_KEY:
-        required: false
+        required: true
   workflow_dispatch:
     inputs:
       ref:
@@ -40,7 +40,6 @@ on:
 permissions:
   id-token: write
   contents: read
-  pull-requests: write
 
 jobs:
   test-design-system:
@@ -50,7 +49,7 @@ jobs:
       FORCE_COLOR: 3
       CI_OS: ubuntu-22.04
 
-    runs-on: ubuntu-22.04
+    runs-on: ledger-wallet-4cpu-aws-public
 
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -69,8 +68,12 @@ jobs:
           accountId: ${{ secrets.AWS_ACCOUNT_ID_PROD }}
           roleName: ${{ secrets.AWS_CACHE_ROLE_NAME }}
           region: ${{ secrets.AWS_CACHE_REGION }}
+      - name: JFrog npm auth
+        uses: LedgerHQ/ledger-live/tools/actions/composites/jfrog-npm-auth@develop
+        with:
+          registry: ${{ vars.ARTIFACTORY_URL }}
       - name: Install dependencies
-        run: pnpm i --filter="./libs/ui/**"
+        run: pnpm i --frozen-lockfile --filter="./libs/ui/**"
       - name: Run unit tests
         run: pnpm --filter="./libs/ui/**" test:jest:coverage
       - name: Upload unit test coverage (react)
@@ -91,14 +94,6 @@ jobs:
         id: test-ui
         run: pnpm exec nx affected --base=HEAD~1 --head=HEAD -t test --exclude='*,!tag:scope:libs-ui' --parallel=1
         shell: bash
-      - name: (On Failure) Upload react-ui test results
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        if: failure()
-        with:
-          name: react-ui-test-results-ubuntu
-          path: |
-            libs/ui/tests/react.spec.js-snapshots/
-            libs/ui/test-results/
       - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         if: ${{ !cancelled() }}
         with:

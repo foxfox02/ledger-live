@@ -1,7 +1,12 @@
 import { TRANSACTION_TYPE } from "@ledgerhq/coin-aleo/constants";
-import type { RecordPickingStrategy, TransactionType } from "@ledgerhq/coin-aleo/types";
+import type {
+  AleoCoinConfig,
+  RecordPickingStrategy,
+  TransactionType,
+} from "@ledgerhq/coin-aleo/types";
 import type { ConfigInfo } from "@ledgerhq/live-config/LiveConfig";
 import { getEnv } from "@shared/env";
+import { getCurrencyConfiguration } from "../../config";
 
 // API for fee estimation is not available yet, so for MVP we are using static fee configuration.
 // source of hardcoded values: https://ledgerhq.atlassian.net/wiki/spaces/BI/pages/6218678344/ARCH+-+Aleo+integration+HLD
@@ -15,6 +20,10 @@ const DEFAULT_FEE_BY_TRANSACTION_TYPE: Record<TransactionType, number> = {
   [TRANSACTION_TYPE.TRANSFER_TOKEN_PRIVATE]: 2308,
   [TRANSACTION_TYPE.CONVERT_TOKEN_PRIVATE_TO_PUBLIC]: 18494,
   [TRANSACTION_TYPE.CONVERT_TOKEN_PUBLIC_TO_PRIVATE]: 17972,
+  // measured from single-transition testnet transactions (credits.aleo, fee_public, priority fee 0),
+  [TRANSACTION_TYPE.BOND_PUBLIC]: 5621,
+  [TRANSACTION_TYPE.UNBOND_PUBLIC]: 10813,
+  [TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC]: 3066,
 };
 
 const DEFAULT_FEE_SAFETY_MULTIPLIER = 1;
@@ -46,6 +55,20 @@ const RECORD_PICKING_STRATEGY: RecordPickingStrategy = "auto";
  */
 const ENABLE_TOKENS = false;
 
+/**
+ * Controls whether Aleo staking features (bond/unbond/claim) are enabled.
+ */
+const ENABLE_STAKING = false;
+
+/** Both are required on the config, so these only stand in until it has loaded. */
+export const LIVE_BLOCK_HEIGHT_POLL_MS = 10_000;
+
+/** Once spent, a settled unbonding entry is left to the background sync to pick up. */
+export const MAX_UNBONDING_SYNC_ATTEMPTS = 3;
+
+const MAINNET_DEFAULT_VALIDATOR = "aleo1q3vx8pet0h7739hx5xlekfxh9kus6qdlxhx9qdkxhh9rnva8q5gsskve3t";
+const TESTNET_DEFAULT_VALIDATOR = "aleo1l7avejc23yv6e8nx4udjwz89dw6mg95dzsp936hf77yuhnjywv9syl0ywc";
+
 export const aleoConfig: Record<string, ConfigInfo> = {
   config_currency_aleo: {
     type: "object",
@@ -53,7 +76,10 @@ export const aleoConfig: Record<string, ConfigInfo> = {
       status: {
         type: "active",
       },
+      name: "Aleo",
+      unit: { name: "Aleo", code: "ALEO", magnitude: 6 },
       networkType: "mainnet",
+      defaultValidator: MAINNET_DEFAULT_VALIDATOR,
       apiUrls: {
         node: getEnv("ALEO_NODE_ENDPOINT"),
         sdk: getEnv("ALEO_MAINNET_SDK_ENDPOINT"),
@@ -62,8 +88,11 @@ export const aleoConfig: Record<string, ConfigInfo> = {
       feeSafetyMultiplier: DEFAULT_FEE_SAFETY_MULTIPLIER,
       isFeeSponsored: IS_FEE_SPONSORED,
       enableTokens: ENABLE_TOKENS,
+      enableStaking: ENABLE_STAKING,
       useEncryptedProve: USE_ENCRYPTED_PROVE,
       recordPickingStrategy: RECORD_PICKING_STRATEGY,
+      liveBlockHeightPollMs: LIVE_BLOCK_HEIGHT_POLL_MS,
+      maxUnbondingSyncAttempts: MAX_UNBONDING_SYNC_ATTEMPTS,
     },
   },
   config_currency_aleo_testnet: {
@@ -72,7 +101,10 @@ export const aleoConfig: Record<string, ConfigInfo> = {
       status: {
         type: "active",
       },
+      name: "Aleo (Testnet)",
+      unit: { name: "Aleo", code: "ALEO", magnitude: 6 },
       networkType: "testnet",
+      defaultValidator: TESTNET_DEFAULT_VALIDATOR,
       apiUrls: {
         node: getEnv("ALEO_NODE_ENDPOINT"),
         sdk: getEnv("ALEO_TESTNET_SDK_ENDPOINT"),
@@ -81,8 +113,20 @@ export const aleoConfig: Record<string, ConfigInfo> = {
       feeSafetyMultiplier: DEFAULT_FEE_SAFETY_MULTIPLIER,
       isFeeSponsored: IS_FEE_SPONSORED,
       enableTokens: ENABLE_TOKENS,
+      enableStaking: ENABLE_STAKING,
       useEncryptedProve: USE_ENCRYPTED_PROVE,
       recordPickingStrategy: RECORD_PICKING_STRATEGY,
+      liveBlockHeightPollMs: LIVE_BLOCK_HEIGHT_POLL_MS,
+      maxUnbondingSyncAttempts: MAX_UNBONDING_SYNC_ATTEMPTS,
     },
   },
 };
+
+/** `undefined` until the configuration is loaded: LiveConfig throws for an unknown currency. */
+export function getAleoCurrencyConfigById(currencyId: string): AleoCoinConfig | undefined {
+  try {
+    return getCurrencyConfiguration<AleoCoinConfig>(currencyId);
+  } catch {
+    return undefined;
+  }
+}

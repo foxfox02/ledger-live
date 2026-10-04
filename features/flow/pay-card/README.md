@@ -1,0 +1,96 @@
+# @features/flow-pay-card
+
+> [!CAUTION]
+> **Status: UNSTABLE** — In active development; API may change.
+
+Pay Card flow orchestrator for Ledger Wallet Desktop and Mobile. It composes the independent Pay
+Card leaf flows into a single entry point, mirroring the Contacts aggregate (`@features/flow-contacts`).
+
+## Usage
+
+```tsx
+import { Card } from "@features/flow-pay-card";
+
+<Card
+  login={{ oauthConfig, callback }}
+  assets={{ currencies, priceWallet, formatCountervalue }}
+  formatters={{ countervalue, transactionAmount, transactionDate }}
+  balanceLabel={balanceLabel}
+/>;
+```
+
+`Card` mounts the card visual and the authentication controls together:
+
+- The card face from [`@features/flow-pay-card-details`](../pay-card-details/README.md): `CardVisual`
+  once the host provides a countervalue formatter and a balance label, the bare `CardArtwork`
+  otherwise. Freeze and More also come from that package (`CardDetails` on both platforms).
+- The funding wallets, when the host passes `assets`. Rendered by
+  [`@features/flow-pay-card-assets`](../pay-card-assets/README.md). A row carries the currency's icon,
+  its name and ticker, what the wallet holds and what that is worth. Pricing needs the countervalues
+  state, which the two apps reach differently, so the host passes the resolved currencies, a
+  `priceWallet` and a `formatCountervalue` (which returns the display string) rather than this package
+  reaching for rates. Omit `assets` and the list is not rendered.
+- `CardLogin` from [`@features/flow-pay-card-auth`](../pay-card-auth/README.md) — it shows while
+  nobody is signed in, and `useCardLogout` ends the session from the More menu.
+- `CardTransactions` from [`@features/flow-pay-card-transactions`](../pay-card-transactions/README.md)
+  on web once signed in (the first page of card transactions, or nothing when the list is empty).
+
+The balance on the card face is what the funding wallets are worth: the provider reports no total,
+so the flow sums the wallets it could price. A wallet nothing could price adds nothing, so the
+balance can understate what the card holds.
+They pass a `formatters` object for what only the app knows: `countervalue` (locale and
+counter-value currency), and on web `transactionAmount` / `transactionDate` so the history uses the
+same amount and date formatters as the rest of the app (`useDateFormatter` on Desktop). `balanceLabel`
+stays with the host because of i18n; the flow resolves its own card title through `@shared/i18n`.
+Hosts pass `oauthConfig` and `callback` under `login`
+(`CardProps.login`); those come from `@features/flow-pay-card-auth`. Desktop mounts this flow in the
+Pay tab's right panel.
+
+## MVVM
+
+The flow follows the app MVVM split so both platforms share the logic and differ only in markup:
+
+- `useCardViewModel` (shared) turns the host `CardProps` into the resolved `CardViewProps` — chiefly
+  building the balance overlay (or leaving it `undefined` for the bare artwork).
+- `CardView.web.tsx` / `CardView.native.tsx` are the presentational views; they render what the view
+  model resolved and nothing more.
+- `Card` is the container: it wires the hook to the platform view (`<CardView {...useCardViewModel(props)} />`).
+
+## Public API vs leaves
+
+This package **composes**; it does not re-export its leaves. Each leaf keeps its own public API and is
+imported directly when an app needs a single piece or its Redux state:
+
+- Auth-only runtime state (`payCardAuth`) stays behind `@features/flow-pay-card-auth/state`.
+- Other Pay Card surfaces (`Balance`, `DepositOptions`, `RequestReceive`, `FeatureTour`) remain
+  independent `@features/flow-pay-card-*` leaves that the app assembles on its Pay tab; they are not
+  pulled into this orchestrator.
+- [`CardAssets`](../pay-card-assets/README.md) is composed here when the host passes `assets`. Import
+  the leaf directly if you need the list without the rest of `Card`.
+
+## Platform resolution
+
+`Card.tsx` imports the view suffix-free (`./CardView`); the bundlers (Rspack `resolve.extensions`,
+Metro platform extensions) and the package's own `tsconfig` `moduleSuffixes` pick `CardView.web.tsx`
+or `CardView.native.tsx` per platform. The `exports` condition in `package.json` selects the barrel
+(`index.ts` for web, `index.native.ts` for React Native); both re-export the shared `./Card`
+container. The leaf packages resolve their own Web / React Native implementations the same way.
+
+## Structure
+
+Every `index.*` is a pure barrel (`export *` only).
+
+```text
+pay-card/
+├── package.json
+└── src/
+    ├── Card.tsx                  # Container: wires the view model to the platform view
+    ├── Card.types.ts            # CardProps (host input) + CardViewProps (resolved view props)
+    ├── useCardViewModel.ts      # Shared view model: builds the card visual from host inputs
+    ├── CardView.web.tsx         # Presentational view (web)
+    ├── CardView.native.tsx      # Presentational view (native)
+    ├── Card.web.test.tsx
+    ├── Card.native.test.tsx
+    ├── index.ts                 # Web public API barrel → ./Card
+    └── index.native.ts          # Native public API barrel → ./Card
+```

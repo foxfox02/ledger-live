@@ -36,6 +36,8 @@ export enum HEDERA_OPERATION_TYPES {
 
 export const HEDERA_DUMMY_ADDRESS = "0.0.163372";
 
+export const HEDERA_VALIDATORS_CACHE_MINUTES = 15;
+
 export const TINYBAR_SCALE = 8;
 
 // old value moved from https://github.com/LedgerHQ/ledger-live/blob/8447b68b7c6f1e7ccd4aa9db4da0e6c8de36a88e/libs/coin-modules/coin-hedera/src/bridge/utils.ts#L77
@@ -126,6 +128,14 @@ export const OP_TYPES_EXCLUDING_FEES: OperationType[] = [
  * Since staking rewards on Hedera are not represented as separate transactions, we need to create synthetic operations for them.
  */
 export const STAKING_REWARD_HASH_SUFFIX = "-staking-reward";
+
+/**
+ * Network account that pays out staking rewards. Same value on mainnet and testnet
+ * https://docs.hedera.com/learn/core-concepts/staking/staking#staking-reward-account
+ */
+export const STAKING_REWARD_ACCOUNT_ID = "0.0.800";
+
+export const CLAIM_REWARDS_TRIGGER_TINYBARS = 1;
 
 export const MAP_TX_NAME_TO_CUSTOM_OPERATION_TYPE: Record<string, OperationType> = {
   [HEDERA_TRANSACTION_NAMES.TokenAssociate]: "ASSOCIATE_TOKEN",

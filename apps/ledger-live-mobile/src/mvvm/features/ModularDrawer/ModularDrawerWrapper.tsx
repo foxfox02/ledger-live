@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback, useRef } from "react";
 import { ModularDrawer } from "./ModularDrawer";
 import { useModularDrawerController } from "./hooks/useModularDrawerController";
 
@@ -6,7 +6,9 @@ export function ModularDrawerWrapper() {
   const {
     isOpen,
     preselectedCurrencies,
+    categories,
     closeDrawer,
+    hideDrawer,
     handleAccountSelected,
     handleCurrencySelected,
     presentation,
@@ -17,6 +19,22 @@ export function ModularDrawerWrapper() {
     areCurrenciesFiltered,
   } = useModularDrawerController();
 
+  // Prevents QueuedBottomSheet cleanup from firing cancel after a silent hide.
+  const silentHideRef = useRef(false);
+
+  const onSilentClose = useCallback(() => {
+    silentHideRef.current = true;
+    hideDrawer();
+  }, [hideDrawer]);
+
+  const onClose = useCallback(() => {
+    if (silentHideRef.current) {
+      silentHideRef.current = false;
+      return;
+    }
+    closeDrawer();
+  }, [closeDrawer]);
+
   if (presentation === "embedded") {
     return null;
   }
@@ -25,7 +43,9 @@ export function ModularDrawerWrapper() {
     <ModularDrawer
       isOpen={isOpen}
       currencies={preselectedCurrencies}
-      onClose={closeDrawer}
+      categories={categories}
+      onClose={onClose}
+      onSilentClose={onSilentClose}
       assetsConfiguration={assetsConfiguration}
       networksConfiguration={networksConfiguration}
       onAccountSelected={handleAccountSelected}

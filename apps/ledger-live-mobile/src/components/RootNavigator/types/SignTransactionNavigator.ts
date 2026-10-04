@@ -1,5 +1,6 @@
 import { Transaction, TransactionStatus } from "@ledgerhq/live-common/generated/types";
-import type { GasOptions, Transaction as EvmTransaction } from "@ledgerhq/coin-evm/types/index";
+import type { GasOptions } from "@ledgerhq/coin-evm/types";
+import type { Transaction as EvmTransaction } from "@ledgerhq/live-common/families/evm/types";
 import type {
   CardanoAccount,
   Transaction as CardanoTransaction,
@@ -41,6 +42,8 @@ import { ScreenName } from "~/const";
 type SharedParams = {
   onSuccess: (signedOperation: SignedOperation) => void;
   onError: (err: Error) => void;
+  manifestId?: string;
+  manifestName?: string;
 };
 
 export type SignTransactionNavigatorParamList = {
@@ -54,7 +57,6 @@ export type SignTransactionNavigatorParamList = {
     hideTotal?: boolean;
     appName?: string;
     dependencies?: string[];
-    isACRE?: boolean;
     currentNavigation:
       | ScreenName.SignTransactionSummary
       | ScreenName.SendSummary
@@ -74,7 +76,6 @@ export type SignTransactionNavigatorParamList = {
     status: TransactionStatus;
     appName?: string;
     dependencies?: string[];
-    isACRE?: boolean;
     analyticsPropertyFlow?: string;
   } & SharedParams;
   [ScreenName.SignTransactionValidationError]: {

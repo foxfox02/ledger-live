@@ -22,6 +22,8 @@ const CURRENCY_CONFIGS = {
     currency: getCryptoCurrencyById("polkadot"),
     config: {
       status: { type: "active" as const },
+      name: "Polkadot",
+      unit: { name: "DOT", code: "DOT", magnitude: 10 },
       node: { url: "https://polkadot-rpc.publicnode.com" },
       sidecar: { url: "https://polkadot-mainnet-rest-api.coin.ledger.com/v1/rc" },
       indexer: { url: "https://polkadot.coin.ledger.com" },
@@ -33,6 +35,8 @@ const CURRENCY_CONFIGS = {
     currency: getCryptoCurrencyById("assethub_polkadot"),
     config: {
       status: { type: "active" as const },
+      name: "Polkadot",
+      unit: { name: "DOT", code: "DOT", magnitude: 10 },
       sidecar: { url: "https://polkadot-mainnet-rest-api.coin.ledger.com/v1" },
       node: { url: "https://polkadot-asset-hub-fullnodes.api.live.ledger.com" },
       indexer: { url: "https://explorers.api.live.ledger.com/blockchain/dot_asset_hub" },
@@ -46,6 +50,8 @@ const CURRENCY_CONFIGS = {
     currency: getCryptoCurrencyById("westend"),
     config: {
       status: { type: "active" as const },
+      name: "Westend",
+      unit: { name: "WND", code: "WND", magnitude: 12 },
       sidecar: { url: "https://polkadot-westend-rest-api.coin.ledger.com/v1/rc" },
       node: { url: "https://polkadot-westend-fullnodes.api.live.ledger.com" },
       indexer: { url: "https://explorers.api.live.ledger.com/blockchain/dot_westend" },
@@ -56,6 +62,8 @@ const CURRENCY_CONFIGS = {
     currency: getCryptoCurrencyById("assethub_westend"),
     config: {
       status: { type: "active" as const },
+      name: "Assethub Westend",
+      unit: { name: "WND", code: "WND", magnitude: 12 },
       sidecar: { url: "https://polkadot-westend-rest-api.coin.ledger.com/v1" },
       node: { url: "https://polkadot-westend-asset-hub-fullnodes.api.live.ledger.com" },
       indexer: { url: "https://explorers.api.live.ledger.com/blockchain/dot_asset_hub_westend" },
@@ -73,7 +81,12 @@ describe("sidecar integration test", () => {
       });
 
       describe("getValidators", () => {
-        it(`returns expected result with ${currencyId}`, async () => {
+        // Westend relay-chain staking has migrated to Asset Hub and is no longer supported:
+        // the relay node no longer exposes the staking pallet, so `getValidators` returns an
+        // empty array here. `assethub_westend` (below) is the supported chain and keeps this
+        // assertion.
+        const test = currencyId === "westend" ? it.skip : it;
+        test(`returns expected result with ${currencyId}`, async () => {
           const result = await getValidators(undefined, currency);
 
           expect(result).toEqual(
@@ -95,7 +108,7 @@ describe("sidecar integration test", () => {
 
       describe("getAccount", () => {
         it(`works with ${currencyId}`, async () => {
-          const result = await getAccount(testAddress, currency);
+          const result = await getAccount(config, testAddress, currency);
 
           expect(result).toMatchObject({
             balance: expect.any(BigNumber),
@@ -113,7 +126,7 @@ describe("sidecar integration test", () => {
 
       describe("getStakingInfo", () => {
         it(`works with ${currencyId}`, async () => {
-          const result = await getStakingInfo(testAddress, currency);
+          const result = await getStakingInfo(config, testAddress, currency);
 
           expect(result).toMatchObject({
             unlockedBalance: expect.any(BigNumber),
@@ -125,7 +138,7 @@ describe("sidecar integration test", () => {
 
       describe("getStakingProgress", () => {
         it(`works with ${currencyId}`, async () => {
-          const result = await getStakingProgress(currency);
+          const result = await getStakingProgress(config, currency);
 
           expect(result).toMatchObject({
             activeEra: expect.any(Number),
@@ -138,7 +151,7 @@ describe("sidecar integration test", () => {
 
       describe("getBalances", () => {
         it(`works with ${currencyId}`, async () => {
-          const result = await getBalances(testAddress, currency);
+          const result = await getBalances(config, testAddress, currency);
 
           expect(result).toMatchObject({
             balance: expect.any(BigNumber),
@@ -152,7 +165,7 @@ describe("sidecar integration test", () => {
 
       describe("getMinimumBondBalance", () => {
         it(`works with ${currencyId}`, async () => {
-          const result = await getMinimumBondBalance(currency);
+          const result = await getMinimumBondBalance(config, currency);
 
           expect(result).toBeInstanceOf(BigNumber);
           expect(result.isGreaterThanOrEqualTo(0)).toBe(true);
@@ -161,7 +174,7 @@ describe("sidecar integration test", () => {
 
       describe("isElectionClosed", () => {
         it(`works with ${currencyId}`, async () => {
-          const result = await isElectionClosed(currency);
+          const result = await isElectionClosed(config, currency);
 
           expect(typeof result).toBe("boolean");
         });
@@ -169,7 +182,7 @@ describe("sidecar integration test", () => {
 
       describe("isNewAccount", () => {
         it(`works with ${currencyId}`, async () => {
-          const result = await isNewAccount(testAddress, currency);
+          const result = await isNewAccount(config, testAddress, currency);
 
           expect(typeof result).toBe("boolean");
         });
@@ -177,7 +190,7 @@ describe("sidecar integration test", () => {
 
       describe("isControllerAddress", () => {
         it(`works with ${currencyId}`, async () => {
-          const result = await isControllerAddress(testAddress, currency);
+          const result = await isControllerAddress(config, testAddress, currency);
 
           expect(typeof result).toBe("boolean");
         });
@@ -185,7 +198,7 @@ describe("sidecar integration test", () => {
 
       describe("getTransactionParams", () => {
         it(`works with ${currencyId}`, async () => {
-          const result = await getTransactionParams(currency);
+          const result = await getTransactionParams(config, currency);
 
           expect(result).toMatchObject({
             blockHash: expect.any(String),
@@ -201,7 +214,7 @@ describe("sidecar integration test", () => {
 
       describe("getRegistry", () => {
         it(`works with ${currencyId}`, async () => {
-          const result = await getRegistry(currency);
+          const result = await getRegistry(config, currency);
 
           expect(result).toMatchObject({
             registry: expect.any(Object),
@@ -212,7 +225,7 @@ describe("sidecar integration test", () => {
 
       describe("getLastBlock", () => {
         it(`works with ${currencyId}`, async () => {
-          const result = await getLastBlock(currency);
+          const result = await getLastBlock(config, currency);
 
           expect(result).toMatchObject({
             hash: expect.any(String),
@@ -224,7 +237,7 @@ describe("sidecar integration test", () => {
 
       describe("fetchChainSpec", () => {
         it(`works with ${currencyId}`, async () => {
-          const result = await fetchChainSpec(currency);
+          const result = await fetchChainSpec(config, currency);
 
           expect(result).toMatchObject({
             properties: expect.any(Object),

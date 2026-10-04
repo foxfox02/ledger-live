@@ -1,6 +1,6 @@
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { setTeamOwner } from "helpers/allure/allure-helper";
-import { FF_LWM_WALLET_40_Q2 } from "utils/featureFlagUtils";
+import { setTeamOwner } from "@e2e/helpers/allure/allure-helper";
+import { FF_LWM_WALLET_40_Q2 } from "@e2e/utils/featureFlagUtils";
 
 const testConfig = {
   tmsLinks: ["B2CQA-5405", "B2CQA-5426", "B2CQA-5427"],
@@ -8,7 +8,7 @@ const testConfig = {
 };
 
 setTeamOwner(Team.WALLET_XP);
-describe("Wallet 4.0 Q2- MyWallet", () => {
+describe("My Wallet", () => {
   beforeAll(async () => {
     await app.init({
       userdata: "speculos-x-other-account",
@@ -24,28 +24,28 @@ describe("Wallet 4.0 Q2- MyWallet", () => {
   testConfig.tmsLinks.forEach(link => $TmsLink(link));
   testConfig.tags.forEach(tag => $Tag(tag));
 
-  it("should open My Wallet from Portfolio and from Earn", async () => {
+  it("Open My Wallet from portfolio and earn", async () => {
     await app.mainNavigation.expectPortfolioPageVisible();
-    await app.myWallet.openFromTopBar();
+    await app.mainNavigation.openMyWallet();
     await app.myWallet.tapHeaderBack();
 
     await app.mainNavigation.expectPortfolioPageVisible();
 
     await app.mainNavigation.tapWallet40Tab("earn");
     await app.mainNavigation.expectEarnPageVisible();
-    await app.myWallet.openFromTopBar();
+    await app.mainNavigation.openMyWallet();
   });
 
-  it("should access Help from My Wallet", async () => {
+  it("Access help from My Wallet", async () => {
     await app.mainNavigation.openPortfolioViaDeeplink();
-    await app.myWallet.openFromTopBar();
+    await app.mainNavigation.openMyWallet();
     await app.myWallet.tapHelp();
     await app.myWallet.expectHelpScreenVisible();
   });
 
-  it("should access Settings from My Wallet", async () => {
+  it("Access settings from My Wallet", async () => {
     await app.mainNavigation.openPortfolioViaDeeplink();
-    await app.myWallet.openFromTopBar();
+    await app.mainNavigation.openMyWallet();
     await app.myWallet.tapHeaderSettings();
     await app.myWallet.expectSettingsScreenVisible();
   });

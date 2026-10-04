@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { renderWithReactQuery, screen, waitFor } from "@tests/test-renderer";
 import * as analytics from "~/analytics";
+import { trackPage, track } from "@shared/analytics";
 import { AnalyticsConsentDrawer } from "../index";
 import { withConsentDrawerState } from "../__tests__/helpers";
 import { ScreenName } from "~/const";
@@ -63,6 +64,19 @@ const FRESH_CONSENT_TITLE = "Help us improve Ledger";
 const RECONFIRM_TITLE = "Continue improving Ledger?";
 const PRIVACY_UPDATE_TITLE = "We're updating our privacy policy";
 
+function expectTrackedPhase(
+  phase: "consentFresh" | "consentReconfirm" | "preferences" | "privacy",
+) {
+  expect(trackPage).toHaveBeenCalledWith(
+    {
+      category: "AnalyticsConsentDrawer",
+      name: "Analytics consent",
+      props: { phase, type: "drawer" },
+    },
+    { mandatory: true, refreshSource: false, updateRoutes: true, avoidDuplicates: false },
+  );
+}
+
 describe("AnalyticsConsentDrawer on Portfolio", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -88,28 +102,17 @@ describe("AnalyticsConsentDrawer on Portfolio", () => {
 
         const drawerTitle = await screen.findByText(FRESH_CONSENT_TITLE);
         expect(drawerTitle).toBeVisible();
-        expect(analytics.screen).toHaveBeenCalledWith(
-          "AnalyticsConsentDrawer",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentFresh",
-            type: "drawer",
-          }),
-          true,
-          false,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentFresh");
 
         await user.press(screen.getByRole("button", { name: "Accept all" }));
-        expect(analytics.track).toHaveBeenCalledWith(
+        expect(track).toHaveBeenCalledWith(
           "button_clicked",
           {
             button: "analytics_consent_opt_in",
             page: ANALYTICS_CONSENT_DRAWER_PAGE,
-            privacyPolicyVersion: 1,
+            privacyPolicyVersion: "1.0",
           },
-          true,
+          { mandatory: true },
         );
 
         await waitFor(() => {
@@ -135,28 +138,17 @@ describe("AnalyticsConsentDrawer on Portfolio", () => {
 
         const drawerTitle = await screen.findByText(FRESH_CONSENT_TITLE);
         expect(drawerTitle).toBeVisible();
-        expect(analytics.screen).toHaveBeenCalledWith(
-          "AnalyticsConsentDrawer",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentFresh",
-            type: "drawer",
-          }),
-          true,
-          false,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentFresh");
 
         await user.press(screen.getByRole("button", { name: "Refuse all" }));
-        expect(analytics.track).toHaveBeenCalledWith(
+        expect(track).toHaveBeenCalledWith(
           "button_clicked",
           {
             button: "analytics_consent_opt_out",
             page: ANALYTICS_CONSENT_DRAWER_PAGE,
-            privacyPolicyVersion: 1,
+            privacyPolicyVersion: "1.0",
           },
-          true,
+          { mandatory: true },
         );
 
         await waitFor(() => {
@@ -182,21 +174,10 @@ describe("AnalyticsConsentDrawer on Portfolio", () => {
 
         const drawerTitle = await screen.findByText(FRESH_CONSENT_TITLE);
         expect(drawerTitle).toBeVisible();
-        expect(analytics.screen).toHaveBeenCalledWith(
-          "AnalyticsConsentDrawer",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentFresh",
-            type: "drawer",
-          }),
-          true,
-          false,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentFresh");
 
         await user.press(screen.getByRole("link", { name: "Set preferences" }));
-        expect(analytics.track).toHaveBeenCalledWith("button_clicked", {
+        expect(track).toHaveBeenCalledWith("button_clicked", {
           button: "analytics_consent_set_preferences",
           page: ANALYTICS_CONSENT_DRAWER_PAGE,
         });
@@ -223,28 +204,17 @@ describe("AnalyticsConsentDrawer on Portfolio", () => {
 
         const drawerTitle = await screen.findByText(FRESH_CONSENT_TITLE);
         expect(drawerTitle).toBeVisible();
-        expect(analytics.screen).toHaveBeenCalledWith(
-          "AnalyticsConsentDrawer",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentFresh",
-            type: "drawer",
-          }),
-          true,
-          false,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentFresh");
 
         await user.press(screen.getByRole("button", { name: "Accept all" }));
-        expect(analytics.track).toHaveBeenCalledWith(
+        expect(track).toHaveBeenCalledWith(
           "button_clicked",
           {
             button: "analytics_consent_opt_in",
             page: ANALYTICS_CONSENT_DRAWER_PAGE,
-            privacyPolicyVersion: 1,
+            privacyPolicyVersion: "1.0",
           },
-          true,
+          { mandatory: true },
         );
 
         await waitFor(() => {
@@ -270,28 +240,17 @@ describe("AnalyticsConsentDrawer on Portfolio", () => {
 
         const drawerTitle = await screen.findByText(FRESH_CONSENT_TITLE);
         expect(drawerTitle).toBeVisible();
-        expect(analytics.screen).toHaveBeenCalledWith(
-          "AnalyticsConsentDrawer",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentFresh",
-            type: "drawer",
-          }),
-          true,
-          false,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentFresh");
 
         await user.press(screen.getByRole("button", { name: "Refuse all" }));
-        expect(analytics.track).toHaveBeenCalledWith(
+        expect(track).toHaveBeenCalledWith(
           "button_clicked",
           {
             button: "analytics_consent_opt_out",
             page: ANALYTICS_CONSENT_DRAWER_PAGE,
-            privacyPolicyVersion: 1,
+            privacyPolicyVersion: "1.0",
           },
-          true,
+          { mandatory: true },
         );
 
         await waitFor(() => {
@@ -317,21 +276,10 @@ describe("AnalyticsConsentDrawer on Portfolio", () => {
 
         const drawerTitle = await screen.findByText(FRESH_CONSENT_TITLE);
         expect(drawerTitle).toBeVisible();
-        expect(analytics.screen).toHaveBeenCalledWith(
-          "AnalyticsConsentDrawer",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentFresh",
-            type: "drawer",
-          }),
-          true,
-          false,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentFresh");
 
         await user.press(screen.getByRole("link", { name: "Set preferences" }));
-        expect(analytics.track).toHaveBeenCalledWith("button_clicked", {
+        expect(track).toHaveBeenCalledWith("button_clicked", {
           button: "analytics_consent_set_preferences",
           page: ANALYTICS_CONSENT_DRAWER_PAGE,
         });
@@ -360,28 +308,17 @@ describe("AnalyticsConsentDrawer on Portfolio", () => {
 
         const drawerTitle = await screen.findByText(RECONFIRM_TITLE);
         expect(drawerTitle).toBeVisible();
-        expect(analytics.screen).toHaveBeenCalledWith(
-          "AnalyticsConsentDrawer",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentReconfirm",
-            type: "drawer",
-          }),
-          true,
-          false,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentReconfirm");
 
         await user.press(screen.getByRole("button", { name: "Yes, continue" }));
-        expect(analytics.track).toHaveBeenCalledWith(
+        expect(track).toHaveBeenCalledWith(
           "button_clicked",
           {
             button: "analytics_consent_opt_in",
             page: ANALYTICS_CONSENT_DRAWER_PAGE,
-            privacyPolicyVersion: 1,
+            privacyPolicyVersion: "1.0",
           },
-          true,
+          { mandatory: true },
         );
 
         await waitFor(() => {
@@ -407,28 +344,17 @@ describe("AnalyticsConsentDrawer on Portfolio", () => {
 
         const drawerTitle = await screen.findByText(RECONFIRM_TITLE);
         expect(drawerTitle).toBeVisible();
-        expect(analytics.screen).toHaveBeenCalledWith(
-          "AnalyticsConsentDrawer",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentReconfirm",
-            type: "drawer",
-          }),
-          true,
-          false,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentReconfirm");
 
         await user.press(screen.getByRole("button", { name: "No, stop" }));
-        expect(analytics.track).toHaveBeenCalledWith(
+        expect(track).toHaveBeenCalledWith(
           "button_clicked",
           {
             button: "analytics_consent_opt_out",
             page: ANALYTICS_CONSENT_DRAWER_PAGE,
-            privacyPolicyVersion: 1,
+            privacyPolicyVersion: "1.0",
           },
-          true,
+          { mandatory: true },
         );
 
         await waitFor(() => {
@@ -454,21 +380,10 @@ describe("AnalyticsConsentDrawer on Portfolio", () => {
 
         const drawerTitle = await screen.findByText(RECONFIRM_TITLE);
         expect(drawerTitle).toBeVisible();
-        expect(analytics.screen).toHaveBeenCalledWith(
-          "AnalyticsConsentDrawer",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentReconfirm",
-            type: "drawer",
-          }),
-          true,
-          false,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentReconfirm");
 
         await user.press(screen.getByRole("link", { name: "Set preferences" }));
-        expect(analytics.track).toHaveBeenCalledWith("button_clicked", {
+        expect(track).toHaveBeenCalledWith("button_clicked", {
           button: "analytics_consent_set_preferences",
           page: ANALYTICS_CONSENT_DRAWER_PAGE,
         });
@@ -495,28 +410,17 @@ describe("AnalyticsConsentDrawer on Portfolio", () => {
 
         const drawerTitle = await screen.findByText(RECONFIRM_TITLE);
         expect(drawerTitle).toBeVisible();
-        expect(analytics.screen).toHaveBeenCalledWith(
-          "AnalyticsConsentDrawer",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentReconfirm",
-            type: "drawer",
-          }),
-          true,
-          false,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentReconfirm");
 
         await user.press(screen.getByRole("button", { name: "Yes, continue" }));
-        expect(analytics.track).toHaveBeenCalledWith(
+        expect(track).toHaveBeenCalledWith(
           "button_clicked",
           {
             button: "analytics_consent_opt_in",
             page: ANALYTICS_CONSENT_DRAWER_PAGE,
-            privacyPolicyVersion: 1,
+            privacyPolicyVersion: "1.0",
           },
-          true,
+          { mandatory: true },
         );
 
         await waitFor(() => {
@@ -542,28 +446,17 @@ describe("AnalyticsConsentDrawer on Portfolio", () => {
 
         const drawerTitle = await screen.findByText(RECONFIRM_TITLE);
         expect(drawerTitle).toBeVisible();
-        expect(analytics.screen).toHaveBeenCalledWith(
-          "AnalyticsConsentDrawer",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentReconfirm",
-            type: "drawer",
-          }),
-          true,
-          false,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentReconfirm");
 
         await user.press(screen.getByRole("button", { name: "No, stop" }));
-        expect(analytics.track).toHaveBeenCalledWith(
+        expect(track).toHaveBeenCalledWith(
           "button_clicked",
           {
             button: "analytics_consent_opt_out",
             page: ANALYTICS_CONSENT_DRAWER_PAGE,
-            privacyPolicyVersion: 1,
+            privacyPolicyVersion: "1.0",
           },
-          true,
+          { mandatory: true },
         );
 
         await waitFor(() => {
@@ -589,21 +482,10 @@ describe("AnalyticsConsentDrawer on Portfolio", () => {
 
         const drawerTitle = await screen.findByText(RECONFIRM_TITLE);
         expect(drawerTitle).toBeVisible();
-        expect(analytics.screen).toHaveBeenCalledWith(
-          "AnalyticsConsentDrawer",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentReconfirm",
-            type: "drawer",
-          }),
-          true,
-          false,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentReconfirm");
 
         await user.press(screen.getByRole("link", { name: "Set preferences" }));
-        expect(analytics.track).toHaveBeenCalledWith("button_clicked", {
+        expect(track).toHaveBeenCalledWith("button_clicked", {
           button: "analytics_consent_set_preferences",
           page: ANALYTICS_CONSENT_DRAWER_PAGE,
         });
@@ -617,6 +499,8 @@ describe("AnalyticsConsentDrawer on Portfolio", () => {
   });
 
   describe("needs privacy policy version update", () => {
+    const consentDate = new Date("2026-01-15T12:00:00.000Z").toISOString();
+
     it("should show the privacy update sheet, persist the policy version, and close after Got it", async () => {
       const { user, store } = renderWithReactQuery(<IntegrationNavigator />, {
         overrideInitialState: composePortfolioOverrides({
@@ -624,41 +508,34 @@ describe("AnalyticsConsentDrawer on Portfolio", () => {
           analyticsOptInEnabled: true,
           analyticsEnabled: true,
           personalizedRecommendationsEnabled: true,
-          consentDate: new Date().toISOString(),
-          privacyPolicyVersion: 0,
+          consentDate,
+          privacyPolicyVersion: 1,
+          analyticsOptInParams: { policyVersion: "1.1" },
         }),
       });
 
       const privacySheetTitle = await screen.findByText(PRIVACY_UPDATE_TITLE);
       expect(privacySheetTitle).toBeVisible();
-      expect(analytics.screen).toHaveBeenCalledWith(
-        "AnalyticsConsentDrawer",
-        "Analytics consent",
-        expect.objectContaining({
-          phase: "privacy",
-          type: "drawer",
-        }),
-        true,
-        false,
-        false,
-        true,
-      );
+      expectTrackedPhase("privacy");
 
       await user.press(screen.getByRole("button", { name: "Got it" }));
-      expect(analytics.track).toHaveBeenCalledWith(
+      expect(track).toHaveBeenCalledWith(
         "button_clicked",
         {
           button: "analytics_consent_privacy_got_it",
           page: ANALYTICS_CONSENT_DRAWER_PAGE,
-          privacyPolicyVersion: 1,
+          privacyPolicyVersion: "1.1",
         },
-        true,
+        { mandatory: true },
       );
 
       await waitFor(() => {
         expect(privacySheetTitle).not.toBeOnTheScreen();
       });
-      expect(store.getState().settings.analyticsConsentInfo.privacyPolicyVersion).toBe(1);
+      expect(store.getState().settings.analyticsConsentInfo).toEqual({
+        consentDate,
+        privacyPolicyVersion: "1.1",
+      });
       expect(store.getState().settings.hasSeenAnalyticsOptInPrompt).toBe(true);
       expect(analytics.updateIdentify).toHaveBeenCalledTimes(1);
     });

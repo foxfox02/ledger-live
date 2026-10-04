@@ -7,7 +7,6 @@ export const robinhood_testnet = currency({
   name: "Robinhood Chain Testnet",
   managerAppName: "Ethereum",
   ticker: "ETH",
-  deviceTicker: "ETH",
   scheme: "robinhood_testnet",
   color: "#00C805",
   family: "evm",
@@ -38,11 +37,7 @@ export const robinhood_testnet = currency({
       magnitude: 0,
     },
   ],
-  disableCountervalue: true,
   isTestnetFor: "robinhood",
-  ethereumLikeInfo: {
-    chainId: 46630,
-  },
   explorerViews: [
     {
       tx: "https://explorer.testnet.chain.robinhood.com/tx/$hash",

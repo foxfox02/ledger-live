@@ -85,10 +85,14 @@ export const coinModuleLoaders: CoinModuleLoader[] = [
     family: "casper",
     supportedCoins: ["casper"],
     loadSetup: () => import("../families/casper/setup"),
+    loadLocalApi: () =>
+      import("../families/casper/coinModuleApi").then(m => m.createLocalCasperApi),
     loadTransaction: () => import("@ledgerhq/coin-casper/transaction").then(m => m.default),
     loadDeviceTxConfig: () =>
       import("@ledgerhq/coin-casper/deviceTransactionConfig").then(m => m.default),
     loadMockBridge: () => import("../families/casper/bridge/mock").then(m => m.default),
+    loadSigner: () => import("../families/casper/signer").then(m => m.default),
+    loadBridgeExtensions: () => import("../families/casper/bridgeExtensions").then(m => m.default),
   },
   {
     family: "celo",
@@ -128,6 +132,7 @@ export const coinModuleLoaders: CoinModuleLoader[] = [
       "xion",
       "zenrock",
       "babylon",
+      "gonka",
     ],
     loadSetup: () => import("../families/cosmos/setup"),
     loadTransaction: () => import("@ledgerhq/coin-cosmos/transaction").then(m => m.default),
@@ -137,6 +142,11 @@ export const coinModuleLoaders: CoinModuleLoader[] = [
     loadMockBridge: () => import("../families/cosmos/bridge/mock").then(m => m.default),
     loadMockAccount: () => import("@ledgerhq/coin-cosmos/mock").then(m => m.default),
     loadBridgeExtensions: () => import("../families/cosmos/bridgeExtensions").then(m => m.default),
+    loadAccountRawAssign: () => import("../families/cosmos/accountRawAssign").then(m => m.default),
+    loadLocalApi: () =>
+      import("../families/cosmos/coinModuleApi").then(m => m.createLocalCosmosApi),
+    loadBridgeApi: () => import("../families/cosmos/bridge/api").then(m => m.default),
+    loadSigner: () => import("../families/cosmos/signer").then(m => m.default),
   },
   {
     family: "evm",
@@ -194,7 +204,6 @@ export const coinModuleLoaders: CoinModuleLoader[] = [
       "blast",
       "blast_sepolia",
       "scroll",
-      "scroll_sepolia",
       "shape",
       "story",
       "etherlink",
@@ -218,7 +227,8 @@ export const coinModuleLoaders: CoinModuleLoader[] = [
     loadMockBridge: () => import("../families/evm/bridge/mock").then(m => m.default),
     loadSigner: () => import("../families/evm/signer").then(m => m.default),
     loadBridgeApi: () => import("../families/evm/bridge/api").then(m => m.default),
-    loadAccountRawAssign: () => import("../families/evm/accountRawAssign").then(m => m.default),
+    loadAccountRawAssign: () =>
+      import("../bridge/generic-coin-framework/accountRawAssign").then(m => m.default),
     loadBridgeExtensions: () => import("../families/evm/bridgeExtensions").then(m => m.default),
   },
   {
@@ -236,6 +246,12 @@ export const coinModuleLoaders: CoinModuleLoader[] = [
     loadTransaction: () => import("@ledgerhq/coin-hedera/transaction").then(m => m.default),
     loadDeviceTxConfig: () =>
       import("@ledgerhq/coin-hedera/deviceTransactionConfig").then(m => m.default),
+    loadSigner: () => import("../families/hedera/signer").then(m => m.default),
+    loadLocalApi: () =>
+      import("../families/hedera/coinModuleApi").then(m => m.createLocalHederaApi),
+    loadBridgeApi: () => import("../families/hedera/bridge/api").then(m => m.default),
+    loadAccountRawAssign: () => import("../families/hedera/accountRawAssign").then(m => m.default),
+    loadBridgeExtensions: () => import("../families/hedera/bridgeExtensions").then(m => m.default),
   },
   {
     // HyperCore (generic framework): eth-format address, no send. setup/signer only derive the
@@ -301,10 +317,14 @@ export const coinModuleLoaders: CoinModuleLoader[] = [
     family: "near",
     supportedCoins: ["near"],
     loadSetup: () => import("../families/near/setup"),
+    loadLocalApi: () => import("../families/near/coinModuleApi").then(m => m.createLocalNearApi),
+    loadBridgeApi: () => import("../families/near/bridge/api").then(m => m.default),
+    loadSigner: () => import("../families/near/signer").then(m => m.default),
     loadTransaction: () => import("@ledgerhq/coin-near/transaction").then(m => m.default),
     loadDeviceTxConfig: () =>
       import("@ledgerhq/coin-near/deviceTransactionConfig").then(m => m.default),
     loadAccount: () => import("@ledgerhq/coin-near/account").then(m => m.default),
+    loadMockBridge: () => import("../families/near/bridge/mock").then(m => m.default),
   },
   {
     family: "polkadot",
@@ -324,13 +344,15 @@ export const coinModuleLoaders: CoinModuleLoader[] = [
     loadSetup: () => import("../families/solana/setup"),
     loadLocalApi: () =>
       import("../families/solana/coinModuleApi").then(m => m.createLocalSolanaApi),
-    loadTransaction: () => import("@ledgerhq/coin-solana/transaction").then(m => m.default),
+    loadTransaction: () => import("../families/solana/transaction").then(m => m.default),
     loadDeviceTxConfig: () =>
-      import("@ledgerhq/coin-solana/deviceTransactionConfig").then(m => m.default),
+      import("../families/solana/deviceTransactionConfig").then(m => m.default),
     loadWalletApiAdapter: () => import("../families/solana/walletApiAdapter").then(m => m.default),
     loadMockBridge: () => import("../families/solana/bridge/mock").then(m => m.default),
     loadSigner: () => import("../families/solana/signer").then(m => m.default),
     loadBridgeApi: () => import("../families/solana/bridge/api").then(m => m.default),
+    loadAccountRawAssign: () => import("../families/solana/accountRawAssign").then(m => m.default),
+    loadBridgeExtensions: () => import("../families/solana/bridgeExtensions").then(m => m.default),
   },
   {
     family: "stacks",
@@ -339,6 +361,10 @@ export const coinModuleLoaders: CoinModuleLoader[] = [
     loadTransaction: () => import("@ledgerhq/coin-stacks/transaction").then(m => m.default),
     loadDeviceTxConfig: () =>
       import("@ledgerhq/coin-stacks/deviceTransactionConfig").then(m => m.default),
+    loadLocalApi: () =>
+      import("../families/stacks/coinModuleApi").then(m => m.createLocalStacksApi),
+    loadBridgeApi: () => import("../families/stacks/bridge/api").then(m => m.default),
+    loadSigner: () => import("../families/stacks/signer").then(m => m.default),
   },
   {
     family: "stellar",
@@ -388,11 +414,17 @@ export const coinModuleLoaders: CoinModuleLoader[] = [
     supportedCoins: ["tron"],
     loadSetup: () => import("../families/tron/setup"),
     loadLocalApi: () => import("../families/tron/coinModuleApi").then(m => m.createLocalTronApi),
-    loadTransaction: () => import("@ledgerhq/coin-tron/transaction").then(m => m.default),
+    loadSponsoredApi: () =>
+      import("../families/tron/coinModuleApi").then(m => m.createLocalTronSponsoredApi),
+    loadTransaction: () => import("../families/tron/transaction").then(m => m.default),
     loadDeviceTxConfig: () =>
-      import("@ledgerhq/coin-tron/deviceTransactionConfig").then(m => m.default),
+      import("../families/tron/deviceTransactionConfig").then(m => m.default),
+    loadWalletApiAdapter: () => import("../families/tron/walletApiAdapter").then(m => m.default),
+    loadPlatformAdapter: () => import("../families/tron/platformAdapter").then(m => m.default),
     loadMockBridge: () => import("../families/tron/bridge/mock").then(m => m.default),
+    loadSigner: () => import("../families/tron/signer").then(m => m.default),
     loadBridgeApi: () => import("../families/tron/bridge/api").then(m => m.default),
+    loadAccountRawAssign: () => import("../families/tron/accountRawAssign").then(m => m.default),
     loadBridgeExtensions: () => import("../families/tron/bridgeExtensions").then(m => m.default),
   },
   {
@@ -435,5 +467,7 @@ export const coinModuleLoaders: CoinModuleLoader[] = [
     loadTransaction: () => import("@ledgerhq/coin-zcash/transaction").then(m => m.default),
     loadDeviceTxConfig: () =>
       import("@ledgerhq/coin-zcash/deviceTransactionConfig").then(m => m.default),
+    loadBridgeExtensions: () => import("../families/zcash/bridgeExtensions").then(m => m.default),
+    loadMockBridge: () => import("../families/zcash/bridge/mock").then(m => m.default),
   },
 ];

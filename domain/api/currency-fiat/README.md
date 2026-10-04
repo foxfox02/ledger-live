@@ -1,13 +1,13 @@
 # @domain/api-currency-fiat
 
-> [!CAUTION]
-> **Status: UNSTABLE** — Part of the emerging DDD layer; under active development.
+> [!NOTE]
+> **Status: STABLE** — Production-ready; API is considered stable.
 
 Domain API client for **fiat currencies**, backed by the Ledger Countervalues Service (CVS). RTK
 Query endpoint and helpers, typed on the Zod-first `@domain/entity-currency-fiat` entity. Owns no
 env/config/logging dependency.
 
-Start of the DDD evolution of `libs/ledger-live-common/src/currencies/support.ts` (the supported-fiat
+Start of the evolution of `libs/ledger-live-common/src/currencies/support.ts` (the supported-fiat
 part) into an RTK Query model, following the `@domain/api-currency-token` package strategy.
 
 - `schema.ts` — Zod schemas for the CVS `/v3/supported/fiat` response (`SupportedFiatsResponseSchema`,
@@ -32,8 +32,8 @@ configureStore({
     gdm({
       thunk: {
         extraArgument: cvsApiExtra({
-          // Pass the staging URL here when running in staging mode — the package has no staging switch.
-          countervaluesServiceUrl: getEnv("LEDGER_COUNTERVALUES_API"),
+          // Read on every request, so a runtime switch to the staging URL applies to the next one.
+          getCountervaluesServiceUrl: () => getEnv("LEDGER_COUNTERVALUES_API"),
         }),
       },
     }).concat(currencyFiatApi.middleware),

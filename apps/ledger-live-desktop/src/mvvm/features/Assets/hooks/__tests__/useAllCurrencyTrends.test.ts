@@ -3,8 +3,8 @@ import { useCountervaluesState } from "@ledgerhq/live-countervalues-react";
 import {
   getCurrencyPortfolio,
   getCurrentBalanceCountervalueChange,
-} from "@ledgerhq/live-countervalues/portfolio";
-import type { CounterValuesState } from "@ledgerhq/live-countervalues/types";
+} from "@ledgerhq/live-common/portfolio/portfolio";
+import type { CounterValuesState } from "@domain/entity-market-countervalues";
 import type { CurrencyPortfolio } from "@ledgerhq/types-live";
 import { genAccount } from "@ledgerhq/ledger-wallet-framework/mocks/account";
 import {
@@ -21,7 +21,7 @@ jest.mock("@ledgerhq/live-countervalues-react", () => ({
   ...jest.requireActual("@ledgerhq/live-countervalues-react"),
   useCountervaluesState: jest.fn(),
 }));
-jest.mock("@ledgerhq/live-countervalues/portfolio", () => ({
+jest.mock("@ledgerhq/live-common/portfolio/portfolio", () => ({
   getCurrencyPortfolio: jest.fn(),
   getCurrentBalanceCountervalueChange: jest.fn(),
 }));

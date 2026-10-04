@@ -2,8 +2,8 @@ import React, { useEffect, useMemo } from "react";
 import { Trans } from "react-i18next";
 import styled from "styled-components";
 import { SyncOneAccountOnMount } from "@ledgerhq/live-common/bridge/react/index";
-import TrackPage from "~/renderer/analytics/TrackPage";
-import { track } from "~/renderer/analytics/segment";
+import { TrackPage } from "@shared/analytics-react";
+import { track } from "@shared/analytics";
 import { multiline } from "~/renderer/styles/helpers";
 import Box from "~/renderer/components/Box";
 import Button from "~/renderer/components/Button";
@@ -14,7 +14,7 @@ import BroadcastErrorDisclaimer from "~/renderer/components/BroadcastErrorDiscla
 import { OperationDetails } from "~/renderer/drawers/OperationDetails";
 import { setDrawer } from "~/renderer/drawers/Provider";
 import { StepProps } from "../types";
-import { usePolkadotPreloadData } from "@ledgerhq/live-common/families/polkadot/react";
+import { usePolkadotValidators } from "@ledgerhq/live-common/families/polkadot/react";
 
 const Container = styled(Box).attrs(() => ({
   alignItems: "center",
@@ -27,14 +27,14 @@ const Container = styled(Box).attrs(() => ({
 `;
 function StepConfirmation({
   t,
+  account,
   optimisticOperation,
   error,
   signed,
   transaction,
   source,
 }: StepProps) {
-  const preloaded = usePolkadotPreloadData();
-  const { validators: allValidators } = preloaded;
+  const allValidators = usePolkadotValidators(account.currency);
 
   const validators = useMemo(() => {
     return allValidators

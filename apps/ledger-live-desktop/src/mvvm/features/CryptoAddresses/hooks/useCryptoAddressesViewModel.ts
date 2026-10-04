@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 import type { Account, AccountLike } from "@ledgerhq/types-live";
 import { useWalletFeaturesConfig } from "@features/platform-feature-flags";
-import { setTrackingSource } from "~/renderer/analytics/TrackPage";
+import { setTrackingSource, track } from "@shared/analytics";
 import { getAccountUrl } from "~/renderer/utils/accountUrl";
 import { useOpenAssetFlow } from "LLD/features/ModularDialog/hooks/useOpenAssetFlow";
 import { ModularDrawerLocation } from "@ledgerhq/live-common/modularDrawer/enums";
@@ -12,9 +12,10 @@ import { getAccountsSidebarPath } from "LLD/components/SideBar/utils";
 import type { CryptoAddressesViewModel } from "../types";
 import { CRYPTO_TRACKING_PAGE_NAME } from "../constants";
 import { useCryptoAccountRows } from "../components/Table/hooks/useCryptoAccountRows";
-import { track } from "~/renderer/analytics/segment";
 import { getAccountCurrency } from "@ledgerhq/live-common/account/index";
-import { getDefaultAccountName } from "@ledgerhq/live-wallet/accountName";
+import { getDefaultAccountName } from "@domain/entity-account-name";
+import { usePopNavigationBack } from "LLD/utils/usePopNavigationBack";
+import { parseCryptoAddressesBackPath } from "../utils/cryptoAddressesLocationState";
 
 export default function useCryptoAddressesViewModel(): CryptoAddressesViewModel {
   const { t } = useTranslation();
@@ -22,6 +23,7 @@ export default function useCryptoAddressesViewModel(): CryptoAddressesViewModel 
   const { shouldDisplayAssetSection } = useWalletFeaturesConfig("desktop");
   const [searchValue, setSearchValue] = useState("");
   const { rows, lookupParentAccount } = useCryptoAccountRows(searchValue);
+  const { showBackButton, navigateBack } = usePopNavigationBack(parseCryptoAddressesBackPath);
 
   const handleSearchChange = useCallback((value: string) => {
     track("search_query", { query: value, page: CRYPTO_TRACKING_PAGE_NAME });
@@ -69,6 +71,8 @@ export default function useCryptoAddressesViewModel(): CryptoAddressesViewModel 
   );
 
   return {
+    showBackButton,
+    navigateBack,
     searchValue,
     setSearchValue: handleSearchChange,
     emptyTableMessage,

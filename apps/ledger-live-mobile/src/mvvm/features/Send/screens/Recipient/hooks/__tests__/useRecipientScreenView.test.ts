@@ -1,27 +1,82 @@
-import { renderHook } from "@testing-library/react-native";
+import { trackPage, track } from "@shared/analytics";
+import { act, renderHook } from "@tests/test-renderer";
+import { Keyboard } from "react-native";
 import { useRecipientScreenView } from "../useRecipientScreenView";
 import { useAddressValidation } from "../useAddressValidation";
 import { useClipboardRecipient } from "../useClipboardRecipient";
 import { useSendFlowData } from "../../../../context/SendFlowContext";
 import { getMainAccount } from "@ledgerhq/live-common/account/index";
+import { sendFeatures } from "@ledgerhq/live-common/bridge/descriptor/send/features";
+import { useContacts, useContactsFeature } from "@features/platform-contacts";
+import { useOutgoingContactOperations } from "LLM/features/Contacts/hooks/useOutgoingContactOperations";
 import {
   InvalidAddress,
   InvalidAddressBecauseDestinationIsAlsoSource,
 } from "@ledgerhq/ledger-wallet-framework/errors";
 import type { Transaction } from "@ledgerhq/live-common/generated/types";
-import { createMockAccount } from "./accounts";
+import type { AddressSearchResult } from "@ledgerhq/live-common/flows/send/recipient/types";
+import { mockContact, mockContactAddress } from "@domain/entity-contact/schema.mock";
+import { createMockAccount, createMockCurrency } from "./accounts";
+import { useRecipientContactSelection } from "../../../../context/RecipientContactSelectionContext";
+import { useSendFlowTracking } from "../../../../context/SendFlowTrackingContext";
+import { useContactsFeatureIntroductionViewModel } from "../useContactsFeatureIntroductionViewModel";
+import { useDoNotAskAgainSkipMemo } from "../../../../hooks/useDoNotAskAgainSkipMemo";
+import { useSendMemoReset } from "../../../../context/SendMemoResetContext";
 
 jest.mock("../useAddressValidation");
 jest.mock("../useClipboardRecipient");
 jest.mock("../../../../context/SendFlowContext");
+jest.mock("../../../../context/SendMemoResetContext");
+jest.mock("../../../../hooks/useDoNotAskAgainSkipMemo");
 jest.mock("@ledgerhq/live-common/account/index");
+jest.mock("@ledgerhq/live-common/bridge/descriptor/send/features");
+jest.mock("@features/platform-contacts", () => {
+  const actual = jest.requireActual<typeof import("@features/platform-contacts")>(
+    "@features/platform-contacts",
+  );
+  return {
+    useContactDisplayName: actual.useContactDisplayName,
+    isEligibleAddressCurrency: actual.isEligibleAddressCurrency,
+    sortContactsByLastSentThenLastAdded: actual.sortContactsByLastSentThenLastAdded,
+    summarizeOutgoingOperationsByContact: actual.summarizeOutgoingOperationsByContact,
+    useContacts: jest.fn(),
+    useContactsFeature: jest.fn(),
+  };
+});
+jest.mock("LLM/features/Contacts/hooks/useOutgoingContactOperations", () => ({
+  useOutgoingContactOperations: jest.fn(() => []),
+}));
+jest.mock("../../../../context/RecipientContactSelectionContext");
+jest.mock("../../../../context/SendFlowTrackingContext");
+jest.mock("../useContactsFeatureIntroductionViewModel");
 
 const mockedUseAddressValidation = jest.mocked(useAddressValidation);
 const mockedUseClipboardRecipient = jest.mocked(useClipboardRecipient);
 const mockedUseSendFlowData = jest.mocked(useSendFlowData);
 const mockedGetMainAccount = jest.mocked(getMainAccount);
+const mockedUseContacts = jest.mocked(useContacts);
+const mockedUseOutgoingContactOperations = jest.mocked(useOutgoingContactOperations);
+const mockedUseContactsFeature = jest.mocked(useContactsFeature);
+const mockedUseRecipientContactSelection = jest.mocked(useRecipientContactSelection);
+const mockedUseSendFlowTracking = jest.mocked(useSendFlowTracking);
+const mockedUseContactsFeatureIntroductionViewModel = jest.mocked(
+  useContactsFeatureIntroductionViewModel,
+);
+const mockedTrackScreen = jest.mocked(trackPage);
+const mockedTrack = jest.mocked(track);
+const setRecipientResolution = jest.fn();
+const resetRecipientResolution = jest.fn();
+const setInputMethod = jest.fn();
+const mockedSendFeatures = jest.mocked(sendFeatures);
+const mockedUseDoNotAskAgainSkipMemo = jest.mocked(useDoNotAskAgainSkipMemo);
+const mockedUseSendMemoReset = jest.mocked(useSendMemoReset);
+const markMemoSkipped = jest.fn();
+const setDoNotAskAgainSkipMemo = jest.fn();
 
-const mockAccount = createMockAccount({ id: "account_1" });
+const mockAccount = createMockAccount({
+  id: "account_1",
+  currency: createMockCurrency({ id: "ethereum", family: "evm" }),
+});
 
 const mockRecipientSearch = {
   value: "",
@@ -29,8 +84,12 @@ const mockRecipientSearch = {
   clear: jest.fn(),
 };
 
-const idleResult = {
-  status: "idle" as const,
+const mockSendFlowState = {
+  account: { account: mockAccount, parentAccount: null, currency: mockAccount.currency },
+};
+
+const idleResult: AddressSearchResult = {
+  status: "idle",
   error: null,
   bridgeErrors: {},
   bridgeWarnings: {},
@@ -44,6 +103,7 @@ const idleResult = {
   accountBalanceFormatted: undefined,
   isFirstInteraction: false,
   matchedRecentAddress: undefined,
+  matchedContact: undefined,
 };
 
 describe("useRecipientScreenView", () => {
@@ -51,13 +111,12 @@ describe("useRecipientScreenView", () => {
     jest.clearAllMocks();
     mockedGetMainAccount.mockImplementation((account, parentAccount) => {
       if (!account) return mockAccount;
-      // getMainAccount returns the account itself if it's an Account, otherwise the parentAccount
       return account.type === "Account" ? account : parentAccount || mockAccount;
     });
     mockedUseClipboardRecipient.mockReturnValue({ clipboardAddress: null });
     mockedUseSendFlowData.mockReturnValue({
       recipientSearch: mockRecipientSearch,
-      state: {} as never,
+      state: mockSendFlowState as never,
       uiConfig: {} as never,
     });
     mockedUseAddressValidation.mockReturnValue({
@@ -65,7 +124,73 @@ describe("useRecipientScreenView", () => {
       isLoading: false,
       validateAddress: jest.fn(),
     });
+    mockedUseContacts.mockReturnValue([]);
+    mockedUseContactsFeature.mockReturnValue({
+      isEnabled: false,
+      showNewBadge: false,
+      eligibleAddressFamilies: ["evm"],
+      excludedCurrencyIds: [],
+    });
+    mockedUseRecipientContactSelection.mockReturnValue({
+      selectedContact: undefined,
+      selectContact: jest.fn(),
+      clearSelectedContact: jest.fn(),
+    });
+    mockedUseSendFlowTracking.mockReturnValue({
+      inputMethod: "manual",
+      resultType: null,
+      recipientType: null,
+      savedContactDuringFlow: false,
+      setInputMethod,
+      setRecipientResolution,
+      resetRecipientResolution,
+      markContactSaved: jest.fn(),
+    });
+    mockedUseContactsFeatureIntroductionViewModel.mockReturnValue({
+      isOpen: false,
+      title: "",
+      highlights: [],
+      primaryActionLabel: "",
+      onComplete: jest.fn(),
+      onClose: jest.fn(),
+    });
+    mockedSendFeatures.hasMemoForRecipient.mockReturnValue(false);
+    mockedUseDoNotAskAgainSkipMemo.mockReturnValue([false, setDoNotAskAgainSkipMemo]);
+    mockedUseSendMemoReset.mockReturnValue({
+      markMemoSkipped,
+      registerResetViewState: jest.fn(),
+      resetViewState: jest.fn(),
+    });
   });
+
+  it.each([
+    { isEnabled: true, families: ["evm"], isContactsEntryAvailable: true },
+    { isEnabled: false, families: ["evm"], isContactsEntryAvailable: false },
+    { isEnabled: true, families: ["tron"], isContactsEntryAvailable: false },
+  ])(
+    "offers the contacts introduction only when the feature is enabled for the family (%o)",
+    ({ isEnabled, families, isContactsEntryAvailable }) => {
+      mockedUseContactsFeature.mockReturnValue({
+        isEnabled,
+        showNewBadge: false,
+        eligibleAddressFamilies: families,
+        excludedCurrencyIds: [],
+      });
+
+      renderHook(() =>
+        useRecipientScreenView({
+          account: mockAccount,
+          currency: createMockCurrency({ id: "ethereum", family: "evm" }),
+          onAddressSelected: jest.fn(),
+          recipientSupportsDomain: true,
+        }),
+      );
+
+      expect(mockedUseContactsFeatureIntroductionViewModel).toHaveBeenCalledWith({
+        isContactsEntryAvailable,
+      });
+    },
+  );
 
   it("shows initial state when no search value", () => {
     const { result } = renderHook(() =>
@@ -78,13 +203,413 @@ describe("useRecipientScreenView", () => {
     );
 
     expect(result.current.showInitialState).toBe(true);
+    expect(result.current.showEmptyContactsState).toBe(false);
+    expect(result.current.showSearchResults).toBe(false);
+  });
+
+  it("tracks a settled recipient result without exposing the raw query", () => {
+    mockedUseSendFlowData.mockReturnValue({
+      recipientSearch: { ...mockRecipientSearch, value: "0x123" },
+      state: mockSendFlowState as never,
+      uiConfig: {} as never,
+    });
+    mockedUseAddressValidation.mockReturnValue({
+      result: { ...idleResult, status: "valid", resolvedAddress: "0x123" },
+      isLoading: false,
+      validateAddress: jest.fn(),
+    });
+
+    renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: mockAccount.currency,
+        onAddressSelected: jest.fn(),
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    expect(mockedTrackScreen).toHaveBeenCalledWith({
+      category: "Modal send - recipient result",
+      props: expect.objectContaining({
+        queryType: "address",
+        resultType: "unknown address",
+        inputMethod: "manual",
+        queryLength: 5,
+        addressAlreadyUsed: false,
+      }),
+    });
+    expect(setRecipientResolution).toHaveBeenCalledWith("unknown address", "external address");
+    expect(mockedTrackScreen.mock.calls[0]?.[0]?.props).not.toHaveProperty("query");
+  });
+
+  it("clears the tracked recipient resolution when the search input becomes empty", () => {
+    let searchValue = "0x123";
+    mockedUseSendFlowData.mockImplementation(() => ({
+      recipientSearch: { ...mockRecipientSearch, value: searchValue },
+      state: mockSendFlowState as never,
+      uiConfig: {} as never,
+    }));
+    mockedUseAddressValidation.mockReturnValue({
+      result: { ...idleResult, status: "valid", resolvedAddress: "0x123" },
+      isLoading: false,
+      validateAddress: jest.fn(),
+    });
+
+    const { rerender } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: mockAccount.currency,
+        onAddressSelected: jest.fn(),
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    expect(setRecipientResolution).toHaveBeenCalledTimes(1);
+    expect(resetRecipientResolution).not.toHaveBeenCalled();
+
+    searchValue = "";
+    rerender(undefined);
+
+    expect(resetRecipientResolution).toHaveBeenCalledTimes(1);
+
+    searchValue = "0x123";
+    rerender(undefined);
+
+    expect(setRecipientResolution).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows empty contacts state when the contacts feature is enabled and no contact matches the network", () => {
+    mockedUseContactsFeature.mockReturnValue({
+      isEnabled: true,
+      showNewBadge: false,
+      eligibleAddressFamilies: ["evm"],
+      excludedCurrencyIds: [],
+    });
+    mockedUseContacts.mockReturnValue([
+      mockContact({
+        id: "contact-sol",
+        name: "Alice",
+        addresses: [
+          mockContactAddress({
+            id: "address-sol",
+            currencyId: "solana",
+            label: "Solana",
+            address: "SolanaAddress123",
+          }),
+        ],
+      }),
+    ]);
+
+    const { result } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: createMockCurrency({ id: "ethereum" }),
+        onAddressSelected: jest.fn(),
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    expect(result.current.showInitialState).toBe(true);
+    expect(result.current.showEmptyContactsState).toBe(true);
+    expect(mockedUseAddressValidation).toHaveBeenCalledWith(
+      expect.objectContaining({ canSearchContactsByName: true }),
+    );
+  });
+
+  it("does not show empty contacts state when the currency family is not eligible", () => {
+    mockedUseContactsFeature.mockReturnValue({
+      isEnabled: true,
+      showNewBadge: false,
+      eligibleAddressFamilies: ["evm"],
+      excludedCurrencyIds: [],
+    });
+
+    const { result } = renderHook(() =>
+      useRecipientScreenView({
+        account: createMockAccount({
+          currency: createMockCurrency({ id: "tron", family: "tron" }),
+        }),
+        currency: createMockCurrency({ id: "tron", family: "tron" }),
+        onAddressSelected: jest.fn(),
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    expect(result.current.showEmptyContactsState).toBe(false);
+    expect(mockedUseAddressValidation).toHaveBeenCalledWith(
+      expect.objectContaining({ canSearchContactsByName: false }),
+    );
+  });
+
+  it("does not show empty contacts state when a contact matches the network", () => {
+    mockedUseContactsFeature.mockReturnValue({
+      isEnabled: true,
+      showNewBadge: false,
+      eligibleAddressFamilies: ["evm"],
+      excludedCurrencyIds: [],
+    });
+    mockedUseContacts.mockReturnValue([
+      mockContact({
+        id: "contact-eth",
+        name: "Alice",
+        addresses: [
+          mockContactAddress({
+            id: "address-eth",
+            currencyId: "ethereum",
+            label: "Ethereum",
+            address: "0x1234567890123456789012345678901234567890",
+          }),
+        ],
+      }),
+    ]);
+
+    const { result } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: createMockCurrency({ id: "ethereum" }),
+        onAddressSelected: jest.fn(),
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    expect(result.current.showInitialState).toBe(true);
+    expect(result.current.showContactsList).toBe(true);
+    expect(result.current.showEmptyContactsState).toBe(false);
+  });
+
+  it("only exposes saved contact addresses from the selected network", () => {
+    mockedUseContactsFeature.mockReturnValue({
+      isEnabled: true,
+      showNewBadge: false,
+      eligibleAddressFamilies: ["evm"],
+      excludedCurrencyIds: [],
+    });
+    mockedUseContacts.mockReturnValue([
+      mockContact({
+        id: "contact-me",
+        isMe: true,
+        name: "Me",
+        addresses: [mockContactAddress({ id: "address-me", currencyId: "ethereum" })],
+      }),
+      mockContact({
+        id: "contact-alice",
+        name: "Alice",
+        addresses: [
+          mockContactAddress({ id: "address-eth", currencyId: "ethereum" }),
+          mockContactAddress({
+            id: "address-usdc",
+            currencyId: "ethereum/erc20/usd_coin",
+          }),
+          mockContactAddress({ id: "address-sol", currencyId: "solana" }),
+        ],
+      }),
+      mockContact({
+        id: "contact-bob",
+        name: "Bob",
+        addresses: [mockContactAddress({ id: "address-btc", currencyId: "bitcoin" })],
+      }),
+    ]);
+
+    const { result } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: createMockCurrency({ id: "ethereum" }),
+        onAddressSelected: jest.fn(),
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    // Me follows the regular order: never sent to, and first in the store, so it comes last.
+    expect(result.current.contactsOnNetwork).toMatchObject([
+      { id: "contact-alice", addresses: [{ id: "address-eth" }, { id: "address-usdc" }] },
+      { id: "contact-me", addresses: [{ id: "address-me" }] },
+    ]);
+    expect(result.current.contactsOnNetwork).toHaveLength(2);
+  });
+
+  it("orders contacts by last sent-to, Me included", () => {
+    mockedUseContactsFeature.mockReturnValue({
+      isEnabled: true,
+      showNewBadge: false,
+      eligibleAddressFamilies: ["evm"],
+      excludedCurrencyIds: [],
+    });
+    mockedUseContacts.mockReturnValue([
+      mockContact({
+        id: "contact-me",
+        isMe: true,
+        name: "Me",
+        addresses: [
+          mockContactAddress({ id: "address-me", currencyId: "ethereum", address: "0xme" }),
+        ],
+      }),
+      mockContact({
+        id: "contact-alice",
+        name: "Alice",
+        addresses: [
+          mockContactAddress({ id: "address-alice", currencyId: "ethereum", address: "0xalice" }),
+        ],
+      }),
+    ]);
+    mockedUseOutgoingContactOperations.mockReturnValue([
+      { id: "op-alice", recipientAddress: "0xalice", date: 1_000, currencyId: "ethereum" },
+      { id: "op-me", recipientAddress: "0xme", date: 2_000, currencyId: "ethereum" },
+    ]);
+
+    const { result } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: createMockCurrency({ id: "ethereum" }),
+        onAddressSelected: jest.fn(),
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    expect(result.current.contactsOnNetwork.map(contact => contact.id)).toEqual([
+      "contact-me",
+      "contact-alice",
+    ]);
+    mockedUseOutgoingContactOperations.mockReturnValue([]);
+  });
+
+  it("opens the address sheet when a contact is selected", () => {
+    const onAddressSelected = jest.fn();
+    const contact = mockContact({
+      addresses: [
+        mockContactAddress({
+          currencyId: "ethereum",
+          address: "0x1234567890123456789012345678901234567890",
+        }),
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: createMockCurrency({ id: "ethereum" }),
+        onAddressSelected,
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    act(() => result.current.handleContactSelect(contact));
+
+    expect(result.current.contactAddressPicker.contact).toBe(contact);
+    expect(onAddressSelected).not.toHaveBeenCalled();
+  });
+
+  it("tracks the contact selection when the address sheet opens", () => {
+    const onAddressSelected = jest.fn();
+    const contact = mockContact({
+      addresses: [
+        mockContactAddress({ id: "address-one", currencyId: "ethereum" }),
+        mockContactAddress({ id: "address-two", currencyId: "ethereum" }),
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: createMockCurrency({ id: "ethereum" }),
+        onAddressSelected,
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    act(() => result.current.handleContactSelect(contact));
+
+    expect(mockedTrack).toHaveBeenCalledWith(
+      "button_clicked",
+      expect.objectContaining({
+        button: "contact",
+        page: "step recipient",
+        addressCount: 2,
+      }),
+    );
+    expect(mockedTrackScreen).toHaveBeenCalledWith({
+      category: "Modal send - select contact address",
+      props: expect.objectContaining({ addressCount: 2 }),
+    });
+    expect(result.current.contactAddressPicker.contact).toBe(contact);
+    expect(onAddressSelected).not.toHaveBeenCalled();
+  });
+
+  it("fills the recipient after an address is chosen in the sheet", () => {
+    const onAddressSelected = jest.fn();
+    const contact = mockContact({
+      addresses: [
+        mockContactAddress({
+          id: "address-eth",
+          currencyId: "ethereum",
+          address: "0xeth",
+        }),
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: createMockCurrency({ id: "ethereum" }),
+        onAddressSelected,
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    act(() => result.current.handleContactSelect(contact));
+    act(() => result.current.contactAddressPicker.onSelectAddress(contact.addresses[0]));
+
+    expect(mockedTrack).toHaveBeenCalledWith(
+      "button_clicked",
+      expect.objectContaining({
+        button: "contact address",
+        page: "select contact address",
+        addressRank: 1,
+      }),
+    );
+    expect(setRecipientResolution).toHaveBeenCalledWith("contact address match", "contact");
+    expect(onAddressSelected).toHaveBeenCalledWith("0xeth", undefined, true);
+    expect(result.current.contactAddressPicker.contact).toBeNull();
+  });
+
+  it("shows an exact contact search result when its network address is ambiguous", () => {
+    const contact = mockContact({
+      name: "Benoit",
+      addresses: [
+        mockContactAddress({ id: "address-one", currencyId: "ethereum" }),
+        mockContactAddress({ id: "address-two", currencyId: "ethereum" }),
+      ],
+    });
+    mockedUseContactsFeature.mockReturnValue({
+      isEnabled: true,
+      showNewBadge: false,
+      eligibleAddressFamilies: ["evm"],
+      excludedCurrencyIds: [],
+    });
+    mockedUseContacts.mockReturnValue([contact]);
+    mockedUseSendFlowData.mockReturnValue({
+      recipientSearch: { ...mockRecipientSearch, value: "benoit" },
+      state: mockSendFlowState as never,
+      uiConfig: {} as never,
+    });
+
+    const { result } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: createMockCurrency({ id: "ethereum" }),
+        onAddressSelected: jest.fn(),
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    expect(result.current.showContactSearchResult).toBe(true);
+    expect(result.current.contactSearchResult).toEqual(contact);
     expect(result.current.showSearchResults).toBe(false);
   });
 
   it("shows search results when search value is provided", () => {
     mockedUseSendFlowData.mockReturnValue({
       recipientSearch: { ...mockRecipientSearch, value: "some_address" },
-      state: {} as never,
+      state: mockSendFlowState as never,
       uiConfig: {} as never,
     });
 
@@ -115,7 +640,216 @@ describe("useRecipientScreenView", () => {
 
     result.current.handleAddressSelect("new_address", "ens_name");
 
-    expect(onAddressSelected).toHaveBeenCalledWith("new_address", "ens_name");
+    expect(onAddressSelected).toHaveBeenCalledWith("new_address", "ens_name", true);
+  });
+
+  it("asks for confirmation before sending without a memo", () => {
+    const onAddressSelected = jest.fn();
+    mockedSendFeatures.hasMemoForRecipient.mockReturnValue(true);
+
+    const { result } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: mockAccount.currency,
+        onAddressSelected,
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    act(() => result.current.handleAddressSelect("new_address", "ens_name"));
+
+    expect(onAddressSelected).not.toHaveBeenCalled();
+    expect(result.current.isSkipMemoConfirmationOpen).toBe(true);
+  });
+
+  it("retracts the keyboard when the memo warning opens", () => {
+    const dismissKeyboard = jest.spyOn(Keyboard, "dismiss");
+    mockedSendFeatures.hasMemoForRecipient.mockReturnValue(true);
+
+    const { result } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: mockAccount.currency,
+        onAddressSelected: jest.fn(),
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    act(() => result.current.handleAddressSelect("new_address"));
+
+    expect(dismissKeyboard).toHaveBeenCalled();
+    dismissKeyboard.mockRestore();
+  });
+
+  it("keeps the recipient untouched until the memo warning is confirmed", () => {
+    const onAddressSelected = jest.fn();
+    mockedSendFeatures.hasMemoForRecipient.mockReturnValue(true);
+
+    const { result } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: mockAccount.currency,
+        onAddressSelected,
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    act(() => result.current.handleAddressSelect("new_address", "ens_name"));
+    act(() => result.current.closeSkipMemoConfirmation());
+
+    expect(onAddressSelected).not.toHaveBeenCalled();
+    expect(markMemoSkipped).not.toHaveBeenCalled();
+    expect(result.current.isSkipMemoConfirmationOpen).toBe(false);
+  });
+
+  it("sends without a memo once the warning is confirmed", () => {
+    const onAddressSelected = jest.fn();
+    mockedSendFeatures.hasMemoForRecipient.mockReturnValue(true);
+
+    const { result } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: mockAccount.currency,
+        onAddressSelected,
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    act(() => result.current.handleAddressSelect("new_address", "ens_name"));
+    act(() => result.current.confirmSkipMemoConfirmation());
+
+    expect(markMemoSkipped).toHaveBeenCalledTimes(1);
+    expect(onAddressSelected).toHaveBeenCalledWith("new_address", "ens_name", true, {
+      value: "",
+      type: "NO_MEMO",
+    });
+    expect(result.current.isSkipMemoConfirmationOpen).toBe(false);
+  });
+
+  it("ignores a confirmation without a pending address", () => {
+    const onAddressSelected = jest.fn();
+
+    const { result } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: mockAccount.currency,
+        onAddressSelected,
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    act(() => result.current.confirmSkipMemoConfirmation());
+
+    expect(onAddressSelected).not.toHaveBeenCalled();
+  });
+
+  it("sends without confirmation when the memo warning was dismissed permanently", () => {
+    const onAddressSelected = jest.fn();
+    mockedSendFeatures.hasMemoForRecipient.mockReturnValue(true);
+    mockedUseDoNotAskAgainSkipMemo.mockReturnValue([true, setDoNotAskAgainSkipMemo]);
+
+    const { result } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: mockAccount.currency,
+        onAddressSelected,
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    act(() => result.current.handleAddressSelect("new_address"));
+
+    expect(markMemoSkipped).toHaveBeenCalledTimes(1);
+    expect(onAddressSelected).toHaveBeenCalledWith("new_address", undefined, true, {
+      value: "",
+      type: "NO_MEMO",
+    });
+    expect(result.current.isSkipMemoConfirmationOpen).toBe(false);
+  });
+
+  it("evaluates the memo requirement on the selected address, not the empty search", () => {
+    const onAddressSelected = jest.fn();
+    mockedSendFeatures.hasMemoForRecipient.mockImplementation(
+      (_currency, address) => address === "orchard_address",
+    );
+
+    const { result } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: mockAccount.currency,
+        onAddressSelected,
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    act(() => result.current.handleAddressSelect("orchard_address"));
+
+    expect(mockedSendFeatures.hasMemoForRecipient).toHaveBeenCalledWith(
+      mockAccount.currency,
+      "orchard_address",
+    );
+    expect(onAddressSelected).not.toHaveBeenCalled();
+    expect(result.current.isSkipMemoConfirmationOpen).toBe(true);
+  });
+
+  it("continues without confirmation when the selected address already has a memo", () => {
+    const onAddressSelected = jest.fn();
+    mockedSendFeatures.hasMemoForRecipient.mockReturnValue(true);
+    mockedUseSendFlowData.mockReturnValue({
+      recipientSearch: mockRecipientSearch,
+      state: {
+        ...mockSendFlowState,
+        recipient: {
+          address: "same_address",
+          memo: { type: "MEMO", value: "note-1" },
+        },
+      } as never,
+      uiConfig: {} as never,
+    });
+
+    const { result } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: mockAccount.currency,
+        onAddressSelected,
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    act(() => result.current.handleAddressSelect("same_address"));
+
+    expect(onAddressSelected).toHaveBeenCalledWith("same_address", undefined, true);
+    expect(result.current.isSkipMemoConfirmationOpen).toBe(false);
+  });
+
+  it("asks for confirmation when another address is selected after a filled memo", () => {
+    const onAddressSelected = jest.fn();
+    mockedSendFeatures.hasMemoForRecipient.mockReturnValue(true);
+    mockedUseSendFlowData.mockReturnValue({
+      recipientSearch: mockRecipientSearch,
+      state: {
+        ...mockSendFlowState,
+        recipient: {
+          address: "address_a",
+          memo: { type: "MEMO", value: "note-1" },
+        },
+      } as never,
+      uiConfig: {} as never,
+    });
+
+    const { result } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: mockAccount.currency,
+        onAddressSelected,
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    act(() => result.current.handleAddressSelect("address_b"));
+
+    expect(onAddressSelected).not.toHaveBeenCalled();
+    expect(result.current.isSkipMemoConfirmationOpen).toBe(true);
   });
 
   it("passes the current transaction to address and clipboard validation", () => {
@@ -142,7 +876,7 @@ describe("useRecipientScreenView", () => {
   it("shows sanctioned banner when address is sanctioned", () => {
     mockedUseSendFlowData.mockReturnValue({
       recipientSearch: { ...mockRecipientSearch, value: "sanctioned_address" },
-      state: {} as never,
+      state: mockSendFlowState as never,
       uiConfig: {} as never,
     });
 
@@ -168,7 +902,7 @@ describe("useRecipientScreenView", () => {
   it("shows address validation error for incorrect format", () => {
     mockedUseSendFlowData.mockReturnValue({
       recipientSearch: { ...mockRecipientSearch, value: "invalid_address" },
-      state: {} as never,
+      state: mockSendFlowState as never,
       uiConfig: {} as never,
     });
 
@@ -194,12 +928,16 @@ describe("useRecipientScreenView", () => {
   it("shows matched address when validation is valid", () => {
     mockedUseSendFlowData.mockReturnValue({
       recipientSearch: { ...mockRecipientSearch, value: "valid_address" },
-      state: {} as never,
+      state: mockSendFlowState as never,
       uiConfig: {} as never,
     });
 
     mockedUseAddressValidation.mockReturnValue({
-      result: { ...idleResult, status: "valid", hasBridgeValidationResult: true },
+      result: {
+        ...idleResult,
+        status: "valid",
+        hasBridgeValidationResult: true,
+      },
       isLoading: false,
       validateAddress: jest.fn(),
     });
@@ -220,13 +958,17 @@ describe("useRecipientScreenView", () => {
   it("identifies self-transfer error correctly", () => {
     mockedUseSendFlowData.mockReturnValue({
       recipientSearch: { ...mockRecipientSearch, value: "source_address" },
-      state: {} as never,
+      state: mockSendFlowState as never,
       uiConfig: {} as never,
     });
 
     const selfTransferError = new InvalidAddressBecauseDestinationIsAlsoSource();
     mockedUseAddressValidation.mockReturnValue({
-      result: { ...idleResult, status: "valid", bridgeErrors: { recipient: selfTransferError } },
+      result: {
+        ...idleResult,
+        status: "valid",
+        bridgeErrors: { recipient: selfTransferError },
+      },
       isLoading: false,
       validateAddress: jest.fn(),
     });
@@ -240,7 +982,6 @@ describe("useRecipientScreenView", () => {
       }),
     );
 
-    // Self-transfer error is a bridge recipient error, so it should be shown
     expect(result.current.showBridgeRecipientError).toBe(true);
     expect(result.current.bridgeRecipientError).toBe(selfTransferError);
   });
@@ -248,13 +989,17 @@ describe("useRecipientScreenView", () => {
   it("treats InvalidAddress as incorrect format for domain-like strings", () => {
     mockedUseSendFlowData.mockReturnValue({
       recipientSearch: { ...mockRecipientSearch, value: "invalid.eth" },
-      state: {} as never,
+      state: mockSendFlowState as never,
       uiConfig: {} as never,
     });
 
     const invalidAddressError = new InvalidAddress();
     mockedUseAddressValidation.mockReturnValue({
-      result: { ...idleResult, status: "valid", bridgeErrors: { recipient: invalidAddressError } },
+      result: {
+        ...idleResult,
+        status: "valid",
+        bridgeErrors: { recipient: invalidAddressError },
+      },
       isLoading: false,
       validateAddress: jest.fn(),
     });
@@ -274,7 +1019,7 @@ describe("useRecipientScreenView", () => {
   it("shows empty state when no matches and not complete", () => {
     mockedUseSendFlowData.mockReturnValue({
       recipientSearch: { ...mockRecipientSearch, value: "searching" },
-      state: {} as never,
+      state: mockSendFlowState as never,
       uiConfig: {} as never,
     });
 
@@ -297,7 +1042,9 @@ describe("useRecipientScreenView", () => {
   });
 
   it("exposes the clipboard address and pastes it into the recipient search on demand", () => {
-    mockedUseClipboardRecipient.mockReturnValue({ clipboardAddress: "0xClipboardAddress" });
+    mockedUseClipboardRecipient.mockReturnValue({
+      clipboardAddress: "0xClipboardAddress",
+    });
 
     const { result } = renderHook(() =>
       useRecipientScreenView({
@@ -312,6 +1059,11 @@ describe("useRecipientScreenView", () => {
 
     result.current.handlePasteFromClipboard();
 
+    expect(setInputMethod).toHaveBeenCalledWith("paste");
+    expect(mockedTrack).toHaveBeenCalledWith(
+      "button_clicked",
+      expect.objectContaining({ button: "paste", page: "step recipient" }),
+    );
     expect(mockRecipientSearch.setValue).toHaveBeenCalledWith("0xClipboardAddress");
   });
 
@@ -330,6 +1082,48 @@ describe("useRecipientScreenView", () => {
     result.current.handlePasteFromClipboard();
 
     expect(mockRecipientSearch.setValue).not.toHaveBeenCalled();
+  });
+
+  it("keeps the contact resolution when the step hands the recipient to the amount step", () => {
+    mockedUseSendFlowData.mockReturnValue({
+      recipientSearch: { ...mockRecipientSearch, value: "Alice" },
+      state: mockSendFlowState as never,
+      uiConfig: {} as never,
+    });
+    const contact = mockContact({
+      addresses: [
+        mockContactAddress({
+          id: "address-eth",
+          currencyId: "ethereum",
+          address: "0xeth",
+        }),
+      ],
+    });
+
+    const { result, rerender } = renderHook(() =>
+      useRecipientScreenView({
+        account: mockAccount,
+        currency: createMockCurrency({ id: "ethereum" }),
+        onAddressSelected: jest.fn(),
+        recipientSupportsDomain: true,
+      }),
+    );
+
+    act(() => result.current.handleContactSelect(contact));
+    act(() => result.current.contactAddressPicker.onSelectAddress(contact.addresses[0]));
+
+    expect(setRecipientResolution).toHaveBeenCalledWith("contact address match", "contact");
+
+    // Handing the recipient over clears the search; that must not read as the user
+    // emptying the field to start a new lookup.
+    mockedUseSendFlowData.mockReturnValue({
+      recipientSearch: { ...mockRecipientSearch, value: "" },
+      state: mockSendFlowState as never,
+      uiConfig: {} as never,
+    });
+    rerender(undefined);
+
+    expect(resetRecipientResolution).not.toHaveBeenCalled();
   });
 
   it("shows loading state when validation is in progress", () => {

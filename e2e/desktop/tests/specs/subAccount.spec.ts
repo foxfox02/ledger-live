@@ -1,7 +1,5 @@
 import { test } from "tests/fixtures/common";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { addTmsLink } from "tests/utils/allureUtils";
-import { getDescription } from "tests/utils/customJsonReporter";
 import {
   Account,
   TokenAccount,
@@ -26,10 +24,11 @@ const subAccounts: Array<{
   xrayTicket1: string;
   xrayTicket2: string;
   notPreSeeded?: boolean;
+  teamOwner?: Team;
 }> = [
   {
     account: TokenAccount.ETH_USDT_1,
-    xrayTicket1: "B2CQA-2577, B2CQA-1079",
+    xrayTicket1: "B2CQA-2577",
     xrayTicket2: "B2CQA-2583",
   },
   {
@@ -41,6 +40,7 @@ const subAccounts: Array<{
     account: TokenAccount.ALGO_USDT_1,
     xrayTicket1: "B2CQA-2575",
     xrayTicket2: "B2CQA-2581",
+    teamOwner: Team.BST,
   },
   {
     account: TokenAccount.TRX_USDT,
@@ -61,6 +61,7 @@ const subAccounts: Array<{
     account: TokenAccount.SUI_USDC_1,
     xrayTicket1: "B2CQA-3904",
     xrayTicket2: "B2CQA-3905",
+    teamOwner: Team.BST,
   },
   {
     account: TokenAccount.SOL_GIGA_1,
@@ -75,6 +76,7 @@ const subAccountReceive: Array<{
   xrayTicket: string;
   shouldSelectTokenOnReceiveFlow?: boolean;
   shouldSelectReceiveCryptoOption?: boolean;
+  teamOwner?: Team;
 }> = [
   {
     account: TokenAccount.ETH_USDT_1,
@@ -85,7 +87,7 @@ const subAccountReceive: Array<{
   { account: TokenAccount.BSC_BUSD_1, xrayTicket: "B2CQA-2489" },
   { account: TokenAccount.POL_DAI_1, xrayTicket: "B2CQA-2493" },
   { account: TokenAccount.POL_UNI, xrayTicket: "B2CQA-2494" },
-  { account: TokenAccount.SUI_USDC_1, xrayTicket: "B2CQA-3906" },
+  { account: TokenAccount.SUI_USDC_1, xrayTicket: "B2CQA-3906", teamOwner: Team.BST },
 ];
 
 const shouldSkipLNS = (account: TokenAccount): boolean => {
@@ -94,15 +96,15 @@ const shouldSkipLNS = (account: TokenAccount): boolean => {
 };
 
 for (const token of subAccounts) {
-  test.describe("Add subAccount without parent", () => {
+  test.describe("Add sub-account", () => {
     test.use({
-      teamOwner: Team.COIN_INTEGRATION,
+      teamOwner: token.teamOwner ?? Team.COIN_INTEGRATION,
       userdata: "skip-onboarding-with-last-seen-device",
       speculosApp: token.account.parentAccount?.currency.speculosApp,
     });
 
     test(
-      `Add Sub Account without parent (${token.account.currency.speculosApp.name}) - ${token.account.currency.ticker}`,
+      `[${token.account.currency.testLabel}] - Add sub-account without parent`,
       {
         tag: buildTags({
           currencyId: token.account.currency.id,
@@ -115,8 +117,6 @@ for (const token of subAccounts) {
         },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
         await app.portfolio.clickAddAccountButton();
 
         const selector = await getModularSelector(app, "ASSET");
@@ -146,15 +146,15 @@ for (const token of subAccounts) {
 }
 
 for (const token of subAccountReceive) {
-  test.describe("Add subAccount when parent exists", () => {
+  test.describe("Add sub-account", () => {
     test.use({
-      teamOwner: Team.COIN_INTEGRATION,
+      teamOwner: token.teamOwner ?? Team.COIN_INTEGRATION,
       userdata: "speculos-subAccount",
       speculosApp: token.account.currency.speculosApp,
     });
 
     test(
-      `[${token.account.currency.speculosApp.name}] Add subAccount when parent exists (${token.account.currency.ticker})`,
+      `[${token.account.currency.testLabel}] - Add sub-account when parent exists`,
       {
         tag: buildTags({
           currencyId: token.account.currency.id,
@@ -166,8 +166,6 @@ for (const token of subAccountReceive) {
         },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
         await app.mainNavigation.openTargetFromMainNavigation("accounts");
         await app.accounts.navigateToAccountByName(getParentAccountName(token.account));
         await app.account.expectAccountVisibility(getParentAccountName(token.account));
@@ -195,14 +193,14 @@ for (const token of subAccountReceive) {
 }
 
 for (const token of subAccounts.filter(subAccount => !subAccount.notPreSeeded)) {
-  test.describe("Token visible in parent account", () => {
+  test.describe("Add sub-account", () => {
     test.use({
-      teamOwner: Team.COIN_INTEGRATION,
+      teamOwner: token.teamOwner ?? Team.COIN_INTEGRATION,
       userdata: "speculos-subAccount",
     });
 
     test(
-      `Token visible in parent account (${token.account.currency.speculosApp.name}) - ${token.account.currency.ticker}`,
+      `[${token.account.currency.testLabel}] - Token visible in parent account`,
       {
         tag: buildTags({
           currencyId: token.account.currency.id,
@@ -215,11 +213,10 @@ for (const token of subAccounts.filter(subAccount => !subAccount.notPreSeeded)) 
         },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
+        const parentAccountName = getParentAccountName(token.account);
         await app.mainNavigation.openTargetFromMainNavigation("accounts");
-        await app.layout.waitForSyncButtonToBeEnabled();
-        await app.accounts.navigateToAccountByName(getParentAccountName(token.account));
+        await app.accounts.navigateToAccountByName(parentAccountName);
+        await app.account.expectAccountVisibility(parentAccountName);
         await app.account.expectTokenToBePresent(token.account);
       },
     );
@@ -240,19 +237,19 @@ const transactionE2E: Array<{
       undefined,
       "noTag",
     ),
-    xrayTicket: "B2CQA-3055, B2CQA-3057",
+    xrayTicket: "B2CQA-3055",
     extraTags: ["@solana", "@family-solana"],
   },
   {
     tx: new Transaction(TokenAccount.ETH_USDT_1, TokenAccount.ETH_USDT_3, "1", Fee.MEDIUM),
-    xrayTicket: "B2CQA-2703, B2CQA-475, B2CQA-3901",
+    xrayTicket: "B2CQA-6111",
     checkInputValidity: true,
     extraTags: ["@ethereum", "@family-evm"],
   },
 ];
 
 for (const transaction of transactionE2E) {
-  test.describe("legacy - Send token - E2E", () => {
+  test.describe("Send - token", () => {
     test.use({
       teamOwner: Team.COIN_INTEGRATION,
       userdata: "skip-onboarding-with-last-seen-device",
@@ -269,7 +266,7 @@ for (const transaction of transactionE2E) {
     });
 
     test(
-      `Send from ${transaction.tx.accountToDebit.accountName} to ${transaction.tx.accountToCredit.accountName} - ${transaction.tx.accountToDebit.currency.name} - E2E test`,
+      `[${transaction.tx.accountToDebit.currency.testLabel}] - Send`,
       {
         tag: buildTags({ skipLNS: true, extraTags: transaction.extraTags ?? [] }),
         annotation: {
@@ -278,8 +275,6 @@ for (const transaction of transactionE2E) {
         },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
         await app.mainNavigation.openTargetFromMainNavigation("accounts");
         await app.accounts.navigateToAccountByName(
           getParentAccountName(transaction.tx.accountToDebit),
@@ -324,6 +319,7 @@ const transactionsAddressInvalid = [
     recipient: undefined,
     expectedErrorMessage: "Recipient account has not opted in the selected ASA.",
     xrayTicket: "B2CQA-2702",
+    teamOwner: Team.BST,
   },
   {
     transaction: new Transaction(TokenAccount.SOL_GIGA_1, TokenAccount.SOL_WIF_2, "0.1", undefined),
@@ -358,9 +354,9 @@ const transactionsAddressInvalid = [
 ];
 
 for (const transaction of transactionsAddressInvalid) {
-  test.describe("legacy - Send token - invalid address input", () => {
+  test.describe("Send - token", () => {
     test.use({
-      teamOwner: Team.COIN_INTEGRATION,
+      teamOwner: (transaction as { teamOwner?: Team }).teamOwner ?? Team.COIN_INTEGRATION,
       userdata: "skip-onboarding-with-last-seen-device",
       speculosApp: transaction.transaction.accountToDebit.currency.speculosApp,
       cliCommands: [
@@ -381,7 +377,7 @@ for (const transaction of transactionsAddressInvalid) {
     });
 
     test(
-      `Send from ${transaction.transaction.accountToDebit.accountName} to ${transaction.transaction.accountToCredit.accountName} - ${transaction.transaction.accountToCredit.currency.name} - ${transaction.expectedErrorMessage}`,
+      `[${transaction.transaction.accountToDebit.currency.testLabel}-${transaction.transaction.accountToCredit.currency.testLabel}] - Send invalid address error: ${transaction.expectedErrorMessage}`,
       {
         tag: buildTags({ currencyId: transaction.transaction.accountToDebit.currency.id }),
         annotation: {
@@ -390,8 +386,6 @@ for (const transaction of transactionsAddressInvalid) {
         },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
         await app.portfolio.clickSendButton();
 
         await app.send.selectDebitCurrency(transaction.transaction);
@@ -419,7 +413,7 @@ const transactionsAddressValid = [
 ];
 
 for (const transaction of transactionsAddressValid) {
-  test.describe("legacy - Send token - valid address input", () => {
+  test.describe("Send - token", () => {
     test.use({
       teamOwner: Team.COIN_INTEGRATION,
       userdata: "skip-onboarding-with-last-seen-device",
@@ -431,7 +425,7 @@ for (const transaction of transactionsAddressValid) {
     });
 
     test(
-      `Send from ${transaction.transaction.accountToDebit.accountName} to ${transaction.transaction.accountToCredit.accountName} - ${transaction.transaction.accountToDebit.currency.name} - valid address input`,
+      `[${transaction.transaction.accountToDebit.currency.testLabel}] - Send valid address input`,
       {
         tag: buildTags({ currencyId: transaction.transaction.accountToDebit.currency.id }),
         annotation: {
@@ -440,8 +434,6 @@ for (const transaction of transactionsAddressValid) {
         },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
         await app.portfolio.clickSendButton();
 
         await app.send.selectDebitCurrency(transaction.transaction);
@@ -492,7 +484,7 @@ const tokenTransactionInvalid = [
 ];
 
 for (const transaction of tokenTransactionInvalid) {
-  test.describe("legacy - Send token (subAccount) - invalid amount input", () => {
+  test.describe("Send - token", () => {
     test.use({
       teamOwner: Team.COIN_INTEGRATION,
       userdata: "skip-onboarding-with-last-seen-device",
@@ -509,7 +501,7 @@ for (const transaction of tokenTransactionInvalid) {
     });
 
     test(
-      `Send from ${transaction.tx.accountToDebit.accountName} ${transaction.tx.accountToDebit.index} to ${transaction.tx.accountToCredit.accountName} - invalid amount input`,
+      `[${transaction.tx.accountToDebit.currency.testLabel}] - Send invalid amount error (${transaction.tx.amount})`,
       {
         tag: buildTags({ currencyId: transaction.tx.accountToDebit.currency.id }),
         annotation: {
@@ -518,8 +510,6 @@ for (const transaction of tokenTransactionInvalid) {
         },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
         await app.mainNavigation.openTargetFromMainNavigation("accounts");
         await app.accounts.navigateToAccountByName(
           getParentAccountName(transaction.tx.accountToDebit),

@@ -17,7 +17,7 @@ import { liveBlindSigningReporter } from "@ledgerhq/live-dmk-shared";
 import { AppManifest, WalletAPITransaction } from "./types";
 import { AccountPublicKeyUnavailable } from "../errors";
 import { createFixtureAccount, createFixtureTokenAccount } from "../mock/fixtures/cryptoCurrencies";
-import { Transaction as EvmTransaction } from "@ledgerhq/coin-evm/types/index";
+import type { Transaction as EvmTransaction } from "../families/evm/types";
 import { OperationType, SignedOperation, TokenAccount } from "@ledgerhq/types-live";
 import { getWalletAccount } from "@ledgerhq/coin-bitcoin/getWalletAccount";
 import BigNumber from "bignumber.js";
@@ -41,9 +41,17 @@ import {
   CRYPTO_CURRENCIES_REGISTRY,
 } from "@domain/entity-currency-crypto";
 import { TokenCurrency, TokenCurrencyIdSchema } from "@domain/entity-currency-token";
+import type { AccountNamesState } from "@domain/entity-account-name";
 import { TrackingAPI } from "./tracking";
-import { initialState as walletState } from "@ledgerhq/live-wallet/store";
 import { setCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
+import { LiveConfig } from "@ledgerhq/live-config/LiveConfig";
+import { evmConfig } from "../families/evm/config";
+
+// completeExchangeLogic's EVM path reads chainId via getCurrencyConfiguration (LiveConfig); seed the
+// real EVM config so the "ethereum" fixture account/token resolve deterministically.
+LiveConfig.setConfig(evmConfig);
+
+const walletState: AccountNamesState = new Map();
 
 // Setup mock store for unit tests
 setCryptoAssetsStore({
@@ -1086,7 +1094,8 @@ describe("accountGetPublicKeyLogic (cosmos)", () => {
 
   const cosmosCrypto = CRYPTO_CURRENCIES_REGISTRY["cosmos"];
   const cosmosAccountId = "js:2:cosmos:0x013:";
-  const cosmosPublicKey = "03a1b2c3";
+  const cosmosPublicKey = `03${"ab".repeat(32)}`;
+  const cosmosAddress = "cosmos1g84934jpu3v5de5yqukkkhxmcvsw3u2ajxvpdl";
 
   const context = createContextContainingAccountId({
     tracking: {
@@ -1101,9 +1110,10 @@ describe("accountGetPublicKeyLogic (cosmos)", () => {
 
   const setCosmosPublicKey = (publicKey: string | undefined) => {
     const account = context.accounts.find(a => a.id === cosmosAccountId);
-    // the per-account pubkey is persisted in cosmosResources at scan time
-    if (account?.type === "Account")
-      (account as unknown as { cosmosResources: unknown }).cosmosResources = { publicKey };
+    if (account?.type === "Account") {
+      account.xpub = publicKey;
+      Object.assign(account, { cosmosResources: undefined });
+    }
   };
 
   beforeEach(() => {
@@ -1124,7 +1134,19 @@ describe("accountGetPublicKeyLogic (cosmos)", () => {
     expect(mockAccountGetPublicKeySuccess).toHaveBeenCalledTimes(1);
   });
 
+  it("returns the legacy account's key, not the address its xpub holds", async () => {
+    setCosmosPublicKey(cosmosAddress);
+    const account = context.accounts.find(a => a.id === cosmosAccountId);
+    Object.assign(account ?? {}, { cosmosResources: { publicKey: cosmosPublicKey } });
+    mockedGetAccountIdFromWalletAccountId.mockReturnValueOnce(cosmosAccountId);
+
+    await expect(accountGetPublicKeyLogic(context, walletAccountId)).resolves.toEqual(
+      cosmosPublicKey,
+    );
+  });
+
   it.each([
+    { desc: "the account address (no key persisted)", publicKey: cosmosAddress },
     { desc: "empty (account synced before publicKey was persisted)", publicKey: "" },
     { desc: "absent (publicKey field unset)", publicKey: undefined },
   ])("rejects when the persisted public key is $desc", async ({ publicKey }) => {

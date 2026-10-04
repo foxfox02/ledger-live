@@ -1,12 +1,14 @@
-import React, { useEffect, useMemo } from "react";
+import { track } from "@shared/analytics";
+import React, { useEffect } from "react";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomSheetView } from "@ledgerhq/lumen-ui-rnative";
 import { SyncSkipUnderPriority } from "@ledgerhq/live-common/bridge/react/index";
-import QueuedBottomSheet from "LLM/components/QueuedDrawer/QueuedBottomSheet";
+import { QueuedBottomSheet } from "@shared/ui-queued-bottom-sheet";
 import SelectDevice2, { type SetHeaderOptionsRequest } from "~/components/SelectDevice2";
-import { useAnalytics } from "~/analytics";
-import { getSendFlowTrackingProperties } from "@ledgerhq/ledger-wallet-framework/tracking/send";
+import { usePageNameFromRoute } from "~/analytics";
+import { useSendFlowTrackingProperties } from "../../../../hooks/useSendFlowTrackingProperties";
+import { useSendFlowTracking } from "../../../../context/SendFlowTrackingContext";
 import { SigningBody } from "./components/SigningBody";
 
 type SignatureDeviceActionViewModel = ReturnType<
@@ -41,20 +43,20 @@ export function SignatureDeviceActionView({
   onUserCancel,
 }: SignatureDeviceActionViewProps) {
   const { bottom: bottomInset } = useSafeAreaInsets();
-  const { track } = useAnalytics();
+  const { recipientType } = useSendFlowTracking();
 
-  const trackingProperties = useMemo(
-    () => getSendFlowTrackingProperties(account, parentAccount ?? undefined),
-    [account, parentAccount],
-  );
+  const trackingProperties = useSendFlowTrackingProperties();
+
+  const page = usePageNameFromRoute();
 
   useEffect(() => {
     track("send_modal", {
       ...trackingProperties,
       name: "step review device",
+      page,
       flow: "send",
     });
-  }, [track, trackingProperties]);
+  }, [page, trackingProperties]);
 
   return (
     <View style={{ flex: 1 }} testID="send-signature-step">
@@ -73,6 +75,8 @@ export function SignatureDeviceActionView({
               request={request}
               onResult={onDeviceActionResultCompleted}
               onClose={onUserCancel}
+              trackingProperties={trackingProperties}
+              recipientType={recipientType}
             />
           ) : (
             <SelectDevice2

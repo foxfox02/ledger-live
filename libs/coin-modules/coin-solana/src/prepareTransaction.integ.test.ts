@@ -2,12 +2,17 @@ import { setCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAs
 import { getCryptoCurrencyById } from "@ledgerhq/ledger-wallet-framework/currencies";
 import { NotEnoughGas } from "./errors";
 import { encodeAccountId } from "@ledgerhq/ledger-wallet-framework/account/accountId";
-import type { TokenCurrency } from "@ledgerhq/ledger-wallet-framework/types";
+import {
+  CryptoCurrencyIdSchema,
+  TokenCurrencyIdSchema,
+  type TokenCurrency,
+} from "@ledgerhq/ledger-wallet-framework/types";
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import BigNumber from "bignumber.js";
 import getTransactionStatus from "./getTransactionStatus";
 import { encodeAccountIdWithTokenAccountAddress } from "./logic";
+import { emptyStakingResources } from "./logic/stakingResources";
 import { getChainAPI } from "./network";
 import { prepareTransaction } from "./prepareTransaction";
 import type {
@@ -22,15 +27,17 @@ const SOLANA_RPC_ENDPOINT = "https://solana.coin.ledger.com";
 const VIBECODOOR_MINT = "Aj1mSpD4vJDN5r3xptnHsjHQgGWDLge8bRQi2W6pump";
 const SENDER_ADDRESS = "8DpKDisipx6f76cEmuGvCX9TrA3SjeR76HaTRePxHBDe";
 
+const NETWORK_FEE = 5_000;
+const CLASSIC_ATA_SIZE = 165;
 const MAIN_ACCOUNT_RENT_EXEMPT = new BigNumber(890_880);
-const SPENDABLE_AT_BUG_THRESHOLD = new BigNumber(2_044_280);
-const BALANCE_AT_BUG_THRESHOLD = SPENDABLE_AT_BUG_THRESHOLD.plus(MAIN_ACCOUNT_RENT_EXEMPT);
 
 const VIBECODOOR_TOKEN: TokenCurrency = {
   type: "TokenCurrency",
-  id: "solana/spl/the_vibecodoor_aj1mspd4vjdn5r3xptnhsjhqggwdlge8brqi2w6pump",
+  id: TokenCurrencyIdSchema.parse(
+    "solana/spl/the_vibecodoor_aj1mspd4vjdn5r3xptnhsjhqggwdlge8brqi2w6pump",
+  ),
   contractAddress: VIBECODOOR_MINT,
-  parentCurrencyId: "solana",
+  parentCurrencyId: CryptoCurrencyIdSchema.parse("solana"),
   tokenType: "spl",
   name: "The Vibecodoor",
   ticker: "Vibecodoor",
@@ -65,7 +72,7 @@ const senderAtaAddress = PublicKey.findProgramAddressSync(
 
 const subAccountId = encodeAccountIdWithTokenAccountAddress(mainAccountId, senderAtaAddress);
 
-function buildSenderAccount(): SolanaAccount {
+function buildSenderAccount(spendableBalance: BigNumber): SolanaAccount {
   const tokenSub = {
     type: "TokenAccount",
     id: subAccountId,
@@ -101,8 +108,8 @@ function buildSenderAccount(): SolanaAccount {
     creationDate: new Date(),
     lastSyncDate: new Date(0),
     blockHeight: 0,
-    balance: BALANCE_AT_BUG_THRESHOLD,
-    spendableBalance: SPENDABLE_AT_BUG_THRESHOLD,
+    balance: spendableBalance.plus(MAIN_ACCOUNT_RENT_EXEMPT),
+    spendableBalance,
     operationsCount: 0,
     operations: [],
     pendingOperations: [],
@@ -113,7 +120,7 @@ function buildSenderAccount(): SolanaAccount {
       DAY: { balances: [], latestDate: null },
       WEEK: { balances: [], latestDate: null },
     },
-    solanaResources: { stakes: [], unstakeReserve: new BigNumber(0) },
+    stakingResources: emptyStakingResources(new BigNumber(0)),
   } as SolanaAccount;
 }
 
@@ -123,7 +130,8 @@ describe("prepareTransaction packs NotEnoughGas", () => {
   const api = getChainAPI({ endpoint: SOLANA_RPC_ENDPOINT });
 
   it("prepareTransaction packs NotEnoughGas when spendable == classic ATA rent + fee", async () => {
-    const account = buildSenderAccount();
+    const classicAtaRent = await api.getMinimumBalanceForRentExemption(CLASSIC_ATA_SIZE);
+    const account = buildSenderAccount(new BigNumber(NETWORK_FEE + classicAtaRent));
     const freshRecipient = Keypair.generate().publicKey.toBase58();
 
     const tx: Transaction = {

@@ -4,10 +4,15 @@ import { toArray } from "rxjs/operators";
 import { genericSignOperation } from "../signOperation";
 import { FeeNotLoaded } from "@ledgerhq/ledger-wallet-framework/errors";
 import { getCoinModuleApi } from "../api";
+import { getBridgeApi } from "../bridge";
 import { buildOptimisticOperation } from "../utils";
 
 jest.mock("../api", () => ({
   getCoinModuleApi: jest.fn(),
+}));
+
+jest.mock("../bridge", () => ({
+  getBridgeApi: jest.fn(),
 }));
 
 jest.mock("../utils", () => ({
@@ -35,6 +40,9 @@ describe("genericSignOperation", () => {
   } as any;
 
   const craftTransaction = jest.fn();
+  // The framework threads a context and calls `craftTransactionData(context, intent)`; mirror the
+  // default impl (`{ type: "none" }`).
+  const craftTransactionData = () => ({ type: "none" });
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -42,12 +50,14 @@ describe("genericSignOperation", () => {
     craftTransaction.mockResolvedValue({ transaction: "unsignedTx" });
     (getCoinModuleApi as jest.Mock).mockReturnValue({
       craftTransaction,
+      craftTransactionData,
       getAccountInfo: jest.fn().mockResolvedValue("pubKey"),
       combine: jest.fn().mockResolvedValue("signedTx"),
       getNextSequence: jest.fn().mockResolvedValue(1n),
     });
 
     (buildOptimisticOperation as jest.Mock).mockReturnValue({ id: "mock-op" });
+    (getBridgeApi as jest.Mock).mockResolvedValue({});
 
     mockSigner.getAddress.mockResolvedValue({ publicKey: "pubKey" });
     mockSigner.signTransaction.mockResolvedValue("sig");
@@ -77,15 +87,41 @@ describe("genericSignOperation", () => {
       },
     });
 
+    expect(mockSigner.signTransaction).toHaveBeenCalledTimes(1);
     expect(mockSigner.signTransaction).toHaveBeenCalledWith("44'/144'/0'/0/0", "unsignedTx", {
       domain: "recipient.gen",
       address: "recipient-address",
       derivationMode: undefined,
     });
+    expect(craftTransaction).toHaveBeenCalledTimes(1);
     expect(craftTransaction).toHaveBeenCalledWith(
+      expect.anything(), // context (framework v6)
       expect.objectContaining({
         memo: { type: "map", memos: new Map([["destinationTag", "1234"]]) },
       }),
+      expect.anything(),
+    );
+  });
+
+  it("maps the coin-declared memoType to the craftTransaction memo shape", async () => {
+    const txWithTransferId = {
+      amount: new BigNumber(2_500_000_000),
+      fees: new BigNumber(100_000_000),
+      recipient: "rRecipient",
+      family: "family",
+      memoType: "transferId",
+      memoValue: "42",
+    } as any;
+
+    const signOperation = genericSignOperation("mainnet", "family")(mockSignerContext);
+    await lastValueFrom(
+      signOperation({ account, transaction: txWithTransferId, deviceId: "" }).pipe(toArray()),
+    );
+
+    expect(craftTransaction).toHaveBeenCalledTimes(1);
+    expect(craftTransaction).toHaveBeenCalledWith(
+      expect.anything(), // context (framework v6)
+      expect.objectContaining({ memo: { type: "string", kind: "transferId", value: "42" } }),
       expect.anything(),
     );
   });
@@ -94,6 +130,7 @@ describe("genericSignOperation", () => {
     const validateIntent = jest.fn();
     (getCoinModuleApi as jest.Mock).mockReturnValue({
       craftTransaction,
+      craftTransactionData,
       getAccountInfo: jest.fn().mockResolvedValue("pubKey"),
       combine: jest.fn().mockResolvedValue("signedTx"),
       getNextSequence: jest.fn().mockResolvedValue(1n),
@@ -110,9 +147,88 @@ describe("genericSignOperation", () => {
     await lastValueFrom(observable.pipe(toArray()));
 
     expect(validateIntent).not.toHaveBeenCalled();
+    expect(craftTransaction).toHaveBeenCalledTimes(1);
     expect(craftTransaction).toHaveBeenCalledWith(
+      expect.anything(), // context (framework v6)
       expect.objectContaining({ amount: 100000n }),
       expect.anything(),
+    );
+  });
+
+  it("hands the device signer whatever the family declares", async () => {
+    const getDeviceSignOptions = jest
+      .fn()
+      .mockReturnValue({ familyOwnedSignOption: { id: "asset-1", ledgerSignature: "sig" } });
+    (getBridgeApi as jest.Mock).mockResolvedValue({ getDeviceSignOptions });
+
+    const signOperation = genericSignOperation("mainnet", "xrp")(mockSignerContext);
+    const observable = signOperation({ account, transaction, deviceId: "" });
+
+    await lastValueFrom(observable.pipe(toArray()));
+
+    expect(mockSigner.signTransaction).toHaveBeenCalledTimes(1);
+    expect(mockSigner.signTransaction).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.anything(),
+      expect.objectContaining({ familyOwnedSignOption: { id: "asset-1", ledgerSignature: "sig" } }),
+    );
+    expect(mockSigner.getAddress).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ familyOwnedSignOption: { id: "asset-1", ledgerSignature: "sig" } }),
+    );
+  });
+
+  it("keeps the account's derivationMode when the family declares one of its own", async () => {
+    const getDeviceSignOptions = jest.fn().mockReturnValue({ derivationMode: "tezosSecp256k1" });
+    (getBridgeApi as jest.Mock).mockResolvedValue({ getDeviceSignOptions });
+
+    const signOperation = genericSignOperation("mainnet", "tezos")(mockSignerContext);
+    const observable = signOperation({
+      account: { ...account, derivationMode: "tezosbip32-ed25519" },
+      transaction,
+      deviceId: "",
+    });
+
+    await lastValueFrom(observable.pipe(toArray()));
+
+    expect(mockSigner.signTransaction).toHaveBeenCalledTimes(1);
+    expect(mockSigner.signTransaction).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.anything(),
+      expect.objectContaining({ derivationMode: "tezosbip32-ed25519" }),
+    );
+  });
+
+  it("crafts from the family's own intent data", async () => {
+    const buildIntentData = jest.fn().mockReturnValue({ type: "familyx" });
+    (getBridgeApi as jest.Mock).mockResolvedValue({ buildIntentData });
+
+    const signOperation = genericSignOperation("mainnet", "xrp")(mockSignerContext);
+    await lastValueFrom(signOperation({ account, transaction, deviceId: "" }).pipe(toArray()));
+
+    expect(buildIntentData).toHaveBeenCalledTimes(1);
+    expect(buildIntentData).toHaveBeenCalledWith(transaction);
+    expect(craftTransaction).toHaveBeenCalledTimes(1);
+    expect(craftTransaction).toHaveBeenCalledWith(
+      expect.anything(), // context
+      expect.objectContaining({ data: { type: "familyx" } }),
+      expect.anything(),
+    );
+  });
+
+  it("hands the family's optimistic-operation descriptor to buildOptimisticOperation", async () => {
+    const describeOptimisticOperation = jest.fn();
+    (getBridgeApi as jest.Mock).mockResolvedValue({ describeOptimisticOperation });
+
+    const signOperation = genericSignOperation("mainnet", "xrp")(mockSignerContext);
+    await lastValueFrom(signOperation({ account, transaction, deviceId: "" }).pipe(toArray()));
+
+    expect(buildOptimisticOperation).toHaveBeenCalledTimes(1);
+    expect(buildOptimisticOperation).toHaveBeenCalledWith(
+      account,
+      transaction,
+      expect.anything(),
+      describeOptimisticOperation,
     );
   });
 
@@ -124,5 +240,125 @@ describe("genericSignOperation", () => {
     const observable = signOperation({ account, transaction: txWithoutFees, deviceId: "" });
 
     await expect(lastValueFrom(observable)).rejects.toThrow(FeeNotLoaded);
+  });
+
+  it("forwards an explicit fee-override marker to craftTransaction, and undefined on the auto path", async () => {
+    // `transaction.fees` is the auto-resolved display fee, forwarded as customFees.value on every
+    // send, so it cannot tell a coin module whether the user chose that number. Only a deliberate
+    // override carries customFees.parameters.fees, and a module resolving a chain *ceiling* from the
+    // fee bag has to prefer it over the estimate's own figures (TRON's TRC20 fee_limit).
+    const signOperation = genericSignOperation("mainnet", "xrp")(mockSignerContext);
+
+    // Auto path: no override on the transaction → the module sees no fee marker.
+    await lastValueFrom(signOperation({ account, transaction, deviceId: "" }).pipe(toArray()));
+    const autoArgs = craftTransaction.mock.calls.at(-1);
+    expect(autoArgs[2].customFees.parameters.fees).toBeUndefined();
+
+    // Override path: the marker is forwarded verbatim (deeply converted to bigint).
+    await lastValueFrom(
+      signOperation({
+        account,
+        transaction: {
+          ...transaction,
+          customFees: { parameters: { fees: new BigNumber(30_000_000) } },
+        },
+        deviceId: "",
+      }).pipe(toArray()),
+    );
+    const overrideArgs = craftTransaction.mock.calls.at(-1);
+    expect(overrideArgs[2].customFees.parameters.fees).toBe(30_000_000n);
+
+    // A deliberate 0 override survives the bigint conversion (bigNumberToBigIntDeep drops only undefined,
+    // not 0), so it reaches the module as a real override and a 0 fee cap still reaches the chain
+    // (VSD-5287/LIVE-36391) rather than falling back to the default ceiling.
+    await lastValueFrom(
+      signOperation({
+        account,
+        transaction: { ...transaction, customFees: { parameters: { fees: new BigNumber(0) } } },
+        deviceId: "",
+      }).pipe(toArray()),
+    );
+    const zeroOverrideArgs = craftTransaction.mock.calls.at(-1);
+    expect(zeroOverrideArgs[2].customFees.parameters.fees).toBe(0n);
+  });
+
+  describe("NEAR: computeIntentType", () => {
+    // NEAR maps "withdraw" → "finalize_unstake" via its bridgeApi.computeIntentType.
+    // Verify the framework threads computeIntentType through to craftTransaction correctly.
+    it('maps "withdraw" mode to "finalize_unstake" intent type via computeIntentType', async () => {
+      const { computeIntentType } = await import("../../../families/near/bridge/api");
+      (getBridgeApi as jest.Mock).mockResolvedValue({ computeIntentType });
+
+      const nearAccount = {
+        freshAddressPath: "44'/397'/0'/0'/0'",
+        freshAddress: "nearTestAddress.testnet",
+        address: "nearTestAddress.testnet",
+        currency: { id: "near", name: "near", units: [{ name: "near", code: "NEAR" }] },
+      } as any;
+
+      const nearWithdrawTx = {
+        amount: new BigNumber(100_000),
+        fees: new BigNumber(500),
+        recipient: "validator.poolv1.near",
+        family: "near",
+        mode: "withdraw",
+      } as any;
+
+      const signOperation = genericSignOperation("mainnet", "near")(mockSignerContext);
+      await lastValueFrom(
+        signOperation({ account: nearAccount, transaction: nearWithdrawTx, deviceId: "" }).pipe(
+          toArray(),
+        ),
+      );
+
+      expect(craftTransaction).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ type: "finalize_unstake" }),
+        expect.anything(),
+      );
+    });
+  });
+
+  it("forwards the last estimation's feeParameters to an opted-in family, framework fields winning", async () => {
+    // LIVE-36865: `getTransactionStatus` already hands the family its own fee breakdown, so without
+    // this `validateIntent` and `craftTransaction` see different `parameters` for one transaction.
+    // TRON needs it on the craft path too: its TRC20 `fee_limit` is a ceiling, and `value` is a fee
+    // that reads 0 once the account's energy covers the transfer.
+    (getBridgeApi as jest.Mock).mockResolvedValue({ forwardsFeeParametersToCraft: true });
+    const signOperation = genericSignOperation("mainnet", "xrp")(mockSignerContext);
+
+    await lastValueFrom(
+      signOperation({
+        account,
+        transaction: {
+          ...transaction,
+          feeParameters: { feeLimit: "50000000", energyRequired: "31895", gasLimit: "999999" },
+        },
+        deviceId: "",
+      }).pipe(toArray()),
+    );
+
+    const { parameters } = craftTransaction.mock.calls.at(-1)[2].customFees;
+    expect(parameters.feeLimit).toBe("50000000");
+    expect(parameters.energyRequired).toBe("31895");
+    // Spread first, so a key the framework owns is not shadowed by a stale estimation figure.
+    expect(parameters.gasLimit).not.toBe("999999");
+  });
+
+  it("withholds feeParameters from a family that has not opted in", async () => {
+    // The opt-in exists so this bag cannot change crafting for a family that never asked for it: a
+    // module reading a key its own estimation emits would shift behaviour with no type error.
+    const signOperation = genericSignOperation("mainnet", "xrp")(mockSignerContext);
+
+    await lastValueFrom(
+      signOperation({
+        account,
+        transaction: { ...transaction, feeParameters: { feeLimit: "50000000" } },
+        deviceId: "",
+      }).pipe(toArray()),
+    );
+
+    const { parameters } = craftTransaction.mock.calls.at(-1)[2].customFees;
+    expect(parameters.feeLimit).toBeUndefined();
   });
 });

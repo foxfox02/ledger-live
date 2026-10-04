@@ -1,9 +1,9 @@
 import { Step } from "jest-allure2-reporter/api";
 import { log } from "detox";
-import { openDeeplink } from "../../helpers/commonHelpers";
-import CommonPage from "../common.page";
+import { openDeeplink } from "@e2e/helpers/commonHelpers";
+import CommonPage from "@e2e/page/common.page";
 import { sanitizeError } from "@ledgerhq/live-e2e-shared/index";
-import { isAggregatedAssetsEnabled } from "../../utils/featureFlagUtils";
+import { isAggregatedAssetsEnabled } from "@e2e/utils/featureFlagUtils";
 
 export default class AccountsPage extends CommonPage {
   private readonly baseLink = "accounts";
@@ -31,7 +31,7 @@ export default class AccountsPage extends CommonPage {
     }
   }
 
-  @Step("Expect accounts number")
+  @Step("Expect accounts number {{{0}}}")
   async expectAccountsNumber(expectedAccountCount: number, testDataJson?: string) {
     let expectedAccountIds: string[] = [];
 
@@ -50,6 +50,11 @@ export default class AccountsPage extends CommonPage {
       foundAccounts++;
     }
     jestExpect(foundAccounts).toBe(expectedAccountCount);
+  }
+
+  @Step("Expect account {{{0}}} to be absent from the list")
+  async expectAccountAbsence(accountId: string) {
+    await waitForElementNotVisible(`${this.accountItemId + accountId}-name`);
   }
 
   @Step("Expect no accounts screen")

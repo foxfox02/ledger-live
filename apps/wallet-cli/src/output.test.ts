@@ -1,10 +1,14 @@
 import "./live-common-setup";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import {
   getCryptoAssetsStore,
   setCryptoAssetsStore,
   type FrameworkCryptoAssetsStore,
 } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
+import { BigNumberStrSchema } from "@shared/schema-primitives";
+import { DEVICE_EXIT_CODES } from "./device/device-state";
+import { WalletCliDeviceError } from "./device/wallet-cli-device-error";
 import { installOutputCapture } from "./shared/ui";
 
 type MockSpinner = {
@@ -146,8 +150,8 @@ describe("HumanCommandOutput", () => {
             stakeAccount: "Stake222222222222222222222222222222222222222",
             validator: "CpfvLiiPALdzZTP3fUrALg2TXwEDSAknRh1sn5JCt9Sr",
             state: "inactive",
-            stakeBalance: 2_000_000_000,
-            withdrawable: 1_997_717_120,
+            stakeBalance: BigNumberStrSchema.parse("2000000000"),
+            withdrawable: BigNumberStrSchema.parse("1997717120"),
           },
         ],
       );
@@ -445,7 +449,7 @@ describe("HumanCommandOutput", () => {
 
   it("token() writes the formatted token info to stdout", async () => {
     const { installOutputCapture } = await import("./shared/ui");
-    const { USDT_TOKEN_INFO } = await import("./test/helpers/cal-fixtures");
+    const { USDT_TOKEN_INFO } = await import("./testing/cal-fixtures");
     const writes: string[] = [];
     const restore = installOutputCapture({
       stdout: chunk => {
@@ -630,5 +634,32 @@ describe("HumanCommandOutput", () => {
       createCommandOutput("human", ctx).ringDecrypt({ dest: "/tmp/out.txt" });
       expect(writes.join("")).toContain("/tmp/out.txt");
     });
+  });
+});
+
+describe("output command handling", () => {
+  const ROOT = path.resolve(import.meta.dir, "..");
+  const HUMAN_DEVICE_ERROR_EXIT = path.resolve(
+    import.meta.dir,
+    "./testing/human-device-error-exit.ts",
+  );
+
+  it("human output exits with the WalletCliDeviceError exit code", async () => {
+    const proc = Bun.spawn(["bun", "--cwd", ROOT, HUMAN_DEVICE_ERROR_EXIT], {
+      env: {
+        ...process.env,
+        CLAUDECODE: "1",
+        NO_COLOR: "1",
+      },
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const exitCode = await proc.exited;
+    expect(exitCode).toBe(DEVICE_EXIT_CODES.timeout);
+    expect(await new Response(proc.stderr).text()).toContain(
+      new WalletCliDeviceError({ code: "timeout" }).message,
+    );
   });
 });

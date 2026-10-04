@@ -6,10 +6,12 @@ import {
 } from "@ledgerhq/live-dmk-desktop";
 import { useTranslation } from "react-i18next";
 
+import { TrackDIEScreen } from "../../components/TrackDIEScreen";
+import { PAGE_CONNECT_DEVICE } from "../../utils/trackDeviceIntent";
 import { DeviceListItem } from "./DeviceListItem";
 
 type DiscoveringStateProps = {
-  state: Extract<ConnectDeviceUIState, { type: ConnectDeviceUIStateTypes.Discovering }>;
+  state: Extract<ConnectDeviceUIState, { type: typeof ConnectDeviceUIStateTypes.Discovering }>;
 };
 
 function getDeviceKey(device: DisplayedDevice, index: number): string {
@@ -24,6 +26,7 @@ export function DiscoveringState({ state }: Readonly<DiscoveringStateProps>): Re
 
   return (
     <div className="flex w-full flex-col gap-16">
+      <TrackDIEScreen category={PAGE_CONNECT_DEVICE.Discovering} refreshSource />
       <h3 className="heading-4-semi-bold text-left text-base">
         {t(
           hasAvailableDevice

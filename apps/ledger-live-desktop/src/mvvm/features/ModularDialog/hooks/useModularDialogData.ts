@@ -1,10 +1,11 @@
 import { useMemo } from "react";
 import { LoadingStatus } from "@ledgerhq/live-common/deposit/type";
 import { getLoadingStatus } from "@ledgerhq/live-common/modularDrawer/utils/getLoadingStatus";
-import { useAssetsData } from "@ledgerhq/live-common/dada-client/hooks/useAssetsData";
+import { useAssetsData } from "@features/platform-aggregated-assets";
 import {
   modularDialogAreCurrenciesFilteredSelector,
   modularDialogCurrenciesSelector,
+  modularDialogCategoriesSelector,
   modularDialogNetworkIdsSelector,
   modularDialogUseCaseSelector,
   modularDialogSearchedSelector,
@@ -25,8 +26,16 @@ export function useModularDialogData() {
   const searchedValue = useSelector(modularDialogSearchedSelector);
 
   const currencyIds = useSelector(modularDialogCurrenciesSelector);
+  const categories = useSelector(modularDialogCategoriesSelector);
+  const resolvedCategories = useMemo(
+    () => (categories?.length ? [...categories] : undefined),
+    [categories],
+  );
   const networkIds = useSelector(modularDialogNetworkIdsSelector);
-  const resolvedNetworkIds = networkIds?.length ? networkIds : undefined;
+  const resolvedNetworkIds = useMemo(
+    () => (networkIds?.length ? networkIds : undefined),
+    [networkIds],
+  );
   const useCase = useSelector(modularDialogUseCaseSelector);
   const areCurrenciesFiltered = useSelector(modularDialogAreCurrenciesFilteredSelector);
 
@@ -34,6 +43,7 @@ export function useModularDialogData() {
     search: searchedValue,
     currencyIds: resolvedNetworkIds === undefined ? currencyIds : undefined,
     networkIds: resolvedNetworkIds,
+    categories: resolvedCategories,
     product: "lld",
     version: __APP_VERSION__,
     useCase,

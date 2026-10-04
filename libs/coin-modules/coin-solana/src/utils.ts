@@ -10,7 +10,7 @@ import {
 import BigNumber from "bignumber.js";
 import { partition } from "lodash/fp";
 import { ValidatorsAppValidator } from "./network/validator-app";
-import coinConfig, { type SolanaConfig } from "./config";
+import { type SolanaConfig, type SolanaCoinConfig } from "./config";
 
 const SIGNATURE_SIZE = 64;
 const DUMMY_SIGNATURE_FILL = 1;
@@ -55,7 +55,6 @@ export const LEDGER_VALIDATOR_LIST: ValidatorsAppValidator[] = [
 export const LEDGER_VALIDATORS_VOTE_ACCOUNTS = LEDGER_VALIDATOR_LIST.map(v => v.voteAccount);
 
 export const SOLANA_DELEGATION_RESERVE = 0.01;
-export const SYSTEM_ACCOUNT_RENT_EXEMPT = 890880;
 
 export const assertUnreachable = (_: never): never => {
   throw new Error("unreachable assertion failed");
@@ -79,13 +78,8 @@ export async function drainSeq<T>(jobs: (() => Promise<T>)[]) {
   return items;
 }
 
-export function endpointByCurrencyId(currencyId: string): string {
-  let rpcUrls: SolanaConfig["rpcUrls"] = undefined;
-  try {
-    rpcUrls = coinConfig.getCoinConfig().rpcUrls;
-  } catch {
-    // coin config not initialized, fall back to defaults
-  }
+export function endpointByCurrencyId(config: SolanaCoinConfig, currencyId: string): string {
+  const rpcUrls: SolanaConfig["rpcUrls"] = config.rpcUrls;
   const endpoints: Record<string, string> = {
     solana: rpcUrls?.solana ?? getEnv("API_SOLANA_PROXY"),
     solana_devnet: rpcUrls?.solana_devnet ?? clusterApiUrl("devnet"),

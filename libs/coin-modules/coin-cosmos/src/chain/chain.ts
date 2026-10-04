@@ -1,4 +1,4 @@
-import cosmosCoinConfig from "../config";
+import cosmosCoinConfig, { type CosmosCoinConfig } from "../config";
 import Axelar from "./Axelar";
 import Babylon from "./Babylon";
 import BinanceBeaconChain from "./BinanceBeaconChain";
@@ -7,6 +7,7 @@ import Cosmos from "./Cosmos";
 import CryptoOrg from "./CryptoOrg";
 import Desmos from "./Desmos";
 import Dydx from "./Dydx";
+import Gonka from "./Gonka";
 import Injective from "./Injective";
 import Mantra from "./Mantra";
 import Nyx from "./Nyx";
@@ -27,7 +28,7 @@ const CURRENCY_ID_ALIASES: Record<string, string> = {
   crypto_org_croeseid: "crypto_org", // croeseid testnet reuses crypto_org's params
 };
 
-export default function cryptoFactory(currencyId: string): CosmosBase {
+export default function cryptoFactory(currencyId: string, config?: CosmosCoinConfig): CosmosBase {
   currencyId = CURRENCY_ID_ALIASES[currencyId] ?? currencyId;
   if (!cosmosChainParams[currencyId]) {
     let chain: CosmosBase;
@@ -89,12 +90,15 @@ export default function cryptoFactory(currencyId: string): CosmosBase {
       case "babylon":
         chain = new Babylon();
         break;
+      case "gonka":
+        chain = new Gonka();
+        break;
       default:
         throw new Error(`${currencyId} is not supported`);
     }
 
     try {
-      const coinConfig = cosmosCoinConfig.getCoinConfig(currencyId);
+      const coinConfig = config ?? cosmosCoinConfig.getCoinConfig(currencyId);
       cosmosChainParams[currencyId] = coinConfig
         ? ({ ...chain, ...coinConfig } as CosmosBase)
         : chain;

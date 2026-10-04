@@ -1,3 +1,4 @@
+import { TrackScreen } from "@shared/analytics-react";
 import { useAccountBridge } from "@ledgerhq/live-common/bridge/useAccountBridge";
 import useBridgeTransaction from "@ledgerhq/live-common/bridge/useBridgeTransaction";
 import React, { useState, useCallback, useEffect } from "react";
@@ -12,7 +13,6 @@ import invariant from "invariant";
 import MemoTagSummary from "LLM/features/MemoTag/components/MemoTagSummary";
 import { useAccountScreen } from "LLM/hooks/useAccountScreen";
 import { ScreenName } from "~/const";
-import { TrackScreen } from "~/analytics";
 import { useTransactionChangeFromNavigation } from "~/logic/screenTransactionHooks";
 import Button from "~/components/Button";
 import LText from "~/components/LText";
@@ -319,25 +319,6 @@ function SendSummary({ navigation, route }: Props) {
               amount={totalSpent}
             />
           </>
-        ) : null}
-
-        {isSolanaRawTransaction ? (
-          <NativeUiAlert type="warning">
-            <Flex>
-              <Text
-                color="neutral.c100"
-                flexShrink={1}
-                variant="bodyLineHeight"
-                fontWeight="semiBold"
-              >
-                <Trans i18nKey="send.summary.solanaRawTransaction.title" />{" "}
-              </Text>
-
-              <Text paddingTop={2}>
-                <Trans i18nKey="send.summary.solanaRawTransaction.description" />
-              </Text>
-            </Flex>
-          </NativeUiAlert>
         ) : null}
 
         {tooManyUtxos ? (

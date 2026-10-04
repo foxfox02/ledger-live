@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from "react";
+import React, { useCallback, useMemo, useRef } from "react";
 import { CryptoOrTokenCurrency } from "@domain/entity-currency";
 import { AssetRow, AssetRowData } from "./components/AssetRow";
 import { MarketPriceIndicator } from "../../components/MarketPriceIndicator";
@@ -31,7 +31,15 @@ import { useSelector } from "~/context/hooks";
 import { modularDrawerFlowSelector, modularDrawerSourceSelector } from "~/reducers/modularDrawer";
 import { AssetData } from "@ledgerhq/live-common/modularDrawer/utils/type";
 import { groupCurrenciesByAsset } from "@ledgerhq/live-common/modularDrawer/utils/groupCurrenciesByAsset";
+import { useAvailabilityRows } from "@ledgerhq/live-common/modularDrawer/hooks/useAvailabilityRows";
+import type { AvailabilityRow } from "@ledgerhq/live-common/modularDrawer/utils/buildAvailabilityRows";
 import { withDiscreetMode } from "~/context/DiscreetModeContext";
+import {
+  getPerpsUiUseCase,
+  PERPS_UI_USE_CASE,
+} from "@ledgerhq/live-common/wallet-api/ModularDrawer/uiUseCase";
+import type { DisabledItemExplanation, DisabledItemsExplanation } from "../../types";
+import { UnavailableSectionHeader } from "../../components/UnavailableSectionHeader";
 
 export type AssetSelectionStepProps = {
   isOpen: boolean;
@@ -43,9 +51,18 @@ export type AssetSelectionStepProps = {
   refetch?: () => void;
   loadNext?: () => void;
   assetsSorted?: AssetData[];
+  uiUseCase?: string;
+  selectableNetworkIds?: readonly string[];
+  disabledAssetExplanation?: DisabledItemsExplanation["asset"];
+  onDisabledAssetPress?: (explanation: DisabledItemExplanation) => void;
 };
 
+type AssetListRow = AvailabilityRow<AssetRowData>;
+
 const SAFE_MARGIN_BOTTOM = 48;
+const UNAVAILABLE_SECTION_HEADER_KEY = "unavailable-section-header";
+
+const isUnavailableAsset = (asset: AssetRowData) => !!asset.disabled;
 
 const AssetSelection = ({
   availableAssets,
@@ -57,27 +74,45 @@ const AssetSelection = ({
   refetch,
   loadNext,
   assetsSorted,
+  uiUseCase,
+  selectableNetworkIds,
+  disabledAssetExplanation,
+  onDisabledAssetPress,
 }: Readonly<AssetSelectionStepProps>) => {
   const { t } = useTranslation();
   const { isInternetReachable } = useNetInfo();
+
+  const isPerpsFund = getPerpsUiUseCase(uiUseCase) === PERPS_UI_USE_CASE.fund;
+
+  const headerTitle = isPerpsFund
+    ? t("modularDrawer.selectDepositCurrencyTitle")
+    : t("modularDrawer.selectAsset");
+
+  const headerDescription = isPerpsFund
+    ? t("modularDrawer.selectDepositCurrencyDescription")
+    : undefined;
 
   const flow = useSelector(modularDrawerFlowSelector);
   const source = useSelector(modularDrawerSourceSelector);
 
   const { trackModularDrawerEvent } = useModularDrawerAnalytics();
-  const { collapse, snapToIndex } = useBottomSheet();
+  const { collapse, expand } = useBottomSheet();
   const listRef = useRef<FlatList>(null);
 
   const expandToFullHeight = () => {
     if (formattedAssets.length > 0) {
-      snapToIndex(1);
+      expand();
       listRef.current?.scrollToIndex({ index: 0 });
     }
   };
 
   const assetsMap = groupCurrenciesByAsset(assetsSorted || []);
+  const selectableNetworkIdSet = useMemo(
+    () => (selectableNetworkIds === undefined ? undefined : new Set(selectableNetworkIds)),
+    [selectableNetworkIds],
+  );
 
-  const formattedAssets = useAssetConfiguration(availableAssets ?? [], {
+  const formattedAssets: AssetRowData[] = useAssetConfiguration(availableAssets ?? [], {
     ApyIndicator,
     MarketPriceIndicator,
     MarketPercentIndicator,
@@ -85,10 +120,22 @@ const AssetSelection = ({
     balanceItem,
     assetsMap,
     ...assetsConfiguration,
+  }).map(asset => {
+    if (selectableNetworkIdSet === undefined) return asset;
+
+    const isSelectable = assetsMap.get(asset.id)?.currencies.some(network => {
+      const networkId = network.type === "CryptoCurrency" ? network.id : network.parentCurrencyId;
+      return selectableNetworkIdSet.has(networkId);
+    });
+
+    return { ...asset, disabled: !isSelectable };
   });
+
+  const assetRows = useAvailabilityRows(formattedAssets, isUnavailableAsset);
 
   const handleAssetClick = useCallback(
     (asset: AssetRowData) => {
+      if (asset.disabled) return;
       const originalAsset = availableAssets.find(a => a.id === asset.id);
       if (originalAsset) {
         collapse();
@@ -120,8 +167,23 @@ const AssetSelection = ({
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: AssetRowData }) => <AssetRow {...item} onClick={handleAssetClick} />,
-    [handleAssetClick],
+    ({ item: row }: { item: AssetListRow }) => {
+      if (row.kind === "unavailableSectionHeader") {
+        return <UnavailableSectionHeader testID="modular-drawer-unavailable-assets-header" />;
+      }
+
+      const asset = row.item;
+
+      return (
+        <AssetRow
+          {...asset}
+          onClick={handleAssetClick}
+          disabledExplanation={asset.disabled ? disabledAssetExplanation?.(asset.name) : undefined}
+          onDisabledPress={onDisabledAssetPress}
+        />
+      );
+    },
+    [disabledAssetExplanation, handleAssetClick, onDisabledAssetPress],
   );
 
   const renderContent = () => {
@@ -140,10 +202,12 @@ const AssetSelection = ({
       <BottomSheetVirtualizedList
         ref={listRef}
         scrollToOverflowEnabled
-        data={formattedAssets}
-        keyExtractor={(item: AssetRowData) => item.id}
-        getItemCount={(items: AssetRowData[]) => items.length}
-        getItem={(items: AssetRowData[], index: number) => items[index]}
+        data={assetRows}
+        keyExtractor={(row: AssetListRow) =>
+          row.kind === "item" ? row.item.id : UNAVAILABLE_SECTION_HEADER_KEY
+        }
+        getItemCount={(rows: AssetListRow[]) => rows.length}
+        getItem={(rows: AssetListRow[], index: number) => rows[index]}
         renderItem={renderItem}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -173,7 +237,8 @@ const AssetSelection = ({
       )}
       <BottomSheetHeader
         spacing
-        title={t("modularDrawer.selectAsset")}
+        title={headerTitle}
+        description={headerDescription}
         testID="modular-drawer-Asset-title"
         density="expanded"
       />

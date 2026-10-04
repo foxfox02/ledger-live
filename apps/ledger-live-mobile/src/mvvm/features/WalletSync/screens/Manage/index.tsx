@@ -1,3 +1,4 @@
+import { TrackScreen } from "@shared/analytics-react";
 import { Box, Flex, Text, Icons, InfiniteLoader, Alert } from "@ledgerhq/native-ui";
 import React, { useMemo, useState } from "react";
 import { useTranslation } from "~/context/Locale";
@@ -16,7 +17,6 @@ import ManageInstanceDrawer from "../ManageInstances/ManageInstancesDrawer";
 import { useManageInstancesDrawer } from "../ManageInstances/useManageInstanceDrawer";
 import ActivationDrawer from "../Activation/ActivationDrawer";
 import { Steps } from "../../types/Activation";
-import { TrackScreen } from "~/analytics";
 import { AlertLedgerSyncDown } from "../../components/AlertLedgerSyncDown";
 import { useLedgerSyncStatus } from "../../hooks/useLedgerSyncStatus";
 import { useCustomTimeOut } from "../../hooks/useCustomTimeOut";
@@ -146,7 +146,11 @@ const WalletSyncManage = () => {
             />
           ))}
 
-          <InstancesRow disabled={hasError} onPress={isError ? undefined : goToManageInstances}>
+          <InstancesRow
+            testID="walletSync-manage-instances"
+            disabled={hasError}
+            onPress={isError ? undefined : goToManageInstances}
+          >
             <Container
               flexDirection="row"
               justifyContent="space-between"

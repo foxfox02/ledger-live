@@ -39,14 +39,58 @@ export function fromTrongridTxInfoToOperation(
     operation.details = { ledgerOpType: type };
   }
 
+  // `familyExtra` is the framework's family-agnostic passthrough onto `Operation.extra`: the staking
+  // amounts and votes the Tron operation-details screens render (frozenAmount, unfreezeAmount, votes,
+  // unDelegatedAmount, receiverAddress). Without it synced staking history shows 0.
+  if (trongridTxInfo.extra) {
+    operation.details = { ...operation.details, familyExtra: trongridTxInfo.extra };
+  }
+
+  // `memo` is a framework-reserved `details` key: the generic layer copies it onto `Operation.extra.memo`,
+  // so the sender's note round-trips into synced history.
+  if (trongridTxInfo.memo) {
+    operation.details = { ...operation.details, memo: trongridTxInfo.memo };
+  }
+
   return operation;
 }
 
+/**
+ * The contract type is what distinguishes a staking operation from a transfer; the sender/recipient
+ * heuristic alone types every one of them as a plain send, which would cost synced history its
+ * Freeze / Unfreeze / Vote / Reward labels.
+ */
 function inferOperationType(trongridTxInfo: TrongridTxInfo, userAddress: string): string {
+  switch (trongridTxInfo.type) {
+    case "VoteWitnessContract":
+      return "VOTE";
+    case "WithdrawBalanceContract":
+      return "REWARD";
+    case "FreezeBalanceContract":
+    case "FreezeBalanceV2Contract":
+      return "FREEZE";
+    case "UnfreezeBalanceV2Contract":
+      return "UNFREEZE";
+    case "UnfreezeBalanceContract":
+      return "LEGACY_UNFREEZE";
+    case "WithdrawExpireUnfreezeContract":
+      return "WITHDRAW_EXPIRE_UNFREEZE";
+    case "UnDelegateResourceContract":
+      return "UNDELEGATE_RESOURCE";
+    case "ContractApproval":
+      return "APPROVE";
+    case "ExchangeTransactionContract":
+      return "OUT";
+    default:
+      return inferTransferDirection(trongridTxInfo, userAddress);
+  }
+}
+
+function inferTransferDirection(trongridTxInfo: TrongridTxInfo, userAddress: string): string {
   switch (true) {
-    case trongridTxInfo.from === userAddress &&
-      trongridTxInfo.to &&
-      trongridTxInfo.to !== userAddress:
+    // Sending to yourself is legal on Tron and is typed `OUT` — the account is the sender, and
+    // `UNKNOWN` would render the row without a direction.
+    case trongridTxInfo.from === userAddress && trongridTxInfo.to !== undefined:
       return "OUT";
     case trongridTxInfo.to === userAddress && trongridTxInfo.from !== userAddress:
       return "IN";
@@ -55,9 +99,27 @@ function inferOperationType(trongridTxInfo: TrongridTxInfo, userAddress: string)
   }
 }
 
+/**
+ * A token operation is only usable downstream if the token itself can be named: consumers resolve
+ * an asset from `type` + `assetReference`, and a `trc10`/`trc20` asset with no reference is a
+ * fatal input for some of them. Callers must drop (or degrade) such an operation rather than emit
+ * a half-populated asset — `inferAssetInfo` assumes this has been checked.
+ */
+export function hasUnresolvedTokenReference(trongridTxInfo: TrongridTxInfo): boolean {
+  switch (trongridTxInfo.tokenType) {
+    case "trc10":
+      return !trongridTxInfo.tokenId;
+    case "trc20":
+      return !trongridTxInfo.tokenAddress;
+    default:
+      return false;
+  }
+}
+
 export function inferAssetInfo(trongridTxInfo: TrongridTxInfo, userAddress?: string): AssetInfo {
-  // `assetOwner` identifies the account holding the token sub-account. It is only
-  // meaningful when listing operations for a specific address (account sync); the
+  // `assetOwner` identifies the account holding the token sub-account. It is supplementary
+  // context, never a stand-in for `assetReference` (which names the token itself): it is only
+  // meaningful when listing operations for a specific address (account sync), and the
   // block-level operations path leaves it undefined.
   const owner = userAddress ? { assetOwner: userAddress } : {};
   switch (true) {

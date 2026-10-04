@@ -34,6 +34,7 @@ type DataContextValue = Readonly<{
     clear: () => void;
   }>;
   isRecipientAddressComplete: boolean;
+  source?: string;
 }>;
 
 const SendFlowDataContext = createContext<DataContextValue | null>(null);
@@ -46,6 +47,7 @@ type ActionsContextValue = Readonly<{
   close: () => void;
   setAccountAndNavigate: (account: AccountLike, parentAccount?: Account) => void;
   setIsRecipientAddressComplete: (value: boolean) => void;
+  resetRecipient: () => void;
 }>;
 
 const SendFlowActionsContext = createContext<ActionsContextValue | null>(null);
@@ -65,8 +67,15 @@ export function SendFlowProvider({ value, children }: SendFlowProviderProps) {
       uiConfig: value.uiConfig,
       recipientSearch: value.recipientSearch,
       isRecipientAddressComplete: value.isRecipientAddressComplete,
+      source: value.source,
     }),
-    [value.state, value.uiConfig, value.recipientSearch, value.isRecipientAddressComplete],
+    [
+      value.state,
+      value.uiConfig,
+      value.recipientSearch,
+      value.isRecipientAddressComplete,
+      value.source,
+    ],
   );
 
   const actionsValue = useMemo(
@@ -77,6 +86,7 @@ export function SendFlowProvider({ value, children }: SendFlowProviderProps) {
       close: value.close,
       setAccountAndNavigate: value.setAccountAndNavigate,
       setIsRecipientAddressComplete: value.setIsRecipientAddressComplete,
+      resetRecipient: value.resetRecipient,
     }),
     [
       value.transaction,
@@ -85,6 +95,7 @@ export function SendFlowProvider({ value, children }: SendFlowProviderProps) {
       value.close,
       value.setAccountAndNavigate,
       value.setIsRecipientAddressComplete,
+      value.resetRecipient,
     ],
   );
 

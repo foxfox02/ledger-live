@@ -1,20 +1,19 @@
 import { Operation } from "@ledgerhq/coin-module-framework/api/types";
-import coinConfig from "../config";
+import type { Logger } from "@ledgerhq/coin-module-framework/config";
+import type { TronCoinConfig } from "../config";
 import { getBlock } from "../network";
 import { listOperations, ListOperationsOptions } from "./listOperations";
 
-describe("listOperations", () => {
-  beforeAll(() => {
-    coinConfig.setCoinConfig(() => ({
-      status: {
-        type: "active",
-      },
-      explorer: {
-        url: "https://tron.coin.ledger.com",
-      },
-    }));
-  });
+const logger: Logger = (..._args: unknown[]) => {};
 
+const config: TronCoinConfig = {
+  status: { type: "active" },
+  name: "Tron",
+  unit: { name: "TRX", code: "TRX", magnitude: 6 },
+  explorer: { url: "https://tron.coin.ledger.com" },
+};
+
+describe("listOperations", () => {
   describe("Pagination", () => {
     const testingAccount = "TRRYfGVrzuUvJYRe9UaA8KqxjgVSwU9m6L";
 
@@ -32,7 +31,7 @@ describe("listOperations", () => {
       const maxPages = 5;
 
       while (pageCount < maxPages) {
-        const result = await listOperations(testingAccount, { ...options, cursor });
+        const result = await listOperations(logger, config, testingAccount, { ...options, cursor });
         pageCount++;
 
         for (const op of result.items) {
@@ -64,14 +63,14 @@ describe("listOperations", () => {
         order: "asc",
       };
 
-      const firstPage = await listOperations(testingAccount, options);
+      const firstPage = await listOperations(logger, config, testingAccount, options);
       expect(typeof firstPage.next).toBe("string");
 
-      const secondPageA = await listOperations(testingAccount, {
+      const secondPageA = await listOperations(logger, config, testingAccount, {
         ...options,
         cursor: firstPage.next,
       });
-      const secondPageB = await listOperations(testingAccount, {
+      const secondPageB = await listOperations(logger, config, testingAccount, {
         ...options,
         cursor: firstPage.next,
       });
@@ -93,7 +92,7 @@ describe("listOperations", () => {
       let cursor: string | undefined;
 
       for (let page = 0; page < 10; page++) {
-        const result = await listOperations(testingAccount, { ...options, cursor });
+        const result = await listOperations(logger, config, testingAccount, { ...options, cursor });
         allOps.push(...result.items);
         if (!result.next) break;
         cursor = result.next;
@@ -115,7 +114,7 @@ describe("listOperations", () => {
         order: "asc",
       };
 
-      const result = await listOperations(testingAccount, options);
+      const result = await listOperations(logger, config, testingAccount, options);
 
       expect(result.items).toBeInstanceOf(Array);
       expect(result.items.length).toBeGreaterThan(0);
@@ -134,7 +133,7 @@ describe("listOperations", () => {
         order: "desc",
       };
 
-      const result = await listOperations(testingAccount, options);
+      const result = await listOperations(logger, config, testingAccount, options);
 
       expect(result.items).toBeInstanceOf(Array);
       expect(result.items.length).toBeGreaterThan(0);
@@ -154,7 +153,7 @@ describe("listOperations", () => {
         order: "asc",
       };
 
-      const result = await listOperations(testingAccount, options);
+      const result = await listOperations(logger, config, testingAccount, options);
 
       for (const op of result.items) {
         expect(op.tx.block.time.getTime()).toBeGreaterThanOrEqual(minTimestamp);
@@ -173,7 +172,7 @@ describe("listOperations", () => {
         order: "desc",
       };
 
-      const result = await listOperations(testingAccount, options);
+      const result = await listOperations(logger, config, testingAccount, options);
 
       const nativeOps = result.items.filter(op => op.asset.type === "native");
       expect(nativeOps.length).toBeGreaterThan(0);
@@ -196,7 +195,7 @@ describe("listOperations", () => {
         order: "desc",
       };
 
-      const result = await listOperations(testingAccount, options);
+      const result = await listOperations(logger, config, testingAccount, options);
 
       const trc10Ops = result.items.filter(op => op.asset.type === "trc10");
       expect(trc10Ops.length).toBeGreaterThan(0);
@@ -222,7 +221,7 @@ describe("listOperations", () => {
         order: "desc",
       };
 
-      const result = await listOperations(testingAccount, options);
+      const result = await listOperations(logger, config, testingAccount, options);
 
       const trc20Ops = result.items.filter(op => op.asset.type === "trc20");
       expect(trc20Ops.length).toBeGreaterThan(0);
@@ -251,7 +250,7 @@ describe("listOperations", () => {
         order: "asc",
       };
 
-      const result = await listOperations(testingAccount, options);
+      const result = await listOperations(logger, config, testingAccount, options);
 
       const failedTxHash = "f8a52daf9a247f73432afa292b8063d5c5429c8fdb0f8c66f5e8b15b3767e14b";
       const failedOp = result.items.find(op => op.tx.hash === failedTxHash);
@@ -275,10 +274,44 @@ describe("listOperations", () => {
         order: "asc",
       };
 
-      const result = await listOperations(testingAccount, options);
+      const result = await listOperations(logger, config, testingAccount, options);
       expect(result.items).toHaveLength(0);
       expect(result.next).toBeUndefined();
     }, 30000);
+  });
+
+  describe("TRC20 minted by a contract creation — Account TKR49PGYukacpKXwLYSWdup63napXQeXCE", () => {
+    // https://tronscan.org/#/address/TKR49PGYukacpKXwLYSWdup63napXQeXCE
+    // Spam airdrop: the token contract is deployed and mints to its victim in one transaction, so
+    // TronGrid reports the transfer with an empty `token_info` and a `CreateSmartContract` detail.
+    // The token address is only in the transaction's `Transfer` event log.
+    const testingAccount = "TKR49PGYukacpKXwLYSWdup63napXQeXCE";
+    let minTimestamp: number;
+
+    beforeAll(async () => {
+      const block = await getBlock(logger, config, 85277401);
+      minTimestamp = block.time?.getTime() ?? 0;
+    });
+
+    it("should return the mint with the created token as assetReference", async () => {
+      // https://tronscan.org/#/transaction/4d8f740330ec0c2158cd29db807c98b2c8ba11f7217e645d5c4421106138a399
+      const txHash = "4d8f740330ec0c2158cd29db807c98b2c8ba11f7217e645d5c4421106138a399";
+      const options: ListOperationsOptions = { limit: 100, minTimestamp, order: "asc" };
+      const result = await listOperations(logger, config, testingAccount, options);
+      const operation = result.items.find(op => op.tx.hash === txHash);
+      expect(operation).toMatchObject({
+        type: "IN",
+        value: BigInt("100000000000000000000000000000000"),
+        senders: ["T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb"],
+        recipients: [testingAccount],
+        asset: {
+          type: "trc20",
+          assetReference: "TCsam7uH3NbYLpKMCAayquN4Qwm3q717qu",
+          assetOwner: testingAccount,
+        },
+        tx: expect.objectContaining({ hash: txHash, failed: false }),
+      });
+    }, 60000);
   });
 
   describe("TriggerSmartContract transactions with internal_transactions", () => {
@@ -288,7 +321,7 @@ describe("listOperations", () => {
       let minTimestamp: number;
 
       beforeAll(async () => {
-        const block = await getBlock(63747682);
+        const block = await getBlock(logger, config, 63747682);
         minTimestamp = block.time?.getTime() ?? 0;
       });
 
@@ -298,7 +331,7 @@ describe("listOperations", () => {
         // Failed TUSD (TUpMhErZL2fhh4sVNULAbNKLokS4GjC1F4) interaction — no to_address, so type is UNKNOWN
         const txHash = "2824c452c141c74fdd9cb13c4d4e5369145cd1ab02baeedcb42b6b440e95e435";
         const options: ListOperationsOptions = { limit: 100, minTimestamp, order: "asc" };
-        const result = await listOperations(testingAccount, options);
+        const result = await listOperations(logger, config, testingAccount, options);
         const operation = result.items.find(op => op.tx.hash === txHash);
         expect(operation).toMatchObject({
           type: "UNKNOWN",
@@ -323,7 +356,7 @@ describe("listOperations", () => {
       let minTimestamp: number;
 
       beforeAll(async () => {
-        const block = await getBlock(81915749);
+        const block = await getBlock(logger, config, 81915749);
         minTimestamp = block.time?.getTime() ?? 0;
       });
 
@@ -333,7 +366,7 @@ describe("listOperations", () => {
         // 9 internal_transactions, 2 of which carry 15,400 TRX callValue (pool→router→owner)
         const txHash = "a7e6e916b687984da1534b33b0acd7a6ef2cb59a252e3fdc0c229169e04b1242";
         const options: ListOperationsOptions = { limit: 100, minTimestamp, order: "asc" };
-        const result = await listOperations(testingAccount, options);
+        const result = await listOperations(logger, config, testingAccount, options);
         const operation = result.items.find(op => op.tx.hash === txHash);
         expect(operation).toMatchObject({
           type: "OUT",

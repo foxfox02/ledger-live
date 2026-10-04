@@ -1,7 +1,7 @@
 import { trustchainStoreSelector } from "@ledgerhq/ledger-key-ring-protocol/store";
 import { largeScreenUpsellModalSelector } from "@ledgerhq/live-engagement/largeScreenUpsellModal";
 import { postOnboardingSelector } from "@ledgerhq/live-common/postOnboarding/reducer";
-import { exportWalletState, walletStateExportShouldDiffer } from "@ledgerhq/live-wallet/store";
+import { exportWalletState, walletStateExportShouldDiffer } from "~/reducers/wallet";
 import isEqual from "lodash/isEqual";
 import throttleFn from "lodash/throttle";
 import { useCallback, useEffect, useMemo, useRef } from "react";
@@ -22,6 +22,7 @@ import {
   saveMarketState,
   saveMarketListConfig,
   saveMarketBannerState,
+  savePayCardState,
   savePostOnboardingState,
   saveSettings,
   saveTrustchainState,
@@ -34,17 +35,22 @@ import { exportSelector as knownDevicesExportSelector } from "~/reducers/knownDe
 import { exportLargeMoverSelector } from "~/reducers/largeMover";
 import { exportMarketSelector, exportMarketListConfigSelector } from "~/reducers/market";
 import { marketBannerStoreSelector } from "~/reducers/marketBanner";
+import { payCardBalancePersistedSelector } from "@features/flow-pay-balance/state";
+import { payCardFeatureTourPersistedSelector } from "@features/flow-pay-feature-tour/state";
+import { payRequestVerifyHintPersistedSelector } from "@features/flow-pay-request/state";
+import { payCardLoginIntroPersistedSelector } from "@features/flow-pay-card-auth/state";
+import { payCardOnboardingWidgetPersistedSelector } from "@features/flow-pay-card-widget/state";
 import { settingsStoreSelector } from "~/reducers/settings";
 import type { State } from "~/reducers/types";
-import { walletSelector } from "~/reducers/wallet";
 import { Maybe } from "../types/helpers";
 import { extractPersistedCALFromState, persistedCALContentEqual } from "@domain/api-currency-token";
+import { calApi } from "@shared/api-services";
 import { exportIdentitiesForPersistence } from "@domain/entity-client-identity";
 import { accountPersistedStateChanged } from "@ledgerhq/live-common/account/index";
 import {
   exportCountervalues,
   hasNewCountervaluesToExport,
-} from "@ledgerhq/live-countervalues/logic";
+} from "@domain/entity-market-countervalues";
 
 type MaybeState = Maybe<State>;
 
@@ -135,10 +141,6 @@ function useFlushMechanism({ flush, cancel }: { flush: () => void; cancel: () =>
   }, [flush]);
 }
 
-function walletExportSelector(state: State) {
-  return exportWalletState(walletSelector(state));
-}
-
 const getSettingsChanged = (a: State, b: State) => a.settings !== b.settings;
 const getAccountsChanged = (
   oldState: State,
@@ -169,6 +171,11 @@ const accountsDbSaveSliceSelector = createSelector(
   (state: State) => state.wallet,
   (accounts, wallet) => ({ accounts, wallet }),
 );
+const walletDbSaveSliceSelector = createSelector(
+  (state: State) => state.wallet,
+  (state: State) => state.contacts,
+  (wallet, contacts) => ({ wallet, contacts }),
+);
 const bleNotEquals = (a: State, b: State) => a.ble !== b.ble;
 const knownDevicesNotEquals = (a: State, b: State) => a.knownDevices !== b.knownDevices;
 
@@ -180,9 +187,38 @@ const getLargeScreenUpsellModalStateChanged = (a: State, b: State) =>
 const marketNotEquals = (a: State, b: State) => a.market !== b.market;
 const marketListConfigNotEquals = (a: State, b: State) => a.marketListConfig !== b.marketListConfig;
 const marketBannerNotEquals = (a: State, b: State) => a.marketBanner !== b.marketBanner;
+
+export const payCardPersistedSelector = (state: State) => ({
+  ...payCardFeatureTourPersistedSelector(state),
+  ...payRequestVerifyHintPersistedSelector(state),
+  ...payCardBalancePersistedSelector(state),
+  ...payCardLoginIntroPersistedSelector(state),
+  ...payCardOnboardingWidgetPersistedSelector(state),
+});
+
+export const payCardDbSaveSliceSelector = createSelector(
+  (state: State) => state.payCardBalance,
+  (state: State) => state.payCardFeatureTour,
+  (state: State) => state.payRequestVerifyHint,
+  (state: State) => state.payCardLoginIntro,
+  (state: State) => state.payCardOnboardingWidget,
+  (
+    payCardBalance,
+    payCardFeatureTour,
+    payRequestVerifyHint,
+    payCardLoginIntro,
+    payCardOnboardingWidget,
+  ) => ({
+    payCardBalance,
+    payCardFeatureTour,
+    payRequestVerifyHint,
+    payCardLoginIntro,
+    payCardOnboardingWidget,
+  }),
+);
+const payCardPersistedNotEquals = (a: State, b: State) =>
+  !isEqual(payCardPersistedSelector(a), payCardPersistedSelector(b));
 const trustchainNotEquals = (a: State, b: State) => a.trustchain !== b.trustchain;
-const compareWalletState = (a: State, b: State) =>
-  walletStateExportShouldDiffer(a.wallet, b.wallet);
 const largeMoverNotEquals = (a: State, b: State) => a.largeMover !== b.largeMover;
 
 const cryptoAssetsNotEquals = (a: State, b: State) =>
@@ -289,19 +325,28 @@ export const ConfigureDBSaveEffects = () => {
   });
 
   useDBSaveEffect({
+    stateSelector: payCardDbSaveSliceSelector,
+    save: savePayCardState,
+    throttle: 500,
+    getChangesStats: payCardPersistedNotEquals,
+    lense: payCardPersistedSelector,
+  });
+
+  useDBSaveEffect({
     stateSelector: (state: State) => state.trustchain,
     save: saveTrustchainState,
     throttle: 500,
     getChangesStats: trustchainNotEquals,
     lense: trustchainStoreSelector,
+    saveAtStart: true,
   });
 
   useDBSaveEffect({
-    stateSelector: (state: State) => state.wallet,
+    stateSelector: walletDbSaveSliceSelector,
     save: saveWalletExportState,
     throttle: 500,
-    getChangesStats: compareWalletState,
-    lense: walletExportSelector,
+    getChangesStats: walletStateExportShouldDiffer,
+    lense: exportWalletState,
   });
 
   useDBSaveEffect({
@@ -313,7 +358,7 @@ export const ConfigureDBSaveEffects = () => {
   });
 
   useDBSaveEffect({
-    stateSelector: (state: State) => state.cryptoAssetsApi,
+    stateSelector: (state: State) => state[calApi.reducerPath],
     save: saveCryptoAssetsCacheState,
     throttle: 1000,
     getChangesStats: cryptoAssetsNotEquals,

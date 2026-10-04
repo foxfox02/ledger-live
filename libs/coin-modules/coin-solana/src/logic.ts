@@ -3,15 +3,23 @@ import { isStakingTransactionIntent } from "@ledgerhq/coin-module-framework/util
 import { CryptoCurrency } from "@ledgerhq/ledger-wallet-framework/types";
 import { PublicKey } from "@solana/web3.js";
 import { StakeMeta } from "./network/chain/account/stake";
-import { SolanaStake, StakeAction } from "./types";
+import { SolanaStake } from "./types";
 import { assertUnreachable } from "./utils";
 
+export {
+  emptyStakingResources,
+  findSolanaStakingPosition,
+  listSolanaStakingPositions,
+  requireStakePositionId,
+  solanaActivationState,
+  solanaStakesToStakingResources,
+  stakeActions,
+  stakeActivePercent,
+} from "./logic/stakingResources";
+
 export function isSolanaStakingTransactionIntent(intent: TransactionIntent): boolean {
-  return (
-    isStakingTransactionIntent(intent) ||
-    intent.type === "stake.createAccount" ||
-    intent.type === "stake.withdraw"
-  );
+  // Solana's own stake kinds do not all map to the framework's `intentType: "staking"`.
+  return isStakingTransactionIntent(intent) || intent.type.startsWith("stake.");
 }
 
 export type Awaited<T> = T extends PromiseLike<infer U> ? U : T;
@@ -43,45 +51,28 @@ export function decodeAccountIdWithTokenAccountAddress(accountIdWithTokenAccount
   };
 }
 
-export function stakeActions(stake: SolanaStake): StakeAction[] {
-  const actions: StakeAction[] = [];
-
-  if (stake.withdrawable > 0) {
-    actions.push("withdraw");
-  }
-
-  switch (stake.activation.state) {
-    case "active":
-    case "activating":
-      actions.push("deactivate");
-      break;
-    case "deactivating":
-      actions.push("reactivate");
-      break;
-    case "inactive":
-      actions.push("activate");
-      break;
-    default:
-      return assertUnreachable(stake.activation.state);
-  }
-
-  return actions;
-}
-
 export function withdrawableFromStake({
   stakeAccBalance,
   activation,
   rentExemptReserve,
 }: {
   stakeAccBalance: number;
-  activation: SolanaStake["activation"];
+  // Structural, not `SolanaStake["activation"]`, so a generic staking position fits too.
+  activation: { state: SolanaStake["activation"]["state"]; active: number; activating: number };
   rentExemptReserve: number;
 }) {
   switch (activation.state) {
     case "active":
-    case "activating":
-      // Allow withdrawal of inactive stake (e.g., Jito MEV rewards) without deactivating
+      // Allow withdrawal of excess lamports above active stake (e.g. Jito MEV rewards).
       return stakeAccBalance - rentExemptReserve - activation.active;
+    case "activating":
+      // Per Solana docs: only lamports in excess of (effective + activating) may be withdrawn.
+      // Without subtracting activating, effective=0 early in warmup makes the full principal
+      // appear withdrawable — the on-chain tx would fail.
+      return Math.max(
+        0,
+        stakeAccBalance - rentExemptReserve - activation.active - activation.activating,
+      );
     case "deactivating":
       return stakeAccBalance - rentExemptReserve - activation.active;
     case "inactive":
@@ -104,14 +95,6 @@ export function isStakeLockUpInForce({
     return false;
   }
   return lockup.unixTimestamp > Date.now() / 1000 || lockup.epoch > epoch;
-}
-
-export function stakeActivePercent(stake: SolanaStake) {
-  const amount = stake.delegation?.stake;
-  if (amount === undefined || amount === 0) {
-    return 0;
-  }
-  return (stake.activation.active / amount) * 100;
 }
 
 /**

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { BigNumber } from "bignumber.js";
-import { getGasLimit } from "@ledgerhq/coin-evm/utils";
-import type { Transaction as EvmTransaction } from "@ledgerhq/coin-evm/types/index";
-import { applyEvmGasLimitMultiplier, BridgeAdapter, buildSolanaTransactionModel } from "./bridge";
+import { getGasLimit } from "@ledgerhq/live-common/families/evm/utils";
+import type { Transaction as EvmTransaction } from "@ledgerhq/live-common/families/evm/types";
+import { BigNumberStrSchema } from "@shared/schema-primitives";
+import { applyEvmGasLimitMultiplier, BridgeAdapter, buildSolanaTransactionPatch } from "./bridge";
 import type { TransactionIntent } from "../intents";
 import type { AccountDescriptor } from "../models";
 
@@ -78,129 +79,109 @@ describe("applyEvmGasLimitMultiplier", () => {
   });
 });
 
-describe("buildSolanaTransactionModel", () => {
-  it("maps send mode to a transfer model carrying the memo", () => {
-    const model = buildSolanaTransactionModel({
-      family: "solana",
-      recipient: "recipientAddr",
-      amount: "1 SOL",
-      mode: "send",
-      memo: "hello",
-    });
-    expect(model).toEqual({ kind: "transfer", uiState: { memo: "hello" } });
-  });
-
-  it("maps send mode with a token account to a token.transfer model", () => {
-    const model = buildSolanaTransactionModel(
-      {
+describe("buildSolanaTransactionPatch", () => {
+  it("maps send mode to a transfer carrying the memo", () => {
+    expect(
+      buildSolanaTransactionPatch({
         family: "solana",
         recipient: "recipientAddr",
-        amount: "1 USDC",
+        amount: "1 SOL",
         mode: "send",
         memo: "hello",
-      },
-      { id: "subAcc789" } as Parameters<typeof buildSolanaTransactionModel>[1],
-    );
-    expect(model).toEqual({
-      kind: "token.transfer",
-      uiState: { subAccountId: "subAcc789", memo: "hello" },
-    });
+      }),
+    ).toEqual({ mode: "send", memoType: "TEXT", memoValue: "hello" });
   });
 
-  it("routes a send with a token account but no memo to token.transfer (memo undefined)", () => {
-    const model = buildSolanaTransactionModel(
-      {
+  it("omits the memo fields when there is no memo", () => {
+    expect(
+      buildSolanaTransactionPatch({
+        family: "solana",
+        recipient: "recipientAddr",
+        amount: "1 SOL",
+        mode: "send",
+      }),
+    ).toEqual({ mode: "send" });
+  });
+
+  it("does not distinguish a token send", () => {
+    expect(
+      buildSolanaTransactionPatch({
         family: "solana",
         recipient: "recipientAddr",
         amount: "1 USDC",
         mode: "send",
-      },
-      { id: "sub" } as Parameters<typeof buildSolanaTransactionModel>[1],
-    );
-    expect(model).toEqual({
-      kind: "token.transfer",
-      uiState: { subAccountId: "sub", memo: undefined },
-    });
+      }),
+    ).toEqual({ mode: "send" });
   });
 
-  it("routes a send with no token account and no memo to a native transfer (memo undefined)", () => {
-    const model = buildSolanaTransactionModel({
-      family: "solana",
-      recipient: "recipientAddr",
-      amount: "1 SOL",
-      mode: "send",
-    });
-    expect(model).toEqual({ kind: "transfer", uiState: { memo: undefined } });
-  });
-
-  it("maps stake.createAccount to a stake.createAccount model with the validator", () => {
-    const model = buildSolanaTransactionModel({
+  it("maps stake.createAccount to the validator as recipient", () => {
+    const patch = buildSolanaTransactionPatch({
       family: "solana",
       recipient: "",
       amount: "1 SOL",
       mode: "stake.createAccount",
       validator: "voteAcc123",
     });
-    expect(model).toEqual({
-      kind: "stake.createAccount",
-      uiState: { delegate: { voteAccAddress: "voteAcc123" } },
+
+    expect(patch).toMatchObject({ mode: "stake", recipient: "voteAcc123" });
+    expect(patch.familySpecificData).toMatchObject({ stakeAccountSeed: expect.any(String) });
+  });
+
+  it("maps stake.delegate to validator plus stake account", () => {
+    expect(
+      buildSolanaTransactionPatch({
+        family: "solana",
+        recipient: "",
+        amount: "0 SOL",
+        mode: "stake.delegate",
+        validator: "voteAcc123",
+        stakeAccount: "stakeAcc456",
+      }),
+    ).toEqual({
+      mode: "delegate",
+      recipient: "voteAcc123",
+      memoType: "STAKE_ACCOUNT",
+      memoValue: "stakeAcc456",
     });
   });
 
-  it("maps stake.delegate to a stake.delegate model with stake account and validator", () => {
-    const model = buildSolanaTransactionModel({
-      family: "solana",
-      recipient: "",
-      amount: "0 SOL",
-      mode: "stake.delegate",
-      validator: "voteAcc123",
-      stakeAccount: "stakeAcc456",
-    });
-    expect(model).toEqual({
-      kind: "stake.delegate",
-      uiState: { stakeAccAddr: "stakeAcc456", voteAccAddr: "voteAcc123" },
-    });
+  it("maps stake.undelegate to the stake account as recipient", () => {
+    expect(
+      buildSolanaTransactionPatch({
+        family: "solana",
+        recipient: "",
+        amount: "0 SOL",
+        mode: "stake.undelegate",
+        stakeAccount: "stakeAcc456",
+      }),
+    ).toEqual({ mode: "undelegate", recipient: "stakeAcc456" });
   });
 
-  it("maps stake.undelegate to a stake.undelegate model with the stake account", () => {
-    const model = buildSolanaTransactionModel({
-      family: "solana",
-      recipient: "",
-      amount: "0 SOL",
-      mode: "stake.undelegate",
-      stakeAccount: "stakeAcc456",
-    });
-    expect(model).toEqual({
-      kind: "stake.undelegate",
-      uiState: { stakeAccAddr: "stakeAcc456" },
-    });
-  });
-
-  it("maps stake.withdraw to a stake.withdraw model with the stake account", () => {
-    const model = buildSolanaTransactionModel({
-      family: "solana",
-      recipient: "",
-      amount: "0 SOL",
-      mode: "stake.withdraw",
-      stakeAccount: "stakeAcc456",
-    });
-    expect(model).toEqual({
-      kind: "stake.withdraw",
-      uiState: { stakeAccAddr: "stakeAcc456" },
-    });
+  it("maps stake.withdraw to the stake account as recipient", () => {
+    expect(
+      buildSolanaTransactionPatch({
+        family: "solana",
+        recipient: "",
+        amount: "0 SOL",
+        mode: "stake.withdraw",
+        stakeAccount: "stakeAcc456",
+      }),
+    ).toEqual({ mode: "unstake", recipient: "stakeAcc456" });
   });
 
   it("defaults missing stake/validator fields to empty strings", () => {
     expect(
-      buildSolanaTransactionModel({
+      buildSolanaTransactionPatch({
         family: "solana",
         recipient: "",
         amount: "0 SOL",
         mode: "stake.delegate",
       }),
     ).toEqual({
-      kind: "stake.delegate",
-      uiState: { stakeAccAddr: "", voteAccAddr: "" },
+      mode: "delegate",
+      recipient: "",
+      memoType: "STAKE_ACCOUNT",
+      memoValue: "",
     });
   });
 });
@@ -215,18 +196,27 @@ describe("BridgeAdapter.getSolanaStakes", () => {
     return adapter;
   };
 
-  it("maps solanaResources.stakes to EarnSolanaStake rows", async () => {
+  it("maps stakingResources positions to EarnSolanaStake rows", async () => {
     const adapter = adapterWithSyncedAccount({
-      solanaResources: {
-        stakes: [
+      stakingResources: {
+        delegations: [
           {
-            stakeAccAddr: "stakeAcc1",
-            delegation: { voteAccAddr: "voteAcc1" },
-            activation: { state: "active" },
-            stakeAccBalance: 2_000_000,
-            withdrawable: 500_000,
+            positionId: "stakeAcc1",
+            validatorAddress: "voteAcc1",
+            amount: new BigNumber(2_000_000),
+            pendingRewards: new BigNumber(0),
+            status: "bonded",
+            activeAmount: new BigNumber(1_500_000),
+            inactiveAmount: new BigNumber(0),
+            lockedReserve: new BigNumber(500_000),
+            withdrawableAmount: new BigNumber(500_000),
           },
         ],
+        unbondings: [],
+        redelegations: [],
+        delegatedBalance: new BigNumber(2_000_000),
+        pendingRewardsBalance: new BigNumber(0),
+        unbondingBalance: new BigNumber(0),
       },
     });
 
@@ -235,23 +225,66 @@ describe("BridgeAdapter.getSolanaStakes", () => {
         stakeAccount: "stakeAcc1",
         validator: "voteAcc1",
         state: "active",
-        stakeBalance: 2_000_000,
-        withdrawable: 500_000,
+        stakeBalance: BigNumberStrSchema.parse("2000000"),
+        withdrawable: BigNumberStrSchema.parse("500000"),
       },
     ]);
   });
 
-  it("leaves validator undefined for a stake with no delegation", async () => {
+  it("drops a position with no stake account address rather than emitting an empty target", async () => {
     const adapter = adapterWithSyncedAccount({
-      solanaResources: {
-        stakes: [
+      stakingResources: {
+        delegations: [
           {
-            stakeAccAddr: "stakeAcc2",
-            activation: { state: "inactive" },
-            stakeAccBalance: 1_000_000,
-            withdrawable: 1_000_000,
+            validatorAddress: "voteAcc1",
+            amount: new BigNumber(2_000_000),
+            pendingRewards: new BigNumber(0),
+            status: "bonded",
+            activeAmount: new BigNumber(2_000_000),
+          },
+          {
+            positionId: "stakeAcc1",
+            validatorAddress: "voteAcc1",
+            amount: new BigNumber(1_000_000),
+            pendingRewards: new BigNumber(0),
+            status: "bonded",
+            activeAmount: new BigNumber(1_000_000),
           },
         ],
+        unbondings: [],
+        redelegations: [],
+        delegatedBalance: new BigNumber(3_000_000),
+        pendingRewardsBalance: new BigNumber(0),
+        unbondingBalance: new BigNumber(0),
+      },
+    });
+
+    const stakes = await adapter.getSolanaStakes(descriptor);
+
+    expect(stakes.map(s => s.stakeAccount)).toEqual(["stakeAcc1"]);
+  });
+
+  it("leaves validator undefined for a stake with no delegation", async () => {
+    const adapter = adapterWithSyncedAccount({
+      stakingResources: {
+        delegations: [],
+        unbondings: [
+          {
+            positionId: "stakeAcc2",
+            validatorAddress: "",
+            amount: new BigNumber(0),
+            completionDate: new Date(0),
+            status: "withdrawable",
+            activeAmount: new BigNumber(0),
+            inactiveAmount: new BigNumber(1_000_000),
+            lockedReserve: new BigNumber(0),
+            withdrawableAmount: new BigNumber(1_000_000),
+          },
+        ],
+        redelegations: [],
+        delegatedBalance: new BigNumber(0),
+        pendingRewardsBalance: new BigNumber(0),
+        unbondingBalance: new BigNumber(0),
       },
     });
 
@@ -261,12 +294,48 @@ describe("BridgeAdapter.getSolanaStakes", () => {
       stakeAccount: "stakeAcc2",
       validator: undefined,
       state: "inactive",
-      stakeBalance: 1_000_000,
-      withdrawable: 1_000_000,
+      stakeBalance: BigNumberStrSchema.parse("1000000"),
+      withdrawable: BigNumberStrSchema.parse("1000000"),
     });
   });
 
-  it("returns [] when the account has no solanaResources", async () => {
+  it("keeps lamport amounts as decimal strings past Number.MAX_SAFE_INTEGER", async () => {
+    const unsafeLamports = "9007199254740993";
+    const adapter = adapterWithSyncedAccount({
+      stakingResources: {
+        delegations: [
+          {
+            positionId: "stakeAcc3",
+            validatorAddress: "voteAcc3",
+            amount: new BigNumber(unsafeLamports),
+            pendingRewards: new BigNumber(0),
+            status: "bonded",
+            activeAmount: new BigNumber(unsafeLamports),
+            inactiveAmount: new BigNumber(0),
+            lockedReserve: new BigNumber(0),
+            withdrawableAmount: new BigNumber(unsafeLamports),
+          },
+        ],
+        unbondings: [],
+        redelegations: [],
+        delegatedBalance: new BigNumber(unsafeLamports),
+        pendingRewardsBalance: new BigNumber(0),
+        unbondingBalance: new BigNumber(0),
+      },
+    });
+
+    await expect(adapter.getSolanaStakes(descriptor)).resolves.toEqual([
+      {
+        stakeAccount: "stakeAcc3",
+        validator: "voteAcc3",
+        state: "active",
+        stakeBalance: BigNumberStrSchema.parse(unsafeLamports),
+        withdrawable: BigNumberStrSchema.parse(unsafeLamports),
+      },
+    ]);
+  });
+
+  it("returns [] when the account has no stakingResources", async () => {
     const adapter = adapterWithSyncedAccount({});
     await expect(adapter.getSolanaStakes(descriptor)).resolves.toEqual([]);
   });

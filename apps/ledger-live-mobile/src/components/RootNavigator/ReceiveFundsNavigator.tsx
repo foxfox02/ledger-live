@@ -1,3 +1,4 @@
+import { track } from "@shared/analytics";
 import React, { useCallback, useMemo } from "react";
 import { Platform } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -13,7 +14,6 @@ import ReceiveVerifyAddress from "~/screens/ReceiveFunds/03b-VerifyAddress";
 import { getStackNavigatorConfig } from "~/navigation/navigatorConfig";
 import StepHeader from "../StepHeader";
 import { NavigationHeaderCloseButtonAdvanced } from "../NavigationHeaderCloseButton";
-import { track } from "~/analytics";
 import { ReceiveFundsStackParamList } from "./types/ReceiveFundsNavigator";
 import { NavigationHeaderBackButton } from "../NavigationHeaderBackButton";
 import { Flex } from "@ledgerhq/native-ui";
@@ -24,7 +24,7 @@ import { urls } from "~/utils/urls";
 import ReceiveProvider from "~/screens/ReceiveFunds/01b-ReceiveProvider.";
 import { setIsOnboardingFlowReceiveSuccess } from "~/actions/settings";
 import { useLocalizedUrl } from "LLM/hooks/useLocalizedUrls";
-import { useNotificationsContext } from "LLM/features/NotificationsPrompt";
+import { useNotificationsPrompt } from "LLM/features/NotificationsPrompt";
 
 export default function ReceiveFundsNavigator() {
   const { colors } = useTheme();
@@ -34,7 +34,7 @@ export default function ReceiveFundsNavigator() {
   const isOnboardingFlow = useSelector(isOnboardingFlowSelector);
   const dispatchRedux = useDispatch();
   const localizedWithdrawCryptoUrl = useLocalizedUrl(urls.withdrawCrypto);
-  const { notifyFlowCompleted } = useNotificationsContext();
+  const { notifyFlowCompleted } = useNotificationsPrompt();
 
   const onClose = useCallback(() => {
     track("button_clicked", {

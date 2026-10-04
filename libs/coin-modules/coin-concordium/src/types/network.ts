@@ -120,7 +120,8 @@ export interface TransactionQueryParams {
   limit?: number;
   order?: "a" | "d"; // ascending or descending
   from?: string; // transaction ID to start from (exclusive cursor)
-  includeRewards?: boolean;
+  // A name, not a flag, and omitting it returns every reward.
+  includeRewards?: "none" | "allButFinalization" | "all";
   includeRawRejectReason?: boolean;
   onlyEncrypted?: boolean;
   blockTimeFrom?: number; // Unix seconds
@@ -129,10 +130,48 @@ export interface TransactionQueryParams {
   blockHeightTo?: number; // inclusive upper bound
 }
 
-export interface GetTransactionCostParams {
-  numSignatures: number;
-  memoSize?: number;
-}
+/**
+ * Token operation names the proxy prices.
+ *
+ * Anything outside this set is a 400 from `computeTokenOperationSpecificCost`,
+ * so the union is what keeps an unpriceable name from being sent at all. The
+ * wallet only ever emits `transfer`; the rest are governance operations it does
+ * not perform, and are listed to match the proxy's own map.
+ */
+export type PltOperationName =
+  | "transfer"
+  | "mint"
+  | "burn"
+  | "addAllowList"
+  | "removeAllowList"
+  | "addDenyList"
+  | "removeDenyList"
+  | "pause"
+  | "unpause";
+
+/**
+ * Parameters for `GET /v0/transactionCost`, discriminated on the transaction
+ * type the proxy prices.
+ *
+ * Every `tokenUpdate` parameter is mandatory and returns its own 400 when
+ * absent.
+ */
+export type GetTransactionCostParams =
+  | {
+      type: "simpleTransfer";
+      numSignatures: number;
+      memoSize?: number;
+    }
+  | {
+      type: "tokenUpdate";
+      numSignatures: number;
+      /** Priced by its UTF-8 byte length alone, not by its value. */
+      tokenId: string;
+      /** Byte length of the CBOR operations blob, which must already be encoded. */
+      listOperationsSize: number;
+      /** Sent as a JSON document in the query string, not as repeated parameters. */
+      tokenOperationTypeCount: Partial<Record<PltOperationName, number>>;
+    };
 
 /**
  * Request payload for submitting a transfer transaction
@@ -201,9 +240,15 @@ export type PublicKeyAccountsResponse = Array<{
 /**
  * Response from /v2/accBalance/{address}
  * Wallet-proxy returns balance information including CCD balance, PLT balance, and cooldowns
+ *
+ * `finalizedBalance` is absent for an address that does not exist on chain: the
+ * proxy answers `200` with a bare `{}` rather than a 404, so a caller reading
+ * through it without a guard throws a `TypeError` instead of learning that the
+ * account is unknown. Verified against testnet with a checksum-valid address
+ * that was never created.
  */
 export interface AccountBalanceResponse {
-  finalizedBalance: {
+  finalizedBalance?: {
     accountAmount: string; // Total balance in microCCD
     accountAtDisposal: string; // Available balance in microCCD (after cooldowns/reserves)
     accountCooldowns: Array<{
@@ -219,13 +264,172 @@ export interface AccountBalanceResponse {
       }>;
       total: string;
     };
-    accountTokens: unknown[];
+    accountTokens: PltAccountToken[];
     accountEncryptedAmount?: {
       incomingAmounts: unknown[];
       selfAmount: string;
       startIndex: number;
     };
   };
+}
+
+// ============================================================================
+// Protocol-Level Token (PLT) Types
+// ============================================================================
+
+/**
+ * A PLT amount. `value` is the amount in the token's smallest unit; `decimals`
+ * is how many of its digits are fractional. The pair is self-describing, so the
+ * same shape is used for balances, supplies and transfer amounts.
+ */
+export interface PltTokenAmount {
+  value: string;
+  decimals: number;
+}
+
+/**
+ * A CBOR-backed state blob as the node renders it: the decoded object when the
+ * CBOR parses, or the raw hex-encoded bytes when it does not.
+ */
+export type PltEncodedState<T> = T | string;
+
+export interface PltTokenMetadataUrl {
+  url: string;
+  checksumSha256?: string;
+  _additional?: Record<string, unknown>;
+}
+
+export interface PltGovernanceAccount {
+  type: "account";
+  address: string;
+}
+
+/**
+ * Module-level token state.
+ *
+ * `allowList` / `denyList` here mean the token *has* that list feature. Whether
+ * a given account is on the list is {@link PltAccountModuleState}, which is a
+ * different question with the same field names.
+ *
+ * Every field is optional and is omitted rather than defaulted, so an absent
+ * flag means "not declared by the module", not `false`.
+ */
+export interface PltModuleState {
+  name?: string;
+  metadata?: PltTokenMetadataUrl;
+  governanceAccount?: PltGovernanceAccount;
+  paused?: boolean;
+  allowList?: boolean;
+  denyList?: boolean;
+  mintable?: boolean;
+  burnable?: boolean;
+  _additional?: Record<string, unknown>;
+}
+
+/**
+ * Account-level token state.
+ *
+ * `allowList` / `denyList` here mean *this account is on* that list. See
+ * {@link PltModuleState} for the module-level counterpart.
+ */
+export interface PltAccountModuleState {
+  allowList?: boolean;
+  denyList?: boolean;
+  _additional?: Record<string, unknown>;
+}
+
+/**
+ * Global state of a token. `decimals` is the canonical proxy-side value; the
+ * per-amount `decimals` on balances and transfer amounts are copies that must
+ * agree with it.
+ */
+export interface PltTokenState {
+  tokenModuleRef: string;
+  decimals: number;
+  totalSupply: PltTokenAmount;
+  moduleState: PltEncodedState<PltModuleState>;
+}
+
+/**
+ * Returned by /v0/plt/tokens and /v0/plt/tokenInfo.
+ */
+export interface PltTokenInfo {
+  tokenId: string;
+  tokenState: PltTokenState;
+}
+
+/**
+ * Per-account state of one token. `state` is absent entirely when the account
+ * has no module state, so absence is distinct from an empty object.
+ */
+export interface PltTokenAccountState {
+  balance: PltTokenAmount;
+  state?: PltEncodedState<PltAccountModuleState>;
+}
+
+/**
+ * One entry of `accountTokens` in the /v2/accBalance response.
+ *
+ * The proxy does not return the node's account-token entry verbatim: it drops
+ * the entry's `tokenId` and substitutes the full token info under `token`, so
+ * the id is reached through `token.tokenId`.
+ */
+export interface PltAccountToken {
+  token: PltTokenInfo;
+  tokenAccountState: PltTokenAccountState;
+}
+
+/**
+ * Result of checking a token's allow/deny lists against one account.
+ *
+ * `unknown` is not a soft `allowed`: it means the module state or the account's
+ * membership could not be read, so nothing can be concluded. A caller gating a
+ * send must treat it as a blocker and say the restrictions could not be
+ * verified, rather than letting the transfer reach the chain to be rejected.
+ */
+export type PltListVerdict = "allowed" | "notAllowed" | "denied" | "unknown";
+
+/**
+ * Whether this account may transfer a token, as persisted on the parent account.
+ *
+ * Carries the list verdict unfolded, so the send path can say whether the issuer
+ * can grant access or has withdrawn it — the two need different copy and only
+ * this value survives to the moment the message is shown.
+ *
+ * `"blocked"` is the cause-less form. It covers a paused token, and any account
+ * synced before the cause was carried, whose stored value is this string.
+ *
+ * Gate on `=== "allowed"` to pass, never on `=== "blocked"` to block: a value
+ * from a corrupted store or a newer app version is off-union, and only the first
+ * form fails closed.
+ */
+export type PltTransferStatus = PltListVerdict | "blocked";
+
+/**
+ * Details of a token-module rejection, carried by a `TokenUpdateTransactionFailed`
+ * reject reason. `type` is a module-defined string, not a closed set.
+ */
+export interface PltTokenModuleRejectReason {
+  tokenId: string;
+  type: string;
+  details?: unknown;
+}
+
+/**
+ * The two chain-level reject reasons a PLT transaction can produce. Every other
+ * tag is modelled by {@link WalletProxyRawRejectReason}.
+ */
+export type PltRejectReason =
+  | { tag: "NonExistentTokenId"; contents: string }
+  | { tag: "TokenUpdateTransactionFailed"; contents: PltTokenModuleRejectReason };
+
+/**
+ * Structured reject reason, returned only when the request passes
+ * `includeRawRejectReason`.
+ */
+export interface WalletProxyRawRejectReason {
+  tag: string;
+  contents?: unknown;
 }
 
 /**
@@ -238,17 +442,46 @@ export interface WalletProxyTransactionOrigin {
 
 /**
  * Wallet-proxy transaction details (varies by transaction type)
+ *
+ * A PLT transfer has `type: "tokenUpdate"`. There is no separate
+ * "with memo" type string, so a memo shows only as the presence of `memo`.
  */
 export interface WalletProxyTransactionDetails {
-  type: string; // e.g., "transfer", "transferWithMemo", "bakingReward", "encryptedTransfer", etc.
+  type: string; // e.g., "transfer", "transferWithMemo", "tokenUpdate", "bakingReward", etc.
   outcome: "success" | "reject";
   description?: string;
   events?: string[];
   transferAmount?: string;
   transferSource?: string;
   transferDestination?: string;
-  memo?: string; // Present for transferWithMemo transactions
+  /**
+   * Hex-encoded. Present for both `transferWithMemo` and `tokenUpdate`, but not
+   * the same bytes: a CCD memo keeps its CBOR header, while a PLT memo arrives
+   * without its `CborMemo` tag, so nothing here says whether the content is
+   * CBOR or raw. Decode each with the matching helper in `logic/history/memo.ts`.
+   */
+  memo?: string;
+  tokenId?: string; // Present for tokenUpdate
+  tokenTransferAmount?: PltTokenAmount; // Present for tokenUpdate. Named `tokenAmount` by /v0/submissionStatus.
+  rejectReason?: string; // Localized prose. Not a mapping key.
+  rawRejectReason?: WalletProxyRawRejectReason; // Only when the request passes includeRawRejectReason
   [key: string]: unknown;
+}
+
+/**
+ * Details of a PLT transfer as returned by /v0/submissionStatus.
+ *
+ * This endpoint names the transferred value `tokenAmount`, where the
+ * transaction history names it `tokenTransferAmount`, and it reports only the
+ * recipient — there is no sender field.
+ */
+export interface SubmissionStatusTokenUpdateDetails {
+  outcome: "success" | "reject";
+  to?: string;
+  tokenId?: string;
+  tokenAmount?: PltTokenAmount;
+  memo?: string;
+  rejectReason?: string;
 }
 
 /**

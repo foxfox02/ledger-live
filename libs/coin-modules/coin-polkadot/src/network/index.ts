@@ -1,7 +1,15 @@
 import { makeLRUCache, minutes, hours } from "@ledgerhq/live-network/cache";
 import { CryptoCurrency } from "@ledgerhq/ledger-wallet-framework/types";
 import BigNumber from "bignumber.js";
-import { PolkadotAccount, PolkadotNomination, PolkadotUnlocking, Transaction } from "../types";
+import { type PolkadotCoinConfig } from "../config";
+import {
+  PolkadotAccount,
+  PolkadotNomination,
+  PolkadotStakingProgress,
+  PolkadotUnlocking,
+  PolkadotValidator,
+  Transaction,
+} from "../types";
 import { getOperations as bisonGetOperations } from "./bisontrails";
 import {
   getAccount as sidecardGetAccount,
@@ -52,91 +60,153 @@ type CacheOpts = {
 };
 
 const getMinimumBondBalance = makeLRUCache(
-  (currency: CryptoCurrency | undefined) => sidecarGetMinimumBondBalance(currency),
-  (currency: CryptoCurrency | undefined) => currency?.id || "polkadot",
+  (config: PolkadotCoinConfig, currency: CryptoCurrency | undefined) =>
+    sidecarGetMinimumBondBalance(config, currency),
+  (_config, currency: CryptoCurrency | undefined) => currency?.id || "polkadot",
   hours(1, 1),
 );
+const getStakingProgress = makeLRUCache(
+  (config: PolkadotCoinConfig, currency: CryptoCurrency) =>
+    sidecarGetStakingProgress(config, currency),
+  (_config, currency: CryptoCurrency) => currency.id,
+  minutes(1),
+);
+const getValidators = makeLRUCache(
+  (stashes: Parameters<typeof sidecarGetValidators>[0], currency: CryptoCurrency | undefined) =>
+    sidecarGetValidators(stashes, currency),
+  (stashes, currency) => {
+    // sidecarGetValidators defaults undefined to "elected"; normalize + make the
+    // array case order-independent so equivalent inputs share a cache entry.
+    const normalized = stashes === undefined ? "elected" : stashes;
+    const stashesKey = Array.isArray(normalized)
+      ? [...normalized].sort().join(",")
+      : String(normalized);
+    return `${currency?.id || "polkadot"}_${stashesKey}`;
+  },
+  minutes(5),
+);
+
+/**
+ * Seed the on-demand caches with deterministic data (used by the mock bridge in
+ * tests). Mirrors the coin-tron `hydrateSuperRepresentatives` pattern: hydration
+ * is folded into the LRU caches rather than a global store.
+ */
+export const hydrateValidators = (validators: PolkadotValidator[], currency?: CryptoCurrency) => {
+  getValidators.hydrate(`${currency?.id || "polkadot"}_all`, validators);
+};
+export const hydrateStakingProgress = (
+  staking: PolkadotStakingProgress,
+  currency?: CryptoCurrency,
+) => {
+  getStakingProgress.hydrate(currency?.id || "polkadot", staking);
+};
+export const hydrateMinimumBondBalance = (
+  minimumBondBalance: BigNumber,
+  currency?: CryptoCurrency,
+) => {
+  getMinimumBondBalance.hydrate(currency?.id || "polkadot", minimumBondBalance);
+};
 const getRegistry = makeLRUCache(
-  (currency: CryptoCurrency | undefined) => sidecarGetRegistry(currency),
-  (currency: CryptoCurrency | undefined) => currency?.id || "polkadot",
+  (config: PolkadotCoinConfig, currency: CryptoCurrency | undefined) =>
+    sidecarGetRegistry(config, currency),
+  (_config, currency: CryptoCurrency | undefined) => currency?.id || "polkadot",
   hours(1),
 );
 
 const getTransactionParamsFn = makeLRUCache(
-  (currency: CryptoCurrency | undefined) => sidecarGetTransactionParams(currency),
-  (currency: CryptoCurrency | undefined) => currency?.id || "polkadot",
+  (config: PolkadotCoinConfig, currency: CryptoCurrency | undefined) =>
+    sidecarGetTransactionParams(config, currency),
+  (_config, currency: CryptoCurrency | undefined) => currency?.id || "polkadot",
   minutes(5),
 );
 const getPaymentInfo = makeLRUCache(
   async (
+    config: PolkadotCoinConfig,
     { signedTx },
     currency: CryptoCurrency | undefined,
   ): Promise<{
     partialFee: string;
   }> => {
-    return sidecarPaymentInfo(signedTx, currency);
+    return sidecarPaymentInfo(config, signedTx, currency);
   },
-  ({ a, t, signedTx }) => hashTransactionParams(a, t, signedTx),
+  (_config, { a, t, signedTx }) => hashTransactionParams(a, t, signedTx),
   minutes(5),
 );
 const paymentInfo = makeLRUCache(
   async (
+    config: PolkadotCoinConfig,
     signedTx: string,
     currency: CryptoCurrency | undefined,
   ): Promise<{
     partialFee: string;
   }> => {
-    return sidecarPaymentInfo(signedTx, currency);
+    return sidecarPaymentInfo(config, signedTx, currency);
   },
-  signedTx => signedTx,
+  (_config, signedTx) => signedTx,
   minutes(5),
 );
 
 const isControllerAddress = makeLRUCache(
-  (address: string, currency: CryptoCurrency | undefined) =>
-    sidecarIsControllerAddress(address, currency),
-  address => address,
+  (config: PolkadotCoinConfig, address: string, currency: CryptoCurrency | undefined) =>
+    sidecarIsControllerAddress(config, address, currency),
+  (_config, address) => address,
   minutes(5),
 );
 const isElectionClosed = makeLRUCache(
-  (currency: CryptoCurrency) => sidecarIsElectionClosed(currency),
+  (config: PolkadotCoinConfig, currency: CryptoCurrency) =>
+    sidecarIsElectionClosed(config, currency),
   () => "",
   minutes(1),
 );
 
+const verifyValidatorAddresses = makeLRUCache(
+  (validators: string[], currency: CryptoCurrency | undefined) =>
+    sidecarVerifyValidatorAddresses(validators, currency),
+  (validators, currency) => `${currency?.id || "polkadot"}_${[...validators].sort().join(",")}`,
+  minutes(5),
+);
 const isNewAccount = makeLRUCache(
-  (addr: string, currency: CryptoCurrency | undefined) => sidecarIsNewAccount(addr, currency),
-  address => address,
+  (config: PolkadotCoinConfig, addr: string, currency: CryptoCurrency | undefined) =>
+    sidecarIsNewAccount(config, addr, currency),
+  (_config, addr) => addr,
   minutes(1),
 );
 
 const getMetadata = async (
+  config: PolkadotCoinConfig,
   callData: string,
   includedInExtrinsic: string,
   includedInSignedData: string,
   currency?: CryptoCurrency,
 ): Promise<{ metadataBlob: string; metadataHash: string }> => {
-  return sidecarGetMetadata(callData, includedInExtrinsic, includedInSignedData, currency);
+  return sidecarGetMetadata(config, callData, includedInExtrinsic, includedInSignedData, currency);
 };
 
 export default {
-  getAccount: async (address: string, currency: CryptoCurrency): Promise<PolkadotAPIAccount> =>
-    sidecardGetAccount(address, currency),
+  getAccount: async (
+    config: PolkadotCoinConfig,
+    address: string,
+    currency: CryptoCurrency,
+  ): Promise<PolkadotAPIAccount> => sidecardGetAccount(config, address, currency),
   getBalances: async (
+    config: PolkadotCoinConfig,
     address: string,
     currency?: CryptoCurrency,
-  ): Promise<PolkadotAPIBalanceInfo> => sidecardGetBalances(address, currency),
+  ): Promise<PolkadotAPIBalanceInfo> => sidecardGetBalances(config, address, currency),
   getOperations: bisonGetOperations,
   getLastBlock,
   getMinimumBondBalance,
   getRegistry,
-  getStakingProgress: sidecarGetStakingProgress,
-  getValidators: sidecarGetValidators,
+  getStakingProgress,
+  getValidators,
   getTransactionParams: async (
+    config: PolkadotCoinConfig,
     currency?: CryptoCurrency,
     { force }: CacheOpts = { force: false },
   ) => {
-    return force ? getTransactionParamsFn.force(currency) : getTransactionParamsFn(currency);
+    return force
+      ? getTransactionParamsFn.force(config, currency)
+      : getTransactionParamsFn(config, currency);
   },
   getPaymentInfo,
   paymentInfo,
@@ -144,14 +214,17 @@ export default {
   isElectionClosed,
   isNewAccount,
   getMetadata,
-  submitExtrinsic: async (extrinsic: string, currency?: CryptoCurrency) =>
-    sidecarSubmitExtrinsic(extrinsic, currency),
-  verifyValidatorAddresses: async (
-    validators: string[],
+  submitExtrinsic: async (
+    config: PolkadotCoinConfig,
+    extrinsic: string,
     currency?: CryptoCurrency,
-  ): Promise<string[]> => sidecarVerifyValidatorAddresses(validators, currency),
-  submitExtrinsicDryRun: async (extrinsic: string, currency?: CryptoCurrency) =>
-    sidecarSubmitExtrinsicDryRun(extrinsic, currency),
+  ) => sidecarSubmitExtrinsic(config, extrinsic, currency),
+  verifyValidatorAddresses,
+  submitExtrinsicDryRun: async (
+    config: PolkadotCoinConfig,
+    extrinsic: string,
+    currency?: CryptoCurrency,
+  ) => sidecarSubmitExtrinsicDryRun(config, extrinsic, currency),
 };
 
 /**

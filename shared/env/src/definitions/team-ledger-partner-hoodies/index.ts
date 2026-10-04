@@ -41,16 +41,6 @@ const teamLedgerPartnerHoodies = {
     parser: intParser,
     desc: "safe max on maximum number of queries to synchronize a tezos account",
   },
-  API_SUI_TESTNET_NODE_PROXY: {
-    parser: stringParser,
-    def: "https://fullnode.testnet.sui.io:443",
-    desc: "public fullnode url for sui testnet node",
-  },
-  API_SUI_NODE_PROXY: {
-    parser: stringParser,
-    def: "https://sui.coin.ledger.com",
-    desc: "reverse proxy url for sui node",
-  },
   API_SUI_GRAPHQL_PROXY: {
     parser: stringParser,
     def: "https://sui.coin.ledger.com/graphql",
@@ -60,6 +50,18 @@ const teamLedgerPartnerHoodies = {
     parser: stringParser,
     def: "https://graphql.testnet.sui.io/graphql",
     desc: "GraphQL endpoint url for sui testnet",
+  },
+  // gRPC-web is served from the host root — requests go to <url>/sui.rpc.v2.<Service>/<Method> —
+  // so these carry no path, unlike their GraphQL counterparts.
+  API_SUI_GRPC_PROXY: {
+    parser: stringParser,
+    def: "https://sui.coin.ledger.com",
+    desc: "reverse proxy url for sui grpc-web",
+  },
+  API_SUI_TESTNET_GRPC_PROXY: {
+    parser: stringParser,
+    def: "https://fullnode.testnet.sui.io:443",
+    desc: "grpc-web endpoint url for sui testnet",
   },
   SUI_ENABLE_TOKENS: {
     parser: boolParser,

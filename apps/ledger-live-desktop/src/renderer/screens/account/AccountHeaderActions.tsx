@@ -17,7 +17,7 @@ import { useNavigate, useLocation } from "react-router";
 import { compose } from "redux";
 import styled from "styled-components";
 import { openModal } from "~/renderer/actions/modals";
-import { setTrackingSource } from "~/renderer/analytics/TrackPage";
+import { setTrackingSource, track } from "@shared/analytics";
 import { RECEIVE_SOURCE_PAGE } from "LLD/features/Receive/types";
 import Box, { Tabbable } from "~/renderer/components/Box";
 import Star from "~/renderer/components/Stars/Star";
@@ -27,7 +27,6 @@ import useTheme from "~/renderer/hooks/useTheme";
 import IconAccountSettings from "~/renderer/icons/AccountSettings";
 import IconWalletConnect from "~/renderer/icons/WalletConnect";
 import { rgba } from "~/renderer/styles/helpers";
-import { track } from "~/renderer/analytics/segment";
 import {
   ActionDefault,
   BuyActionDefault,
@@ -51,6 +50,7 @@ import { useStake } from "LLD/hooks/useStake";
 import { useOpenSendFlow } from "LLD/features/Send/hooks/useOpenSendFlow";
 import { useNewSendFlowFeature } from "LLD/features/Send/hooks/useNewSendFlowFeature";
 import { getSendFlowTrackingProperties } from "LLD/features/Send/utils/tracking";
+import { buildSwapNavigationState } from "LLD/features/Market/utils/swapNavigation";
 
 type RenderActionParams = {
   label: React.ReactNode;
@@ -306,13 +306,12 @@ const AccountHeaderActions = ({ account, parentAccount, openModal }: Props) => {
     });
     setTrackingSource(pageName);
     navigate("/swap", {
-      state: {
+      state: buildSwapNavigationState({
         defaultCurrency: currency,
-        defaultAccountId: account.id,
-        defaultParentAccountId: parentAccount?.id,
-        defaultAmountFrom: "0",
-        from: location.pathname,
-      },
+        fromPath: location.pathname,
+        account,
+        parentAccount: parentAccount ?? undefined,
+      }),
     });
   }, [
     currency,
@@ -410,9 +409,22 @@ const AccountHeaderActions = ({ account, parentAccount, openModal }: Props) => {
     </FadeInButtonsContainer>
   );
 
+  const hasActions =
+    manageActions.length > 0 ||
+    canStakeUsingPlatformApp ||
+    availableOnSwap ||
+    availableOnBuy ||
+    availableOnSell ||
+    canSendResult ||
+    canReceive(mainAccount, undefined);
+
+  const isAccountEmpty = bridge.isAccountEmpty(account);
+
+  if (!isAccountEmpty && !hasActions) return null;
+
   return (
     <Box horizontal alignItems="center" justifyContent="flex-end" flow={2} mt={15}>
-      {bridge.isAccountEmpty(account) ? null : NonEmptyAccountHeader}
+      {isAccountEmpty ? null : NonEmptyAccountHeader}
     </Box>
   );
 };

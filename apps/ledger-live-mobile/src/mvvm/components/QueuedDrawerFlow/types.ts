@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { QueuedBottomSheetProps } from "LLM/components/QueuedDrawer/QueuedBottomSheet";
+import type { QueuedBottomSheetProps } from "@shared/ui-queued-bottom-sheet";
 
 export type QueuedDrawerFlowOptions = Readonly<
   Pick<
@@ -12,6 +12,7 @@ export type QueuedDrawerFlowOptions = Readonly<
     | "hideHandle"
     | "maxDynamicContentSize"
     | "noCloseButton"
+    | "onHeaderClosePressed"
     | "preventBackdropClick"
     | "snapPoints"
   >
@@ -19,6 +20,7 @@ export type QueuedDrawerFlowOptions = Readonly<
 
 export type QueuedDrawerFlowScreen = Readonly<{
   content: ReactNode;
+  footer?: ReactNode;
   options?: QueuedDrawerFlowOptions;
 }>;
 

@@ -1,4 +1,6 @@
+import { withdrawTransaction } from "@ledgerhq/live-common/families/solana/transactions";
 import { addPendingOperation } from "@ledgerhq/live-common/account/index";
+import { requireStakePositionId } from "@ledgerhq/live-common/families/solana/logic";
 import { SyncSkipUnderPriority } from "@ledgerhq/live-common/bridge/react/index";
 import useBridgeTransaction from "@ledgerhq/live-common/bridge/useBridgeTransaction";
 import { useAccountBridge } from "@ledgerhq/live-common/bridge/useAccountBridge";
@@ -10,6 +12,7 @@ import {
 import { Operation, Account } from "@ledgerhq/types-live";
 import { BigNumber } from "bignumber.js";
 import invariant from "invariant";
+import { assertStakingResources } from "../shared/assertStakingResources";
 import React, { useCallback, useState } from "react";
 import { Trans, withTranslation } from "react-i18next";
 import { TFunction } from "i18next";
@@ -21,7 +24,7 @@ import logger from "~/renderer/logger";
 import { updateAccountWithUpdater } from "~/renderer/actions/accounts";
 import { OpenModal, openModal } from "~/renderer/actions/modals";
 
-import Track from "~/renderer/analytics/Track";
+import { Track } from "@shared/analytics-react";
 import Stepper from "~/renderer/components/Stepper";
 import GenericStepConnectDevice from "~/renderer/modals/Send/steps/GenericStepConnectDevice";
 import { getCurrentDevice } from "~/renderer/reducers/devices";
@@ -91,19 +94,16 @@ const Body = ({ t, stepId, device, onClose, openModal, onChangeStepId, params }:
   } = useBridgeTransaction(bridge, () => {
     const { account, stakeWithMeta } = params;
     const { stake } = stakeWithMeta;
-    invariant(account && account.solanaResources, "solana: account and solana resources required");
+    assertStakingResources(account);
     invariant(
-      stake.withdrawable > 0,
+      (stake.withdrawableAmount ?? new BigNumber(0)).gt(0),
       "solana: can withdraw only if there is something to withdraw",
     );
     const transaction = bridge.updateTransaction(bridge.createTransaction(account), {
-      amount: new BigNumber(stake.withdrawable),
-      model: {
-        kind: "stake.withdraw",
-        uiState: {
-          stakeAccAddr: stake.stakeAccAddr,
-        },
-      },
+      ...withdrawTransaction(
+        requireStakePositionId(stake),
+        stake.withdrawableAmount ?? new BigNumber(0),
+      ),
     });
     return {
       account,

@@ -14,7 +14,8 @@
   },
   "devDependencies": {
     "@actions/core": "1.10.1",
-    "@actions/github": "6.0.0",
-    "@rslib/core": "catalog:"
+    "@actions/github": "9.1.1",
+    "@rslib/core": "catalog:",
+    "typescript": "catalog:"
   }
 }

@@ -13,6 +13,9 @@ type DeviceIntentSignFlagOverride = {
 };
 
 const mockNavigate = jest.fn();
+const mockGoBack = jest.fn();
+const mockCanGoBack = jest.fn().mockReturnValue(true);
+const mockOpenDrawer = jest.fn();
 
 jest.mock("@ledgerhq/live-common/wallet-api/helpers", () => ({
   getInitialURL: jest.fn(),
@@ -28,15 +31,18 @@ jest.mock("@ledgerhq/live-common/wallet-api/react", () => ({
 }));
 
 jest.mock("LLM/features/ModularDrawer", () => ({
-  useModularDrawerController: jest.fn(() => ({ openDrawer: jest.fn() })),
+  useModularDrawerController: jest.fn(() => ({ openDrawer: mockOpenDrawer })),
 }));
 
 jest.mock("@react-navigation/native", () => {
   const actual = jest.requireActual("@react-navigation/native");
-  return { ...actual, useNavigation: () => ({ navigate: mockNavigate }) };
+  return {
+    ...actual,
+    useNavigation: () => ({ navigate: mockNavigate, goBack: mockGoBack, canGoBack: mockCanGoBack }),
+  };
 });
 
-jest.mock("@ledgerhq/live-common/dada-client/hooks/useDrawerConfiguration", () => ({
+jest.mock("@ledgerhq/live-common/wallet-api/ModularDrawer/useDrawerConfiguration", () => ({
   useDrawerConfiguration: jest.fn(() => ({ createDrawerConfiguration: jest.fn(() => ({})) })),
 }));
 
@@ -189,7 +195,13 @@ describe("useUiHook - transaction.sign device-intent branching", () => {
 
     expect(mockNavigate).toHaveBeenCalledWith(
       NavigatorName.SignTransaction,
-      expect.objectContaining({ screen: ScreenName.SignTransactionSummary }),
+      expect.objectContaining({
+        screen: ScreenName.SignTransactionSummary,
+        params: expect.objectContaining({
+          manifestId: mockManifest.id,
+          manifestName: mockManifest.name,
+        }),
+      }),
     );
     expect(mockRequestDeviceIntentSign).not.toHaveBeenCalled();
   });
@@ -202,7 +214,14 @@ describe("useUiHook - transaction.sign device-intent branching", () => {
     await promise;
 
     expect(mockRequestDeviceIntentSign).toHaveBeenCalledWith(
-      expect.objectContaining({ account, transaction: preparedTx, onSuccess, onError }),
+      expect.objectContaining({
+        account,
+        transaction: preparedTx,
+        manifestId: mockManifest.id,
+        manifestName: mockManifest.name,
+        onSuccess,
+        onError,
+      }),
     );
     expect(mockNavigate).not.toHaveBeenCalled();
   });
@@ -229,6 +248,40 @@ describe("useUiHook - transaction.sign device-intent branching", () => {
       expect.objectContaining({ screen: ScreenName.SignTransactionSummary }),
     );
     expect(mockRequestDeviceIntentSign).not.toHaveBeenCalled();
+  });
+});
+
+describe("useUiHook - transaction.signRaw attribution", () => {
+  it("forwards the manifest through the raw-sign navigator", () => {
+    const { result } = renderHook(() =>
+      useUiHook({
+        manifest: mockManifest,
+        requestDeviceIntentSign: jest.fn(),
+        requestDeviceIntentSignMessage: jest.fn(),
+      }),
+    );
+
+    result.current["transaction.signRaw"]!({
+      // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+      account: { id: "js:2:cosmos:cosmos1:", type: "Account" } as unknown as AccountLike,
+      parentAccount: undefined,
+      transaction: "{}",
+      broadcast: true,
+      options: { hwAppId: "Cosmos", dependencies: [] },
+      onSuccess: jest.fn(),
+      onError: jest.fn(),
+    });
+
+    expect(mockNavigate).toHaveBeenCalledWith(
+      NavigatorName.SignRawTransaction,
+      expect.objectContaining({
+        screen: ScreenName.SignRawTransactionSelectDevice,
+        params: expect.objectContaining({
+          manifestId: mockManifest.id,
+          manifestName: mockManifest.name,
+        }),
+      }),
+    );
   });
 });
 
@@ -291,5 +344,56 @@ describe("useUiHook - message.sign device-intent branching", () => {
       expect.objectContaining({ account, message, onSuccess, onError, onCancel }),
     );
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+});
+
+describe("useUiHook - account.request cancel navigation", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function invokeAccountRequest(opts?: {
+    onAccountRequestCancel?: () => void;
+    onAccountRequestSuccess?: () => void;
+  }) {
+    const onSuccess = jest.fn();
+    const onCancel = jest.fn();
+    const { result } = renderHook(() =>
+      useUiHook({
+        manifest: mockManifest,
+        requestDeviceIntentSign: jest.fn(),
+        requestDeviceIntentSignMessage: jest.fn(),
+        ...opts,
+      }),
+    );
+    result.current["account.request"]!({
+      currencyIds: ["ethereum"],
+      onSuccess,
+      onCancel,
+      areCurrenciesFiltered: false,
+    });
+    const drawerCallArgs = mockOpenDrawer.mock.calls[0]?.[0];
+    return { onSuccess, onCancel, drawerCallArgs };
+  }
+
+  it("calls onAccountRequestCancel when user cancels", () => {
+    const onAccountRequestCancel = jest.fn();
+    const { drawerCallArgs } = invokeAccountRequest({ onAccountRequestCancel });
+    drawerCallArgs.onCancel();
+    expect(onAccountRequestCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not throw when no onAccountRequestCancel is provided and user cancels", () => {
+    const { drawerCallArgs } = invokeAccountRequest();
+    expect(() => drawerCallArgs.onCancel()).not.toThrow();
+  });
+
+  it("calls onAccountRequestSuccess when account is selected", () => {
+    const onAccountRequestSuccess = jest.fn();
+    const { drawerCallArgs, onSuccess } = invokeAccountRequest({ onAccountRequestSuccess });
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+    drawerCallArgs.onAccountSelected({ id: "acc-1" } as AccountLike, undefined);
+    expect(onAccountRequestSuccess).toHaveBeenCalledTimes(1);
+    expect(onSuccess).toHaveBeenCalledTimes(1);
   });
 });

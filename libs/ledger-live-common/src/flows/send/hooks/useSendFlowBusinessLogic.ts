@@ -1,8 +1,10 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Account, AccountLike } from "@ledgerhq/types-live";
 import { FLOW_STATUS, type FlowStatus } from "../../wizard/types";
 import { useSendFlowAccount } from "./useSendFlowAccount";
+import { useSyncSendFlowAccount } from "./useSyncSendFlowAccount";
 import { getSendUiConfig } from "../uiConfig";
+import { canSkipRecipientStep } from "../types";
 import type {
   SendFlowState,
   SendFlowInitParams,
@@ -13,8 +15,12 @@ import type {
   SendFlowTransactionState,
 } from "../types";
 
+const NO_ACCOUNTS: readonly Account[] = [];
+
 type UseSendFlowBusinessLogicParams = Readonly<{
   initParams?: SendFlowInitParams;
+  /** Store accounts, used to keep the flow on the synced version of its account. */
+  accounts?: readonly Account[];
 
   useOperationHook: (params: {
     account: AccountLike | null;
@@ -54,7 +60,9 @@ type UseSendFlowBusinessLogicResult = Readonly<{
   recipient: RecipientData | null;
   isRecipientAddressComplete: boolean;
   setIsRecipientAddressComplete: (value: boolean) => void;
+  resetRecipient: () => void;
   setAccountAndNavigate: (account: AccountLike, parentAccount?: Account) => void;
+  source?: string;
 }>;
 
 /**
@@ -64,16 +72,17 @@ type UseSendFlowBusinessLogicResult = Readonly<{
  */
 export function useSendFlowBusinessLogic({
   initParams,
+  accounts = NO_ACCOUNTS,
   useOperationHook,
   useTransactionHook,
 }: UseSendFlowBusinessLogicParams): UseSendFlowBusinessLogicResult {
   const [flowStatus, setFlowStatus] = useState<FlowStatus>(FLOW_STATUS.IDLE);
-  const [recipientSearchValue, setRecipientSearchValue] = useState("");
+  const [recipientSearchValue, setRecipientSearchValue] = useState(
+    () => initParams?.recipient ?? "",
+  );
   const [isRecipientAddressComplete, setIsRecipientAddressComplete] = useState(false);
-  const [recipient, setRecipient] = useState<RecipientData | null>(() => {
-    if (!initParams?.recipient) return null;
-    return { address: initParams.recipient };
-  });
+  const [recipient, setRecipient] = useState<RecipientData | null>(null);
+  const hasInitializedDirectRecipient = useRef(false);
 
   const accountHook = useSendFlowAccount({
     initialAccount: initParams?.account,
@@ -103,6 +112,23 @@ export function useSendFlowBusinessLogic({
     [accountHook, transactionHook.actions],
   );
 
+  const { setAccount: setFlowAccount } = accountHook;
+  const { updateAccount: updateTransactionAccount } = transactionHook.actions;
+  const handleAccountRefreshed = useCallback(
+    (account: AccountLike, parentAccount: Account | null) => {
+      setFlowAccount(account, parentAccount);
+      updateTransactionAccount(account, parentAccount);
+    },
+    [setFlowAccount, updateTransactionAccount],
+  );
+
+  useSyncSendFlowAccount({
+    account: accountHook.state.account,
+    parentAccount: accountHook.state.parentAccount,
+    accounts,
+    onAccountRefreshed: handleAccountRefreshed,
+  });
+
   const handleRecipientSet = useCallback(
     (newRecipient: RecipientData) => {
       setRecipient(newRecipient);
@@ -110,6 +136,38 @@ export function useSendFlowBusinessLogic({
     },
     [transactionHook.actions],
   );
+
+  const resetRecipient = useCallback(() => {
+    setRecipient(null);
+    setRecipientSearchValue("");
+    setIsRecipientAddressComplete(false);
+    transactionHook.actions.setRecipient({ address: "" });
+  }, [transactionHook.actions]);
+
+  useEffect(() => {
+    const directRecipient = canSkipRecipientStep(initParams, uiConfig)
+      ? initParams?.recipient
+      : undefined;
+
+    if (
+      directRecipient === undefined ||
+      hasInitializedDirectRecipient.current ||
+      transactionHook.state.transaction === null
+    ) {
+      return;
+    }
+
+    hasInitializedDirectRecipient.current = true;
+    setIsRecipientAddressComplete(true);
+    handleRecipientSet({ address: directRecipient });
+  }, [
+    handleRecipientSet,
+    initParams?.recipient,
+    initParams?.skipRecipientStep,
+    initParams?.source,
+    transactionHook.state.transaction,
+    uiConfig,
+  ]);
 
   const recipientSearch = useMemo(
     () => ({
@@ -161,7 +219,9 @@ export function useSendFlowBusinessLogic({
       recipient,
       isRecipientAddressComplete,
       setIsRecipientAddressComplete,
+      resetRecipient,
       setAccountAndNavigate,
+      source: initParams?.source,
     }),
     [
       state,
@@ -172,7 +232,9 @@ export function useSendFlowBusinessLogic({
       recipientSearch,
       recipient,
       isRecipientAddressComplete,
+      resetRecipient,
       setAccountAndNavigate,
+      initParams?.source,
     ],
   );
 }

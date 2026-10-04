@@ -1,0 +1,994 @@
+import { createElement, useState, type ReactNode } from "react";
+import { Keyboard } from "react-native";
+import { renderHook, act } from "@testing-library/react-native";
+import { useQueuedBottomSheet } from "./useQueuedBottomSheet";
+import { QueuedBottomSheetAdaptersProvider } from "./adaptersContext";
+import { defaultQueuedBottomSheetAdapters, type QueuedBottomSheetAdapters } from "../adapters";
+import type { BottomSheetStateHandlers } from "../contexts/QueuedBottomSheetsContext";
+import {
+  claimBottomSheetKeyboard,
+  resetBottomSheetKeyboardOwnership,
+} from "./bottomSheetKeyboardOwnership";
+
+const mockPresent = jest.fn();
+const mockDismiss = jest.fn();
+// Lumen hands back the same ref across renders. Handing back a new one would change the identity
+// of every callback built from it, re-running the open/close effect (and its cleanup) each render.
+const mockBottomSheetRef = { current: { present: mockPresent, dismiss: mockDismiss } };
+
+jest.mock("@ledgerhq/lumen-ui-rnative", () => ({
+  __esModule: true,
+  useBottomSheetRef: () => mockBottomSheetRef,
+}));
+
+const mockRemoveBottomSheetFromQueue = jest.fn();
+const mockAddBottomSheetToQueue = jest.fn().mockImplementation(() => ({
+  removeBottomSheetFromQueue: mockRemoveBottomSheetFromQueue,
+  getPositionInQueue: () => 0,
+}));
+
+jest.mock("../contexts/QueuedBottomSheetsContext", () => ({
+  useQueuedBottomSheetContext: () => ({
+    addBottomSheetToQueue: mockAddBottomSheetToQueue,
+    closeAllBottomSheets: jest.fn(),
+    _clearQueueDIRTYDONOTUSE: jest.fn(),
+  }),
+}));
+
+type HookResult = ReturnType<typeof useQueuedBottomSheet>;
+
+function setupBottomSheetStateCapture() {
+  let stateHandlers: BottomSheetStateHandlers | undefined;
+  mockAddBottomSheetToQueue.mockImplementation(handlers => {
+    stateHandlers = handlers;
+    return {
+      removeBottomSheetFromQueue: mockRemoveBottomSheetFromQueue,
+      getPositionInQueue: () => 0,
+    };
+  });
+  return {
+    signalOpen: () => {
+      act(() => {
+        stateHandlers?.open();
+      });
+    },
+    signalClose: () => {
+      act(() => {
+        stateHandlers?.close();
+      });
+    },
+  };
+}
+
+describe("useQueuedBottomSheet", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetBottomSheetKeyboardOwnership();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("calls present() when the queue signals the drawer to open", () => {
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+      }),
+    );
+
+    expect(mockAddBottomSheetToQueue).toHaveBeenCalledTimes(1);
+
+    signalOpen();
+
+    expect(mockPresent).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls dismiss() when the queue signals the drawer to close", () => {
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+      }),
+    );
+
+    signalOpen();
+    expect(mockPresent).toHaveBeenCalledTimes(1);
+
+    signalClose();
+    expect(mockDismiss).toHaveBeenCalled();
+  });
+
+  it("frees its queue slot on the close signal rather than waiting for handleDismiss", () => {
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+      }),
+    );
+
+    signalOpen();
+    signalClose();
+
+    expect(mockRemoveBottomSheetFromQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onClose callback when the queue signals close", () => {
+    const onClose = jest.fn();
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+        onClose,
+      }),
+    );
+
+    signalOpen();
+    signalClose();
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onModalHide when handleDismiss is invoked", () => {
+    const onModalHide = jest.fn();
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    const { result } = renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+        onModalHide,
+      }),
+    );
+
+    signalOpen();
+    signalClose();
+
+    act(() => {
+      result.current.handleDismiss();
+    });
+
+    expect(onModalHide).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call present() twice if already open", () => {
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+      }),
+    );
+
+    signalOpen();
+    signalOpen();
+
+    expect(mockPresent).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call dismiss() if already closed", () => {
+    renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: false,
+      }),
+    );
+
+    expect(mockDismiss).not.toHaveBeenCalled();
+  });
+
+  it("frees its queue slot only once when handleDismiss follows the close signal", () => {
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    const { result } = renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+      }),
+    );
+
+    signalOpen();
+    expect(mockPresent).toHaveBeenCalledTimes(1);
+
+    signalClose();
+    expect(mockDismiss).toHaveBeenCalledTimes(1);
+    expect(mockRemoveBottomSheetFromQueue).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.handleDismiss();
+    });
+    expect(mockRemoveBottomSheetFromQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("frees its queue slot only once when handleClose is invoked repeatedly", () => {
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    const { result } = renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+      }),
+    );
+
+    signalOpen();
+    expect(mockPresent).toHaveBeenCalledTimes(1);
+
+    signalClose();
+    expect(mockDismiss).toHaveBeenCalledTimes(1);
+    expect(mockRemoveBottomSheetFromQueue).toHaveBeenCalledTimes(1);
+
+    signalClose();
+    expect(mockRemoveBottomSheetFromQueue).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.handleDismiss();
+    });
+    expect(mockRemoveBottomSheetFromQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("frees its queue slot only once when effect cleanup fires during the dismiss animation", () => {
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+    let isRequestingToBeOpened = true;
+
+    const { result, rerender } = renderHook(() => useQueuedBottomSheet({ isRequestingToBeOpened }));
+
+    signalOpen();
+    expect(mockPresent).toHaveBeenCalledTimes(1);
+
+    signalClose();
+    expect(mockDismiss).toHaveBeenCalledTimes(1);
+    expect(mockRemoveBottomSheetFromQueue).toHaveBeenCalledTimes(1);
+
+    isRequestingToBeOpened = false;
+    rerender(undefined);
+    expect(mockRemoveBottomSheetFromQueue).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.handleDismiss();
+    });
+    expect(mockRemoveBottomSheetFromQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("settles itself as closed when onDismiss never arrives", () => {
+    jest.useFakeTimers();
+    try {
+      const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+      renderHook(() => useQueuedBottomSheet({ isRequestingToBeOpened: true }));
+
+      signalOpen();
+      expect(mockPresent).toHaveBeenCalledTimes(1);
+
+      signalClose();
+
+      signalOpen();
+      expect(mockPresent).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        jest.advanceTimersByTime(1000);
+      });
+
+      signalOpen();
+      expect(mockPresent).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("declines a queue promotion once the consumer has stopped requesting it", () => {
+    const { signalOpen } = setupBottomSheetStateCapture();
+    let isRequestingToBeOpened = true;
+
+    const { rerender } = renderHook(() => useQueuedBottomSheet({ isRequestingToBeOpened }));
+
+    expect(mockAddBottomSheetToQueue).toHaveBeenCalledTimes(1);
+
+    // The sheet ahead of us closed and the same interaction cleared our own reason to be open.
+    // Presenting now would leave an empty sheet on screen that swallows the next tap.
+    isRequestingToBeOpened = false;
+    rerender(undefined);
+    signalOpen();
+
+    expect(mockPresent).not.toHaveBeenCalled();
+    expect(mockRemoveBottomSheetFromQueue).toHaveBeenCalled();
+  });
+
+  it("cleans up the queue immediately when closed without ever being presented", () => {
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+      }),
+    );
+
+    signalClose();
+
+    expect(mockDismiss).not.toHaveBeenCalled();
+    expect(mockRemoveBottomSheetFromQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("cleans up the queue on unmount", () => {
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    const { unmount } = renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+      }),
+    );
+
+    signalOpen();
+
+    unmount();
+
+    expect(mockRemoveBottomSheetFromQueue).toHaveBeenCalled();
+  });
+
+  it("does not call onClose when drawer receives close signal before ever being opened", () => {
+    const onClose = jest.fn();
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+        onClose,
+      }),
+    );
+
+    signalClose();
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(mockRemoveBottomSheetFromQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onClose exactly once when handleClose is called multiple times during dismiss", () => {
+    const onClose = jest.fn();
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    const { result } = renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+        onClose,
+      }),
+    );
+
+    signalOpen();
+    signalClose();
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    signalClose();
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.handleDismiss();
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onClose via handleDismiss for a dismiss it asked for that skipped the animation", () => {
+    const onClose = jest.fn();
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    const { result } = renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+        onClose,
+      }),
+    );
+
+    signalOpen();
+    act(() => {
+      result.current.handleBackdropPress();
+    });
+    expect(onClose).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.handleDismiss();
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(mockRemoveBottomSheetFromQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not recreate handleDismiss when onModalHide changes", () => {
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+    let onModalHide = jest.fn();
+
+    const { result, rerender } = renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+        onModalHide,
+      }),
+    );
+
+    signalOpen();
+
+    const firstHandleDismiss = result.current.handleDismiss;
+    onModalHide = jest.fn();
+    rerender(undefined);
+
+    expect(result.current.handleDismiss).toBe(firstHandleDismiss);
+  });
+
+  it("calls the latest onModalHide even though handleDismiss is stable", () => {
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+    const firstOnModalHide = jest.fn();
+    const secondOnModalHide = jest.fn();
+    let onModalHide = firstOnModalHide;
+
+    const { result, rerender } = renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+        onModalHide,
+      }),
+    );
+
+    signalOpen();
+    onModalHide = secondOnModalHide;
+    rerender(undefined);
+    signalClose();
+
+    act(() => {
+      result.current.handleDismiss();
+    });
+
+    expect(firstOnModalHide).not.toHaveBeenCalled();
+    expect(secondOnModalHide).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears consumer state at the start of the close animation, and not again on dismiss", () => {
+    const onClose = jest.fn();
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    const { result } = renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+        onClose,
+      }),
+    );
+
+    signalOpen();
+    expect(onClose).not.toHaveBeenCalled();
+
+    // X button / backdrop / pan-down all animate towards index -1.
+    act(() => {
+      result.current.handleAnimate(0, -1);
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    // onDismiss fires later (after the animation) and must not clear again.
+    act(() => {
+      result.current.handleDismiss();
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls header close callbacks once and ignores later close animation and dismiss callbacks", () => {
+    const onClose = jest.fn();
+    const onHeaderClosePressed = jest.fn();
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    const { result } = renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+        onClose,
+        onHeaderClosePressed,
+      }),
+    );
+
+    signalOpen();
+
+    act(() => {
+      result.current.handleHeaderClosePressed();
+    });
+
+    expect(onHeaderClosePressed).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.handleAnimate(0, -1);
+      result.current.handleDismiss();
+    });
+
+    expect(onHeaderClosePressed).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the header close to Lumen instead of adding a dismiss of its own", () => {
+    const { signalOpen } = setupBottomSheetStateCapture();
+
+    const { result } = renderHook(() => {
+      const [isOpen, setIsOpen] = useState(true);
+      return useQueuedBottomSheet({
+        isRequestingToBeOpened: isOpen,
+        onClose: () => setIsOpen(false),
+      });
+    });
+
+    signalOpen();
+
+    act(() => {
+      result.current.handleHeaderClosePressed();
+    });
+
+    expect(mockDismiss).not.toHaveBeenCalled();
+  });
+
+  it("does not ask a sheet it has already dismissed to dismiss again", () => {
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    renderHook(() => useQueuedBottomSheet({ isRequestingToBeOpened: true }));
+
+    signalOpen();
+    signalClose();
+    expect(mockDismiss).toHaveBeenCalledTimes(1);
+
+    signalClose();
+
+    expect(mockDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  // Otherwise a consumer that renders its content only while it asks for the sheet is left with an
+  // empty one on screen, with no close button to get out of.
+  it("presents a sheet again when the dismissal of its previous presentation lands on it", () => {
+    jest.useFakeTimers();
+    try {
+      const onClose = jest.fn();
+      const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+      const { result } = renderHook(() =>
+        useQueuedBottomSheet({ isRequestingToBeOpened: true, onClose }),
+      );
+
+      signalOpen();
+      signalClose();
+      act(() => {
+        jest.advanceTimersByTime(1000);
+      });
+      signalOpen();
+      expect(mockPresent).toHaveBeenCalledTimes(2);
+      onClose.mockClear();
+      mockRemoveBottomSheetFromQueue.mockClear();
+
+      act(() => {
+        result.current.handleDismiss();
+      });
+
+      expect(onClose).not.toHaveBeenCalled();
+      expect(mockPresent).toHaveBeenCalledTimes(3);
+      expect(mockRemoveBottomSheetFromQueue).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("gives up on a presentation it has already put back on screen once", () => {
+    jest.useFakeTimers();
+    try {
+      const onClose = jest.fn();
+      const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+      const { result } = renderHook(() =>
+        useQueuedBottomSheet({ isRequestingToBeOpened: true, onClose }),
+      );
+
+      signalOpen();
+      signalClose();
+      act(() => {
+        jest.advanceTimersByTime(1000);
+      });
+      signalOpen();
+      onClose.mockClear();
+      mockRemoveBottomSheetFromQueue.mockClear();
+
+      act(() => {
+        result.current.handleDismiss();
+      });
+      act(() => {
+        result.current.handleDismiss();
+      });
+
+      expect(mockPresent).toHaveBeenCalledTimes(3);
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(mockRemoveBottomSheetFromQueue).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  // gorhom only reports an animation whose target differs from the index it last settled on, so a
+  // pan-down that interrupts the entrance (-1 → -1) never reaches handleAnimate.
+  it("closes for good when swiped down before its entrance animation has finished", () => {
+    const onClose = jest.fn();
+    const { signalOpen } = setupBottomSheetStateCapture();
+
+    const { result } = renderHook(() => {
+      const [isOpen, setIsOpen] = useState(true);
+      return useQueuedBottomSheet({
+        isRequestingToBeOpened: isOpen,
+        onClose: () => {
+          onClose();
+          setIsOpen(false);
+        },
+      });
+    });
+
+    signalOpen();
+    act(() => {
+      result.current.handleAnimate(-1, 0);
+    });
+
+    act(() => {
+      result.current.handleDismiss();
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(mockPresent).toHaveBeenCalledTimes(1);
+    expect(mockAddBottomSheetToQueue).toHaveBeenCalledTimes(1);
+    expect(mockRemoveBottomSheetFromQueue).toHaveBeenCalledTimes(1);
+  });
+
+  // gorhom ignores a dismiss for a sheet that has not finished presenting, so the sheet arrives on
+  // screen showing a consumer that has already been told to hide its content.
+  it("dismisses a sheet that arrives on screen after being settled as closed", () => {
+    jest.useFakeTimers();
+    try {
+      const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+      const { result } = renderHook(() => useQueuedBottomSheet({ isRequestingToBeOpened: true }));
+
+      signalOpen();
+      signalClose();
+      expect(mockDismiss).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        jest.advanceTimersByTime(1000);
+      });
+
+      act(() => {
+        result.current.handleAnimate(-1, 0);
+      });
+
+      expect(mockDismiss).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("does not clear consumer state on open or snap-point animations", () => {
+    const onClose = jest.fn();
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    const { result } = renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+        onClose,
+      }),
+    );
+
+    signalOpen();
+
+    act(() => {
+      result.current.handleAnimate(-1, 0); // opening
+      result.current.handleAnimate(0, 1); // expanding to a higher snap point
+    });
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("dismisses a minimized sheet that the modal stack restores behind our back", () => {
+    const onClose = jest.fn();
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    const { result } = renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+        onClose,
+      }),
+    );
+
+    signalOpen();
+    act(() => {
+      result.current.handleAnimate(-1, 0);
+    });
+
+    act(() => {
+      result.current.handleAnimate(0, -1);
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(mockDismiss).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.handleAnimate(-1, 0);
+    });
+
+    expect(mockDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("still dismisses a sheet that the modal stack minimized behind our back", () => {
+    const onClose = jest.fn();
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    const { result } = renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+        onClose,
+      }),
+    );
+
+    signalOpen();
+    act(() => {
+      result.current.handleAnimate(-1, 0);
+    });
+
+    act(() => {
+      result.current.handleAnimate(0, -1);
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    signalClose();
+
+    expect(mockDismiss).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.handleDismiss();
+    });
+    expect(mockRemoveBottomSheetFromQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("replays a dismiss that was dropped because the sheet had not opened yet", () => {
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    const { result } = renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+      }),
+    );
+
+    signalOpen();
+    signalClose();
+    expect(mockDismiss).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.handleAnimate(-1, 0);
+    });
+
+    expect(mockDismiss).toHaveBeenCalledTimes(2);
+
+    act(() => {
+      result.current.handleDismiss();
+    });
+
+    expect(mockRemoveBottomSheetFromQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not replay a dismiss once the sheet has opened normally", () => {
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    const { result } = renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+      }),
+    );
+
+    signalOpen();
+    act(() => {
+      result.current.handleAnimate(-1, 0);
+    });
+
+    signalClose();
+    expect(mockDismiss).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.handleAnimate(0, 1);
+    });
+
+    expect(mockDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("reopens the drawer after dismiss when it is still requested (re-tapped while closing)", () => {
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    const { result } = renderHook(() =>
+      useQueuedBottomSheet({
+        isRequestingToBeOpened: true,
+      }),
+    );
+
+    signalOpen();
+    expect(mockPresent).toHaveBeenCalledTimes(1);
+    expect(mockAddBottomSheetToQueue).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.handleAnimate(0, -1);
+    });
+    act(() => {
+      result.current.handleDismiss();
+    });
+
+    expect(mockAddBottomSheetToQueue).toHaveBeenCalledTimes(2);
+
+    signalOpen();
+    expect(mockPresent).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not reopen when the consumer's onClose-driven state change is batched with handleDismiss", () => {
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    const { result } = renderHook(() => {
+      const [isOpen, setIsOpen] = useState(true);
+      return useQueuedBottomSheet({
+        isRequestingToBeOpened: isOpen,
+        onClose: () => setIsOpen(false),
+      });
+    });
+
+    signalOpen();
+    expect(mockAddBottomSheetToQueue).toHaveBeenCalledTimes(1);
+    expect(mockPresent).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.handleAnimate(0, -1);
+      result.current.handleDismiss();
+    });
+
+    expect(mockAddBottomSheetToQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["the close animation starts", (result: HookResult) => result.handleAnimate(0, -1)],
+    ["the header close is pressed", (result: HookResult) => result.handleHeaderClosePressed()],
+    ["the backdrop is pressed", (result: HookResult) => result.handleBackdropPress()],
+  ])("retracts the keyboard as soon as %s", (_description, startClose) => {
+    const dismissKeyboard = jest.spyOn(Keyboard, "dismiss");
+    jest.spyOn(Keyboard, "isVisible").mockReturnValue(true);
+    const { signalOpen } = setupBottomSheetStateCapture();
+
+    const { result } = renderHook(() => useQueuedBottomSheet({ isRequestingToBeOpened: true }));
+
+    signalOpen();
+    expect(dismissKeyboard).not.toHaveBeenCalled();
+
+    act(() => {
+      startClose(result.current);
+    });
+
+    expect(dismissKeyboard).toHaveBeenCalled();
+  });
+
+  it("retracts the keyboard when the queue closes the drawer", () => {
+    const dismissKeyboard = jest.spyOn(Keyboard, "dismiss");
+    jest.spyOn(Keyboard, "isVisible").mockReturnValue(true);
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    renderHook(() => useQueuedBottomSheet({ isRequestingToBeOpened: true }));
+
+    signalOpen();
+    signalClose();
+
+    expect(dismissKeyboard).toHaveBeenCalled();
+  });
+
+  // Closing sheets hand off to the sheet that replaces them, which has already focused its field
+  // by the time this one finishes closing.
+  it("leaves the keyboard up when another sheet raised it", () => {
+    const dismissKeyboard = jest.spyOn(Keyboard, "dismiss");
+    jest.spyOn(Keyboard, "isVisible").mockReturnValue(true);
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    renderHook(() => useQueuedBottomSheet({ isRequestingToBeOpened: true }));
+
+    signalOpen();
+    claimBottomSheetKeyboard("the-sheet-taking-over");
+    signalClose();
+
+    expect(dismissKeyboard).not.toHaveBeenCalled();
+  });
+
+  it("retracts the keyboard it raised itself", () => {
+    const dismissKeyboard = jest.spyOn(Keyboard, "dismiss");
+    jest.spyOn(Keyboard, "isVisible").mockReturnValue(true);
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+
+    const { result } = renderHook(() => useQueuedBottomSheet({ isRequestingToBeOpened: true }));
+
+    signalOpen();
+    claimBottomSheetKeyboard(result.current.sheetId);
+    signalClose();
+
+    expect(dismissKeyboard).toHaveBeenCalled();
+  });
+
+  it("does not reopen after dismiss when it is no longer requested (normal close)", () => {
+    const { signalOpen, signalClose } = setupBottomSheetStateCapture();
+    let isRequestingToBeOpened = true;
+
+    const { result, rerender } = renderHook(() => useQueuedBottomSheet({ isRequestingToBeOpened }));
+
+    signalOpen();
+    expect(mockAddBottomSheetToQueue).toHaveBeenCalledTimes(1);
+
+    isRequestingToBeOpened = false;
+    rerender(undefined);
+
+    act(() => {
+      result.current.handleDismiss();
+    });
+
+    expect(mockAddBottomSheetToQueue).toHaveBeenCalledTimes(1);
+  });
+
+  describe("a screen losing focus", () => {
+    function renderFocusAware(props: { onClose: () => void; restoreOnFocus?: boolean }) {
+      let isFocused = true;
+      const adapters: QueuedBottomSheetAdapters = {
+        ...defaultQueuedBottomSheetAdapters,
+        useIsScreenFocused: () => isFocused,
+      };
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(QueuedBottomSheetAdaptersProvider, { value: adapters }, children);
+
+      const rendered = renderHook(
+        () => useQueuedBottomSheet({ isRequestingToBeOpened: true, ...props }),
+        { wrapper },
+      );
+
+      return {
+        ...rendered,
+        setFocused: (next: boolean) => {
+          isFocused = next;
+          rendered.rerender(undefined);
+        },
+      };
+    }
+
+    it("reports a close, so the consumer forgets it wanted the drawer", () => {
+      const onClose = jest.fn();
+      const { signalOpen } = setupBottomSheetStateCapture();
+      const { setFocused } = renderFocusAware({ onClose });
+
+      signalOpen();
+      setFocused(false);
+
+      expect(mockDismiss).toHaveBeenCalled();
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("only hides the drawer under restoreOnFocus, leaving the consumer's request standing", () => {
+      const onClose = jest.fn();
+      const { signalOpen } = setupBottomSheetStateCapture();
+      const { result, setFocused } = renderFocusAware({ onClose, restoreOnFocus: true });
+
+      signalOpen();
+      setFocused(false);
+
+      expect(mockDismiss).toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+
+      // The dismissal lands after the screen is gone, and reports nothing either.
+      act(() => {
+        result.current.handleDismiss();
+      });
+
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("queues the drawer again under restoreOnFocus once the screen is focused", () => {
+      const { signalOpen } = setupBottomSheetStateCapture();
+      const { result, setFocused } = renderFocusAware({ onClose: jest.fn(), restoreOnFocus: true });
+
+      signalOpen();
+      setFocused(false);
+      act(() => {
+        result.current.handleDismiss();
+      });
+      setFocused(true);
+      signalOpen();
+
+      expect(mockAddBottomSheetToQueue).toHaveBeenCalledTimes(2);
+      expect(mockPresent).toHaveBeenCalledTimes(2);
+    });
+  });
+});

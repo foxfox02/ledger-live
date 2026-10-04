@@ -12,8 +12,9 @@ import {
   isTokenAccount,
 } from "@ledgerhq/ledger-wallet-framework/account/index";
 import { accountToWalletAPIAccount } from "@ledgerhq/live-common/wallet-api/converters";
-import { WalletState } from "@ledgerhq/live-wallet/store";
+import { type WalletState } from "~/renderer/reducers/wallet";
 import { useVersionedStakePrograms } from "./useVersionedStakePrograms";
+import { getAccountUrl } from "~/renderer/utils";
 
 const getRemoteLiveAppManifestById = (
   appId: string,
@@ -97,7 +98,11 @@ export function useStake() {
         /** Should be handled by No Funds Flow. */
         return null;
       }
-      const walletApiAccount = accountToWalletAPIAccount(walletState, account, parentAccount);
+      const walletApiAccount = accountToWalletAPIAccount(
+        walletState.accountNames,
+        account,
+        parentAccount,
+      );
 
       /** For tokens, we also need to pass the address of the specific asset being deposited: asset_id={chain_id}_{contract_address} */
       const tokenContractAddress = isTokenAccount(account) ? account.token.contractAddress : null;
@@ -118,8 +123,8 @@ export function useStake() {
       );
 
       const returnToAccount = isTokenAccount(account)
-        ? `/account/${earningsAccountId}/${account.id}`
-        : `/account/${earningsAccountId}`;
+        ? getAccountUrl(account.id, earningsAccountId)
+        : getAccountUrl(earningsAccountId);
 
       const customPartnerParams = appDetails?.queryParams ?? {};
 

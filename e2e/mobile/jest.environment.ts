@@ -3,7 +3,7 @@ import {
   cleanupAllSpeculos,
   attachSpeculinhoLogsToAllure,
   takeSpeculosScreenshot,
-} from "./utils/speculosUtils";
+} from "@e2e/utils/speculosUtils";
 import {
   attachTestExecutionConsoleToAllure,
   attachFailureLogsToAllure,
@@ -11,15 +11,17 @@ import {
   resetStderrCaptureForCurrentTest,
   installConsoleCapture,
   uninstallConsoleCapture,
-} from "./utils/loggingUtils";
-import { getLogs } from "./bridge/server";
+} from "@e2e/utils/loggingUtils";
+import { allure } from "jest-allure2-reporter/api";
+import type { OptionalFeatureMap } from "@shared/feature-flags";
+import { BRIDGE_RESPONSE_TIMEOUT, getLogs } from "@e2e/bridge/server";
 import { Circus } from "@jest/types";
 import {
   logMemoryUsage,
   takeAppScreenshot,
   captureNativeViewHierarchy,
   setupEnvironment,
-} from "./helpers/commonHelpers";
+} from "@e2e/helpers/commonHelpers";
 import { config as detoxConfig } from "detox/internals";
 import { Subject } from "rxjs";
 import { sanitizeError } from "@ledgerhq/live-e2e-shared/index";
@@ -30,21 +32,53 @@ import { Transaction } from "@ledgerhq/live-e2e-shared/models/Transaction";
 import { Fee } from "@ledgerhq/live-e2e-shared/enum/Fee";
 import { AppInfos } from "@ledgerhq/live-e2e-shared/enum/AppInfos";
 import { Swap } from "@ledgerhq/live-e2e-shared/models/Swap";
-import { CLI } from "./utils/cliUtils";
+import { CLI } from "@e2e/utils/cliUtils";
 import * as cliCommandsUtils from "@ledgerhq/live-e2e-shared/cliCommandsUtils";
-import { NativeElementHelpers, WebElementHelpers } from "./helpers/elementHelpers";
+import { NativeElementHelpers, WebElementHelpers } from "@e2e/helpers/elementHelpers";
 import expect from "expect";
-import { Application } from "./page/index";
-import type { ServerData } from "../../apps/ledger-live-mobile/src/e2e/bridge/types";
+import { Application } from "@e2e/page/index";
+import type { ServerData } from "~/e2e/bridge/types";
 
 // @ts-expect-error detox doesn't provide type declarations for this module
 import DetoxEnvironment from "detox/runners/jest/testEnvironment";
-import { withTimeout } from "./utils/withTimeout";
+import { withTimeout } from "@e2e/utils/withTimeout";
 
 const FAST_DIAGNOSTIC_TIMEOUT_MS = 5_000;
 const SLOW_DIAGNOSTIC_TIMEOUT_MS = 15_000;
+// getLogs is already capped by the bridge's own response timeout; this outer bound is
+// defense-in-depth for a wedged worker where that inner timer is starved, so it must stay larger.
+const GET_LOGS_TIMEOUT_MS = BRIDGE_RESPONSE_TIMEOUT + 2_000;
 
-async function captureFailureDiagnostics(): Promise<void> {
+// Set by the patched Detox retry (patches/detox@20.51.3.patch) to the exact full names of the
+// tests that failed in the previous attempt.
+const retryTestNames = process.env.E2E_RETRY_TEST_NAMES
+  ? new Set<string>(JSON.parse(process.env.E2E_RETRY_TEST_NAMES))
+  : undefined;
+
+/**
+ * Mark every test that is not in `names` (so passed in the previous attempt) as skipped.
+ * Skipped tests write no Allure result, so the previous attempt's verdict remains.
+ */
+const skipToRetrySet = (
+  block: Circus.DescribeBlock,
+  names: Set<string>,
+  path: string[] = [],
+): number => {
+  let kept = 0;
+  for (const child of block.children) {
+    if (child.type === "describeBlock") {
+      kept += skipToRetrySet(child, names, [...path, child.name]);
+      // Mirrors jest-circus getTestID: the names path minus the root block, space-joined.
+    } else if (names.has([...path, child.name].join(" "))) {
+      kept++;
+    } else {
+      child.mode = "skip";
+    }
+  }
+  return kept;
+};
+
+async function captureFailureDiagnostics(mergedFeatureFlags?: OptionalFeatureMap): Promise<void> {
   await withTimeout(takeSpeculosScreenshot(), FAST_DIAGNOSTIC_TIMEOUT_MS, "takeSpeculosScreenshot");
   await withTimeout(
     attachSpeculinhoLogsToAllure(),
@@ -66,9 +100,18 @@ async function captureFailureDiagnostics(): Promise<void> {
     FAST_DIAGNOSTIC_TIMEOUT_MS,
     "attachSpeculosStartupErrorToAllure",
   );
-  // getLogs has its own 10s RESPONSE_TIMEOUT inside the bridge; this outer bound
-  // is just defense-in-depth in case the inner timer is starved on a wedged worker.
-  let logs = await withTimeout(getLogs(), 12_000, "getLogs");
+  if (mergedFeatureFlags) {
+    await withTimeout(
+      allure.attachment(
+        "Merged Feature Flags",
+        JSON.stringify(mergedFeatureFlags, null, 2),
+        "application/json",
+      ),
+      FAST_DIAGNOSTIC_TIMEOUT_MS,
+      "attachMergedFeatureFlags",
+    );
+  }
+  let logs = await withTimeout(getLogs(), GET_LOGS_TIMEOUT_MS, "getLogs");
   if (logs)
     await withTimeout(
       attachFailureLogsToAllure(logs),
@@ -144,6 +187,7 @@ export default class TestEnvironment extends DetoxEnvironment {
 
     this.global.app = appInstance;
     this.global.IS_FAILED = false;
+    this.global.mergedFeatureFlags = undefined;
     this.global.speculosDevices = speculosDevicesMap;
     this.global.webSocket = webSocketObj;
     this.global.pendingCallbacks = pendingCallbacksMap;
@@ -185,6 +229,7 @@ export default class TestEnvironment extends DetoxEnvironment {
       getLabelOfElement: NativeElementHelpers.getLabelOfElement,
       IsIdPresent: NativeElementHelpers.isIdPresent,
       IsIdVisible: NativeElementHelpers.isIdVisible,
+      revealForTap: NativeElementHelpers.revealForTap,
       scrollByPixels: NativeElementHelpers.scrollByPixels,
       scrollToId: NativeElementHelpers.scrollToId,
       scrollToText: NativeElementHelpers.scrollToText,
@@ -197,6 +242,7 @@ export default class TestEnvironment extends DetoxEnvironment {
       waitForElement: NativeElementHelpers.waitForElement,
       waitForElementById: NativeElementHelpers.waitForElementById,
       waitForElementByText: NativeElementHelpers.waitForElementByText,
+      waitForFullyVisibleById: NativeElementHelpers.waitForFullyVisibleById,
       waitForElementNotVisible: NativeElementHelpers.waitForElementNotVisible,
     };
 
@@ -212,6 +258,7 @@ export default class TestEnvironment extends DetoxEnvironment {
       getWebElementsByIdAndText: WebElementHelpers.getWebElementsByIdAndText,
       getWebElementsText: WebElementHelpers.getWebElementsText,
       getWebElementText: WebElementHelpers.getWebElementText,
+      isWebElementPresent: WebElementHelpers.isWebElementPresent,
       scrollToWebElement: WebElementHelpers.scrollToWebElement,
       tapWebElementByElement: WebElementHelpers.tapWebElementByElement,
       tapWebElementByTestId: WebElementHelpers.tapWebElementByTestId,
@@ -295,17 +342,29 @@ export default class TestEnvironment extends DetoxEnvironment {
   async handleTestEvent(event: Circus.Event, state: Circus.State) {
     if (event.name === "hook_failure") {
       this.global.IS_FAILED = true;
-      await captureFailureDiagnostics();
+      await captureFailureDiagnostics(this.global.mergedFeatureFlags);
     }
 
     await super.handleTestEvent(event, state);
 
     if (event.name === "test_fn_failure") {
       this.global.IS_FAILED = true;
-      await captureFailureDiagnostics();
+      await captureFailureDiagnostics(this.global.mergedFeatureFlags);
     }
 
     if (event.name === "run_start") {
+      if (retryTestNames) {
+        const kept = skipToRetrySet(state.rootDescribeBlock, retryTestNames);
+        // Detox only retries spec files that failed, and narrowing is all-or-nothing, so every
+        // retried file contributed at least one name. Matching none means the names and the tree
+        // disagree — fail loudly rather than skip the whole file and report a green pass.
+        if (kept === 0) {
+          throw new Error(
+            `E2E_RETRY_TEST_NAMES matched no test in this file, so the retry would run nothing. ` +
+              `Expected one of: ${[...retryTestNames].join(" | ")}`,
+          );
+        }
+      }
       resetStderrCaptureForCurrentTest();
       installConsoleCapture();
       await logMemoryUsage();

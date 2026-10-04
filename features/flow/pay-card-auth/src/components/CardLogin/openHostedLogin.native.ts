@@ -1,0 +1,52 @@
+import { openAuthSessionAsync, type AuthSessionOpenOptions } from "expo-web-browser";
+import { AppState } from "react-native";
+import type { HostedLoginResult } from "../../state/types";
+
+const keepBrowserAliveOnAppSwitch: AuthSessionOpenOptions = { createTask: false };
+
+const ACTIVE_WAIT_MS = 5_000;
+
+function whenAppIsActive(): Promise<void> {
+  if (AppState.currentState !== "inactive") {
+    return Promise.resolve();
+  }
+
+  return new Promise(resolve => {
+    const settle = () => {
+      clearTimeout(timer);
+      subscription.remove();
+      resolve();
+    };
+
+    const timer = setTimeout(settle, ACTIVE_WAIT_MS);
+    const subscription = AppState.addEventListener("change", state => {
+      if (state === "active") {
+        settle();
+      }
+    });
+  });
+}
+
+/**
+ * The second argument is the app's deep link, not the OAuth redirect URI. It is what closes this
+ * browser: `ASWebAuthenticationSession` takes its scheme as the `callbackURLScheme`, and the Android
+ * polyfill matches the incoming link against the whole value. Only a custom scheme ends a session, so
+ * the OAuth redirect URI cannot serve here — the provider accepts an `https` value alone. The provider
+ * redirects to this link, which is what brings the two together.
+ *
+ * Give it nothing, or an `https` value, and the login still completes through the app's own deep link,
+ * but nothing closes this browser and it stays on top of the app.
+ *
+ * The session's own answer carries the redirect, so it is the fastest of the two callback routes. The
+ * app's deep link is the other one, and whichever arrives first wins.
+ */
+export async function openHostedUrlInSecureBrowser(
+  hostedUrl: string,
+  deepLink?: string,
+): Promise<HostedLoginResult> {
+  await whenAppIsActive();
+
+  const result = await openAuthSessionAsync(hostedUrl, deepLink, keepBrowserAliveOnAppSwitch);
+
+  return result.type === "success" ? { type: "success", url: result.url } : { type: "dismissed" };
+}

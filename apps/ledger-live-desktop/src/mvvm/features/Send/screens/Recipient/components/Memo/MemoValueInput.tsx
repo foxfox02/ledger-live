@@ -7,12 +7,14 @@ import { useTranslatedBridgeError } from "../../hooks/useTranslatedBridgeError";
 
 type MemoValueInputProps = Readonly<{
   currencyId: string;
+  /** Ticker shown in the help text (ex "ZEC"). Falls back to the currency id. */
+  currencyTicker?: string;
   value: string;
   maxLength?: number;
   /** When "tag", input is restricted to digits only (ex XRP, Casper). */
   memoType?: string;
-  /** Max numeric value when memoType is "tag" (ex XRP UINT32_MAX). */
-  memoMaxValue?: number;
+  /** Max numeric value when memoType is "tag" (ex XRP UINT32_MAX, Casper UINT64_MAX). */
+  memoMaxValue?: number | bigint;
   /** Full error for correct i18n interpolation (ex Casper maxTransferId). */
   transactionError?: Error;
   /** Fallback when transactionError is not passed (no interpolation). */
@@ -22,6 +24,7 @@ type MemoValueInputProps = Readonly<{
 
 function MemoValueInputComponent({
   currencyId,
+  currencyTicker,
   value,
   maxLength,
   memoType,
@@ -60,8 +63,8 @@ function MemoValueInputComponent({
           </TooltipTrigger>
           <TooltipContent>
             <div className="max-h-[160px] max-w-256 text-center">
-              {t("newSendFlow.tagHelp.description", {
-                currency: currencyId,
+              {t([`families.${currencyId}.memoTooltip`, "newSendFlow.tagHelp.description"], {
+                currency: currencyTicker ?? currencyId,
                 memoLabel,
               })}
             </div>

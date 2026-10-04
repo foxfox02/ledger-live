@@ -8,7 +8,9 @@
     "src/serialization.ts",
     "src/transaction.ts",
     "src/hw-signMessage.ts",
-    "src/api/index.ts"
+    "src/api/index.ts",
+    "src/logic/tokenAccountShapes.ts",
+    "src/validators.ts"
   ],
   "ignorePatterns": [
     "**/node_modules/**",

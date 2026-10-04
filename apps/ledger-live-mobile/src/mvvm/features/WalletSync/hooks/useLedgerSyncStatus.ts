@@ -3,14 +3,13 @@ import { QueryKey } from "./type.hooks";
 import getTrustchainApi, {
   StatusAPIResponse as TrustchainStatus,
 } from "@ledgerhq/ledger-key-ring-protocol/api";
-import getCloudSyncApi, {
-  StatusAPIResponse as CloudSyncStatus,
-} from "@ledgerhq/live-wallet/cloudsync/api";
+import { getCloudSyncApi, StatusAPIResponse as CloudSyncStatus } from "@shared/cloud-sync";
 import { useFeature } from "@features/platform-feature-flags";
 import getWalletSyncEnvironmentParams from "@ledgerhq/live-common/walletSync/getEnvironmentParams";
 
 export function useLedgerSyncStatus() {
   const featureWalletSync = useFeature("llmWalletSync");
+  const isWalletSyncEnabled = featureWalletSync?.enabled === true;
   const { trustchainApiBaseUrl, cloudSyncApiBaseUrl } = getWalletSyncEnvironmentParams(
     featureWalletSync?.params?.environment,
   );
@@ -18,10 +17,12 @@ export function useLedgerSyncStatus() {
     {
       queryKey: [QueryKey.fetchTrustchainStatus],
       queryFn: () => getTrustchainApi(trustchainApiBaseUrl).fetchStatus(),
+      enabled: isWalletSyncEnabled,
     },
     {
       queryKey: [QueryKey.fetchCloudSyncStatus],
       queryFn: () => getCloudSyncApi(cloudSyncApiBaseUrl).fetchStatus(),
+      enabled: isWalletSyncEnabled,
     },
   ];
 

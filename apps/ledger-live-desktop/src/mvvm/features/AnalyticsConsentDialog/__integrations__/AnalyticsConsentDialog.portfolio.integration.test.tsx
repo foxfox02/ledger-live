@@ -2,13 +2,21 @@ import React from "react";
 import { Route, Routes } from "react-router";
 import { render, screen, waitFor } from "tests/testSetup";
 import { FEATURE_FLAGS_DEFAULTS, FEATURE_FLAGS_INITIAL_STATE } from "@shared/feature-flags";
+import { trackPage, track } from "@shared/analytics";
 import { INITIAL_STATE } from "~/renderer/reducers/settings";
-import { track, trackPage, updateIdentify } from "~/renderer/analytics/segment";
+import { updateIdentify } from "~/renderer/analytics/segment";
 import { AnalyticsConsentDialog } from "../index";
+
+jest.mock("@shared/analytics", () => ({
+  ...jest.requireActual("@shared/analytics"),
+  trackPage: jest.fn(),
+  track: jest.fn(),
+}));
 
 const analyticsOptInOverrides = {
   ...FEATURE_FLAGS_INITIAL_STATE.overrides,
   analyticsOptIn: {
+    ...FEATURE_FLAGS_DEFAULTS.analyticsOptIn,
     ...(FEATURE_FLAGS_INITIAL_STATE.overrides.analyticsOptIn ?? {}),
     enabled: true,
   },
@@ -57,6 +65,19 @@ const FRESH_CONSENT_TITLE = "Help us improve Ledger";
 const RECONFIRM_TITLE = "Continue improving Ledger?";
 const PRIVACY_UPDATE_TITLE = "We're updating our privacy policy";
 
+function expectTrackedPhase(
+  phase: "consentFresh" | "consentReconfirm" | "preferences" | "privacy",
+) {
+  expect(trackPage).toHaveBeenCalledWith(
+    {
+      category: "AnalyticsConsentDialog",
+      name: "Analytics consent",
+      props: { phase, type: "modal" },
+    },
+    { mandatory: true, refreshSource: false, updateRoutes: true },
+  );
+}
+
 describe("AnalyticsConsentDialog on portfolio route", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -79,17 +100,7 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
         const title = await screen.findByRole("heading", { name: FRESH_CONSENT_TITLE });
         expect(title).toBeVisible();
         expect(screen.queryByRole("button", { name: /close/i })).not.toBeInTheDocument();
-        expect(trackPage).toHaveBeenCalledWith(
-          "AnalyticsConsentDialog",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentFresh",
-            type: "modal",
-          }),
-          true,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentFresh");
 
         await user.click(screen.getByRole("button", { name: "Accept all" }));
         expect(track).toHaveBeenCalledWith(
@@ -97,9 +108,9 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
           {
             button: "analytics_consent_opt_in",
             page: ANALYTICS_CONSENT_DIALOG_PAGE,
-            privacyPolicyVersion: 1,
+            privacyPolicyVersion: "1.0",
           },
-          true,
+          { mandatory: true },
         );
 
         await waitFor(() => {
@@ -125,17 +136,7 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
 
         const title = await screen.findByRole("heading", { name: FRESH_CONSENT_TITLE });
         expect(title).toBeVisible();
-        expect(trackPage).toHaveBeenCalledWith(
-          "AnalyticsConsentDialog",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentFresh",
-            type: "modal",
-          }),
-          true,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentFresh");
 
         await user.click(screen.getByRole("button", { name: "Refuse all" }));
         expect(track).toHaveBeenCalledWith(
@@ -143,9 +144,9 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
           {
             button: "analytics_consent_opt_out",
             page: ANALYTICS_CONSENT_DIALOG_PAGE,
-            privacyPolicyVersion: 1,
+            privacyPolicyVersion: "1.0",
           },
-          true,
+          { mandatory: true },
         );
 
         await waitFor(() => {
@@ -171,17 +172,7 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
 
         const title = await screen.findByRole("heading", { name: FRESH_CONSENT_TITLE });
         expect(title).toBeVisible();
-        expect(trackPage).toHaveBeenCalledWith(
-          "AnalyticsConsentDialog",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentFresh",
-            type: "modal",
-          }),
-          true,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentFresh");
         const setPreferencesLink = screen.getByRole("link", { name: "Set preferences" });
         expect(setPreferencesLink).toHaveAttribute("href", "#");
 
@@ -194,17 +185,7 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
         await waitFor(() => {
           expect(screen.getByRole("heading", { name: "Set preferences" })).toBeVisible();
         });
-        expect(trackPage).toHaveBeenCalledWith(
-          "AnalyticsConsentDialog",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "preferences",
-            type: "modal",
-          }),
-          true,
-          false,
-          true,
-        );
+        expectTrackedPhase("preferences");
         expect(screen.getByRole("button", { name: "Confirm" })).toBeVisible();
       });
     });
@@ -224,17 +205,7 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
 
         const title = await screen.findByRole("heading", { name: FRESH_CONSENT_TITLE });
         expect(title).toBeVisible();
-        expect(trackPage).toHaveBeenCalledWith(
-          "AnalyticsConsentDialog",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentFresh",
-            type: "modal",
-          }),
-          true,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentFresh");
 
         await user.click(screen.getByRole("button", { name: "Accept all" }));
         expect(track).toHaveBeenCalledWith(
@@ -242,9 +213,9 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
           {
             button: "analytics_consent_opt_in",
             page: ANALYTICS_CONSENT_DIALOG_PAGE,
-            privacyPolicyVersion: 1,
+            privacyPolicyVersion: "1.0",
           },
-          true,
+          { mandatory: true },
         );
 
         await waitFor(() => {
@@ -270,17 +241,7 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
 
         const title = await screen.findByRole("heading", { name: FRESH_CONSENT_TITLE });
         expect(title).toBeVisible();
-        expect(trackPage).toHaveBeenCalledWith(
-          "AnalyticsConsentDialog",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentFresh",
-            type: "modal",
-          }),
-          true,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentFresh");
 
         await user.click(screen.getByRole("button", { name: "Refuse all" }));
         expect(track).toHaveBeenCalledWith(
@@ -288,9 +249,9 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
           {
             button: "analytics_consent_opt_out",
             page: ANALYTICS_CONSENT_DIALOG_PAGE,
-            privacyPolicyVersion: 1,
+            privacyPolicyVersion: "1.0",
           },
-          true,
+          { mandatory: true },
         );
 
         await waitFor(() => {
@@ -316,17 +277,7 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
 
         const title = await screen.findByRole("heading", { name: FRESH_CONSENT_TITLE });
         expect(title).toBeVisible();
-        expect(trackPage).toHaveBeenCalledWith(
-          "AnalyticsConsentDialog",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentFresh",
-            type: "modal",
-          }),
-          true,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentFresh");
         const setPreferencesLink = screen.getByRole("link", { name: "Set preferences" });
         expect(setPreferencesLink).toHaveAttribute("href", "#");
 
@@ -339,17 +290,7 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
         await waitFor(() => {
           expect(screen.getByRole("heading", { name: "Set preferences" })).toBeVisible();
         });
-        expect(trackPage).toHaveBeenCalledWith(
-          "AnalyticsConsentDialog",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "preferences",
-            type: "modal",
-          }),
-          true,
-          false,
-          true,
-        );
+        expectTrackedPhase("preferences");
         expect(screen.getByRole("button", { name: "Confirm" })).toBeVisible();
       });
     });
@@ -371,17 +312,7 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
 
         const title = await screen.findByRole("heading", { name: RECONFIRM_TITLE });
         expect(title).toBeVisible();
-        expect(trackPage).toHaveBeenCalledWith(
-          "AnalyticsConsentDialog",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentReconfirm",
-            type: "modal",
-          }),
-          true,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentReconfirm");
 
         await user.click(screen.getByRole("button", { name: "Yes, continue" }));
         expect(track).toHaveBeenCalledWith(
@@ -389,9 +320,9 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
           {
             button: "analytics_consent_opt_in",
             page: ANALYTICS_CONSENT_DIALOG_PAGE,
-            privacyPolicyVersion: 1,
+            privacyPolicyVersion: "1.0",
           },
-          true,
+          { mandatory: true },
         );
 
         await waitFor(() => {
@@ -417,17 +348,7 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
 
         const title = await screen.findByRole("heading", { name: RECONFIRM_TITLE });
         expect(title).toBeVisible();
-        expect(trackPage).toHaveBeenCalledWith(
-          "AnalyticsConsentDialog",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentReconfirm",
-            type: "modal",
-          }),
-          true,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentReconfirm");
 
         await user.click(screen.getByRole("button", { name: "No, stop" }));
         expect(track).toHaveBeenCalledWith(
@@ -435,9 +356,9 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
           {
             button: "analytics_consent_opt_out",
             page: ANALYTICS_CONSENT_DIALOG_PAGE,
-            privacyPolicyVersion: 1,
+            privacyPolicyVersion: "1.0",
           },
-          true,
+          { mandatory: true },
         );
 
         await waitFor(() => {
@@ -463,17 +384,7 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
 
         const title = await screen.findByRole("heading", { name: RECONFIRM_TITLE });
         expect(title).toBeVisible();
-        expect(trackPage).toHaveBeenCalledWith(
-          "AnalyticsConsentDialog",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentReconfirm",
-            type: "modal",
-          }),
-          true,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentReconfirm");
         const setPreferencesLink = screen.getByRole("link", { name: "Set preferences" });
         expect(setPreferencesLink).toHaveAttribute("href", "#");
 
@@ -486,17 +397,7 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
         await waitFor(() => {
           expect(screen.getByRole("heading", { name: "Set preferences" })).toBeVisible();
         });
-        expect(trackPage).toHaveBeenCalledWith(
-          "AnalyticsConsentDialog",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "preferences",
-            type: "modal",
-          }),
-          true,
-          false,
-          true,
-        );
+        expectTrackedPhase("preferences");
         expect(screen.getByRole("button", { name: "Confirm" })).toBeVisible();
       });
     });
@@ -516,17 +417,7 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
 
         const title = await screen.findByRole("heading", { name: RECONFIRM_TITLE });
         expect(title).toBeVisible();
-        expect(trackPage).toHaveBeenCalledWith(
-          "AnalyticsConsentDialog",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentReconfirm",
-            type: "modal",
-          }),
-          true,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentReconfirm");
 
         await user.click(screen.getByRole("button", { name: "Yes, continue" }));
         expect(track).toHaveBeenCalledWith(
@@ -534,9 +425,9 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
           {
             button: "analytics_consent_opt_in",
             page: ANALYTICS_CONSENT_DIALOG_PAGE,
-            privacyPolicyVersion: 1,
+            privacyPolicyVersion: "1.0",
           },
-          true,
+          { mandatory: true },
         );
 
         await waitFor(() => {
@@ -562,17 +453,7 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
 
         const title = await screen.findByRole("heading", { name: RECONFIRM_TITLE });
         expect(title).toBeVisible();
-        expect(trackPage).toHaveBeenCalledWith(
-          "AnalyticsConsentDialog",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentReconfirm",
-            type: "modal",
-          }),
-          true,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentReconfirm");
 
         await user.click(screen.getByRole("button", { name: "No, stop" }));
         expect(track).toHaveBeenCalledWith(
@@ -580,9 +461,9 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
           {
             button: "analytics_consent_opt_out",
             page: ANALYTICS_CONSENT_DIALOG_PAGE,
-            privacyPolicyVersion: 1,
+            privacyPolicyVersion: "1.0",
           },
-          true,
+          { mandatory: true },
         );
 
         await waitFor(() => {
@@ -608,17 +489,7 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
 
         const title = await screen.findByRole("heading", { name: RECONFIRM_TITLE });
         expect(title).toBeVisible();
-        expect(trackPage).toHaveBeenCalledWith(
-          "AnalyticsConsentDialog",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "consentReconfirm",
-            type: "modal",
-          }),
-          true,
-          false,
-          true,
-        );
+        expectTrackedPhase("consentReconfirm");
         const setPreferencesLink = screen.getByRole("link", { name: "Set preferences" });
         expect(setPreferencesLink).toHaveAttribute("href", "#");
 
@@ -631,34 +502,50 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
         await waitFor(() => {
           expect(screen.getByRole("heading", { name: "Set preferences" })).toBeVisible();
         });
-        expect(trackPage).toHaveBeenCalledWith(
-          "AnalyticsConsentDialog",
-          "Analytics consent",
-          expect.objectContaining({
-            phase: "preferences",
-            type: "modal",
-          }),
-          true,
-          false,
-          true,
-        );
+        expectTrackedPhase("preferences");
         expect(screen.getByRole("button", { name: "Confirm" })).toBeVisible();
       });
     });
   });
 
   describe("needs privacy policy version update", () => {
+    const featureFlagsWithMinorBump = {
+      ...featureFlagsWithAnalyticsOptIn,
+      overrides: {
+        ...analyticsOptInOverrides,
+        analyticsOptIn: {
+          ...analyticsOptInOverrides.analyticsOptIn,
+          params: {
+            ...FEATURE_FLAGS_DEFAULTS.analyticsOptIn.params,
+            policyVersion: "1.1",
+          },
+        },
+      },
+      resolved: {
+        ...FEATURE_FLAGS_DEFAULTS,
+        ...analyticsOptInOverrides,
+        analyticsOptIn: {
+          ...analyticsOptInOverrides.analyticsOptIn,
+          params: {
+            ...FEATURE_FLAGS_DEFAULTS.analyticsOptIn.params,
+            policyVersion: "1.1",
+          },
+        },
+      },
+    };
+
     it("should show the privacy update sheet, persist the policy version, and close after Got it", async () => {
+      const consentDate = new Date().toISOString();
       const { user, store } = render(<TestRouter />, {
         initialRoute: "/",
         initialState: {
-          featureFlags: featureFlagsWithAnalyticsOptIn,
+          featureFlags: featureFlagsWithMinorBump,
           settings: baseSettings({
             shareAnalytics: true,
             sharePersonalizedRecommandations: true,
             analyticsConsentInfo: {
-              consentDate: new Date().toISOString(),
-              privacyPolicyVersion: 0,
+              consentDate,
+              privacyPolicyVersion: "1.0",
             },
           }),
         },
@@ -666,17 +553,7 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
 
       const title = await screen.findByRole("heading", { name: PRIVACY_UPDATE_TITLE });
       expect(title).toBeVisible();
-      expect(trackPage).toHaveBeenCalledWith(
-        "AnalyticsConsentDialog",
-        "Analytics consent",
-        expect.objectContaining({
-          phase: "privacy",
-          type: "modal",
-        }),
-        true,
-        false,
-        true,
-      );
+      expectTrackedPhase("privacy");
 
       await user.click(screen.getByRole("button", { name: "Got it" }));
       expect(track).toHaveBeenCalledWith(
@@ -684,15 +561,16 @@ describe("AnalyticsConsentDialog on portfolio route", () => {
         {
           button: "analytics_consent_privacy_got_it",
           page: ANALYTICS_CONSENT_DIALOG_PAGE,
-          privacyPolicyVersion: 1,
+          privacyPolicyVersion: "1.1",
         },
-        true,
+        { mandatory: true },
       );
 
       await waitFor(() => {
         expect(title).not.toBeInTheDocument();
       });
-      expect(store.getState().settings.analyticsConsentInfo.privacyPolicyVersion).toBe(1);
+      expect(store.getState().settings.analyticsConsentInfo.consentDate).toBe(consentDate);
+      expect(store.getState().settings.analyticsConsentInfo.privacyPolicyVersion).toBe("1.1");
       expect(store.getState().settings.hasSeenAnalyticsOptInPrompt).toBe(true);
       expect(updateIdentify).toHaveBeenCalledWith({ force: true });
     });

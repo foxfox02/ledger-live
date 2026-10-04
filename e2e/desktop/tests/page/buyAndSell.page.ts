@@ -1,17 +1,16 @@
-import { step } from "../misc/reporters/step";
-import { WebViewAppPage } from "./webViewApp.page";
+import { step } from "tests/misc/reporters/step";
+import { WebViewAppPage } from "tests/page/webViewApp.page";
 import { AccountType, getParentAccountName } from "@ledgerhq/live-e2e-shared/enum/Account";
 import { BuySell, Fiat } from "@ledgerhq/live-e2e-shared/models/BuySell";
 import { expect } from "@playwright/test";
-import { ChooseAssetDrawer } from "./drawer/choose.asset.drawer";
+import { ChooseAssetDrawer } from "tests/page/drawer/choose.asset.drawer";
 import { BuySellProvider } from "@ledgerhq/live-e2e-shared/enum/Provider";
 import { pickRotatingProvider } from "@ledgerhq/live-e2e-shared/buySell";
 import { OperationType } from "@ledgerhq/live-e2e-shared/enum/OperationType";
-import { doubleDecodeGoToURL } from "../utils/urlUtils";
-import { getAccountAddressesFromAppJson } from "../utils/getAccountAddressesUtils";
-import { waitFor } from "../utils/waitFor";
-import { ModularDialog } from "./dialog/modular.dialog";
-import { getModularSelectorFromInstance } from "../utils/modularSelectorUtils";
+import { doubleDecodeGoToURL } from "tests/utils/urlUtils";
+import { getAccountAddressesFromAppJson } from "tests/utils/getAccountAddressesUtils";
+import { ModularDialog } from "tests/page/dialog/modular.dialog";
+import { getModularSelectorFromInstance } from "tests/utils/modularSelectorUtils";
 
 interface ProviderConfig {
   buyParams: Record<string, (buySell: BuySell) => string | number>;
@@ -19,6 +18,8 @@ interface ProviderConfig {
   addressParam: string;
   parseAddress?: (value: string) => string;
 }
+
+const toSeconds = (ms: number) => `${ms / 1000}s`;
 
 export class BuyAndSellPage extends WebViewAppPage {
   protected readonly webviewIdentifier = "buy";
@@ -42,6 +43,8 @@ export class BuyAndSellPage extends WebViewAppPage {
   private fiatDrawerInput = "fiat-drawer-search-input";
   private saveRegionFiatOptionsSelector = "save-region-and-fiat-options";
   private showMoreQuotes = "SHOW MORE QUOTES";
+  private amountInputError = "amount-input-section-error";
+  private maxAmountButton = "max";
   private providerTitleCssSelector =
     "[data-testid^='provider_title_'][data-testid$='_title_container']";
 
@@ -72,7 +75,7 @@ export class BuyAndSellPage extends WebViewAppPage {
 
   @step("Expect Buy / Sell screen to be visible")
   async verifyBuySellScreenIsVisible() {
-    await this.verifyElementIsVisible(this.navigationTabs);
+    await this.waitForWebviewReady(this.navigationTabs);
   }
 
   @step("Expect $0 tab to be selected")
@@ -98,11 +101,58 @@ export class BuyAndSellPage extends WebViewAppPage {
 
   @step("Choose crypto asset if not selected")
   async chooseAssetIfNotSelected(account: AccountType) {
+    await this.waitForWebviewReady(this.cryptoCurrencySelector);
     if (await this.isCorrectAssetAlreadySelected(account)) return;
-    const webview = await this.getWebView();
-    await expect(webview.getByTestId(this.cryptoCurrencySelector)).toBeEnabled();
     await this.clickElement(this.cryptoCurrencySelector);
     await this.selectAssetInDrawer(account);
+  }
+
+  /**
+   * Workaround: PTX Buy/Sell web app can remain stuck loading; reload the webview and retry.
+   * Mirrors the recovery used in borrow.page.ts. Used to guard every entry point that lands
+   * on the Buy/Sell webview, not just the crypto selector step.
+   */
+  @step("Wait for the Buy/Sell web app to finish loading")
+  private async waitForWebviewReady(testId: string) {
+    const attemptTimeouts = [90_000, 60_000];
+    // Kept short and independent of the attempt budget: the reload is best-effort (its failure
+    // is ignored), so letting it inherit a 90s deadline would only make the worst case
+    // unpredictable without improving recovery.
+    const reloadTimeout = 15_000;
+
+    for (const [attempt, readyTimeout] of attemptTimeouts.entries()) {
+      // Re-fetch the webview on every attempt: it can be torn down and recreated
+      // while we wait, and reloading a stale handle throws
+      // "Target page, context or browser has been closed".
+      const webview = await this.getWebView();
+      const selector = webview.getByTestId(testId);
+      try {
+        await expect(selector).toBeVisible({ timeout: readyTimeout });
+        return;
+      } catch (error) {
+        if (attempt === attemptTimeouts.length - 1) {
+          const waits = attemptTimeouts.map(toSeconds).join(" + ");
+          const reloadBudget = reloadTimeout * (attemptTimeouts.length - 1);
+          const worstCase = attemptTimeouts.reduce((total, t) => total + t, reloadBudget);
+          throw new Error(
+            `Buy/Sell web app did not render "${testId}" after ${attemptTimeouts.length} attempts ` +
+              `(${waits} waiting + up to ${toSeconds(reloadBudget)} reloading, ` +
+              `${toSeconds(worstCase)} worst case) — webview stuck loading.`,
+            { cause: error },
+          );
+        }
+        // The webview can also be torn down/recreated during the toBeVisible() wait above,
+        // so re-fetch it again right before reloading, and tolerate a reload failure caused
+        // by that same race — the next iteration re-fetches and re-checks instead of
+        // aborting the whole retry loop.
+        try {
+          const freshWebview = await this.getWebView();
+          await freshWebview.reload({ timeout: reloadTimeout, waitUntil: "domcontentloaded" });
+        } catch {
+          // Ignore: target likely closed mid-wait; next attempt re-resolves the webview.
+        }
+      }
+    }
   }
 
   private async isCorrectAssetAlreadySelected(account: AccountType): Promise<boolean> {
@@ -195,8 +245,9 @@ export class BuyAndSellPage extends WebViewAppPage {
     await this.verifyElementText(this.infoBox, "Sell securely with Ledger");
   }
 
+  // Falls back to the max sellable balance if the requested amount exceeds it.
   @step("Enter amount to pay $0")
-  async setAmountToPay(amount: string, operation: string) {
+  async setAmountToPay(amount: string, operation: string): Promise<string> {
     await this.setValue(this.amountInputSection, amount);
 
     await this.verifyElementText(
@@ -204,8 +255,30 @@ export class BuyAndSellPage extends WebViewAppPage {
       operation === OperationType.Buy ? "Select quote to continue" : "Set an amount to get quotes",
     );
     await this.verifyElementIsNotEnabled(this.formCta);
+
+    let balanceTooLow = false;
+    if (operation === OperationType.Sell) {
+      try {
+        await this.verifyElementIsVisible(this.amountInputError, 2000);
+        balanceTooLow = true;
+      } catch {
+        // No error shown — balance covers the requested amount.
+      }
+    }
+    if (balanceTooLow) {
+      await this.clickElement(this.maxAmountButton);
+    }
+
     await this.verifyElementIsVisible(this.paymentSelector);
+    const finalAmount = await (
+      await this.getWebViewElementByTestId(this.amountInputSection)
+    ).inputValue();
+    // Max must have lowered the amount; guards against a click that silently did nothing.
+    if (balanceTooLow) {
+      expect(Number(finalAmount)).toBeLessThan(Number(amount));
+    }
     await this.verifyElementIsVisible(this.providersList);
+    return finalAmount;
   }
 
   @step("Select provider quote")
@@ -279,21 +352,26 @@ export class BuyAndSellPage extends WebViewAppPage {
   private async waitForGoToUrl(): Promise<string> {
     let stableUrl: string | undefined;
 
-    await waitFor(
-      async () => {
-        const goToUrls = this.webviewUrlHistory.filter(url =>
-          url.toLowerCase().includes("gotourl"),
-        );
-        const latest = goToUrls.at(-1);
-        if (latest !== undefined && latest === stableUrl) {
-          return true; // last gotourl unchanged since previous check → settled
-        }
-        stableUrl = latest;
-        return false;
-      },
-      200,
-      10_000,
-    );
+    // Settled means the latest gotourl is unchanged since the previous check: the webview
+    // can navigate several times before landing on the provider URL.
+    await expect
+      .poll(
+        () => {
+          const goToUrls = this.webviewUrlHistory.filter(url =>
+            url.toLowerCase().includes("gotourl"),
+          );
+          const latest = goToUrls.at(-1);
+          if (latest !== undefined && latest === stableUrl) return true;
+          stableUrl = latest;
+          return false;
+        },
+        {
+          timeout: 10_000,
+          intervals: [200],
+          message: "No settled GoTo URL found in webviewUrlHistory after waiting.",
+        },
+      )
+      .toBe(true);
 
     if (!stableUrl) throw new Error("No GoTo URL found in webviewUrlHistory after waiting.");
     return stableUrl;

@@ -6,7 +6,7 @@ import { useAssetDistribution } from "../useAssetDistribution";
 import type { Account, AssetsDistribution } from "@ledgerhq/types-live";
 import type { CryptoCurrency } from "@domain/entity-currency-crypto";
 import type { Currency } from "@domain/entity-currency";
-import type { CounterValuesState } from "@ledgerhq/live-countervalues/types";
+import type { CounterValuesState } from "@domain/entity-market-countervalues";
 
 const mockCvState = {} as CounterValuesState;
 jest.mock("@ledgerhq/live-countervalues-react", () => ({
@@ -19,7 +19,7 @@ jest.mock("@ledgerhq/asset-aggregation/assetDistribution/index", () => ({
 }));
 
 const mockUseChunkedAssetsData = jest.fn();
-jest.mock("../../dada-client/hooks/useChunkedAssetsData", () => ({
+jest.mock("@features/platform-aggregated-assets", () => ({
   useChunkedAssetsData: (...args: unknown[]) => mockUseChunkedAssetsData(...args),
 }));
 

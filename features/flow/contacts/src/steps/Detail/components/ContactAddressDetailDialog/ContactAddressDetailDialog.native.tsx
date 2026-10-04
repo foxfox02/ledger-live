@@ -15,12 +15,20 @@ export function ContactAddressDetailDialog({
   labels,
   bottomInset = 0,
   onCopyAddress,
+  onShareAddress,
+  onSend,
+  onEdit,
+  onDelete,
+  canSend = false,
+  canEdit = false,
+  canDelete = false,
 }: ContactAddressDetailDialogNativeProps): React.JSX.Element {
-  const { hasSelection, hasCopied, onCopy } = useContactAddressDetailDialogViewModel({
+  const { hasSelection, hasCopied, onCopy, onShare } = useContactAddressDetailDialogViewModel({
     isOpen,
     row,
     network,
     onCopyAddress,
+    onShareAddress,
   });
 
   return (
@@ -28,16 +36,26 @@ export function ContactAddressDetailDialog({
       {hasSelection && row !== undefined && network !== undefined ? (
         <>
           <BottomSheetHeader title={contactName} />
-          <Box
-            testID="contacts-address-detail-dialog"
-            lx={{ paddingHorizontal: "s24", alignItems: "center" }}
-          >
-            <ContactAddressDetailSummary
-              row={row}
-              network={network}
-              formatNetworkTag={labels.formatNetworkTag}
+          <Box testID="contacts-address-detail-dialog" lx={{ alignItems: "center" }}>
+            <Box lx={{ paddingHorizontal: "s24" }}>
+              <ContactAddressDetailSummary
+                row={row}
+                network={network}
+                formatNetworkTag={labels.formatNetworkTag}
+              />
+            </Box>
+            <ContactAddressDetailActions
+              labels={labels}
+              hasCopied={hasCopied}
+              onCopy={onCopy}
+              onShare={onShare}
+              onSend={onSend}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              canSend={canSend}
+              canEdit={canEdit}
+              canDelete={canDelete}
             />
-            <ContactAddressDetailActions labels={labels} hasCopied={hasCopied} onCopy={onCopy} />
           </Box>
         </>
       ) : null}

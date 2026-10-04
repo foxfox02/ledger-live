@@ -1,19 +1,15 @@
 import { step } from "tests/misc/reporters/step";
-import { AppPage } from "./abstractClasses";
+import { AppPage } from "tests/page/abstractClasses";
 import { expect, Locator } from "@playwright/test";
 import { waitForAccountsPersisted } from "tests/utils/userdata";
 import { isAssetSectionEnabled, isOperationsListEnabled } from "tests/utils/featureFlagUtils";
-import { CryptoAddressesBanner } from "../component/portfolio/cryptoAddressesBanner";
+import { CryptoAddressesBanner } from "tests/component/portfolio/cryptoAddressesBanner";
 import { AssetsView } from "tests/component/portfolio/assetsView";
 import { Currency } from "@ledgerhq/live-e2e-shared/enum/Currency";
 
 type QuickActionButton = "receive" | "buy" | "sell" | "send";
 
 export class PortfolioPage extends AppPage {
-  private readonly buySellEntryButton = this.page.getByTestId("buy-sell-entry-button");
-  private readonly embeddedSwapContainer = this.page.getByTestId("embedded-swap-container");
-  private readonly stakeEntryButton = this.page.getByTestId("stake-entry-button");
-  private readonly chart = this.page.getByTestId("chart-container");
   private readonly operationList = this.page.locator("#operation-list");
   private readonly historyButton = this.page.getByTestId("topbar-action-button-history");
   private readonly historyTable = this.page.getByTestId("history-table");
@@ -90,41 +86,6 @@ export class PortfolioPage extends AppPage {
     await this.addAccountCta.click();
   }
 
-  @step("Check 'Buy/Sell' button visibility")
-  async checkBuySellButtonVisibility() {
-    await this.checkVisibility(this.buySellEntryButton);
-  }
-
-  @step("Click on 'Buy/Sell' button")
-  async clickBuySellButton() {
-    await this.buySellEntryButton.click();
-  }
-
-  @step("Check embedded swap container visibility")
-  async checkEmbeddedSwapContainerVisibility() {
-    await this.checkVisibility(this.embeddedSwapContainer);
-  }
-
-  @step("Check 'Stake' button visibility")
-  async checkStakeButtonVisibility() {
-    await this.checkVisibility(this.stakeEntryButton);
-  }
-
-  @step("Check chart visibility")
-  async checkChartVisibility() {
-    await this.checkVisibility(this.chart);
-  }
-
-  @step("Click stake button")
-  async startStakeFlow() {
-    await this.stakeEntryButton.click();
-  }
-
-  @step("Expect choose asset to be visible")
-  async expectChooseAssetToBeVisible() {
-    await this.page.getByText("Choose Asset").waitFor({ state: "visible" });
-  }
-
   private async openHistoryPage() {
     await this.historyButton.click();
     await this.checkVisibility(this.historyTable);
@@ -177,7 +138,7 @@ export class PortfolioPage extends AppPage {
   }
 
   @step("Expect operation row to be visible")
-  async expectOperationRowToBeVisible() {
+  private async expectOperationRowToBeVisible() {
     if (await isOperationsListEnabled(this.page)) {
       await this.openHistoryPage();
       await this.checkVisibility(this.historyOperationRows.first());
@@ -272,11 +233,11 @@ export class PortfolioPage extends AppPage {
   }
 
   /**
-   * Synchronisation gate before add-account: waits until the empty-portfolio shell is ready.
-   * Prefer this over {@link checkNoBalanceTitleVisibility} in specs so Allure shows a readiness step, not a product assertion.
+   * Zero balance / no funds. Auto-retrying, so specs also use it as the synchronisation
+   * point before add-account: it only resolves once the empty-portfolio shell is ready.
    */
-  @step("Wait until portfolio empty state is ready")
-  async waitForPortfolioEmptyState() {
+  @step("Expect the portfolio empty state")
+  async expectPortfolioEmptyState() {
     await expect(this.noBalanceTitle).toBeVisible();
   }
 
@@ -303,6 +264,11 @@ export class PortfolioPage extends AppPage {
   @step("Check connect button is visible")
   async checkConnectButtonVisibility() {
     await this.checkVisibility(this.connectQuickActionButton);
+  }
+
+  @step("Start the connect-device flow from the portfolio")
+  async startConnectDeviceFlow() {
+    await this.connectQuickActionButton.click();
   }
 
   @step("Check buy a ledger button is visible")

@@ -6,8 +6,9 @@ import styled from "styled-components";
 import { SyncOneAccountOnMount } from "@ledgerhq/live-common/bridge/react/index";
 import { getMainAccount } from "@ledgerhq/live-common/account/index";
 import { formatCurrencyUnit } from "@ledgerhq/coin-module-framework/currencies/index";
-import TrackPage, { setTrackingSource } from "~/renderer/analytics/TrackPage";
-import { track } from "~/renderer/analytics/segment";
+import { TrackPage } from "@shared/analytics-react";
+import { setTrackingSource, track } from "@shared/analytics";
+import { getAccountUrl } from "~/renderer/utils";
 import Box from "~/renderer/components/Box";
 import BroadcastErrorDisclaimer from "~/renderer/components/BroadcastErrorDisclaimer";
 import Button from "~/renderer/components/Button";
@@ -126,7 +127,7 @@ export const StepConfirmationFooter = ({
       ? getMainAccount(account, parentAccount).id
       : optimisticOperation?.accountId;
     if (accountId) {
-      navigate(`/account/${accountId}`);
+      navigate(getAccountUrl(accountId));
     }
   }, [account, parentAccount, optimisticOperation, navigate, onClose]);
 

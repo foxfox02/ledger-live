@@ -3,11 +3,21 @@ import { shallowEqual } from "react-redux";
 import { useSelector, useDispatch } from "~/context/hooks";
 import { AccountLike } from "@ledgerhq/types-live";
 import type { CryptoOrTokenCurrency } from "@domain/entity-currency";
-import { openModularDrawer, closeModularDrawer } from "~/reducers/modularDrawer";
+import { openModularDrawer, closeModularDrawer, hideModularDrawer } from "~/reducers/modularDrawer";
 import type { State } from "~/reducers/types";
 import { DrawerParams, DrawerRemoteParams } from "../types";
 import { useCallbackRegistry } from "./useCallbackRegistry";
 import { generateCallbackId } from "../utils/callbackIdGenerator";
+
+function resolveCallbackId<T>(
+  callback: T | undefined,
+  register: (id: string, cb: T) => void,
+): string | undefined {
+  if (!callback) return undefined;
+  const id = generateCallbackId();
+  register(id, callback);
+  return id;
+}
 
 /**
  * Hook to manage the global state of the Modular Drawer.
@@ -29,7 +39,9 @@ export const useModularDrawerController = () => {
   const {
     isOpen,
     preselectedCurrencies,
+    categories,
     callbackId,
+    cancelCallbackId,
     enableAccountSelection,
     completionMode,
     presentation,
@@ -38,11 +50,14 @@ export const useModularDrawerController = () => {
     useCase,
     uiUseCase,
     areCurrenciesFiltered,
+    selectableNetworkIds,
   } = useSelector(
     (state: State) => ({
       isOpen: state.modularDrawer.isOpen,
       preselectedCurrencies: state.modularDrawer.preselectedCurrencies,
+      categories: state.modularDrawer.categories,
       callbackId: state.modularDrawer.callbackId,
+      cancelCallbackId: state.modularDrawer.cancelCallbackId,
       enableAccountSelection: state.modularDrawer.enableAccountSelection,
       completionMode: state.modularDrawer.completionMode,
       presentation: state.modularDrawer.presentation,
@@ -51,6 +66,7 @@ export const useModularDrawerController = () => {
       useCase: state.modularDrawer.useCase,
       uiUseCase: state.modularDrawer.uiUseCase,
       areCurrenciesFiltered: state.modularDrawer.areCurrenciesFiltered,
+      selectableNetworkIds: state.modularDrawer.selectableNetworkIds,
     }),
     shallowEqual,
   );
@@ -60,37 +76,39 @@ export const useModularDrawerController = () => {
     executeCallback,
     registerCurrencyCallback,
     executeCurrencyCallback,
+    registerCancelCallback,
+    executeCancelCallback,
+    unregisterCancelCallback,
     resetAll,
   } = useCallbackRegistry();
 
   const openDrawer = useCallback(
     (params?: DrawerParams) => {
-      const { onAccountSelected, onCurrencySelected, ...otherParams } = params ?? {};
+      const { onAccountSelected, onCurrencySelected, onCancel, ...otherParams } = params ?? {};
 
       if (completionMode === "currency" && callbackId) {
         executeCurrencyCallback(callbackId, null);
       }
       resetAll();
 
-      let callbackIdToUse: string | undefined;
-      if (onAccountSelected) {
-        const id = generateCallbackId();
-        const wrappedCallback = (account: AccountLike, parentAccount?: AccountLike) => {
-          const typedParentAccount =
-            parentAccount && "derivationMode" in parentAccount ? parentAccount : undefined;
-          onAccountSelected(account, typedParentAccount);
-        };
-        registerCallback(id, wrappedCallback);
-        callbackIdToUse = id;
-      } else if (onCurrencySelected) {
-        const id = generateCallbackId();
-        registerCurrencyCallback(id, onCurrencySelected);
-        callbackIdToUse = id;
-      }
+      const wrappedAccountCallback = onAccountSelected
+        ? (account: AccountLike, parentAccount?: AccountLike) => {
+            const typedParentAccount =
+              parentAccount && "derivationMode" in parentAccount ? parentAccount : undefined;
+            onAccountSelected(account, typedParentAccount);
+          }
+        : undefined;
+
+      const callbackIdToUse =
+        resolveCallbackId(wrappedAccountCallback, registerCallback) ??
+        resolveCallbackId(onCurrencySelected, registerCurrencyCallback);
+
+      const cancelCallbackIdToUse = resolveCallbackId(onCancel, registerCancelCallback);
 
       const paramsWithIds: DrawerRemoteParams = {
         ...otherParams,
         callbackId: callbackIdToUse,
+        cancelCallbackId: cancelCallbackIdToUse,
       };
 
       dispatch(openModularDrawer(paramsWithIds));
@@ -102,40 +120,83 @@ export const useModularDrawerController = () => {
       executeCurrencyCallback,
       registerCallback,
       registerCurrencyCallback,
+      registerCancelCallback,
       resetAll,
     ],
   );
 
   const closeDrawer = useCallback(() => {
-    if (completionMode === "currency" && callbackId) {
-      executeCurrencyCallback(callbackId, null);
+    try {
+      if (completionMode === "currency" && callbackId) {
+        executeCurrencyCallback(callbackId, null);
+      }
+      if (cancelCallbackId) {
+        executeCancelCallback(cancelCallbackId);
+      }
+    } finally {
+      dispatch(closeModularDrawer());
     }
-    dispatch(closeModularDrawer());
-  }, [callbackId, completionMode, dispatch, executeCurrencyCallback]);
+  }, [
+    callbackId,
+    cancelCallbackId,
+    completionMode,
+    dispatch,
+    executeCurrencyCallback,
+    executeCancelCallback,
+  ]);
+
+  // Hides the drawer UI without firing the cancel callback. Use this when
+  // navigating away inline (e.g. to device selection for add-account) so that
+  // account.request stays pending until the user either completes or abandons.
+  const hideDrawer = useCallback(() => {
+    dispatch(hideModularDrawer());
+  }, [dispatch]);
 
   const handleAccountSelected = useCallback(
     (account: AccountLike, parentAccount?: AccountLike) => {
-      if (callbackId) {
-        executeCallback(callbackId, account, parentAccount);
+      if (cancelCallbackId) {
+        unregisterCancelCallback(cancelCallbackId);
       }
-      closeDrawer();
+      try {
+        if (callbackId) {
+          executeCallback(callbackId, account, parentAccount);
+        }
+      } finally {
+        dispatch(closeModularDrawer());
+        resetAll();
+      }
     },
-    [callbackId, executeCallback, closeDrawer],
+    [callbackId, cancelCallbackId, dispatch, executeCallback, unregisterCancelCallback, resetAll],
   );
 
   const handleCurrencySelected = useCallback(
     (currency: CryptoOrTokenCurrency) => {
-      if (callbackId) {
-        executeCurrencyCallback(callbackId, currency);
+      if (cancelCallbackId) {
+        unregisterCancelCallback(cancelCallbackId);
       }
-      dispatch(closeModularDrawer());
+      try {
+        if (callbackId) {
+          executeCurrencyCallback(callbackId, currency);
+        }
+      } finally {
+        dispatch(closeModularDrawer());
+        resetAll();
+      }
     },
-    [callbackId, dispatch, executeCurrencyCallback],
+    [
+      callbackId,
+      cancelCallbackId,
+      dispatch,
+      executeCurrencyCallback,
+      unregisterCancelCallback,
+      resetAll,
+    ],
   );
 
   return {
     isOpen,
     preselectedCurrencies,
+    categories,
     enableAccountSelection,
     completionMode,
     presentation,
@@ -144,8 +205,10 @@ export const useModularDrawerController = () => {
     useCase,
     uiUseCase,
     areCurrenciesFiltered,
+    selectableNetworkIds,
     openDrawer,
     closeDrawer,
+    hideDrawer,
     handleAccountSelected,
     handleCurrencySelected,
   };

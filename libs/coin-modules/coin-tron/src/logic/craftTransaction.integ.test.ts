@@ -1,29 +1,25 @@
-import { SendTransactionIntent } from "@ledgerhq/coin-module-framework/api/types";
-import coinConfig from "../config";
+import type { Logger } from "@ledgerhq/coin-module-framework/config";
+import type { TronCoinConfig } from "../config";
 import { DEFAULT_TRC20_FEES_LIMIT } from "../network";
 import { decode58Check } from "../network/format";
 import { craftTransaction } from "./craftTransaction";
 import { decodeTransaction } from "./utils";
 
-describe("Testing craftTransaction function", () => {
-  beforeAll(() => {
-    coinConfig.setCoinConfig(() => ({
-      status: {
-        type: "active",
-      },
-      explorer: {
-        url: "https://tron.coin.ledger.com",
-      },
-    }));
-  });
+const mockLogger: Logger = (..._args: unknown[]) => {};
 
+const mockConfig = {
+  status: { type: "active" },
+  explorer: { url: "https://tron.coin.ledger.com" },
+} as TronCoinConfig;
+
+describe("Testing craftTransaction function", () => {
   it("should create a valid transaction with minimum required fields", async () => {
     const amount = BigInt(3);
     const sender = "TRqkRnAj6ceJFYAn2p1eE7aWrgBBwtdhS9";
     const recipient = "TPswDDCAWhJAZGdHPidFg5nEf8TkNToDX1";
 
     // WHEN
-    const { transaction: result } = await craftTransaction({
+    const { transaction: result } = await craftTransaction(mockLogger, mockConfig, {
       intentType: "transaction",
       type: "send",
       asset: {
@@ -33,6 +29,7 @@ describe("Testing craftTransaction function", () => {
       sender,
       recipient,
       amount,
+      data: { type: "tron" },
     });
 
     const decodeResult = await decodeTransaction(result);
@@ -65,7 +62,7 @@ describe("Testing craftTransaction function", () => {
     const recipient = "TPswDDCAWhJAZGdHPidFg5nEf8TkNToDX1";
 
     // WHEN
-    const { transaction: result } = await craftTransaction({
+    const { transaction: result } = await craftTransaction(mockLogger, mockConfig, {
       intentType: "transaction",
       type: "send",
       asset: {
@@ -75,6 +72,7 @@ describe("Testing craftTransaction function", () => {
       sender,
       recipient,
       amount,
+      data: { type: "tron" },
     });
 
     const decodeResult = await decodeTransaction(result);
@@ -105,7 +103,7 @@ describe("Testing craftTransaction function", () => {
     const sender = "TRqkRnAj6ceJFYAn2p1eE7aWrgBBwtdhS9";
     const recipient = "TPswDDCAWhJAZGdHPidFg5nEf8TkNToDX1";
 
-    const { transaction: result } = await craftTransaction({
+    const { transaction: result } = await craftTransaction(mockLogger, mockConfig, {
       intentType: "transaction",
       type: "send",
       asset: {
@@ -115,6 +113,7 @@ describe("Testing craftTransaction function", () => {
       sender,
       recipient,
       amount,
+      data: { type: "tron" },
     });
 
     const decodeResult = await decodeTransaction(result);
@@ -127,12 +126,14 @@ describe("Testing craftTransaction function", () => {
     );
   });
 
-  it("should use zero custom fees when user provides 0 for a TRC20 transaction", async () => {
+  it("should pass a 0 custom fee straight through for a TRC20 transaction", async () => {
     const amount = BigInt(20);
     const sender = "TRqkRnAj6ceJFYAn2p1eE7aWrgBBwtdhS9";
     const recipient = "TPswDDCAWhJAZGdHPidFg5nEf8TkNToDX1";
 
     const { transaction: result } = await craftTransaction(
+      mockLogger,
+      mockConfig,
       {
         intentType: "transaction",
         type: "send",
@@ -143,6 +144,7 @@ describe("Testing craftTransaction function", () => {
         sender,
         recipient,
         amount,
+        data: { type: "tron" },
       },
       { value: 0n },
     );
@@ -167,18 +169,23 @@ describe("Testing craftTransaction function", () => {
         }),
       }),
     );
-    // Protobuf omits default-valued fields: fee_limit 0 is not present on the wire,
-    // unlike DEFAULT_TRC20_FEES_LIMIT which decodeTransaction surfaces explicitly.
+    // A `0` cap serialises to no `fee_limit` field: protobuf omits zero scalars and the decoder
+    // (`utils.ts`) only surfaces `fee_limit` when `getFeeLimit()` is truthy.
     expect(decodeResult.raw_data.fee_limit).toBeUndefined();
   });
 
-  it("should use custom user fees when user provides it for a TRC20 transaction", async () => {
+  it("should cap a TRC20 transaction at the ceiling the estimate published, not its net fee", async () => {
+    // LIVE-36865: the wallet passes the net display fee as customFees.value on every send, and that
+    // is 0 for an energy-covered account. `fee_limit` is a ceiling, not a charge, so it comes from
+    // `parameters.feeLimit` — the ceiling estimateFees published next to the fee. Pinning it to the
+    // net value reverts OUT_OF_ENERGY on chain.
     const amount = BigInt(20);
     const sender = "TRqkRnAj6ceJFYAn2p1eE7aWrgBBwtdhS9";
     const recipient = "TPswDDCAWhJAZGdHPidFg5nEf8TkNToDX1";
 
-    const customFees = 99n;
     const { transaction: result } = await craftTransaction(
+      mockLogger,
+      mockConfig,
       {
         intentType: "transaction",
         type: "send",
@@ -189,6 +196,74 @@ describe("Testing craftTransaction function", () => {
         sender,
         recipient,
         amount,
+        data: { type: "tron" },
+      },
+      { value: 0n, parameters: { feeLimit: String(DEFAULT_TRC20_FEES_LIMIT) } },
+    );
+
+    const decodeResult = await decodeTransaction(result);
+    expect(decodeResult).toEqual(
+      expect.objectContaining({
+        raw_data: expect.objectContaining({
+          fee_limit: DEFAULT_TRC20_FEES_LIMIT,
+        }),
+      }),
+    );
+  });
+
+  it("should put a bare customFees.value in the fee limit for a TRC20 transaction", async () => {
+    // The contract every direct caller relies on: `customFees` present means "use this", so a lone
+    // `value` is the cap. coin-service's `/v1/tron/transaction/encode` sends exactly this shape, and
+    // its non-regression test for TSD-11634 asserts this exact number — a signer that re-parses the
+    // crafted blob rejects the transaction when the two disagree. Distinct from
+    // DEFAULT_TRC20_FEES_LIMIT so a missed override is obvious.
+    const customFees = 12345678n;
+    const amount = BigInt(20);
+    const sender = "TRqkRnAj6ceJFYAn2p1eE7aWrgBBwtdhS9";
+    const recipient = "TPswDDCAWhJAZGdHPidFg5nEf8TkNToDX1";
+
+    const { transaction: result } = await craftTransaction(
+      mockLogger,
+      mockConfig,
+      {
+        intentType: "transaction",
+        type: "send",
+        asset: {
+          type: "trc20",
+          assetReference: "TLa2f6VPqDgRE67v1736s7bJ8Ray5wYjU7",
+        },
+        sender,
+        recipient,
+        amount,
+        data: { type: "tron" },
+      },
+      { value: customFees },
+    );
+
+    const decodeResult = await decodeTransaction(result);
+    expect(decodeResult.raw_data.fee_limit).toBe(Number(customFees));
+  });
+
+  it("should pass a custom fee below the default straight through for a TRC20 transaction", async () => {
+    const amount = BigInt(20);
+    const sender = "TRqkRnAj6ceJFYAn2p1eE7aWrgBBwtdhS9";
+    const recipient = "TPswDDCAWhJAZGdHPidFg5nEf8TkNToDX1";
+
+    const customFees = 99n;
+    const { transaction: result } = await craftTransaction(
+      mockLogger,
+      mockConfig,
+      {
+        intentType: "transaction",
+        type: "send",
+        asset: {
+          type: "trc20",
+          assetReference: "TLa2f6VPqDgRE67v1736s7bJ8Ray5wYjU7",
+        },
+        sender,
+        recipient,
+        amount,
+        data: { type: "tron" },
       },
       { value: customFees },
     );
@@ -197,7 +272,7 @@ describe("Testing craftTransaction function", () => {
     expect(decodeResult).toEqual(
       expect.objectContaining({
         raw_data: expect.objectContaining({
-          fee_limit: Number(customFees),
+          fee_limit: 99,
         }),
       }),
     );
@@ -209,13 +284,14 @@ describe("Testing craftTransaction function", () => {
     const recipient = "TPswDDCAWhJAZGdHPidFg5nEf8TkNToDX1";
 
     // WHEN
-    const { transaction: result } = await craftTransaction({
+    const { transaction: result } = await craftTransaction(mockLogger, mockConfig, {
       intentType: "transaction",
       asset: { type: "native" },
       type: "send",
       sender,
       recipient,
       amount,
+      data: { type: "tron" },
     });
 
     const decodeResult = await decodeTransaction(result);
@@ -247,13 +323,14 @@ describe("Testing craftTransaction function", () => {
     const recipient = "TPswDDCAWhJAZGdHPidFg5nEf8TkNToDX1";
 
     // WHEN
-    const { transaction: result } = await craftTransaction({
+    const { transaction: result } = await craftTransaction(mockLogger, mockConfig, {
       intentType: "transaction",
       asset: { type: "native" },
       type: "send",
       sender,
       recipient,
       amount,
+      data: { type: "tron" },
       memo: {
         type: "string",
         kind: "memo",
@@ -278,7 +355,7 @@ describe("Testing craftTransaction function", () => {
     const recipient = "TPswDDCAWhJAZGdHPidFg5nEf8TkNToDX1";
 
     await expect(
-      craftTransaction({
+      craftTransaction(mockLogger, mockConfig, {
         intentType: "transaction",
         type: "send",
         asset: {
@@ -288,6 +365,7 @@ describe("Testing craftTransaction function", () => {
         sender,
         recipient,
         amount,
+        data: { type: "tron" },
         memo: {
           type: "string",
           kind: "memo",
@@ -305,13 +383,14 @@ describe("Testing craftTransaction function", () => {
     const before = Date.now();
 
     // WHEN
-    const { transaction: result } = await craftTransaction({
+    const { transaction: result } = await craftTransaction(mockLogger, mockConfig, {
       intentType: "transaction",
       asset: { type: "native" },
       type: "send",
       sender,
       recipient,
       amount,
+      data: { type: "tron" },
     });
 
     const after = Date.now();
@@ -338,7 +417,7 @@ describe("Testing craftTransaction function", () => {
     const before = Date.now();
 
     // WHEN
-    const { transaction: result } = await craftTransaction({
+    const { transaction: result } = await craftTransaction(mockLogger, mockConfig, {
       intentType: "transaction",
       asset: { type: "native" },
       type: "send",
@@ -346,7 +425,8 @@ describe("Testing craftTransaction function", () => {
       recipient,
       amount,
       expiration,
-    } as SendTransactionIntent);
+      data: { type: "tron" },
+    });
 
     const after = Date.now();
 

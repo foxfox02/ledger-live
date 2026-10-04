@@ -10,6 +10,7 @@ import {
   getMockedAuthorization,
   getMockedFeeAuthorization,
   getMockedDelegatedProvingResponse,
+  getMockedGetTokensResponse,
 } from "../__tests__/fixtures/api.fixture";
 import { getMockedConfig } from "../__tests__/fixtures/config.fixture";
 import { apiClient } from "./api";
@@ -185,7 +186,7 @@ describe("apiClient", () => {
     });
 
     it("should fetch transactions with cursor for pagination", async () => {
-      const cursor = "123456";
+      const cursor = { blockNumber: 123456 };
       const mockResponse = getMockedAccountPublicTransactions(MOCK_ALEO_ADDRESS, {
         transactions: [],
         prev_cursor: {
@@ -209,7 +210,7 @@ describe("apiClient", () => {
       expect(network).toHaveBeenCalledTimes(1);
       expect(network).toHaveBeenCalledWith({
         method: "GET",
-        url: `${mockConfig.apiUrls.node}/v2/${mockConfig.networkType}/transactions/address/${MOCK_ALEO_ADDRESS}?metadata=true&limit=50&sort=asc&direction=next&token_info=true&cursor_block_number=${cursor}`,
+        url: `${mockConfig.apiUrls.node}/v2/${mockConfig.networkType}/transactions/address/${MOCK_ALEO_ADDRESS}?metadata=true&limit=50&sort=asc&direction=next&token_info=true&cursor_block_number=${cursor.blockNumber}`,
       });
     });
 
@@ -234,7 +235,7 @@ describe("apiClient", () => {
     });
 
     it("should fetch transactions with all custom parameters", async () => {
-      const cursor = "999999";
+      const cursor = { blockNumber: 999999, transitionId: "au1resume" };
       const mockResponse = getMockedAccountPublicTransactions(MOCK_ALEO_ADDRESS, {
         transactions: [
           {
@@ -268,7 +269,7 @@ describe("apiClient", () => {
       expect(network).toHaveBeenCalledTimes(1);
       expect(network).toHaveBeenCalledWith({
         method: "GET",
-        url: `${mockConfig.apiUrls.node}/v2/${mockConfig.networkType}/transactions/address/${MOCK_ALEO_ADDRESS}?metadata=true&limit=20&sort=desc&direction=prev&token_info=true&cursor_block_number=${cursor}`,
+        url: `${mockConfig.apiUrls.node}/v2/${mockConfig.networkType}/transactions/address/${MOCK_ALEO_ADDRESS}?metadata=true&limit=20&sort=desc&direction=prev&token_info=true&cursor_block_number=${cursor.blockNumber}&cursor_transition_id=${cursor.transitionId}`,
       });
       expect(result).toEqual(mockResponse);
     });
@@ -361,6 +362,60 @@ describe("apiClient", () => {
         method: "GET",
         url: `${testnetConfig.apiUrls.node}/v2/${testnetConfig.networkType}/program/credits.aleo/mapping/account/${MOCK_ALEO_ADDRESS}`,
       });
+    });
+  });
+
+  describe("getTokens", () => {
+    it("should fetch the token registry with no params by default", async () => {
+      const mockResponse = getMockedGetTokensResponse();
+      jest.mocked(network).mockResolvedValue({ data: mockResponse, status: 200 });
+
+      const result = await apiClient.getTokens({ config: mockConfig });
+
+      expect(network).toHaveBeenCalledTimes(1);
+      expect(network).toHaveBeenCalledWith({
+        method: "GET",
+        url: `${mockConfig.apiUrls.node}/v2/${mockConfig.networkType}/tokens?`,
+      });
+      expect(result).toEqual(mockResponse);
+    });
+
+    it("should forward limit and offset as query params", async () => {
+      const mockResponse = getMockedGetTokensResponse();
+      jest.mocked(network).mockResolvedValue({ data: mockResponse, status: 200 });
+
+      await apiClient.getTokens({
+        config: mockConfig,
+        options: { limit: 100, offset: 200 },
+      });
+
+      expect(network).toHaveBeenCalledTimes(1);
+      expect(network).toHaveBeenCalledWith({
+        method: "GET",
+        url: `${mockConfig.apiUrls.node}/v2/${mockConfig.networkType}/tokens?limit=100&offset=200`,
+      });
+    });
+
+    it("should forward verified and symbol as query params", async () => {
+      const mockResponse = getMockedGetTokensResponse();
+      jest.mocked(network).mockResolvedValue({ data: mockResponse, status: 200 });
+
+      await apiClient.getTokens({
+        config: mockConfig,
+        options: { verified: true, symbol: "usdc" },
+      });
+
+      expect(network).toHaveBeenCalledTimes(1);
+      expect(network).toHaveBeenCalledWith({
+        method: "GET",
+        url: `${mockConfig.apiUrls.node}/v2/${mockConfig.networkType}/tokens?symbol=usdc&verified=true`,
+      });
+    });
+
+    it("should throw an error when network request fails", async () => {
+      jest.mocked(network).mockRejectedValue(new Error("Network error"));
+
+      await expect(apiClient.getTokens({ config: mockConfig })).rejects.toThrow("Network error");
     });
   });
 
@@ -461,7 +516,12 @@ describe("apiClient", () => {
     const mockUuid = "scan-uuid-789";
 
     it("should fetch the record scanner status successfully", async () => {
-      const mockResponse = { synced: true, percentage: 100 };
+      const mockResponse = {
+        synced: true,
+        percentage: 100,
+        sync_start_height: 0,
+        synced_up_to: 20985061,
+      };
       jest.mocked(network).mockResolvedValue({ data: mockResponse, status: 200 });
 
       const result = await apiClient.getRecordScannerStatus(mockConfig, mockUuid);
@@ -477,7 +537,12 @@ describe("apiClient", () => {
     });
 
     it("should return partial sync status", async () => {
-      const mockResponse = { synced: false, percentage: 42 };
+      const mockResponse = {
+        synced: false,
+        percentage: 42,
+        sync_start_height: 100,
+        synced_up_to: 5000,
+      };
       jest.mocked(network).mockResolvedValue({ data: mockResponse, status: 200 });
 
       const result = await apiClient.getRecordScannerStatus(mockConfig, mockUuid);
@@ -486,10 +551,25 @@ describe("apiClient", () => {
       expect(result.percentage).toBe(42);
     });
 
+    it("should return a status with a null synced_up_to", async () => {
+      const mockResponse = {
+        synced: false,
+        percentage: 0,
+        sync_start_height: 100,
+        synced_up_to: null,
+      };
+      jest.mocked(network).mockResolvedValue({ data: mockResponse, status: 200 });
+
+      const result = await apiClient.getRecordScannerStatus(mockConfig, mockUuid);
+
+      expect(result).toEqual(mockResponse);
+    });
+
     it("should use the correct network type in the URL", async () => {
-      jest
-        .mocked(network)
-        .mockResolvedValue({ data: { synced: true, percentage: 100 }, status: 200 });
+      jest.mocked(network).mockResolvedValue({
+        data: { synced: true, percentage: 100, sync_start_height: 0, synced_up_to: 20985061 },
+        status: 200,
+      });
 
       await apiClient.getRecordScannerStatus(testnetConfig, mockUuid);
 
@@ -593,6 +673,25 @@ describe("apiClient", () => {
       expect(network).toHaveBeenCalledWith(
         expect.objectContaining({
           data: { filter: { start: mockStart }, uuid: mockUuid },
+        }),
+      );
+    });
+
+    it("should include `filter.end` in the request body when end is provided", async () => {
+      const mockStart = 14192648;
+      jest.mocked(network).mockResolvedValue({ data: [testnetPrivateRecord], status: 200 });
+
+      await apiClient.getAccountOwnedRecords({
+        config: mockConfig,
+        uuid: mockUuid,
+        start: mockStart,
+        end: mockStart + 100,
+      });
+
+      expect(network).toHaveBeenCalledTimes(1);
+      expect(network).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { filter: { start: mockStart, end: mockStart + 100 }, uuid: mockUuid },
         }),
       );
     });
@@ -1153,6 +1252,79 @@ describe("apiClient", () => {
         expect.objectContaining({
           headers: { Cookie: setCookieValue.join("; ") },
         }),
+      );
+    });
+  });
+
+  describe("staking endpoints", () => {
+    const endpoints = [
+      ["getCommittee", "committee/latest", { members: {}, total_stake: 0 }],
+      ["getValidatorMetadata", "committee/validator-metadata", {}],
+      ["getTotalSupply", "latest/totalSupply", 2_056_277_710],
+    ] as const;
+
+    it.each(endpoints)("%s targets mainnet when configured for it", async (method, path, body) => {
+      jest.mocked(network).mockResolvedValue({ data: body, status: 200 });
+
+      await expect(apiClient[method](mockConfig)).resolves.toEqual(body);
+      expect(network).toHaveBeenCalledTimes(1);
+      expect(network).toHaveBeenCalledWith({
+        method: "GET",
+        url: `https://node.example.com/v2/mainnet/${path}`,
+      });
+    });
+
+    it.each(endpoints)("%s targets testnet when configured for it", async (method, path, body) => {
+      jest.mocked(network).mockResolvedValue({ data: body, status: 200 });
+
+      await expect(apiClient[method](testnetConfig)).resolves.toEqual(body);
+      expect(network).toHaveBeenCalledTimes(1);
+      expect(network).toHaveBeenCalledWith({
+        method: "GET",
+        url: `https://node.example.com/v2/testnet/${path}`,
+      });
+    });
+  });
+
+  describe("staking mappings", () => {
+    const mappings = [
+      ["getBondedMapping", "bonded"],
+      ["getUnbondingMapping", "unbonding"],
+      ["getWithdrawMapping", "withdraw"],
+    ] as const;
+
+    it.each(mappings)("%s reads from the configured network", async (method, mapping) => {
+      for (const config of [mockConfig, testnetConfig]) {
+        jest.mocked(network).mockClear().mockResolvedValue({ data: null, status: 200 });
+
+        await apiClient[method](config, MOCK_ALEO_ADDRESS);
+
+        expect(network).toHaveBeenCalledTimes(1);
+        expect(network).toHaveBeenCalledWith({
+          method: "GET",
+          url: `${config.apiUrls.node}/v2/${config.networkType}/program/credits.aleo/mapping/${mapping}/${MOCK_ALEO_ADDRESS}`,
+        });
+      }
+    });
+
+    it.each(mappings)("%s passes the raw plaintext through untouched", async method => {
+      const raw = "{\n  microcredits: 111468399u64\n}";
+      jest.mocked(network).mockResolvedValue({ data: raw, status: 200 });
+
+      await expect(apiClient[method](mockConfig, MOCK_ALEO_ADDRESS)).resolves.toBe(raw);
+    });
+
+    it.each(mappings)("%s returns null for an address with no entry", async method => {
+      jest.mocked(network).mockResolvedValue({ data: null, status: 200 });
+
+      await expect(apiClient[method](mockConfig, MOCK_ALEO_ADDRESS)).resolves.toBeNull();
+    });
+
+    it.each(mappings)("%s propagates network failures", async method => {
+      jest.mocked(network).mockRejectedValue(new Error("Network error"));
+
+      await expect(apiClient[method](mockConfig, MOCK_ALEO_ADDRESS)).rejects.toThrow(
+        "Network error",
       );
     });
   });

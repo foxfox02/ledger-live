@@ -1,0 +1,248 @@
+import { act, renderHook } from "@testing-library/react";
+import { getAccountCurrency } from "@ledgerhq/live-common/account/index";
+import { sendFeatures } from "@ledgerhq/live-common/bridge/descriptor/send/features";
+import { useFlowWizard } from "../../../../../FlowWizard/FlowWizardContext";
+import { useSendFlowActions, useSendFlowData } from "../../../../context/SendFlowContext";
+import { useRecipientScanner } from "../../../../context/RecipientScannerContext";
+import { trackPage } from "@shared/analytics";
+import { createMockAccount } from "../../__integrations__/__fixtures__/accounts";
+import { useRecipientScreenViewModel } from "../useRecipientScreenViewModel";
+
+jest.mock("@ledgerhq/live-common/account/index");
+jest.mock("@ledgerhq/live-common/bridge/descriptor/send/features", () => ({
+  sendFeatures: {
+    getBalanceTypeConfig: jest.fn(() => null),
+    getTrackingAttributes: jest.fn(() => ({})),
+  },
+}));
+jest.mock("../../../../../FlowWizard/FlowWizardContext");
+jest.mock("../../../../context/SendFlowContext");
+jest.mock("../../../../context/RecipientScannerContext");
+jest.mock("@features/platform-contacts", () => ({
+  useContactDisplayName: jest.requireActual<typeof import("@features/platform-contacts")>(
+    "@features/platform-contacts",
+  ).useContactDisplayName,
+  isEligibleAddressCurrency: jest.requireActual<typeof import("@features/platform-contacts")>(
+    "@features/platform-contacts",
+  ).isEligibleAddressCurrency,
+  useContacts: jest.fn(() => []),
+  useContactsFeature: jest.fn(() => ({
+    isEnabled: false,
+    eligibleAddressFamilies: [],
+  })),
+}));
+jest.mock("@shared/analytics", () => ({
+  ...jest.requireActual("@shared/analytics"),
+  trackPage: jest.fn(),
+}));
+
+const mockedGetAccountCurrency = jest.mocked(getAccountCurrency);
+const mockedGetBalanceTypeConfig = jest.mocked(sendFeatures.getBalanceTypeConfig);
+const mockedUseFlowWizard = jest.mocked(useFlowWizard);
+const mockedUseSendFlowData = jest.mocked(useSendFlowData);
+const mockedUseSendFlowActions = jest.mocked(useSendFlowActions);
+const mockedUseRecipientScanner = jest.mocked(useRecipientScanner);
+const mockedTrackPage = jest.mocked(trackPage);
+
+const account = createMockAccount();
+const setRecipient = jest.fn();
+const close = jest.fn();
+const goToNextStep = jest.fn();
+
+describe("useRecipientScreenViewModel", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedGetAccountCurrency.mockReturnValue(account.currency);
+    mockedGetBalanceTypeConfig.mockReturnValue(null);
+    mockedUseSendFlowData.mockReturnValue({
+      state: {
+        account: { account, parentAccount: null, currency: account.currency },
+        transaction: { transaction: { family: "bitcoin" } },
+        recipient: {
+          address: "previous-address",
+          memo: { type: "MEMO", value: "123" },
+          displayLabel: "Private balance",
+        },
+      } as never,
+      uiConfig: { recipientSupportsDomain: true } as never,
+      recipientSearch: { value: "", setValue: jest.fn(), clear: jest.fn() },
+      isRecipientAddressComplete: false,
+    });
+    mockedUseSendFlowActions.mockReturnValue({
+      transaction: { setRecipient } as never,
+      close,
+    } as never);
+    mockedUseFlowWizard.mockReturnValue({
+      navigation: { goToNextStep },
+    } as never);
+    mockedUseRecipientScanner.mockReturnValue({
+      isScannerOpen: false,
+      closeScanner: jest.fn(),
+      toggleScanner: jest.fn(),
+    });
+  });
+
+  it("tracks the recipient step once when the screen is ready", () => {
+    const { result } = renderHook(() => useRecipientScreenViewModel());
+
+    expect(result.current).toMatchObject({
+      ready: true,
+      account,
+      currency: account.currency,
+      recipientSupportsDomain: true,
+      onClose: close,
+    });
+    expect(mockedTrackPage).toHaveBeenCalledTimes(1);
+    expect(mockedTrackPage).toHaveBeenCalledWith({
+      category: "Modal send - step recipient",
+      props: expect.objectContaining({
+        hasContacts: false,
+        contactsCount: 0,
+      }),
+    });
+  });
+
+  it("updates the recipient and advances only when requested", () => {
+    const { result } = renderHook(() => useRecipientScreenViewModel());
+
+    if (!result.current.ready) {
+      throw new Error("Expected a ready recipient screen");
+    }
+    const viewModel = result.current;
+
+    act(() => {
+      viewModel.onAddressSelected("next-address", "name.eth");
+    });
+    expect(setRecipient).toHaveBeenCalledWith({
+      address: "next-address",
+      ensName: "name.eth",
+      memo: { type: "MEMO", value: "123" },
+      displayLabel: undefined,
+      isSelfTransfer: false,
+    });
+    expect(goToNextStep).not.toHaveBeenCalled();
+
+    act(() => {
+      viewModel.onAddressSelected("next-address", "name.eth", true, {
+        value: "",
+        type: "NO_MEMO",
+      });
+    });
+    expect(goToNextStep).toHaveBeenCalledTimes(1);
+    expect(setRecipient).toHaveBeenLastCalledWith({
+      address: "next-address",
+      ensName: "name.eth",
+      memo: { value: "", type: "NO_MEMO" },
+      displayLabel: undefined,
+      isSelfTransfer: false,
+    });
+  });
+
+  it("drops the self-transfer flag of the recipient it replaces, since the address is no longer a prefilled one", () => {
+    mockedUseSendFlowData.mockReturnValue({
+      state: {
+        account: { account, parentAccount: null, currency: account.currency },
+        transaction: { transaction: { family: "bitcoin" } },
+        recipient: { address: "u1shielded", displayLabel: "Private balance", isSelfTransfer: true },
+      } as never,
+      uiConfig: { recipientSupportsDomain: true } as never,
+      recipientSearch: { value: "", setValue: jest.fn(), clear: jest.fn() },
+      isRecipientAddressComplete: false,
+    });
+
+    const { result } = renderHook(() => useRecipientScreenViewModel());
+
+    if (!result.current.ready) {
+      throw new Error("Expected a ready recipient screen");
+    }
+    const viewModel = result.current;
+
+    act(() => {
+      viewModel.onAddressSelected("typed-address");
+    });
+
+    expect(setRecipient).toHaveBeenCalledWith(
+      expect.objectContaining({ address: "typed-address", isSelfTransfer: false }),
+    );
+  });
+
+  it("labels and flags a typed address matching the account's self-transfer target", () => {
+    mockedGetBalanceTypeConfig.mockReturnValue({
+      getOptions: jest.fn(() => []),
+      getSelectedOptionId: jest.fn(() => null),
+      buildSelectionPatch: jest.fn(() => ({})),
+      getSelfTransferTarget: jest.fn(() => ({
+        address: "u1shielded",
+        translationKey: "recipient.selfTransfer.toPrivate",
+        isDestinationPublic: false,
+      })),
+      buildSelfTransferPatch: jest.fn(() => ({})),
+      getSelectableBalance: jest.fn(),
+    });
+
+    const { result } = renderHook(() => useRecipientScreenViewModel());
+
+    if (!result.current.ready) {
+      throw new Error("Expected a ready recipient screen");
+    }
+    const viewModel = result.current;
+
+    act(() => {
+      viewModel.onAddressSelected("u1shielded");
+    });
+
+    expect(setRecipient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        address: "u1shielded",
+        displayLabel: "Private balance",
+        isSelfTransfer: true,
+      }),
+    );
+  });
+
+  it("does not label or flag a typed address that is not the self-transfer target", () => {
+    mockedGetBalanceTypeConfig.mockReturnValue({
+      getOptions: jest.fn(() => []),
+      getSelectedOptionId: jest.fn(() => null),
+      buildSelectionPatch: jest.fn(() => ({})),
+      getSelfTransferTarget: jest.fn(() => ({
+        address: "u1shielded",
+        translationKey: "recipient.selfTransfer.toPrivate",
+        isDestinationPublic: false,
+      })),
+      buildSelfTransferPatch: jest.fn(() => ({})),
+      getSelectableBalance: jest.fn(),
+    });
+
+    const { result } = renderHook(() => useRecipientScreenViewModel());
+
+    if (!result.current.ready) {
+      throw new Error("Expected a ready recipient screen");
+    }
+    const viewModel = result.current;
+
+    act(() => {
+      viewModel.onAddressSelected("some-other-address");
+    });
+
+    expect(setRecipient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        address: "some-other-address",
+        displayLabel: undefined,
+        isSelfTransfer: false,
+      }),
+    );
+  });
+
+  it("does not render the modal while the scanner is open", () => {
+    mockedUseRecipientScanner.mockReturnValue({
+      isScannerOpen: true,
+      closeScanner: jest.fn(),
+      toggleScanner: jest.fn(),
+    });
+
+    const { result } = renderHook(() => useRecipientScreenViewModel());
+
+    expect(result.current).toEqual({ ready: false });
+  });
+});

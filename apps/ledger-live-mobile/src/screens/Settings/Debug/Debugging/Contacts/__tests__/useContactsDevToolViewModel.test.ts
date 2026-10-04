@@ -1,5 +1,5 @@
 import { act } from "@testing-library/react-native";
-import { CONTACTS_FEATURE_FLAG_KEYS } from "@features/flow-contacts";
+import { CONTACTS_FEATURE_FLAG_KEYS } from "@features/platform-contacts";
 import { renderHook } from "@tests/test-renderer";
 import { ELIGIBLE_ADDRESS_FAMILIES_PRESETS } from "../constants";
 import { useContactsDevToolViewModel } from "../useContactsDevToolViewModel";
@@ -19,6 +19,7 @@ describe("useContactsDevToolViewModel", () => {
       params: {
         newBadge: false,
         eligibleAddressFamilies: ["evm"],
+        excludedCurrencyIds: [],
       },
     });
   });
@@ -39,6 +40,7 @@ describe("useContactsDevToolViewModel", () => {
       params: {
         newBadge: true,
         eligibleAddressFamilies: ["evm"],
+        excludedCurrencyIds: [],
       },
     });
   });
@@ -54,6 +56,7 @@ describe("useContactsDevToolViewModel", () => {
     expect(store.getState().featureFlags.overrides[CONTACTS_FLAG]?.params).toEqual({
       newBadge: false,
       eligibleAddressFamilies: ["evm"],
+      excludedCurrencyIds: [],
     });
   });
 
@@ -96,5 +99,22 @@ describe("useContactsDevToolViewModel", () => {
     expect(store.getState().contacts.contacts).toEqual([
       expect.objectContaining({ id: "contact-me", isMe: true, name: "Me" }),
     ]);
+  });
+
+  it("should toggle the Contacts feature introduction dismissed state", () => {
+    const { result, store } = renderHook(() => useContactsDevToolViewModel(), {
+      overrideInitialState: state => ({
+        ...state,
+        settings: { ...state.settings, hasDismissedContactsFeatureIntroduction: true },
+      }),
+    });
+
+    expect(result.current.hasDismissedFeatureIntroduction).toBe(true);
+
+    act(() => {
+      result.current.handleToggleFeatureIntroductionDismissed();
+    });
+
+    expect(store.getState().settings.hasDismissedContactsFeatureIntroduction).toBe(false);
   });
 });

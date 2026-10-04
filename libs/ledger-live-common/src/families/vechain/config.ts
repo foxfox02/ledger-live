@@ -1,3 +1,4 @@
+import { getEnv } from "@shared/env";
 import { CurrencyLiveConfigDefinition } from "../../config";
 
 const vechainConfig: CurrencyLiveConfigDefinition = {
@@ -8,9 +9,12 @@ const vechainConfig: CurrencyLiveConfigDefinition = {
         type: "active",
         features: [{ id: "blockchain_txs", status: "active" }],
       },
-      infra: {
-        API_VECHAIN_THOREST: "https://vechain.coin.ledger.com",
+      name: "Vechain",
+      unit: { name: "VET", code: "VET", magnitude: 18 },
+      node: {
+        url: getEnv("API_VECHAIN_THOREST"),
       },
+      chainTag: 74,
     },
   },
 };

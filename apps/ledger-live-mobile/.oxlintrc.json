@@ -14,16 +14,7 @@
     "suspicious": "warn",
     "pedantic": "off"
   },
-  "plugins": [
-    "eslint",
-    "import",
-    "oxc",
-    "unicorn",
-    "typescript",
-    "react",
-    "jest",
-    "jsx-a11y"
-  ],
+  "plugins": ["eslint", "import", "oxc", "unicorn", "typescript", "react", "jest", "jsx-a11y"],
   "ignorePatterns": [
     "*.min.js",
     "node_modules",
@@ -39,12 +30,19 @@
     "eslint/no-constant-binary-expression": "warn",
     "eslint/no-shadow": "off",
     "eslint/no-unused-expressions": "warn",
+    "react/globals": "warn",
+    "react/immutability": "warn",
+    "react/preserve-manual-memoization": "warn",
+    "react/purity": "warn",
+    "react/refs": "warn",
+    "react/set-state-in-effect": "warn",
+    "react/set-state-in-render": "warn",
+    "react/static-components": "warn",
+    "react/use-memo": "warn",
+    "import/namespace": "warn",
     "eslint/no-unsafe-optional-chaining": "off",
     "eslint/no-useless-rename": "warn",
-    "eslint/no-console": [
-      "error",
-      { "allow": ["warn", "error"] }
-    ],
+    "eslint/no-console": ["error", { "allow": ["warn", "error"] }],
     "eslint/no-restricted-imports": [
       "error",
       {
@@ -66,6 +64,11 @@
             "message": "Use the locale hooks from '~/context/Locale' instead of 'react-i18next' to ensure correct injection of the i18n instance."
           },
           {
+            "name": "i18next",
+            "importNames": ["default", "t", "i18n"],
+            "message": "The app no longer initialises the i18next global singleton. Import the app instance from '~/i18n/instance' (or the hooks from '~/context/Locale')."
+          },
+          {
             "name": "@ledgerhq/ledger-wallet-framework/types",
             "importNames": [
               "CryptoCurrency",
@@ -73,7 +76,11 @@
               "Currency",
               "Unit",
               "FiatCurrency",
-              "ExplorerView"
+              "ExplorerView",
+              "CryptoCurrencyId",
+              "TokenCurrencyId",
+              "CryptoCurrencyIdSchema",
+              "TokenCurrencyIdSchema"
             ],
             "message": "Wallet-framework currency types are for coin-modules. Import from @domain/entity-currency-* (unions from @domain/entity-currency)."
           },
@@ -85,17 +92,18 @@
               "Currency",
               "Unit",
               "FiatCurrency",
-              "ExplorerView"
+              "ExplorerView",
+              "CryptoCurrencyId",
+              "TokenCurrencyId",
+              "CryptoCurrencyIdSchema",
+              "TokenCurrencyIdSchema"
             ],
             "message": "Wallet-framework currency types are for coin-modules. Import from @domain/entity-currency-* (unions from @domain/entity-currency)."
           }
         ],
         "patterns": [
           {
-            "group": [
-              "@ledgerhq/live-common/lib/**",
-              "@ledgerhq/live-common/lib-es/**"
-            ],
+            "group": ["@ledgerhq/live-common/lib/**", "@ledgerhq/live-common/lib-es/**"],
             "message": "Please remove the /lib import from live-common import."
           },
           {
@@ -134,7 +142,6 @@
     "react/no-did-mount-set-state": "warn",
     "react/jsx-key": "warn",
     "react/display-name": "off",
-    "react/prop-types": "off",
     "react-hooks/rules-of-hooks": "error",
     "react-hooks/exhaustive-deps": [
       "error",
@@ -159,11 +166,7 @@
   },
   "overrides": [
     {
-      "files": [
-        "**/*.test.{ts,tsx}",
-        "**/__tests__/**",
-        "e2e/**/*.{ts,tsx}"
-      ],
+      "files": ["**/*.test.{ts,tsx}", "**/__tests__/**", "e2e/**/*.{ts,tsx}"],
       "env": { "jest": true },
       "plugins": ["jest"],
       "rules": {
@@ -197,7 +200,11 @@
                   "Currency",
                   "Unit",
                   "FiatCurrency",
-                  "ExplorerView"
+                  "ExplorerView",
+                  "CryptoCurrencyId",
+                  "TokenCurrencyId",
+                  "CryptoCurrencyIdSchema",
+                  "TokenCurrencyIdSchema"
                 ],
                 "message": "Wallet-framework currency types are for coin-modules. Import from @domain/entity-currency-* (unions from @domain/entity-currency)."
               },
@@ -209,17 +216,18 @@
                   "Currency",
                   "Unit",
                   "FiatCurrency",
-                  "ExplorerView"
+                  "ExplorerView",
+                  "CryptoCurrencyId",
+                  "TokenCurrencyId",
+                  "CryptoCurrencyIdSchema",
+                  "TokenCurrencyIdSchema"
                 ],
                 "message": "Wallet-framework currency types are for coin-modules. Import from @domain/entity-currency-* (unions from @domain/entity-currency)."
               }
             ],
             "patterns": [
               {
-                "group": [
-                  "@ledgerhq/live-common/lib/**",
-                  "@ledgerhq/live-common/lib-es/**"
-                ],
+                "group": ["@ledgerhq/live-common/lib/**", "@ledgerhq/live-common/lib-es/**"],
                 "message": "Please remove the /lib import from live-common import."
               },
               {

@@ -5,7 +5,7 @@ import { experimentalFeatures, isReadOnlyEnv, Feature } from "~/renderer/experim
 import { useDispatch } from "LLD/hooks/redux";
 import { setEnvOnAllThreads } from "~/helpers/env";
 import { openModal } from "~/renderer/actions/modals";
-import TrackPage from "~/renderer/analytics/TrackPage";
+import { TrackPage } from "@shared/analytics-react";
 import useEnv from "@features/platform-env";
 import Alert from "~/renderer/components/Alert";
 import Button from "~/renderer/components/Button";
@@ -16,7 +16,6 @@ import ExperimentalInteger from "./ExperimentalInteger";
 import ExperimentalFloat from "./ExperimentalFloat";
 import LottieTester from "../Developer/LottieTester";
 import PostOnboardingHubTester from "../Developer/PostOnboardingHubTester";
-import VaultSigner from "./VaultSigner";
 import { useDeviceManagementKit } from "@ledgerhq/live-dmk-desktop";
 import { useFeature } from "@features/platform-feature-flags";
 
@@ -168,7 +167,6 @@ const SectionExperimental = () => {
         {process.env.SHOW_ETHEREUM_BRIDGE ? <EthereumBridgeRow /> : null}
         {process.env.DEBUG_LOTTIE ? <LottieTester /> : null}
         {process.env.DEBUG_POSTONBOARDINGHUB ? <PostOnboardingHubTester /> : null}
-        <VaultSigner />
       </Body>
     </div>
   );

@@ -1,0 +1,86 @@
+import { useCallback, useMemo } from "react";
+import {
+  useGetCardLinkedWalletsQuery,
+  useGetInternalWalletsQuery,
+} from "@domain/api-card-management";
+import { combineCardLinkedWallets } from "../logic/combineCardLinkedWallets";
+import type { CryptoOrTokenCurrency } from "@domain/entity-currency";
+import type { CardLinkedWallets } from "../types";
+
+export type UseCardLinkedWalletsParams = Readonly<{
+  currencies: ReadonlyMap<string, CryptoOrTokenCurrency>;
+  skip?: boolean;
+}>;
+
+export type UseCardLinkedWalletsResult = CardLinkedWallets &
+  Readonly<{
+    /** The first load only. A refetch reports through `isFetching`. */
+    isLoading: boolean;
+    isFetching: boolean;
+    isError: boolean;
+    refetch: () => void;
+  }>;
+
+const NO_WALLETS: readonly [] = [];
+
+export function useCardLinkedWallets({
+  currencies,
+  skip = false,
+}: UseCardLinkedWalletsParams): UseCardLinkedWalletsResult {
+  const subscriptionOptions = { skip, refetchOnMountOrArgChange: true };
+  const linkedQuery = useGetCardLinkedWalletsQuery(undefined, subscriptionOptions);
+  const internalQuery = useGetInternalWalletsQuery(undefined, subscriptionOptions);
+
+  const combined = useMemo(
+    () =>
+      combineCardLinkedWallets({
+        linked: linkedQuery.data ?? NO_WALLETS,
+        internal: internalQuery.data ?? NO_WALLETS,
+        currencies,
+      }),
+    [linkedQuery.data, internalQuery.data, currencies],
+  );
+
+  const { refetch: refetchLinked } = linkedQuery;
+  const { refetch: refetchInternal } = internalQuery;
+
+  const refetch = useCallback(() => {
+    if (skip) {
+      return;
+    }
+
+    refetchLinked();
+    refetchInternal();
+  }, [skip, refetchLinked, refetchInternal]);
+
+  const {
+    isLoading: linkedLoading,
+    isFetching: linkedFetching,
+    isError: linkedError,
+  } = linkedQuery;
+  const {
+    isLoading: internalLoading,
+    isFetching: internalFetching,
+    isError: internalError,
+  } = internalQuery;
+
+  return useMemo(
+    () => ({
+      ...combined,
+      isLoading: linkedLoading || internalLoading,
+      isFetching: linkedFetching || internalFetching,
+      isError: linkedError || internalError,
+      refetch,
+    }),
+    [
+      combined,
+      linkedLoading,
+      internalLoading,
+      linkedFetching,
+      internalFetching,
+      linkedError,
+      internalError,
+      refetch,
+    ],
+  );
+}

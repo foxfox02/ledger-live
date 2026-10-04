@@ -1,0 +1,365 @@
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { trackButtonClicked } from "@features/platform-pay-analytics";
+import { useDispatch, useSelector } from "react-redux";
+import { useMachine } from "@xstate/react";
+import type { SnapshotFrom } from "xstate";
+import { useTranslation } from "@shared/i18n";
+import { buildSignupUrl } from "../../state/buildSignupUrl";
+import { SIGNUP_PATH } from "../../state/hostedPaths";
+import { createCardLoginPorts, type CardLoginDispatch } from "../../state/createCardLoginPorts";
+import type { PayCardLoginErrorKind } from "../../state/errors";
+import { cardLoginMachine } from "../../state/machine";
+import { selectPayCardHasSeenLoginIntro } from "../../state/loginIntroSelectors";
+import { selectIsSignedIn } from "../../state/selectors";
+import { setPendingLoginType, setSessionResolving } from "../../state/slice";
+import { CARD_LOGIN_INTRO_FLOW, CARD_LOGIN_INTRO_PAGE } from "./analytics";
+import type {
+  CardAuthErrorCopy,
+  CardLoginCopy,
+  CardLoginIntroActionId,
+  CardLoginIntroRowIcon,
+  CardLoginIntroViewProps,
+  CardLoginViewModel,
+  CardLoginViewModelParams,
+} from "./types";
+
+type CardLoginStateValue = SnapshotFrom<typeof cardLoginMachine>["value"];
+
+const LOGIN_KEY_PREFIX = "payTab.cardLogin";
+
+const INTRO_KEY_PREFIX = "payTab.cardLoginIntro";
+
+const INTRO_ROWS: readonly { icon: CardLoginIntroRowIcon; key: string }[] = [
+  { icon: "CoinsAddPlus", key: "cashback" },
+  { icon: "CreditCard", key: "virtualCard" },
+  { icon: "LedgerLogo", key: "topUp" },
+];
+
+const PRESSABLE_LOGIN_STATES: ReadonlySet<CardLoginStateValue> = new Set([
+  "idle",
+  "authError",
+  "userFetchError",
+  "awaitingCallback",
+]);
+
+const SESSION_RESOLVING_STATES: ReadonlySet<CardLoginStateValue> = new Set([
+  "hydrating",
+  "clearingAttempt",
+  "validatingCallback",
+  "exchangingCode",
+  "persistingSession",
+  "authenticated",
+  "fetchingUser",
+]);
+
+const INTRO_ACTIONS: readonly { id: CardLoginIntroActionId; appearance: "base" | "gray" }[] = [
+  { id: "createAccount", appearance: "base" },
+  { id: "logIn", appearance: "gray" },
+];
+
+const TRACK_BUTTON = {
+  getCard: "get card",
+  alreadyHaveCard: "signin",
+  login: "signin",
+  createAccount: "signup",
+  logIn: "signin",
+  close: "close",
+} as const;
+
+function isLoginInProgress(value: CardLoginStateValue, keepLoginPage: boolean): boolean {
+  if (PRESSABLE_LOGIN_STATES.has(value)) return false;
+  return !(keepLoginPage && value === "ready");
+}
+
+/**
+ * Turns one machine snapshot into the view props. It is a pure function so the mapping can be read,
+ * and tested, without a React tree.
+ */
+export function mapSnapshotToViewModel(
+  value: CardLoginStateValue,
+  error: CardAuthErrorCopy | null,
+  copy: CardLoginCopy,
+  onLoginPress: () => void,
+  onAlreadyHaveCardPress: () => void,
+  intro: CardLoginIntroViewProps,
+  keepLoginPage = false,
+): CardLoginViewModel {
+  // Nothing to offer: `ready` means the holder is signed in already, and `More` holds the screen.
+  if (value === "ready" && !keepLoginPage) {
+    return null;
+  }
+
+  return {
+    ...copy,
+    isResolving: SESSION_RESOLVING_STATES.has(value),
+    isLoading: isLoginInProgress(value, keepLoginPage),
+    error,
+    onLoginPress,
+    onAlreadyHaveCardPress,
+    intro,
+  };
+}
+
+export function useCardLoginViewModel({
+  openHostedLogin,
+  openHostedPage,
+  mobileWallet,
+  oauthConfig,
+  callback,
+  requestProtection,
+  keepLoginPage,
+  onCreateAccount,
+  onLogIn,
+}: CardLoginViewModelParams): CardLoginViewModel {
+  const { t } = useTranslation();
+  const dispatch = useDispatch<CardLoginDispatch>();
+  const isSignedIn = useSelector(selectIsSignedIn);
+  const hasSeenLoginIntro = useSelector(selectPayCardHasSeenLoginIntro);
+  const [isIntroRequested, setIsIntroRequested] = useState(false);
+  const [hasSignupFailed, setHasSignupFailed] = useState(false);
+
+  const ports = useMemo(
+    () => createCardLoginPorts({ dispatch, openHostedLogin }),
+    [dispatch, openHostedLogin],
+  );
+
+  const [snapshot, send] = useMachine(cardLoginMachine, {
+    input: { ports, oauthConfig, callback },
+  });
+
+  const callbackCode = callback?.code;
+  const callbackState = callback?.state;
+  const callbackAppId = callback?.appId;
+
+  useEffect(() => {
+    // A redirect that arrives while the screen is already open. The machine ignores it unless it is
+    // waiting for one, so a repeat is harmless: the first callback wins.
+    if (callbackCode) {
+      send({
+        type: "CALLBACK_RECEIVED",
+        code: callbackCode,
+        state: callbackState,
+        appId: callbackAppId,
+      });
+    }
+  }, [callbackCode, callbackState, callbackAppId, send]);
+
+  const isSessionResolving = SESSION_RESOLVING_STATES.has(snapshot.value);
+
+  useLayoutEffect(() => {
+    dispatch(setSessionResolving(isSessionResolving));
+
+    return () => {
+      dispatch(setSessionResolving(false));
+    };
+  }, [dispatch, isSessionResolving]);
+
+  useEffect(() => {
+    // `More` ended the session. `ready` raises the flag on entry, so a lowered flag while the
+    // machine still reads `ready` can only come from there, and this puts the login back on offer.
+    if (!isSignedIn && snapshot.value === "ready") {
+      send({ type: "SESSION_ENDED" });
+    }
+  }, [isSignedIn, snapshot.value, send]);
+
+  const isIntroOpen = isIntroRequested && snapshot.value === "idle";
+
+  // Both ways to Baanx go through here: signing up and logging in alike need the app protected
+  // first, and a host that declines leaves the card where it was rather than carrying on.
+  const whenProtected = useCallback(
+    async () => !requestProtection || (await requestProtection()),
+    [requestProtection],
+  );
+
+  const startLogin = useCallback(() => {
+    if (onLogIn) {
+      onLogIn();
+      return;
+    }
+
+    setHasSignupFailed(false);
+    dispatch(setPendingLoginType("signin"));
+
+    void (async () => {
+      if (await whenProtected()) {
+        send({ type: "LOGIN" });
+      }
+    })();
+  }, [dispatch, onLogIn, send, whenProtected]);
+
+  const openSignup = useCallback(() => {
+    if (onCreateAccount) {
+      onCreateAccount();
+      return;
+    }
+
+    setHasSignupFailed(false);
+
+    void (async () => {
+      if (!(await whenProtected())) {
+        return;
+      }
+
+      dispatch(setPendingLoginType("signup"));
+
+      try {
+        if (openHostedPage) {
+          await openHostedPage(SIGNUP_PATH);
+          return;
+        }
+        await openHostedLogin(buildSignupUrl(oauthConfig), oauthConfig.deepLink);
+      } catch {
+        setHasSignupFailed(true);
+      }
+    })();
+  }, [dispatch, onCreateAccount, openHostedPage, openHostedLogin, oauthConfig, whenProtected]);
+
+  const trackCta = useCallback((button: (typeof TRACK_BUTTON)[keyof typeof TRACK_BUTTON]) => {
+    trackButtonClicked({
+      button,
+      flow: CARD_LOGIN_INTRO_FLOW,
+      page: CARD_LOGIN_INTRO_PAGE,
+    });
+  }, []);
+
+  const onLoginPress = useCallback(() => {
+    if (snapshot.value === "awaitingCallback" || hasSeenLoginIntro) {
+      trackCta(TRACK_BUTTON.login);
+      startLogin();
+      return;
+    }
+    trackCta(TRACK_BUTTON.getCard);
+    setIsIntroRequested(true);
+  }, [hasSeenLoginIntro, snapshot.value, startLogin, trackCta]);
+
+  const onAlreadyHaveCardPress = useCallback(() => {
+    trackCta(TRACK_BUTTON.alreadyHaveCard);
+    startLogin();
+  }, [startLogin, trackCta]);
+
+  const onIntroActionPress = useCallback(
+    (id: CardLoginIntroActionId) => {
+      if (!isIntroOpen) {
+        return;
+      }
+      trackCta(id === "createAccount" ? TRACK_BUTTON.createAccount : TRACK_BUTTON.logIn);
+      setIsIntroRequested(false);
+
+      if (id === "createAccount") {
+        openSignup();
+        return;
+      }
+
+      startLogin();
+    },
+    [isIntroOpen, openSignup, startLogin, trackCta],
+  );
+
+  const onIntroClose = useCallback(() => {
+    if (!isIntroOpen) {
+      return;
+    }
+    trackCta(TRACK_BUTTON.close);
+    setIsIntroRequested(false);
+  }, [isIntroOpen, trackCta]);
+
+  const introRows = useMemo(() => {
+    const wallet = t(`${INTRO_KEY_PREFIX}.wallets.${mobileWallet}`);
+
+    return INTRO_ROWS.map(({ icon, key }) => ({
+      icon,
+      title: t(`${INTRO_KEY_PREFIX}.rows.${key}.title`),
+      description: t(`${INTRO_KEY_PREFIX}.rows.${key}.description`, { wallet }),
+    }));
+  }, [t, mobileWallet]);
+
+  const introActions = useMemo(
+    () =>
+      INTRO_ACTIONS.map(({ id, appearance }) => ({
+        id,
+        appearance,
+        label: t(`${INTRO_KEY_PREFIX}.${id}`),
+      })),
+    [t],
+  );
+
+  const copy = useMemo<CardLoginCopy>(() => {
+    const stage = hasSeenLoginIntro ? "afterIntro" : "beforeIntro";
+
+    return {
+      title: t(`${LOGIN_KEY_PREFIX}.title`),
+      headline: t(`${LOGIN_KEY_PREFIX}.${stage}.title`),
+      description: t(`${LOGIN_KEY_PREFIX}.${stage}.description`),
+      loginLabel: t(`${LOGIN_KEY_PREFIX}.${stage}.action`),
+      alreadyHaveCardLabel: hasSeenLoginIntro
+        ? null
+        : t(`${LOGIN_KEY_PREFIX}.beforeIntro.alreadyHaveCard`),
+    };
+  }, [t, hasSeenLoginIntro]);
+
+  const intro = useMemo<CardLoginIntroViewProps>(
+    () => ({
+      isOpen: isIntroOpen,
+      title: t(`${INTRO_KEY_PREFIX}.title`),
+      providedBy: t(`${INTRO_KEY_PREFIX}.providedBy`),
+      rows: introRows,
+      actions: introActions,
+      onActionPress: onIntroActionPress,
+      onClose: onIntroClose,
+    }),
+    [isIntroOpen, t, introRows, introActions, onIntroActionPress, onIntroClose],
+  );
+
+  const isMachineErrorState = snapshot.value === "authError" || snapshot.value === "userFetchError";
+  const machineErrorKind = isMachineErrorState ? snapshot.context.errorKind : null;
+
+  const errorKind: PayCardLoginErrorKind | null = hasSignupFailed
+    ? "browser_open_failed"
+    : machineErrorKind;
+
+  const onRetry = useCallback(() => {
+    if (hasSignupFailed) {
+      setHasSignupFailed(false);
+      return;
+    }
+
+    send({ type: "RETRY" });
+  }, [hasSignupFailed, send]);
+
+  const onDismiss = useCallback(() => {
+    if (hasSignupFailed) {
+      setHasSignupFailed(false);
+      return;
+    }
+
+    send({ type: "DISMISS" });
+  }, [hasSignupFailed, send]);
+
+  const error = useMemo<CardAuthErrorCopy | null>(() => {
+    if (!errorKind) {
+      return null;
+    }
+
+    return {
+      title: t(`${LOGIN_KEY_PREFIX}.errors.${errorKind}.title`),
+      description: t(`${LOGIN_KEY_PREFIX}.errors.${errorKind}.description`),
+      ctaLabel: t(
+        `${LOGIN_KEY_PREFIX}.errors.${
+          errorKind === "fetch_user_failed" ? "retryUser" : "retryLogin"
+        }`,
+      ),
+      onRetry,
+      onDismiss,
+    };
+  }, [errorKind, t, onRetry, onDismiss]);
+
+  return mapSnapshotToViewModel(
+    snapshot.value,
+    error,
+    copy,
+    onLoginPress,
+    onAlreadyHaveCardPress,
+    intro,
+    keepLoginPage,
+  );
+}

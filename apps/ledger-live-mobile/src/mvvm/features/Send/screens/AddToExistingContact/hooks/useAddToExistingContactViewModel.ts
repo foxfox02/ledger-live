@@ -1,0 +1,74 @@
+import { track } from "@shared/analytics";
+import { useCallback, useMemo, useState } from "react";
+import type { Contact, ContactId } from "@domain/entity-contact";
+import { useContacts, useContactsMeContact } from "@features/platform-contacts";
+import {
+  useContactsSearchViewModel,
+  type ContactsListViewLabels,
+} from "@features/flow-contacts-list";
+import { useSendFlowTrackingProperties } from "LLM/features/Send/hooks/useSendFlowTrackingProperties";
+import { useTranslation } from "~/context/Locale";
+
+export type UseAddToExistingContactViewModelOptions = Readonly<{
+  startForContact: (contact: Contact) => Promise<void>;
+}>;
+
+export function useAddToExistingContactViewModel({
+  startForContact,
+}: UseAddToExistingContactViewModelOptions) {
+  const { t } = useTranslation();
+  const contacts = useContacts();
+  const meContact = useContactsMeContact();
+  const trackingProperties = useSendFlowTrackingProperties();
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const labels = useMemo(
+    (): ContactsListViewLabels => ({
+      title: t("send.newSendFlow.addContact.selectContact"),
+      searchPlaceholder: t("contacts.searchPlaceholder"),
+      searchNoResults: t("contacts.searchNoResults"),
+      addContact: t("contacts.addContact"),
+      formatAddressCount: count => t("contacts.addressCount", { count }),
+    }),
+    [t],
+  );
+
+  const listViewModel = useContactsSearchViewModel(searchQuery);
+
+  const onSearchQueryChange = useCallback((query: string) => {
+    setSearchQuery(query);
+  }, []);
+
+  const onSelectContact = useCallback(
+    (contactId: ContactId) => {
+      const selectedContact =
+        contacts.find(contact => contact.id === contactId) ??
+        (meContact.id === contactId ? meContact : undefined);
+
+      if (!selectedContact) {
+        return;
+      }
+
+      track("button_clicked", {
+        button: "contact",
+        page: "select existing contact",
+        ...trackingProperties,
+      });
+      void startForContact(selectedContact);
+    },
+    [contacts, meContact, startForContact, trackingProperties],
+  );
+
+  const resetSearch = useCallback(() => {
+    setSearchQuery("");
+  }, []);
+
+  return {
+    listViewModel,
+    labels,
+    searchQuery,
+    onSearchQueryChange,
+    onSelectContact,
+    resetSearch,
+  };
+}

@@ -4,6 +4,8 @@ import {
   setBottomPortfolioCards,
   setActionCards,
   setNotificationsCards,
+  setLocalCategoryCards,
+  addLocalContentCards,
 } from "~/renderer/actions/dynamicContent";
 import {
   portfolioContentCardSelector,
@@ -17,12 +19,19 @@ import {
   NotificationContentCard,
   LocationContentCard,
 } from "~/types/dynamicContent";
+import {
+  buildDefaultHardwareCarouselValues,
+  buildHardwareCarouselDebugCards,
+  DEBUG_CARD_PREFIX,
+  HARDWARE_CAROUSEL_SAMPLE_PRODUCTS,
+  type HardwareCarouselBuilderValues,
+} from "../hardwareCarouselDebug";
 
 const generateNewPortfolioContentCard = (
   title: string,
   description: string,
   image: string,
-  location: LocationContentCard.Portfolio | LocationContentCard.BottomPortfolio,
+  location: PortfolioContentCard["location"],
   order?: number,
   url?: string,
   cta?: string,
@@ -203,11 +212,38 @@ export const useGenerateLocalBraze = () => {
     dispatch(setNotificationsCards([...notificationCards, newCard]));
   };
 
+  const addLocalHardwareCarouselCard = (values: HardwareCarouselBuilderValues) => {
+    const cardId = `${DEBUG_CARD_PREFIX}-top-wallet-hardware-${Date.now()}`;
+    const { category, card } = buildHardwareCarouselDebugCards(values, cardId);
+    dispatch(addLocalContentCards({ category, cards: [card] }));
+  };
+
+  const seedHardwareCarouselSample = () => {
+    const baseTimestamp = Date.now();
+    const categoryTitle = "Touchscreen offers";
+    HARDWARE_CAROUSEL_SAMPLE_PRODUCTS.forEach((sample, index) => {
+      const values: HardwareCarouselBuilderValues = {
+        ...buildDefaultHardwareCarouselValues(),
+        categoryTitle,
+        productTitle: sample.productTitle,
+        subDescription: sample.subDescription,
+        tag: sample.tag,
+        mediaUrl: sample.mediaUrl,
+        link: sample.link,
+        order: String(index),
+      };
+      const cardId = `${DEBUG_CARD_PREFIX}-top-wallet-hardware-${baseTimestamp}-${index}`;
+      const { category, card } = buildHardwareCarouselDebugCards(values, cardId);
+      dispatch(addLocalContentCards({ category, cards: [card] }));
+    });
+  };
+
   const dismissLocalCards = () => {
     dispatch(setPortfolioCards([]));
     dispatch(setBottomPortfolioCards([]));
     dispatch(setActionCards([]));
     dispatch(setNotificationsCards([]));
+    dispatch(setLocalCategoryCards({ categories: [], childCards: [] }));
   };
 
   return {
@@ -215,6 +251,8 @@ export const useGenerateLocalBraze = () => {
     addLocalBottomPortfolioCard,
     addLocalActionCard,
     addLocalNotificationCard,
+    addLocalHardwareCarouselCard,
+    seedHardwareCarouselSample,
     dismissLocalCards,
   };
 };

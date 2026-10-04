@@ -1,49 +1,43 @@
 import { Box } from "@ledgerhq/lumen-ui-rnative";
-import { CryptoOrTokenCurrency } from "@domain/entity-currency";
-import { Account, AccountLike } from "@ledgerhq/types-live";
-import type { Transaction } from "@ledgerhq/live-common/generated/types";
+import { ContactsFeatureIntroductionSheet } from "LLM/features/Contacts/screens/ContactsPage/components/ContactsFeatureIntroductionSheet";
 import { SendFlowLayout } from "LLM/features/Send/components/SendFlowLayout";
 import { MemoControls } from "LLM/features/Send/components/Memo/MemoControls";
-import { useMemoViewModel } from "LLM/features/Send/components/Memo/hooks/useMemoViewModel";
-import { shouldShowMatchedAddress } from "@ledgerhq/live-common/flows/send/recipient/utils/shouldShowMatchedAddress";
-import { useSendFlowData } from "LLM/features/Send/context/SendFlowContext";
-import React, { useCallback, useEffect, useMemo } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView } from "react-native";
-import { useRecipientScreenView } from "../hooks/useRecipientScreenView";
+import React from "react";
+import { KeyboardAvoidingView, ScrollView } from "react-native";
+import type { RecipientScreenContentViewModel } from "../hooks/useRecipientScreenContentViewModel";
 import { AddressMatchedSection } from "./AddressMatchedSection";
 import { AddressValidationError } from "./AddressValidationError";
 import { LoadingState } from "./LoadingState";
 import { PasteFromClipboard } from "./PasteFromClipboard";
+import { ContactAddressPicker } from "@features/flow-pay-contact";
+import { RecipientContactsList } from "./RecipientContactsList";
+import { RecipientEmptyContactsState } from "./RecipientEmptyContactsState";
 import { ValidationBanner } from "./ValidationBanner";
-import { useAnalytics } from "~/analytics";
-import { getSendFlowTrackingProperties } from "@ledgerhq/ledger-wallet-framework/tracking/send";
-import { shouldUseKeyboardAvoidance } from "~/logic/keyboardVisible";
 
 type RecipientScreenViewProps = Readonly<{
-  account: AccountLike;
-  parentAccount?: Account | null;
-  transaction?: Transaction | null;
-  currency: CryptoOrTokenCurrency;
-  onAddressSelected: (address: string, ensName?: string) => void;
-  recipientSupportsDomain: boolean;
-  onMemoProceed: () => void;
+  viewModel: RecipientScreenContentViewModel;
 }>;
 
-export const RecipientScreenView = ({
-  account,
-  parentAccount,
-  transaction,
-  currency,
-  onAddressSelected,
-  recipientSupportsDomain,
-  onMemoProceed,
-}: RecipientScreenViewProps) => {
+export const RecipientScreenView = ({ viewModel }: RecipientScreenViewProps) => {
+  const {
+    recipient,
+    memo,
+    showMemo,
+    showMatched,
+    shouldShowErrorBanner,
+    keyboardBehavior,
+    addressMatchedSectionViewModel,
+  } = viewModel;
   const {
     isLoading,
     showInitialState,
-    showMatchedAddress,
-    result,
-    searchValue,
+    showContactsList,
+    showContactSearchResult,
+    showEmptyContactsState,
+    contactsOnNetwork,
+    contactSearchResult,
+    handleContactSelect,
+    contactAddressPicker,
     showBridgeSenderError,
     bridgeSenderError,
     showSanctionedBanner,
@@ -52,90 +46,16 @@ export const RecipientScreenView = ({
     showAddressValidationError,
     bridgeRecipientError,
     bridgeRecipientWarning,
-    handleAddressSelect,
-    isAddressComplete,
-    isAddressValid,
     addressValidationErrorType,
     clipboardAddress,
     handlePasteFromClipboard,
-  } = useRecipientScreenView({
-    account,
-    parentAccount,
-    transaction,
-    currency,
-    onAddressSelected,
-    recipientSupportsDomain,
-  });
-
-  const { uiConfig } = useSendFlowData();
-  const { track } = useAnalytics();
-  const trackingProperties = useMemo(() => {
-    return {
-      ...getSendFlowTrackingProperties(account, parentAccount),
-      button: "my accounts",
-      page: "step recipient",
-    };
-  }, [account, parentAccount]);
-
-  const handleSkipMemo = useCallback(() => {
-    track("button_clicked", {
-      ...trackingProperties,
-      button: "skip",
-      page: "step memo",
-    });
-    onMemoProceed();
-  }, [track, onMemoProceed, trackingProperties]);
-
-  const resolvedAddress = result?.resolvedAddress ?? searchValue;
-  const showMemo = uiConfig.hasMemo && isAddressValid;
-  const memoVm = useMemoViewModel({
-    address: showMemo ? resolvedAddress : "",
-    onSkip: handleSkipMemo,
-  });
-  const showMatched = shouldShowMatchedAddress({
-    showMatchedAddress,
-    hasMemo: uiConfig.hasMemo,
-    hasFilledMemo: memoVm.hasFilledMemo,
-    hasMemoError: !!memoVm.memoError,
-  });
-
-  const handleMatchedAddress = useCallback(
-    (address: string, ensName?: string) => {
-      track("button_clicked", trackingProperties);
-      handleAddressSelect(address, ensName);
-    },
-    [track, trackingProperties, handleAddressSelect],
-  );
-
-  const shouldShowErrorBanner =
-    !isLoading &&
-    (showBridgeSenderError ||
-      showSanctionedBanner ||
-      showBridgeRecipientError ||
-      showBridgeRecipientWarning);
-
-  useEffect(() => {
-    if (showMemo) {
-      track("send_modal", { ...trackingProperties, name: "step memo" });
-    }
-  }, [showMemo, track, trackingProperties]);
-
-  useEffect(() => {
-    if (uiConfig.hasMemo && memoVm.hasFilledMemo && !memoVm.memoError) {
-      track("send_modal", {
-        ...trackingProperties,
-        button: "skip",
-        name: "step memo",
-      });
-    }
-  }, [track, trackingProperties, uiConfig.hasMemo, memoVm.hasFilledMemo, memoVm.memoError]);
-
-  const keyboardBehavior = shouldUseKeyboardAvoidance(Platform.OS, Platform.Version)
-    ? "padding"
-    : undefined;
+    featureIntroduction,
+  } = recipient;
 
   return (
     <SendFlowLayout>
+      <ContactsFeatureIntroductionSheet {...featureIntroduction} />
+
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={keyboardBehavior}>
         <ScrollView
           style={{ flex: 1, marginHorizontal: -8 }}
@@ -150,18 +70,25 @@ export const RecipientScreenView = ({
             <PasteFromClipboard address={clipboardAddress} onPaste={handlePasteFromClipboard} />
           )}
 
-          {showMemo && <MemoControls vm={memoVm} />}
+          {showInitialState && showEmptyContactsState && <RecipientEmptyContactsState />}
 
-          {showMatched && (
-            <AddressMatchedSection
-              searchResult={result}
-              searchValue={searchValue}
-              onSelect={handleMatchedAddress}
-              isSanctioned={showSanctionedBanner}
-              isAddressComplete={isAddressComplete}
-              hasBridgeError={showBridgeRecipientError}
+          {showInitialState && showContactsList && (
+            <RecipientContactsList
+              contacts={contactsOnNetwork}
+              onContactSelect={handleContactSelect}
             />
           )}
+
+          {showContactSearchResult && contactSearchResult && (
+            <RecipientContactsList
+              contacts={[contactSearchResult]}
+              onContactSelect={handleContactSelect}
+            />
+          )}
+
+          {showMemo && <MemoControls vm={memo} />}
+
+          {showMatched && <AddressMatchedSection viewModel={addressMatchedSectionViewModel} />}
 
           {showAddressValidationError && (
             <AddressValidationError error={addressValidationErrorType} />
@@ -192,6 +119,7 @@ export const RecipientScreenView = ({
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+      <ContactAddressPicker {...contactAddressPicker} />
     </SendFlowLayout>
   );
 };

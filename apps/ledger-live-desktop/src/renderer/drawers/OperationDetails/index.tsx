@@ -31,7 +31,8 @@ import { useNavigate, useLocation } from "react-router";
 import styled from "styled-components";
 import { urls } from "~/config/urls";
 import { openModal } from "~/renderer/actions/modals";
-import TrackPage, { setTrackingSource } from "~/renderer/analytics/TrackPage";
+import { setTrackingSource } from "@shared/analytics";
+import { TrackPage } from "@shared/analytics-react";
 import AccountTagDerivationMode from "~/renderer/components/AccountTagDerivationMode";
 import Alert from "~/renderer/components/Alert";
 import Box from "~/renderer/components/Box";
@@ -226,7 +227,7 @@ const OperationD = (props: Props) => {
     });
   }, [operation, props, account]);
   const goToMainAccount = useCallback(() => {
-    const url = `/account/${mainAccount.id}`;
+    const url = getAccountUrl(mainAccount.id);
     if (location.pathname !== url) {
       setTrackingSource("operation details");
       navigate(url);

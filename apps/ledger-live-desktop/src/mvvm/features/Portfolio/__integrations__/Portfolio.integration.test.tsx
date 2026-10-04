@@ -2,27 +2,32 @@ import React from "react";
 import { render, screen, waitFor, withFlagOverrides } from "tests/testSetup";
 import { server, http, HttpResponse } from "tests/server";
 import { MarketMockedResponse } from "tests/handlers/fixtures/market";
-import i18next from "i18next";
+import i18next from "~/renderer/i18n/init";
 import PortfolioPage from "../index";
 import type { Portfolio as PortfolioType } from "@ledgerhq/types-live";
 import { PortfolioView } from "../PortfolioView";
-import * as portfolioReact from "@ledgerhq/live-countervalues-react/portfolio";
+import * as portfolioReact from "@ledgerhq/live-common/portfolio/portfolioReact";
+
+jest.mock("@ledgerhq/live-common/portfolio/portfolioReact", () => ({
+  ...jest.requireActual("@ledgerhq/live-common/portfolio/portfolioReact"),
+  usePortfolioThrottled: jest.fn(),
+}));
 import * as countervaluesReact from "@ledgerhq/live-countervalues-react";
 import { useNavigate } from "react-router";
 import { BTC_ACCOUNT, EMPTY_BTC_ACCOUNT } from "../../__mocks__/accounts.mock";
 import { createMockCategorizedAssets } from "@ledgerhq/asset-aggregation/mocks/categorizedAssets.mock";
 import { AFTER_ONBOARDING_STATE } from "~/renderer/reducers/settings";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import { PORTFOLIO_TRACKING_PAGE_NAME } from "LLD/utils/constants";
-import { mockStocksResponse } from "@ledgerhq/live-common/dada-client/mocks/stocks.mock";
+import { mockStocksResponse } from "@domain/api-aggregated-assets/mock/stocks";
 
 const MARKET_API_ENDPOINT = "https://countervalues.live.ledger.com/v3/markets";
 const DADA_API_ENDPOINT = "https://dada.api.ledger-test.com/v1/assets";
 
 const mockNavigate = jest.fn();
 
-jest.mock("~/renderer/analytics/segment", () => ({
-  ...jest.requireActual("~/renderer/analytics/segment"),
+jest.mock("@shared/analytics", () => ({
+  ...jest.requireActual("@shared/analytics"),
   track: jest.fn(),
 }));
 
@@ -86,12 +91,7 @@ jest.mock("@ledgerhq/live-common/exchange/swap/hooks/index", () => ({
   }),
 }));
 
-// Spies are created per-test in `beforeEach` so the global `restoreMocks: true`
-// from jest config can restore them between tests cleanly.
-let mockUsePortfolioThrottled: jest.SpyInstance<
-  ReturnType<typeof portfolioReact.usePortfolioThrottled>,
-  Parameters<typeof portfolioReact.usePortfolioThrottled>
->;
+let mockUsePortfolioThrottled: jest.MockedFunction<typeof portfolioReact.usePortfolioThrottled>;
 let mockUseCountervaluesPolling: jest.SpyInstance<
   ReturnType<typeof countervaluesReact.useCountervaluesPolling>,
   Parameters<typeof countervaluesReact.useCountervaluesPolling>
@@ -177,7 +177,7 @@ describe("PortfolioView", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockUsePortfolioThrottled = jest.spyOn(portfolioReact, "usePortfolioThrottled");
+    mockUsePortfolioThrottled = jest.mocked(portfolioReact.usePortfolioThrottled);
     mockUseCountervaluesPolling = jest.spyOn(countervaluesReact, "useCountervaluesPolling");
     mockUsePortfolioThrottled.mockReturnValue(defaultPortfolioMock);
     mockUseCountervaluesPolling.mockReturnValue(defaultPollingMock);
@@ -633,73 +633,5 @@ describe("PortfolioView", () => {
 
       expect(screen.queryByTestId("stocks-section")).toBeNull();
     });
-  });
-});
-
-const walletV4TourFlagOverrides = withFlagOverrides({
-  lwdWallet40: {
-    enabled: true,
-    params: { tour: true },
-  },
-});
-
-describe("Portfolio (Wallet V4 Tour)", () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockUsePortfolioThrottled = jest.spyOn(portfolioReact, "usePortfolioThrottled");
-    mockUseCountervaluesPolling = jest.spyOn(countervaluesReact, "useCountervaluesPolling");
-    mockUsePortfolioThrottled.mockReturnValue(defaultPortfolioMock);
-    mockUseCountervaluesPolling.mockReturnValue(defaultPollingMock);
-    mockUseCategorizedAssetsFromPortfolio.mockReturnValue(defaultCategorizedAssetsMock());
-  });
-
-  afterEach(() => {
-    server.resetHandlers();
-  });
-
-  it("shows Wallet V4 Tour dialog when tour enabled and not seen", async () => {
-    const { user } = render(<PortfolioPage />, {
-      initialState: {
-        settings: {
-          ...AFTER_ONBOARDING_STATE,
-          hasSeenWalletV4Tour: false,
-        },
-        ...walletV4TourFlagOverrides,
-      },
-    });
-
-    await waitFor(() => {
-      expect(screen.getByRole("dialog")).toBeInTheDocument();
-    });
-    expect(track).toHaveBeenCalledWith("product_tour_card", {
-      page: "Product Tour WV4",
-      card: 1,
-    });
-
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    expect(track).toHaveBeenCalledWith("product_tour_card", {
-      page: "Product Tour WV4",
-      card: 2,
-    });
-
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    expect(track).toHaveBeenCalledWith("product_tour_card", {
-      page: "Product Tour WV4",
-      card: 3,
-    });
-  });
-
-  it("does not show Wallet V4 Tour when already seen", () => {
-    render(<PortfolioPage />, {
-      initialState: {
-        settings: {
-          ...AFTER_ONBOARDING_STATE,
-          hasSeenWalletV4Tour: true,
-        },
-        ...walletV4TourFlagOverrides,
-      },
-    });
-
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

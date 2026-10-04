@@ -2,7 +2,7 @@ import { BigNumber } from "bignumber.js";
 import type { OperationType } from "@ledgerhq/types-live";
 import type { DecryptedOutput, ShieldedTransaction, SpendableNote } from "../network/types";
 import { encodeOperationId } from "@ledgerhq/ledger-wallet-framework/operation";
-import type { BtcOperation } from "../types/bridge";
+import type { BtcOperation, ZcashOperationExtra } from "../types/bridge";
 
 /**
  * Value the transaction moved out of the shielded pools through its transparent
@@ -74,6 +74,21 @@ export const getTxType = (tx: ShieldedTransaction): OperationType => {
 
   return "SHIELDED_TX_INTERNAL";
 };
+
+/**
+ * The type the operation carries, which is not always the type the transaction
+ * has.
+ *
+ * A self-transfer moved no value across the wallet boundary, so it has nothing to
+ * report in a history list: it names no counterparty, its value is 0, and when it
+ * is the shielded leg of a transparent-funded send — a t→z sweep whose whole
+ * amount landed on the internal address — the transparent operation already lists
+ * the same transaction. `NONE` is how the platform keeps such a transaction in the
+ * account data while leaving it out of the lists it would only clutter (see
+ * `flattenOperationWithInternalsAndNfts`).
+ */
+const toOperationType = (txType: OperationType): OperationType =>
+  txType === "SHIELDED_TX_INTERNAL" ? "NONE" : txType;
 
 export function applyOutputDelta(
   balance: BigNumber,
@@ -201,6 +216,15 @@ export function collectIronwoodSpendableNotes(
 
 /**
  * Converts raw shielded transactions to BtcOperation format.
+ *
+ * Operation value is the amount the transaction actually moved, counted across
+ * every pool. `account.balance` deliberately counts Ironwood only (see
+ * `getPrivateBalance`), so an account still holding Orchard or Sapling notes has
+ * operations that do not sum to its balance. That divergence is the chosen
+ * trade-off: excluding the deprecated pools from what is spendable must not make
+ * the history deny that the funds moved. Valuing an Orchard send at 0 would be
+ * the only record of that payment reading as a 0-amount row, since
+ * `mapTxToOperations` emits nothing for a recipient the account does not own.
  */
 export function convertShieldedTransactionsToOperations(
   shieldedTransactions: ShieldedTransaction[],
@@ -209,9 +233,9 @@ export function convertShieldedTransactionsToOperations(
   return shieldedTransactions.map(tx => {
     const txType = getTxType(tx);
     const allNotes = [
+      ...(tx.decryptedData?.ironwood_outputs ?? []),
       ...(tx.decryptedData?.orchard_outputs ?? []),
       ...(tx.decryptedData?.sapling_outputs ?? []),
-      ...(tx.decryptedData?.ironwood_outputs ?? []),
     ];
     const sumNotes = (transferType: string) =>
       allNotes
@@ -229,19 +253,28 @@ export function convertShieldedTransactionsToOperations(
       value = sumNotes("outgoing").plus(deshieldedValue(tx)).plus(fee);
     }
 
+    const operationType = toOperationType(txType);
+
+    let memo: string | undefined;
+    if (txType.endsWith("_OUT")) {
+      memo = allNotes.find(n => n.transfer_type === "outgoing" && n.memo)?.memo;
+    } else if (txType.endsWith("_IN")) {
+      memo = allNotes.find(n => n.transfer_type === "incoming" && n.memo)?.memo;
+    }
+
     const operation: BtcOperation = {
-      id: encodeOperationId(accountId, tx.id, txType),
+      id: encodeOperationId(accountId, tx.id, operationType),
       hash: tx.id,
       accountId,
       blockHash: tx.blockHash,
       blockHeight: tx.blockHeight,
-      type: txType,
+      type: operationType,
       senders: [],
       recipients: [],
       date: new Date(tx.timestamp * 1000), // zcash shielded transaction timestamps are Unix seconds.
       value,
       fee,
-      extra: {},
+      extra: (memo ? { memo } : {}) as ZcashOperationExtra,
       transactionSequenceNumber: new BigNumber(tx.blockHeight),
       subOperations: [],
       nftOperations: [],

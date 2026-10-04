@@ -1,22 +1,53 @@
 import { SEND_FLOW_STEP, type SendFlowStep } from "@ledgerhq/live-common/flows/send/types";
 import type { SendStepConfig, SendFlowConfig } from "./types";
 
+export const FEE_PLACEHOLDER = "--";
+
 export const SEND_FLOW_STEP_ORDER: readonly SendFlowStep[] = [
+  SEND_FLOW_STEP.BALANCE_TYPE,
   SEND_FLOW_STEP.RECIPIENT,
   SEND_FLOW_STEP.AMOUNT,
   SEND_FLOW_STEP.RECENT_HISTORY,
+  SEND_FLOW_STEP.ADD_CONTACT,
+  SEND_FLOW_STEP.ADD_NEW_CONTACT,
+  SEND_FLOW_STEP.ADD_TO_EXISTING_CONTACT,
   SEND_FLOW_STEP.CUSTOM_FEES,
   SEND_FLOW_STEP.COIN_CONTROL,
+  SEND_FLOW_STEP.FEE_PAYMENT,
+  SEND_FLOW_STEP.SPONSORED_RENT_SIGNATURE,
+  SEND_FLOW_STEP.SPONSORED_POLLING,
+  SEND_FLOW_STEP.SPONSORED_FAILURE,
   SEND_FLOW_STEP.SIGNATURE,
   SEND_FLOW_STEP.CONFIRMATION,
+  SEND_FLOW_STEP.SKIP_MEMO_CONFIRMATION,
+  SEND_FLOW_STEP.PAY_SUCCESS,
 ];
 
 export const SEND_STEP_CONFIGS: Record<SendFlowStep, SendStepConfig> = {
+  [SEND_FLOW_STEP.BALANCE_TYPE]: {
+    id: SEND_FLOW_STEP.BALANCE_TYPE,
+    canGoBack: false,
+    showTitle: true,
+    titleKey: "newSendFlow.balanceType.title",
+    // Matches the design: title only, straight into the two balance rows -- no
+    // account name, no aggregate balance (a third, summed figure would be
+    // confusing on a screen whose whole purpose is choosing between two pools).
+    showAvailable: false,
+    height: "fit",
+  },
   [SEND_FLOW_STEP.RECIPIENT]: {
     id: SEND_FLOW_STEP.RECIPIENT,
     canGoBack: true,
     addressInput: true,
+  },
+  [SEND_FLOW_STEP.SKIP_MEMO_CONFIRMATION]: {
+    id: SEND_FLOW_STEP.SKIP_MEMO_CONFIRMATION,
+    canGoBack: true,
+    floating: true,
+    titleKey: "newSendFlow.skipMemo.title",
+    showAvailable: false,
     height: "fit",
+    headerDensity: "expanded",
   },
   [SEND_FLOW_STEP.RECENT_HISTORY]: {
     id: SEND_FLOW_STEP.RECENT_HISTORY,
@@ -25,6 +56,31 @@ export const SEND_STEP_CONFIGS: Record<SendFlowStep, SendStepConfig> = {
     showTitle: false,
     showAvailable: false,
     height: "fit",
+  },
+  [SEND_FLOW_STEP.ADD_CONTACT]: {
+    id: SEND_FLOW_STEP.ADD_CONTACT,
+    canGoBack: true,
+    floating: true,
+    showTitle: false,
+    showAvailable: false,
+    height: "fit",
+  },
+  [SEND_FLOW_STEP.ADD_NEW_CONTACT]: {
+    id: SEND_FLOW_STEP.ADD_NEW_CONTACT,
+    canGoBack: true,
+    floating: true,
+    titleKey: "contacts.addContact",
+    showAvailable: false,
+    height: "fit",
+    headerDensity: "expanded",
+  },
+  [SEND_FLOW_STEP.ADD_TO_EXISTING_CONTACT]: {
+    id: SEND_FLOW_STEP.ADD_TO_EXISTING_CONTACT,
+    canGoBack: true,
+    floating: true,
+    titleKey: "newSendFlow.addContact.selectContact",
+    showAvailable: false,
+    headerDensity: "expanded",
   },
   [SEND_FLOW_STEP.AMOUNT]: {
     id: SEND_FLOW_STEP.AMOUNT,
@@ -38,6 +94,37 @@ export const SEND_STEP_CONFIGS: Record<SendFlowStep, SendStepConfig> = {
     floating: true,
     titleKey: "newSendFlow.customFees.title",
     showAvailable: false,
+  },
+  [SEND_FLOW_STEP.FEE_PAYMENT]: {
+    id: SEND_FLOW_STEP.FEE_PAYMENT,
+    canGoBack: true,
+    floating: true,
+    titleKey: "newSendFlow.feePayment.title",
+    showAvailable: false,
+    height: "fit",
+  },
+  [SEND_FLOW_STEP.SPONSORED_RENT_SIGNATURE]: {
+    id: SEND_FLOW_STEP.SPONSORED_RENT_SIGNATURE,
+    canGoBack: false,
+    floating: true,
+    titleKey: "newSendFlow.sponsoredRentSignature.title",
+    showAvailable: false,
+    height: "fit",
+  },
+  [SEND_FLOW_STEP.SPONSORED_POLLING]: {
+    id: SEND_FLOW_STEP.SPONSORED_POLLING,
+    canGoBack: false,
+    floating: true,
+    showTitle: false,
+    height: "fit",
+  },
+  [SEND_FLOW_STEP.SPONSORED_FAILURE]: {
+    id: SEND_FLOW_STEP.SPONSORED_FAILURE,
+    canGoBack: false,
+    floating: true,
+    titleKey: "newSendFlow.sponsoredFailure.title",
+    showAvailable: false,
+    height: "fit",
   },
   [SEND_FLOW_STEP.COIN_CONTROL]: {
     id: SEND_FLOW_STEP.COIN_CONTROL,
@@ -57,6 +144,22 @@ export const SEND_STEP_CONFIGS: Record<SendFlowStep, SendStepConfig> = {
     showTitle: false,
     height: "fit",
   },
+  [SEND_FLOW_STEP.PAY_SUCCESS]: {
+    id: SEND_FLOW_STEP.PAY_SUCCESS,
+    canGoBack: false,
+    showTitle: false,
+    height: "fit",
+  },
+};
+
+/** SIGNATURE's header while it signs a sponsored send's transfer, the second of its two signatures. */
+export const SPONSORED_TRANSFER_SIGNATURE_HEADER: Pick<
+  SendStepConfig,
+  "showTitle" | "titleKey" | "showAvailable"
+> = {
+  showTitle: true,
+  titleKey: "newSendFlow.sponsoredTransferSignature.title",
+  showAvailable: false,
 };
 
 export const SEND_FLOW_CONFIG: SendFlowConfig = {

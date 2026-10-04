@@ -1,14 +1,14 @@
 import { findSubAccountById } from "@ledgerhq/ledger-wallet-framework/account/helpers";
-import { getEnv } from "@ledgerhq/live-env";
 import type { AccountBridge } from "@ledgerhq/types-live";
 import BigNumber from "bignumber.js";
 import {
+  CLAIM_REWARDS_TRIGGER_TINYBARS,
   HEDERA_OPERATION_TYPES,
   HEDERA_TRANSACTION_MODES,
   MAP_STAKING_MODE_TO_MEMO,
 } from "../constants";
 import { estimateFees } from "../logic/estimateFees";
-import { isTokenAssociateTransaction, isStakingTransaction } from "../logic/utils";
+import { isTokenAssociateTransaction, isStakingTransaction, resolveConfig } from "../logic/utils";
 import type { EstimateFeesParams, Transaction } from "../types";
 import { calculateAmount } from "./utils";
 
@@ -93,8 +93,9 @@ export const prepareTransaction: AccountBridge<Transaction>["prepareTransaction"
 
     // claiming staking rewards is triggered by sending 1 tinybar to staking reward account
     if (transaction.mode === HEDERA_TRANSACTION_MODES.ClaimRewards) {
-      transaction.recipient = getEnv("HEDERA_CLAIM_REWARDS_RECIPIENT_ACCOUNT_ID");
-      transaction.amount = new BigNumber(1);
+      const config = resolveConfig(account.currency.id);
+      transaction.recipient = config.claimRewardsRecipient;
+      transaction.amount = new BigNumber(CLAIM_REWARDS_TRIGGER_TINYBARS);
     }
   }
 

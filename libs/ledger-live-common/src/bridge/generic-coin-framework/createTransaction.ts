@@ -2,6 +2,20 @@ import { Account, TokenAccount } from "@ledgerhq/types-live";
 import { getCryptoCurrencyById } from "@domain/entity-currency-crypto";
 import BigNumber from "bignumber.js";
 import { GenericTransaction } from "./types";
+import type { EvmConfigInfo } from "@ledgerhq/coin-evm/config";
+import { getCurrencyConfiguration } from "../../config";
+
+/** The plain-send defaults shared by families that add nothing of their own. */
+function sendDefaults(family: string): GenericTransaction {
+  return {
+    family,
+    amount: new BigNumber(0),
+    recipient: "",
+    fees: null,
+    useAllAmount: false,
+    mode: "send",
+  };
+}
 
 export function createTransaction(account: Account | TokenAccount): GenericTransaction {
   const currency =
@@ -52,22 +66,14 @@ export function createTransaction(account: Account | TokenAccount): GenericTrans
         recipient: "",
         useAllAmount: false,
         feesStrategy: "medium",
-        chainId: currency.ethereumLikeInfo?.chainId ?? 0,
+        chainId: getCurrencyConfiguration<EvmConfigInfo>(currency.id).chainId,
         gasLimit: new BigNumber(21000),
         maxFeePerGas: new BigNumber(0),
         maxPriorityFeePerGas: new BigNumber(0),
       };
     }
-    case "solana":
-      return {
-        family: currency.family,
-        amount: new BigNumber(0),
-        recipient: "",
-        fees: null,
-        mode: "send",
-      };
+    // hypercore has no send flow; this is a neutral tx used only for (de)serialization.
     case "hypercore":
-      // No send flow; return a neutral tx only for (de)serialization.
       return {
         family: currency.family,
         amount: new BigNumber(0),
@@ -75,17 +81,24 @@ export function createTransaction(account: Account | TokenAccount): GenericTrans
         fees: null,
         mode: "send",
       };
+    case "solana":
     case "multiversx":
+      return sendDefaults(currency.family);
     case "tron":
       return {
-        family: currency.family,
-        amount: new BigNumber(0),
-        recipient: "",
-        fees: null,
-        useAllAmount: false,
-        mode: "send",
+        ...sendDefaults(currency.family),
+        // `duration: 3` is the Tron freeze period in days. The staking screens merge their patch over
+        // this bag rather than replacing it, so a key they do not set keeps the value seeded here.
+        familySpecificData: { resource: null, duration: 3, votes: [] },
       };
+    case "near":
+    case "vechain":
     case "cardano":
+      // None has an account sequence: Cardano is UTXO, VeChain's nonce is a random uniqueness
+      // field, and a NEAR nonce belongs to an access key rather than the account. getNextSequence
+      // throws in all three modules, and utils.ts maps nonce → intent.sequence, which lets
+      // signOperation skip that call. The value is inert for crafting — each module builds its
+      // own — so the default tx is signable without callers having to set it.
       return {
         family: currency.family,
         amount: new BigNumber(0),
@@ -93,9 +106,55 @@ export function createTransaction(account: Account | TokenAccount): GenericTrans
         fees: null,
         useAllAmount: false,
         mode: "send",
-        // Cardano is UTXO — no account sequence. utils.ts maps nonce → intent.sequence, which lets
-        // signOperation skip getNextSequence (coin-cardano throws it). nonce 0 is meaningless to
-        // craft, so the default tx is signable without callers having to set it.
+        nonce: new BigNumber(0),
+      };
+    case "cosmos":
+      return {
+        family: currency.family,
+        mode: "send",
+        amount: new BigNumber(0),
+        recipient: "",
+        fees: null,
+        useAllAmount: false,
+        memoType: null,
+        memoValue: null,
+        networkInfo: null,
+      };
+    case "kaspa":
+      // UTXO chain — no account nonce/sequence, same as near/vechain/cardano above. Setting a
+      // synthetic zero nonce here (inert for crafting — craftTransaction ignores it and builds
+      // its own inputs from real UTXOs) makes transactionIntent.sequence a valid bigint, so
+      // signOperation's guard skips calling getNextSequence entirely — which is then free to
+      // throw like every other no-sequence family's, instead of needing a silent 0n stub.
+      return {
+        family: currency.family,
+        amount: new BigNumber(0),
+        recipient: "",
+        fees: null,
+        useAllAmount: false,
+        mode: "send",
+        feesStrategy: "fast",
+        nonce: new BigNumber(0),
+      };
+    case "stacks":
+      // Unlike near/vechain/cardano above, leaving nonce unset lets craftTransaction/estimateFees
+      // fetch the real sequential nonce instead of defaulting to 0.
+      return {
+        family: currency.family,
+        amount: new BigNumber(0),
+        recipient: "",
+        fees: null,
+        useAllAmount: false,
+        mode: "send",
+        assetReference: "",
+        assetOwner: "",
+      };
+    case "casper":
+      // Same no-sequence pattern as near/vechain/cardano above; ttl is Casper's replay protection.
+      return {
+        ...sendDefaults(currency.family),
+        memoType: null,
+        memoValue: null,
         nonce: new BigNumber(0),
       };
     default:

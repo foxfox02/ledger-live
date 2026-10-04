@@ -11,9 +11,18 @@ import { getChainAPI } from "../../network";
 import type { ChainAPI } from "../../network";
 import type { FeeEstimation } from "@ledgerhq/coin-module-framework/api/index";
 import { endpointByCurrencyId } from "../../utils";
+import { estimateFees } from "../estimateFees";
 import { validateIntent as validateIntentRaw } from "../validateIntent";
+import type { SolanaCoinConfig } from "../../config";
 
-const api = getChainAPI({ endpoint: endpointByCurrencyId("solana") });
+const config: SolanaCoinConfig = {
+  token2022Enabled: false,
+  legacyOCMSMaxVersion: "1.0.0",
+  status: { type: "active" },
+  name: "Solana",
+  unit: { name: "SOL", code: "SOL", magnitude: 9 },
+};
+const api = getChainAPI({ endpoint: endpointByCurrencyId(config, "solana") });
 
 const validateIntent = (
   intent: TransactionIntent<StringMemo | MemoNotSupported>,
@@ -29,10 +38,12 @@ const SENDER = "8DpKDisipx6f76cEmuGvCX9TrA3SjeR76HaTRePxHBDe";
 
 const NETWORK_FEE = 5_000n;
 const MAIN_ACCOUNT_RENT_EXEMPT = 890_880n;
+const CLASSIC_ATA_SIZE = 165;
 
-// Exact reproducer from the bug report: native = 0.00293516 SOL, spendable
-// (value - locked) = 0.00204428 SOL = classic 165-byte ATA rent + network fee.
-const BALANCE_AT_BUG_THRESHOLD = 2_044_280n + MAIN_ACCOUNT_RENT_EXEMPT;
+async function balanceAtBugThreshold(): Promise<bigint> {
+  const classicAtaRent = BigInt(await api.getMinimumBalanceForRentExemption(CLASSIC_ATA_SIZE));
+  return classicAtaRent + NETWORK_FEE + MAIN_ACCOUNT_RENT_EXEMPT;
+}
 const SPL_BALANCE = 10_000_000n;
 
 function makeNativeBalance(value: bigint, locked: bigint = MAIN_ACCOUNT_RENT_EXEMPT): Balance {
@@ -70,23 +81,30 @@ describe("validateIntent (integration)", () => {
 
   describe("SPL Token-2022 transfer to recipient without ATA", () => {
     it("packs NotEnoughGas when spendable balance equals classic ATA rent + fee (the regression scenario)", async () => {
+      const intent = makeTokenIntent(VIBECODOOR_MINT);
+      const estimation = await estimateFees(api, intent);
+      const classicAtaRent = BigInt(await api.getMinimumBalanceForRentExemption(CLASSIC_ATA_SIZE));
+
       const result = await validateIntent(
-        makeTokenIntent(VIBECODOOR_MINT),
-        [makeNativeBalance(BALANCE_AT_BUG_THRESHOLD), makeTokenBalance(VIBECODOOR_MINT)],
-        { value: NETWORK_FEE },
+        intent,
+        [makeNativeBalance(await balanceAtBugThreshold()), makeTokenBalance(VIBECODOOR_MINT)],
+        estimation,
         api,
       );
 
       expect(result.errors.gasPrice).toBeInstanceOf(NotEnoughGas);
       const fees = (result.errors.gasPrice as Error & { fees?: string }).fees;
-      expect(BigInt(fees ?? "0")).toBeGreaterThan(2_044_280n);
+      expect(Number(fees)).toBeGreaterThan(Number(classicAtaRent) / 1e9);
     });
 
     it("does not pack NotEnoughGas when spendable balance comfortably covers mint-aware ATA rent + fee", async () => {
+      const intent = makeTokenIntent(VIBECODOOR_MINT);
+      const estimation = await estimateFees(api, intent);
+
       const result = await validateIntent(
-        makeTokenIntent(VIBECODOOR_MINT),
+        intent,
         [makeNativeBalance(1_000_000_000n), makeTokenBalance(VIBECODOOR_MINT)],
-        { value: NETWORK_FEE },
+        estimation,
         api,
       );
 

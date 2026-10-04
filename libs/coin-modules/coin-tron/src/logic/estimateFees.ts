@@ -1,7 +1,13 @@
-import type { TransactionIntent } from "@ledgerhq/coin-module-framework/api/index";
-import { log } from "@ledgerhq/logs";
+import type { Logger } from "@ledgerhq/coin-module-framework/config";
+import type {
+  AssetInfo,
+  FeeEstimation,
+  TransactionIntent,
+} from "@ledgerhq/coin-module-framework/api/index";
 import BigNumber from "bignumber.js";
+import type { TronCoinConfig } from "../config";
 import {
+  DEFAULT_TRC20_FEES_LIMIT,
   fetchTronAccount,
   getChainParameters,
   getTronAccountNetwork,
@@ -10,20 +16,78 @@ import {
 import { decode58Check } from "../network/format";
 import type { AccountTronAPI, ChainParameters } from "../network/types";
 import { abiEncodeTrc20Transfer } from "../network/utils";
-import type { NetworkInfo, TronMemo } from "../types";
-import { ACTIVATION_FEES, STANDARD_FEES_NATIVE, STANDARD_FEES_TRC_20 } from "./constants";
+import type { NetworkInfo, TronMemo, TronTxData } from "../types";
+import {
+  EnergyRentInsufficientBalance,
+  EnergyRentUnsupportedIntent,
+  TronifyApiError,
+} from "../types/errors";
+import {
+  ACTIVATION_FEES,
+  MEMO_FEE_PESSIMISTIC,
+  STANDARD_FEES_NATIVE,
+  STANDARD_FEES_TRC_20,
+  TRONIFY_PAY_ASSET,
+  payAssetBaseUnits,
+  tronifyPayAsset,
+} from "./constants";
+import { getBalance } from "./getBalance";
+import { findBalance } from "./utils";
+import { getEnergyRentQuote } from "./energyRent";
+import type { EnergyRentRequest } from "./energyRent";
+
+type TronIntent = TransactionIntent<TronMemo, TronTxData>;
+
+/**
+ * Resource telemetry behind a Tron fee estimate, surfaced through `FeeEstimation.parameters` so the
+ * UI can explain *why* a fee is what it is (the LIVE-33341 energy/bandwidth tooltip) and so
+ * `validateIntent` can warn on an energy shortfall.
+ *
+ * Plain integer **strings** so nothing has to depend on a `BigNumber` shape crossing the untyped
+ * `feeParameters` channel the generic layer carries these on. Telemetry only — fee *method*
+ * selection is ADR-050's `listFeeOptions`, not this.
+ */
+export type TronResourceBreakdown = {
+  energyRequired: string;
+  energyAvailable: string;
+  bandwidthRequired: string;
+  bandwidthAvailable: string;
+  /** False when the energy simulation failed and `energyRequired` is a pessimistic sentinel. */
+  energyEstimated: boolean;
+  /**
+   * The `fee_limit` a crafted TRC-20 transaction must carry; absent on native/TRC-10, which have no
+   * such field. Deliberately separate from `value`: `value` is the *fee* — net of the sender's own
+   * energy, and `0` when energy covers the transfer — while this is a *ceiling* on what the TVM may
+   * burn, so pinning the ceiling to `value` reverts OUT_OF_ENERGY (LIVE-36865). `craftTransaction`
+   * reads it back out of `customFees.parameters`.
+   */
+  feeLimit?: string;
+};
+
+// UTF-8 byte length of a memo that will land in `raw_data.data`. A memo only reaches the chain on a
+// native or TRC-10 send (`craftSend` rejects it for TRC-20), so it is zero everywhere else. The
+// `kind === "memo"` guard mirrors `craftSend` exactly: pricing a memo the crafter would drop would
+// over-quote it.
+const memoByteLength = (intent: TronIntent): number => {
+  if (intent.type !== "send" || intent.asset.type === "trc20") return 0;
+  const memo =
+    "memo" in intent && intent.memo?.type === "string" && intent.memo.kind === "memo"
+      ? intent.memo.value
+      : "";
+  return memo ? Buffer.byteLength(memo, "utf8") : 0;
+};
 
 // Byte sizes of the fully signed transaction (raw_data + signature + protobuf wrapping).
-// Approximates bridge/utils.ts:getEstimatedBlockSize — using craftTransaction's raw_data_hex alone
-// would underestimate by ~50% because it doesn't include the signature/outer envelope. The `vote`
-// size is a flat estimate: TransactionIntent carries no vote count, so unlike getEstimatedBlockSize
-// it does not grow per vote (a minor bandwidth under-estimate for multi-vote intents).
-export const estimatedTxSize = (intent: TransactionIntent<TronMemo>): number => {
+// craftTransaction's raw_data_hex alone would underestimate by ~50%: it excludes the signature and
+// the outer envelope.
+export const estimatedTxSize = (intent: TronIntent): number => {
   switch (intent.type) {
     case "send":
-      if (intent.asset.type === "trc10") return 285; // TransferAssetContract
+      // A memo rides in `raw_data.data`, so it grows the serialized size (and thus any bandwidth burn)
+      // by its byte length; the few-byte protobuf field overhead is negligible against these estimates.
+      if (intent.asset.type === "trc10") return 285 + memoByteLength(intent); // TransferAssetContract
       if (intent.asset.type === "trc20") return 350; // TriggerSmartContract
-      return 270; // TransferContract
+      return 270 + memoByteLength(intent); // TransferContract
     case "freeze":
     case "unfreeze":
     case "claimReward":
@@ -31,30 +95,57 @@ export const estimatedTxSize = (intent: TransactionIntent<TronMemo>): number => 
     case "unDelegateResource":
     case "legacyUnfreeze":
       return 260;
-    case "vote":
-      return 290;
+    case "vote": {
+      // Each vote adds a ~19-byte protobuf entry, so a flat estimate under-prices multi-vote
+      // transactions.
+      const votes = intent.data?.votes?.length ?? 0;
+      return 290 + votes * 19;
+    }
     default:
       throw new Error(`unsupported Tron intent type for fee estimation: ${intent.type}`);
   }
 };
 
-export const estimateEnergy = async (intent: TransactionIntent<TronMemo>): Promise<number> => {
-  if (intent.asset.type !== "trc20" || !intent.asset.assetReference) {
+export const estimateEnergy = async (
+  logger: Logger,
+  config: TronCoinConfig,
+  intent: TronIntent,
+): Promise<number> => {
+  // Only a TRC20 *transfer* burns energy. Resource-staking modes never do, even when the intent
+  // still carries a token asset from a previously-selected sub-account.
+  if (intent.type !== "send" || intent.asset.type !== "trc20" || !intent.asset.assetReference) {
     return 0;
   }
-  const response = await triggerConstantContract({
+
+  // A zero-amount non-max send is headed for `AmountRequired`, so there is nothing to price — and
+  // `transfer(to, 0)` can revert, which would show the flat TRC20 fallback fee next to the amount
+  // error.
+  if (intent.amount === 0n && !intent.useAllAmount) return 0;
+
+  // A send-max intent carries amount 0 until the max is resolved, and `transfer(to, 0)` can take a
+  // cheaper contract path than the real amount. Simulate with the token balance instead.
+  let simulatedAmount = new BigNumber(intent.amount.toString());
+  if (intent.useAllAmount) {
+    simulatedAmount = await tokenBalance(
+      logger,
+      config,
+      intent.sender,
+      intent.asset.assetReference,
+    );
+  }
+
+  const response = await triggerConstantContract(logger, config, {
     ownerAddress: decode58Check(intent.sender),
     contractAddress: decode58Check(intent.asset.assetReference),
     functionSelector: "transfer(address,uint256)",
-    parameter: abiEncodeTrc20Transfer(
-      decode58Check(intent.recipient),
-      new BigNumber(intent.amount.toString()),
-    ),
+    parameter: abiEncodeTrc20Transfer(decode58Check(intent.recipient), simulatedAmount),
   });
-  // A reverted simulation reports an unreliable energy_used — surface it.
-  if (response.result?.result === false) {
+  // A reverted simulation reports an unreliable energy_used — surface it. java-tron keeps
+  // `result.result` true on a REVERT and flags it only on the returned transaction.
+  const reverted = response.transaction?.ret?.[0]?.ret === "FAILED";
+  if (response.result?.result === false || reverted) {
     throw new Error(
-      `triggerConstantContract failed: ${response.result.code ?? "unknown"} ${response.result.message ?? ""}`.trim(),
+      `triggerConstantContract failed: ${response.result?.code ?? "unknown"} ${response.result?.message ?? ""}`.trim(),
     );
   }
   // A successful simulation that omits energy_used (or returns a non-numeric value) is uncertainty,
@@ -67,21 +158,28 @@ export const estimateEnergy = async (intent: TransactionIntent<TronMemo>): Promi
   return energyUsed;
 };
 
+async function tokenBalance(
+  logger: Logger,
+  config: TronCoinConfig,
+  sender: string,
+  assetReference: string,
+): Promise<BigNumber> {
+  const balances = await getBalance(logger, config, sender);
+  const match = findBalance({ type: "trc20", assetReference }, balances);
+  return new BigNumber((match?.value ?? 0n).toString());
+}
+
+// java-tron's BandwidthProcessor tries the staked and the free pool independently and consumes each
+// all-or-nothing: when neither covers the whole transaction it burns `bytes * TRANSACTION_FEE` for
+// the *entire* size, never just the shortfall (chainbase BandwidthProcessor#consumeBandwidth).
 export const computeBandwidthFee = (
   size: number,
   networkInfo: NetworkInfo,
   params: ChainParameters,
 ): BigNumber => {
-  // Clamp each bucket to ≥ 0 before summing: a node reporting used > limit in one bucket must not
-  // eat into the other's availability, nor inflate the shortfall beyond `size`.
-  const freeAvailable = BigNumber.maximum(
-    0,
-    networkInfo.freeNetLimit.minus(networkInfo.freeNetUsed),
-  );
-  const stakedAvailable = BigNumber.maximum(0, networkInfo.netLimit.minus(networkInfo.netUsed));
-  const available = freeAvailable.plus(stakedAvailable);
-  const missing = BigNumber.maximum(0, new BigNumber(size).minus(available));
-  return missing.multipliedBy(params.transactionFee);
+  const largestPool = BigNumber.maximum(stakedBandwidth(networkInfo), freeBandwidth(networkInfo));
+  if (largestPool.gte(size)) return new BigNumber(0);
+  return new BigNumber(size).multipliedBy(params.transactionFee);
 };
 
 export const computeEnergyFee = (
@@ -89,54 +187,423 @@ export const computeEnergyFee = (
   networkInfo: NetworkInfo,
   params: ChainParameters,
 ): BigNumber => {
-  const available = BigNumber.maximum(0, networkInfo.energyLimit.minus(networkInfo.energyUsed));
-  const missing = BigNumber.maximum(0, new BigNumber(energyNeeded).minus(available));
+  const missing = BigNumber.maximum(
+    0,
+    new BigNumber(energyNeeded).minus(energyAvailable(networkInfo)),
+  );
   return missing.multipliedBy(params.energyFee);
 };
 
+// Unlike the fee, the ceiling is sized against the *gross* energy cost and ignores the sender's
+// pool: that pool can drain between estimating and executing, and a ceiling below the real cost
+// reverts OUT_OF_ENERGY with the bandwidth already burned. Only ratchets up from the chain
+// default, so an unusually expensive transfer — activating the recipient's token balance roughly
+// doubles a USDT transfer — still clears.
+const trc20FeeLimit = (grossEnergyCost?: BigNumber): string =>
+  BigNumber.maximum(grossEnergyCost ?? 0, DEFAULT_TRC20_FEES_LIMIT)
+    .integerValue(BigNumber.ROUND_CEIL)
+    .toFixed();
+
+// Each pool is clamped to ≥ 0 on its own: a node reporting used > limit in one pool must not eat
+// into the other's availability.
+const freeBandwidth = (networkInfo: NetworkInfo): BigNumber =>
+  BigNumber.maximum(0, networkInfo.freeNetLimit.minus(networkInfo.freeNetUsed));
+
+const stakedBandwidth = (networkInfo: NetworkInfo): BigNumber =>
+  BigNumber.maximum(0, networkInfo.netLimit.minus(networkInfo.netUsed));
+
+// Telemetry total only. A consumer must NOT read `bandwidthRequired <= bandwidthAvailable` as "no
+// fee": the pools are consumed independently, so a transaction larger than either one alone is
+// charged in full even when the sum would cover it. `computeBandwidthFee` is the only fee authority.
+const bandwidthAvailable = (networkInfo: NetworkInfo): BigNumber =>
+  freeBandwidth(networkInfo).plus(stakedBandwidth(networkInfo));
+
+const energyAvailable = (networkInfo: NetworkInfo): BigNumber =>
+  BigNumber.maximum(0, networkInfo.energyLimit.minus(networkInfo.energyUsed));
+
 const computeActivationFee = (
-  intent: TransactionIntent<TronMemo>,
+  intent: TronIntent,
   recipientAccount: AccountTronAPI | undefined,
   params: ChainParameters,
 ): BigNumber => {
   if (intent.type !== "send") return new BigNumber(0);
   if (recipientAccount) return new BigNumber(0);
-  // Only TRX TransferContract triggers the protocol-level activation fee;
-  // TRC20/TRC10 transfers to a new recipient are covered by energy/bandwidth.
+  // Charged for a native TransferContract only. TRON burns the create-account fee whenever it
+  // activates an address, regardless of how much bandwidth the sender has staked — so this is not
+  // gated on the sender's bandwidth, which would under-quote a well-staked sender by the whole fee.
+  //
+  // Whether TRON also charges it on a TransferAssetContract (TRC-10) to an unactivated address is
+  // unverified — TRC-10 consumes no energy, so it cannot be "covered by energy" either.
   if (intent.asset.type !== "native") return new BigNumber(0);
   return new BigNumber(params.createAccountFee).plus(params.createNewAccountFeeInSystemContract);
 };
 
 // Pessimistic fallback when on-chain estimation fails — over-estimates rather than failing.
-// Native/TRC10 worst case: activation fee (recipient inactive) + standard bandwidth burn.
-const fallbackFee = (intent: TransactionIntent<TronMemo>): bigint => {
-  if (intent.type === "send" && intent.asset.type === "trc20") {
+// Native/TRC10 worst case: activation fee (recipient inactive) + standard bandwidth burn, plus the
+// memo fee when a memo is present (its live value is unknowable here, so assume the 1 TRX mainnet one).
+const fallbackFee = (intent: TronIntent): bigint => {
+  if (isTrc20Send(intent)) {
     return BigInt(STANDARD_FEES_TRC_20.toString());
   }
-  return BigInt(ACTIVATION_FEES.plus(STANDARD_FEES_NATIVE).toString());
+  const memoFee = memoByteLength(intent) > 0 ? MEMO_FEE_PESSIMISTIC : new BigNumber(0);
+  return BigInt(ACTIVATION_FEES.plus(STANDARD_FEES_NATIVE).plus(memoFee).toString());
 };
 
+const isTrc20Send = (intent: TronIntent): boolean =>
+  intent.type === "send" && intent.asset.type === "trc20";
+
+// Fetches the three network inputs shared by estimateFees and computeFeesRaw — extracted to avoid
+// duplicating the Promise.all in both callers.
+async function fetchTronFeeInputs(
+  logger: Logger,
+  config: TronCoinConfig,
+  transactionIntent: TronIntent,
+): Promise<{
+  networkInfo: NetworkInfo;
+  recipientAccount: AccountTronAPI | undefined;
+  chainParams: ChainParameters;
+}> {
+  const [networkInfo, recipientAccount, chainParams] = await Promise.all([
+    getTronAccountNetwork(logger, config, transactionIntent.sender),
+    // Only native sends need the recipient account for the activation-fee branch, and only once a
+    // recipient exists: `prepareTransaction` estimates on every transaction change, so an empty
+    // recipient would send `/v1/accounts/` with no address, and `fetchTronAccount` propagates that
+    // failure into the outer catch — quoting the pessimistic flat fee before the user has typed
+    // anything.
+    transactionIntent.type === "send" &&
+    transactionIntent.asset.type === "native" &&
+    transactionIntent.recipient
+      ? fetchTronAccount(logger, config, transactionIntent.recipient).then(accounts => accounts[0])
+      : Promise.resolve<AccountTronAPI | undefined>(undefined),
+    getChainParameters(logger, config),
+  ]);
+  return { networkInfo, recipientAccount, chainParams };
+}
+
+// Internal: compute fee from a pre-fetched energyNeeded. Does NOT catch — callers decide
+// whether to fall back. Returns networkInfo and chainParams alongside the fee so callers can build
+// a TronResourceBreakdown, including its `feeLimit` ceiling, without a second network round-trip.
+async function computeFeesRaw(
+  logger: Logger,
+  config: TronCoinConfig,
+  transactionIntent: TronIntent,
+  energyNeeded: number,
+): Promise<{ value: bigint; networkInfo: NetworkInfo; chainParams: ChainParameters }> {
+  const { networkInfo, recipientAccount, chainParams } = await fetchTronFeeInputs(
+    logger,
+    config,
+    transactionIntent,
+  );
+
+  const total = computeBandwidthFee(estimatedTxSize(transactionIntent), networkInfo, chainParams)
+    .plus(computeEnergyFee(energyNeeded, networkInfo, chainParams))
+    .plus(computeActivationFee(transactionIntent, recipientAccount, chainParams));
+
+  return {
+    value: BigInt(total.integerValue(BigNumber.ROUND_CEIL).toFixed()),
+    networkInfo,
+    chainParams,
+  };
+}
+
 export async function estimateFees(
-  transactionIntent: TransactionIntent<TronMemo>,
-): Promise<bigint> {
+  logger: Logger,
+  config: TronCoinConfig,
+  transactionIntent: TronIntent,
+): Promise<FeeEstimation> {
+  // Deliberately outside the try: an unsupported mode is a caller bug, not a network failure, so it
+  // must reject instead of being priced at the pessimistic fallback fee below.
+  const size = estimatedTxSize(transactionIntent);
+
   try {
-    const [networkInfo, recipientAccount, chainParams, energyNeeded] = await Promise.all([
-      getTronAccountNetwork(transactionIntent.sender),
-      // Only native sends need the recipient account for the activation-fee branch.
-      transactionIntent.type === "send" && transactionIntent.asset.type === "native"
-        ? fetchTronAccount(transactionIntent.recipient).then(accounts => accounts[0])
-        : Promise.resolve<AccountTronAPI | undefined>(undefined),
-      getChainParameters(),
-      estimateEnergy(transactionIntent),
-    ]);
+    const { networkInfo, recipientAccount, chainParams } = await fetchTronFeeInputs(
+      logger,
+      config,
+      transactionIntent,
+    );
 
-    const total = computeBandwidthFee(estimatedTxSize(transactionIntent), networkInfo, chainParams)
-      .plus(computeEnergyFee(energyNeeded, networkInfo, chainParams))
-      .plus(computeActivationFee(transactionIntent, recipientAccount, chainParams));
+    const energyPool = energyAvailable(networkInfo);
+    let energyRequired: BigNumber;
+    let energyEstimated = true;
+    try {
+      energyRequired = new BigNumber(
+        await estimateEnergy(logger, config, transactionIntent),
+      ).integerValue(BigNumber.ROUND_CEIL);
+    } catch (err) {
+      // The simulation is the only way to know the real energy cost. Report one more than available
+      // so the tooltip and `validateIntent` both read "insufficient" rather than "covered", and price
+      // the transaction at the flat fee below.
+      logger("tron/estimateFees", "energy simulation failed, reporting insufficient energy", {
+        err,
+      });
+      energyRequired = energyPool.plus(1);
+      energyEstimated = false;
+    }
 
-    return BigInt(total.integerValue(BigNumber.ROUND_CEIL).toFixed());
+    // Only a real simulation may raise the ceiling: `energyRequired` is otherwise a sentinel sized
+    // from the sender's own pool, so it would raise the cap off a number that measures nothing.
+    const measuredEnergyCost = energyEstimated
+      ? energyRequired.multipliedBy(chainParams.energyFee)
+      : undefined;
+    const breakdown: TronResourceBreakdown = {
+      energyRequired: energyRequired.toFixed(),
+      energyAvailable: energyPool.toFixed(),
+      bandwidthRequired: String(size),
+      bandwidthAvailable: bandwidthAvailable(networkInfo).toFixed(),
+      energyEstimated,
+      feeLimit: isTrc20Send(transactionIntent) ? trc20FeeLimit(measuredEnergyCost) : undefined,
+    };
+
+    // An unmeasurable energy cost is uncertainty, not a 1-energy shortfall: charge the flat fee.
+    if (!energyEstimated && isTrc20Send(transactionIntent)) {
+      return withBreakdown(BigInt(STANDARD_FEES_TRC_20.toString()), breakdown);
+    }
+
+    // A memo burns a flat, chain-configured fee on top of bandwidth (TIP-387), charged independently of
+    // the bandwidth burn. java-tron charges it whenever `raw_data.data` is non-empty regardless of
+    // contract type (`Manager#consumeMemoFee`), so native and TRC-10 both pay it; 0 on pre-TIP-387 chains.
+    const memoFee =
+      memoByteLength(transactionIntent) > 0 ? new BigNumber(chainParams.memoFee) : new BigNumber(0);
+
+    const total = computeBandwidthFee(size, networkInfo, chainParams)
+      .plus(computeEnergyFee(energyRequired.toNumber(), networkInfo, chainParams))
+      .plus(computeActivationFee(transactionIntent, recipientAccount, chainParams))
+      .plus(memoFee);
+
+    return withBreakdown(BigInt(total.integerValue(BigNumber.ROUND_CEIL).toFixed()), breakdown);
   } catch (err) {
-    log("tron/estimateFees", "falling back to pessimistic constants", { err });
-    return fallbackFee(transactionIntent);
+    logger("tron/estimateFees", "falling back to pessimistic constants", { err });
+    // Network data is unavailable, so the resource pools are unknown rather than zero. Report a
+    // non-zero requirement against a zero pool: the fee is flat and the tooltip must not claim
+    // resources cover it.
+    return withBreakdown(fallbackFee(transactionIntent), {
+      energyRequired: isTrc20Send(transactionIntent) ? "1" : "0",
+      energyAvailable: "0",
+      bandwidthRequired: String(size),
+      bandwidthAvailable: "0",
+      energyEstimated: false,
+      // No simulation survived, so there is nothing to size the ceiling against — same rule as the
+      // `energyEstimated` gate above: only a real measurement may raise it off the default.
+      feeLimit: isTrc20Send(transactionIntent) ? trc20FeeLimit() : undefined,
+    });
   }
+}
+
+const withBreakdown = (value: bigint, breakdown: TronResourceBreakdown): FeeEstimation => ({
+  value,
+  parameters: { ...breakdown },
+});
+
+// Defaults used when the remote coin-config (energyRent.tronify) doesn't override them.
+// 10-min fastTrade window matching the UI's fee-quote TTL.
+const DEFAULT_TRONIFY_RENTAL_DURATION_SECONDS = 600;
+// Bandwidth top-up Tronify bundles with each rental to cover the transaction's bandwidth cost — 0.8 TRX (not SUN).
+const DEFAULT_TRONIFY_RENTAL_EXTRA_TRX = 0.8;
+
+// Remote coin-config is unvalidated JSON: a provided value that isn't a finite number >= min is a
+// misconfiguration, not a valid override. Fall back to the default and log it — so a config typo is
+// debuggable instead of silently sending a malformed/negative quote request.
+const readRentalParam = (
+  logger: Logger,
+  value: unknown,
+  fallback: number,
+  min: number,
+  name: string,
+): number => {
+  if (value === undefined) return fallback;
+  if (typeof value === "number" && Number.isFinite(value) && value >= min) return value;
+  logger("tron/estimateFees", `ignoring invalid coin-config ${name}, using default`, { value });
+  return fallback;
+};
+
+// extraTrxNum takes 0 or [0.8, 500], but 0 gets a TRX-priced quote that parseUsdtQuote rejects, so
+// only the non-zero range is usable; a 0, 0.1 or 600 override falls back to the default.
+const readExtraTrx = (logger: Logger, value: unknown): number => {
+  if (value === undefined) return DEFAULT_TRONIFY_RENTAL_EXTRA_TRX;
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0.8 && value <= 500) {
+    return value;
+  }
+  logger("tron/estimateFees", "ignoring invalid coin-config rentalExtraTrx, using default", {
+    value,
+  });
+  return DEFAULT_TRONIFY_RENTAL_EXTRA_TRX;
+};
+
+// Shared by the framework estimate and the seam quote. Throws on any error — including Tronify API
+// failures — as the caller must handle unavailability explicitly (no silent fallback, per ADR-050
+// Option 3 AC).
+async function quoteTronifyRent(
+  logger: Logger,
+  config: TronCoinConfig,
+  intent: TronIntent,
+): Promise<{ value: bigint; originalValue: bigint; breakdown: TronResourceBreakdown }> {
+  if (intent.type !== "send" || intent.asset.type !== "trc20" || !intent.asset.assetReference) {
+    throw new EnergyRentUnsupportedIntent(
+      "Tronify fee option is only available for TRC-20 send intents",
+    );
+  }
+
+  // prepareTransaction re-estimates on every change, so this can run before a recipient is entered.
+  // Guard explicitly: estimateEnergy would otherwise reach decode58Check("") and throw an opaque
+  // bs58check error instead of a clear one (no silent fallback, per ADR-050 Option 3).
+  if (!intent.recipient) {
+    throw new EnergyRentUnsupportedIntent("Tronify fee estimation requires a recipient");
+  }
+
+  // Single energy simulation; result feeds both the standard burn calc and the Tronify quote.
+  const energyNeeded = await estimateEnergy(logger, config, intent);
+
+  // Rental params are remote-configurable via coin-config (energyRent.tronify), so they can be
+  // tuned without a release; fall back to the defaults when unset.
+  const tronifyConfig = config.energyRent?.tronify;
+  const durationSeconds = readRentalParam(
+    logger,
+    tronifyConfig?.rentalDurationSeconds,
+    DEFAULT_TRONIFY_RENTAL_DURATION_SECONDS,
+    1,
+    "rentalDurationSeconds",
+  );
+  const extraTrx = readExtraTrx(logger, tronifyConfig?.rentalExtraTrx);
+
+  // computeFeesRaw does not catch — any chain-params failure propagates here (no silent fallback
+  // on originalValue, per ADR-050 Option 3). Both calls are independent once energyNeeded is
+  // known, so they run in parallel to keep pricing latency minimal.
+  const [{ value: originalValue, networkInfo, chainParams }, quote] = await Promise.all([
+    computeFeesRaw(logger, config, intent, energyNeeded),
+    getEnergyRentQuote(logger, config, {
+      payerAddress: intent.sender,
+      receiverAddress: intent.sender, // energy is delegated to the sender (they call the contract)
+      energy: BigInt(energyNeeded),
+      durationSeconds,
+      extraTrx,
+    }),
+  ]);
+
+  const { payCoinAmt } = parseUsdtQuote(quote);
+
+  // Populate a breakdown so validateIntent/resolveFeeContext doesn't fire an extra estimateFees
+  // RPC on every keystroke for the Tronify path (resolveFeeContext gates re-estimation on whether
+  // customFees?.parameters carries a valid TronResourceBreakdown).
+  const breakdown: TronResourceBreakdown = {
+    energyRequired: String(energyNeeded),
+    energyAvailable: energyAvailable(networkInfo).toFixed(),
+    bandwidthRequired: String(estimatedTxSize(intent)),
+    bandwidthAvailable: bandwidthAvailable(networkInfo).toFixed(),
+    energyEstimated: true,
+    // Rented energy should cover the burn, but the ceiling still has to survive a rental that lands
+    // short or late, so it is sized from the simulation rather than left at the flat default.
+    feeLimit: trc20FeeLimit(new BigNumber(energyNeeded).multipliedBy(chainParams.energyFee)),
+  };
+
+  return { value: BigInt(payAssetBaseUnits(payCoinAmt).toFixed()), originalValue, breakdown };
+}
+
+/**
+ * Estimate fees for the Tronify energy-rent option (TRC-20 transfers only).
+ *
+ * `value` is the rent in USDT base units — the option's `feeAsset` — and `originalValue` the
+ * standard burn in sun. The two are in different units, so there is no `savings`.
+ */
+export async function estimateTronifyFees(
+  logger: Logger,
+  config: TronCoinConfig,
+  intent: TronIntent,
+): Promise<FeeEstimation> {
+  const { value, originalValue, breakdown } = await quoteTronifyRent(logger, config, intent);
+  return { value, originalValue, parameters: { ...breakdown } };
+}
+
+/** Context-free Tronify quote for an app that has no framework `Context` to build. Propagates
+ * `estimateTronifyFees`' throw on unavailability. */
+export async function estimateSponsoredFeeQuote(
+  logger: Logger,
+  config: TronCoinConfig,
+  intent: TronIntent,
+): Promise<{ feeAsset: AssetInfo; value: bigint; originalValue: bigint }> {
+  const { value, originalValue } = await quoteTronifyRent(logger, config, intent);
+  return { feeAsset: tronifyPayAsset(), value, originalValue };
+}
+
+/** Builds the energy-rent request so the app can hand it straight to `craftEnergyRentTransaction`
+ * without computing energy or reading coin-config itself. */
+export async function buildEnergyRentRequest(
+  logger: Logger,
+  config: TronCoinConfig,
+  intent: TronIntent,
+): Promise<EnergyRentRequest> {
+  if (intent.type !== "send" || intent.asset.type !== "trc20" || !intent.asset.assetReference) {
+    throw new EnergyRentUnsupportedIntent("Energy rent is only available for TRC-20 send intents");
+  }
+  if (!intent.recipient) {
+    throw new EnergyRentUnsupportedIntent("Energy rent requires a recipient");
+  }
+  // The affordability check below needs the exact amount, so the app resolves a max send first.
+  if (intent.useAllAmount) {
+    throw new EnergyRentUnsupportedIntent("Energy rent requires a resolved amount, not a max send");
+  }
+  const tronifyConfig = config.energyRent?.tronify;
+  const durationSeconds = readRentalParam(
+    logger,
+    tronifyConfig?.rentalDurationSeconds,
+    DEFAULT_TRONIFY_RENTAL_DURATION_SECONDS,
+    1,
+    "rentalDurationSeconds",
+  );
+  const extraTrx = readExtraTrx(logger, tronifyConfig?.rentalExtraTrx);
+  const energyNeeded = await estimateEnergy(logger, config, intent);
+  const request: EnergyRentRequest = {
+    payerAddress: intent.sender,
+    receiverAddress: intent.sender,
+    energy: BigInt(energyNeeded),
+    durationSeconds,
+    extraTrx,
+  };
+
+  // A quote failure propagates: crafting without a ceiling is the unbounded case the ceiling guards against.
+  const quote = await getEnergyRentQuote(logger, config, request);
+  // Validate before this becomes the signing ceiling: assertOrderWithinApprovedCost skips its check
+  // when maxPayCoinAmt is undefined.
+  const { payCoinCode, payCoinAmt } = parseUsdtQuote(quote);
+
+  // Checked on-chain before any order exists: a balance short of amount + rent would pay for energy
+  // the transfer can never use.
+  const rent = BigInt(payAssetBaseUnits(payCoinAmt).toFixed());
+  const sending =
+    intent.asset.assetReference === TRONIFY_PAY_ASSET.assetReference ? intent.amount : 0n;
+  const balance = await tokenBalance(
+    logger,
+    config,
+    intent.sender,
+    TRONIFY_PAY_ASSET.assetReference,
+  );
+  if (balance.isLessThan((rent + sending).toString())) {
+    throw new EnergyRentInsufficientBalance(
+      "USDT balance does not cover the transfer amount plus the energy rent",
+    );
+  }
+  return { ...request, maxPayCoinAmt: payCoinAmt.toFixed(), maxPayCoinCode: payCoinCode };
+}
+
+// Only USDT-denominated rent is supported (see TRONIFY_PAY_ASSET); fails clearly rather than
+// opaquely downstream (ADR-050 Option 3).
+function parseUsdtQuote(quote: { payCoinCode?: unknown; payCoinAmt?: unknown }): {
+  payCoinCode: typeof TRONIFY_PAY_ASSET.unit.code;
+  payCoinAmt: BigNumber;
+} {
+  const { payCoinCode } = quote;
+  if (
+    typeof payCoinCode !== "string" ||
+    payCoinCode.toUpperCase() !== TRONIFY_PAY_ASSET.unit.code
+  ) {
+    throw new TronifyApiError(
+      `Tronify returned unsupported payCoinCode: ${String(payCoinCode)}; only USDT is supported`,
+    );
+  }
+  const payCoinAmt = new BigNumber(String(quote.payCoinAmt));
+  if (!payCoinAmt.isFinite() || !payCoinAmt.isGreaterThan(0)) {
+    throw new TronifyApiError(
+      `Tronify returned an invalid payCoinAmt: ${String(quote.payCoinAmt)}`,
+    );
+  }
+  return { payCoinCode: TRONIFY_PAY_ASSET.unit.code, payCoinAmt };
 }

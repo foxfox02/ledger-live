@@ -1,3 +1,4 @@
+import { track } from "@shared/analytics";
 import { AppState, type AppStateStatus } from "react-native";
 import { waitFor } from "@testing-library/react-native";
 import { configureStore } from "@reduxjs/toolkit";
@@ -9,6 +10,7 @@ import { getNotificationPermissionStatus } from "~/logic/getNotificationPermissi
 import * as segment from "../segment";
 
 jest.unmock("../segment");
+jest.unmock("@shared/analytics");
 
 jest.mock("~/logic/getNotificationPermissionStatus", () => ({
   getNotificationPermissionStatus: jest.fn(),
@@ -78,7 +80,7 @@ describe("segment hasEnabledOsNotifications", () => {
     await segment.start(store);
     mockTrack.mockClear();
 
-    segment.track("TestEvent", {});
+    track("TestEvent", {});
 
     await waitFor(() =>
       expect(mockTrack).toHaveBeenCalledWith(
@@ -93,7 +95,7 @@ describe("segment hasEnabledOsNotifications", () => {
     await segment.start(store);
     mockTrack.mockClear();
 
-    segment.track("TestEvent", {});
+    track("TestEvent", {});
 
     await waitFor(() =>
       expect(mockTrack).toHaveBeenCalledWith(
@@ -109,7 +111,7 @@ describe("segment hasEnabledOsNotifications", () => {
     await segment.start(store);
     mockTrack.mockClear();
 
-    segment.track("BeforeEnabling", {});
+    track("BeforeEnabling", {});
     await waitFor(() =>
       expect(mockTrack).toHaveBeenCalledWith(
         "BeforeEnabling",
@@ -122,7 +124,7 @@ describe("segment hasEnabledOsNotifications", () => {
     appStateHandler?.("active");
     mockTrack.mockClear();
 
-    segment.track("AfterEnabling", {});
+    track("AfterEnabling", {});
     await waitFor(() =>
       expect(mockTrack).toHaveBeenCalledWith(
         "AfterEnabling",
@@ -152,7 +154,7 @@ describe("segment hasEnabledOsNotifications", () => {
 
     refresh.resolve(AuthorizationStatus.AUTHORIZED);
     mockTrack.mockClear();
-    segment.track("AfterOverlap", {});
+    track("AfterOverlap", {});
     await waitFor(() =>
       expect(mockTrack).toHaveBeenCalledWith(
         "AfterOverlap",
@@ -170,7 +172,7 @@ describe("segment hasEnabledOsNotifications", () => {
     appStateHandler?.("active");
     mockTrack.mockClear();
 
-    segment.track("TestEvent", {});
+    track("TestEvent", {});
     await waitFor(() =>
       expect(mockTrack).toHaveBeenCalledWith(
         "TestEvent",

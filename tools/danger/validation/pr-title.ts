@@ -1,8 +1,10 @@
-import lint from "@commitlint/lint";
-import config from "../../../commitlint.config.js";
+import { lintPrTitle } from "../commitlint";
+import { isMergeConflictsPr, stripPlatformPrefix } from "../pull-request";
 
 async function validatePrTitle() {
-  const report = await lint(stripPlatformPrefix(danger.github.pr.title), config.rules);
+  if (isMergeConflictsPr(danger.github.pr.title)) return;
+
+  const report = await lintPrTitle(stripPlatformPrefix(danger.github.pr.title));
 
   const { errors, input, valid, warnings } = report;
 
@@ -25,14 +27,9 @@ async function validatePrTitle() {
         `- \`feat(ui): add dark mode toggle (LIVE-1234)\`\n` +
         `- \`fix(swap): resolve transaction signing issue\`\n` +
         `- \`ci(lint): harmonize git guidelines (LIVE-27608)\`\n\n` +
-        `See [Git conventions](https://github.com/LedgerHQ/ledger-live/blob/develop/docs/contributing/git-conventions.md) ` +
-        `and [CONTRIBUTING.md](https://github.com/LedgerHQ/ledger-live/blob/develop/CONTRIBUTING.md) for the full rules.\n\n`,
+        `See [Git conventions](https://github.com/LedgerHQ/ledger-live/blob/develop/docs/contributing/git-conventions.md).\n\n`,
     );
   }
-}
-
-function stripPlatformPrefix(title: string) {
-  return title.replace(/^\[(LWDM|LWD|LWM)\]\s*/, "");
 }
 
 export default validatePrTitle;

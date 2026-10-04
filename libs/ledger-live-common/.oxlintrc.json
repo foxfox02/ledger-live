@@ -19,27 +19,13 @@
     "suspicious": "warn",
     "pedantic": "off"
   },
-  "plugins": [
-    "eslint",
-    "import",
-    "oxc",
-    "unicorn",
-    "typescript",
-    "react",
-    "jest",
-    "jsx-a11y"
-  ],
-  "ignorePatterns": [
-    "*.min.js",
-    "src/families/*/types.js",
-    "src/load/tokens/**"
-  ],
+  "plugins": ["eslint", "import", "oxc", "unicorn", "typescript", "react", "jest", "jsx-a11y"],
+  "ignorePatterns": ["*.min.js", "src/families/*/types.js", "src/load/tokens/**"],
   "rules": {
     "eslint/no-unused-vars": "warn",
     "eslint/no-empty-pattern": "warn",
     "eslint/no-constant-binary-expression": "warn",
     "eslint/no-unused-expressions": "warn",
-    "eslint/arrow-parens": "off",
     "eslint/no-console": [
       "error",
       {
@@ -59,7 +45,11 @@
               "Currency",
               "Unit",
               "FiatCurrency",
-              "ExplorerView"
+              "ExplorerView",
+              "CryptoCurrencyId",
+              "TokenCurrencyId",
+              "CryptoCurrencyIdSchema",
+              "TokenCurrencyIdSchema"
             ],
             "message": "Wallet-framework currency types are for coin-modules. Import from @domain/entity-currency-* (unions from @domain/entity-currency)."
           },
@@ -71,17 +61,18 @@
               "Currency",
               "Unit",
               "FiatCurrency",
-              "ExplorerView"
+              "ExplorerView",
+              "CryptoCurrencyId",
+              "TokenCurrencyId",
+              "CryptoCurrencyIdSchema",
+              "TokenCurrencyIdSchema"
             ],
             "message": "Wallet-framework currency types are for coin-modules. Import from @domain/entity-currency-* (unions from @domain/entity-currency)."
           }
         ],
         "patterns": [
           {
-            "group": [
-              "@ledgerhq/live-common/lib/**",
-              "@ledgerhq/live-common/lib-es/**"
-            ],
+            "group": ["@ledgerhq/live-common/lib/**", "@ledgerhq/live-common/lib-es/**"],
             "message": "Please remove the /lib import from live-common import."
           },
           {
@@ -92,6 +83,11 @@
             ],
             "importNamePattern": "^(listCryptoCurrencies|getCryptoCurrencyById|hasCryptoCurrencyId|findCryptoCurrency|findCryptoCurrencyById|findCryptoCurrencyByScheme|findCryptoCurrencyByKeyword|findCryptoCurrencyByTicker|listFiatCurrencies|findFiatCurrencyByTicker|getFiatCurrencyByTicker|hasFiatCurrencyTicker)$",
             "message": "Currency accessors are owned by the domain layer. Import crypto accessors from @domain/entity-currency-crypto and fiat accessors from @domain/entity-currency-fiat."
+          },
+          {
+            "group": ["@ledgerhq/coin-*/api", "@ledgerhq/coin-*/api/*"],
+            "importNamePattern": "^createApi$",
+            "message": "Reach a coin module through getCoinModuleApi (bridge/generic-coin-framework/api), which applies the framework's withDefaults. Since a module may omit the capabilities its chain lacks, calling createApi directly yields an object with those methods missing, and the call fails at runtime with nothing failing at compile time. If a direct call is genuinely needed, add the file to the exemptions in this config and record in the PR why it cannot break."
           }
         ]
       }
@@ -100,8 +96,13 @@
     "import/no-named-as-default": "off",
     "react/no-did-mount-set-state": "warn",
     "react/display-name": "off",
-    "react/prop-types": "off",
     "react/jsx-key": "warn",
+    "react/globals": "warn",
+    "react/immutability": "warn",
+    "react/preserve-manual-memoization": "warn",
+    "react/purity": "warn",
+    "react/refs": "warn",
+    "react/set-state-in-effect": "warn",
     "react-hooks/rules-of-hooks": "error",
     "react-hooks/exhaustive-deps": "warn",
     "unicorn/no-useless-fallback-in-spread": "off",
@@ -110,6 +111,8 @@
     "unicorn/no-array-sort": "off",
     "unicorn/no-array-reverse": "off",
     "jest/no-conditional-expect": "warn",
+    "jest/prefer-snapshot-hint": "warn",
+    "jest/valid-expect-in-promise": "warn",
     "jest/expect-expect": "warn",
     "jest/require-to-throw-message": "warn",
     "jest/valid-title": "warn",
@@ -150,17 +153,26 @@
       }
     },
     {
-      "files": [
-        "**/*.test.{ts,tsx}",
-        "**/__tests__/**"
-      ],
+      "files": ["**/*.test.{ts,tsx}", "**/__tests__/**"],
       "env": {
         "jest": true
       },
       "plugins": ["jest"],
       "rules": {
         "typescript/no-explicit-any": "warn",
-        "eslint/no-console": "off"
+        "eslint/no-console": "off",
+        "eslint/no-restricted-imports": "off"
+      }
+    },
+    {
+      "files": [
+        "src/families/*/coinModuleApi.ts",
+        "src/families/evm/getTokenAllowance.ts",
+        "src/families/tezos/bridge/api.ts",
+        "src/families/canton/bridge/mock.ts"
+      ],
+      "rules": {
+        "eslint/no-restricted-imports": "off"
       }
     }
   ]

@@ -130,6 +130,19 @@ describe("parseDeepLink", () => {
       });
     });
 
+    it("creates earn simulate route", () => {
+      const parsed = parseDeepLink("ledgerwallet://earn/simulate");
+      const route = createRoute(parsed);
+
+      expect(route).toEqual({
+        type: "earn",
+        path: "simulate",
+        cryptoAssetId: undefined,
+        accountId: undefined,
+        search: "",
+      });
+    });
+
     it("creates borrow route", () => {
       const parsed = parseDeepLink("ledgerwallet://borrow?action=open");
       const route = createRoute(parsed);
@@ -179,6 +192,13 @@ describe("parseDeepLink", () => {
         affiliate: undefined,
         fromPath: "/market",
       });
+    });
+
+    it("creates swap history route with swapId", () => {
+      const parsed = parseDeepLink("ledgerwallet://swap/history?swapId=abc-123");
+      const route = createRoute(parsed);
+
+      expect(route).toEqual({ type: "swap", history: true, swapId: "abc-123" });
     });
 
     it("creates bridge route", () => {
@@ -347,6 +367,29 @@ describe("parseDeepLink", () => {
 
       expect(route).toEqual({
         type: "paytab",
+        code: undefined,
+      });
+    });
+
+    it("creates paytab route with the Card login authorization code", () => {
+      const parsed = parseDeepLink("ledgerlive://paytab?code=auth-code&app_id=app-value");
+      const route = createRoute(parsed);
+
+      expect(route).toEqual({
+        type: "paytab",
+        code: "auth-code",
+        appId: "app-value",
+      });
+    });
+
+    it("creates paytab route with the authorization code and the attempt state", () => {
+      const parsed = parseDeepLink("ledgerlive://paytab?code=auth-code&state=attempt-state");
+      const route = createRoute(parsed);
+
+      expect(route).toEqual({
+        type: "paytab",
+        code: "auth-code",
+        state: "attempt-state",
       });
     });
 

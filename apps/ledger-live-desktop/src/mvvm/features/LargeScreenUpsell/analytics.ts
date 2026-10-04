@@ -2,7 +2,7 @@ import type {
   LargeScreenUpsellDismissMethod,
   NanoDeviceModelId,
 } from "@features/flow-large-screen-upsell";
-import { track, trackPage } from "~/renderer/analytics/segment";
+import { track, trackPage } from "@shared/analytics";
 
 export const LARGE_SCREEN_UPSELL_MODAL_PAGE_NAME = "Modal - Upgrade";
 
@@ -36,16 +36,16 @@ export function trackLargeScreenUpsellModalViewed(
   sharedProps: LargeScreenUpsellSharedAnalyticsProps,
 ) {
   trackPage(
-    LARGE_SCREEN_UPSELL_MODAL_PAGE_NAME,
-    undefined,
     {
-      name: LARGE_SCREEN_UPSELL_MODAL_PAGE_NAME,
-      sourceFlow: "app start",
-      modalFrequencyState: "every start",
-      ...sharedProps,
+      category: LARGE_SCREEN_UPSELL_MODAL_PAGE_NAME,
+      props: {
+        name: LARGE_SCREEN_UPSELL_MODAL_PAGE_NAME,
+        sourceFlow: "app start",
+        modalFrequencyState: "every start",
+        ...sharedProps,
+      },
     },
-    true,
-    false,
+    { updateRoutes: true },
   );
 }
 
@@ -68,5 +68,20 @@ export function trackLargeScreenUpsellModalDismissed(
     page: LARGE_SCREEN_UPSELL_MODAL_PAGE_NAME,
     dismissMethod,
     ...sharedProps,
+  });
+}
+
+export type LargeScreenUpsellBlockedCompetitor = "q2_tour" | "q3_tour" | "generic_awareness";
+
+export function trackLargeScreenUpsellModalBlockedByCompeting(
+  competitor: LargeScreenUpsellBlockedCompetitor,
+) {
+  track("modal_blocked", {
+    modal: "upgrade modal",
+    page: LARGE_SCREEN_UPSELL_MODAL_PAGE_NAME,
+    reason: "competing_app_start_modal",
+    competitor,
+    platform: "lwd",
+    sourceFlow: "app start",
   });
 }

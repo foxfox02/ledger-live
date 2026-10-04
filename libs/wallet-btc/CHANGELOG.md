@@ -1,5 +1,69 @@
 # @ledgerhq/wallet-btc
 
+## 0.6.0
+
+### Minor Changes
+
+- [#22143](https://github.com/LedgerHQ/ledger-live/pull/22143) [`29ce771`](https://github.com/LedgerHQ/ledger-live/commit/29ce7712ce93cd27afa97eda2d14a0ff066551fb) Thanks [@gre-ledger](https://github.com/gre-ledger)! - refactor(noble-curves): replace the APIs @noble/curves 2.x renames away
+
+## 0.6.0-next.0
+
+### Minor Changes
+
+- [#22143](https://github.com/LedgerHQ/ledger-live/pull/22143) [`29ce771`](https://github.com/LedgerHQ/ledger-live/commit/29ce7712ce93cd27afa97eda2d14a0ff066551fb) Thanks [@gre-ledger](https://github.com/gre-ledger)! - refactor(noble-curves): replace the APIs @noble/curves 2.x renames away
+
+## 0.5.0
+
+### Minor Changes
+
+- [#21950](https://github.com/LedgerHQ/ledger-live/pull/21950) [`30828c2`](https://github.com/LedgerHQ/ledger-live/commit/30828c22cc44c9929d7eda782e9d559a9e0145c3) Thanks [@gre-ledger](https://github.com/gre-ledger)! - chore(deps): source @noble/curves and @noble/hashes from the pnpm catalog
+
+## 0.5.0-next.0
+
+### Minor Changes
+
+- [#21950](https://github.com/LedgerHQ/ledger-live/pull/21950) [`30828c2`](https://github.com/LedgerHQ/ledger-live/commit/30828c22cc44c9929d7eda782e9d559a9e0145c3) Thanks [@gre-ledger](https://github.com/gre-ledger)! - chore(deps): source @noble/curves and @noble/hashes from the pnpm catalog
+
+## 0.4.0
+
+### Minor Changes
+
+- [#21420](https://github.com/LedgerHQ/ledger-live/pull/21420) [`0152cad`](https://github.com/LedgerHQ/ledger-live/commit/0152cade87e061bb2b56fd71f8a404c3dfed21e0) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - Fix an undecodable/corrupted xpub crashing the whole Bitcoin address-scan block. `getPubkeyAt` now throws a typed `InvalidXpub` error; `checkAddressesBlock` uses `Promise.allSettled` so a bad xpub no longer aborts the block scan.
+
+- [#21388](https://github.com/LedgerHQ/ledger-live/pull/21388) [`6656f90`](https://github.com/LedgerHQ/ledger-live/commit/6656f90769c3419e1f121c0c2368eab4566e48ba) Thanks [@pawell24](https://github.com/pawell24)! - Add the missing `zcash_regtest` case to `cryptoFactory`, so the Zcash regtest currency used by the coin-tester no longer throws in `wallet-btc`'s crypto factory switch.
+
+## 0.4.0-next.0
+
+### Minor Changes
+
+- [#21420](https://github.com/LedgerHQ/ledger-live/pull/21420) [`0152cad`](https://github.com/LedgerHQ/ledger-live/commit/0152cade87e061bb2b56fd71f8a404c3dfed21e0) Thanks [@francois-guerin-ledger](https://github.com/francois-guerin-ledger)! - Fix an undecodable/corrupted xpub crashing the whole Bitcoin address-scan block. `getPubkeyAt` now throws a typed `InvalidXpub` error; `checkAddressesBlock` uses `Promise.allSettled` so a bad xpub no longer aborts the block scan.
+
+- [#21388](https://github.com/LedgerHQ/ledger-live/pull/21388) [`6656f90`](https://github.com/LedgerHQ/ledger-live/commit/6656f90769c3419e1f121c0c2368eab4566e48ba) Thanks [@pawell24](https://github.com/pawell24)! - Add the missing `zcash_regtest` case to `cryptoFactory`, so the Zcash regtest currency used by the coin-tester no longer throws in `wallet-btc`'s crypto factory switch.
+
+## 0.3.0
+
+### Minor Changes
+
+- [#20070](https://github.com/LedgerHQ/ledger-live/pull/20070) [`52253f7`](https://github.com/LedgerHQ/ledger-live/commit/52253f70c302056cdc6b367cdd8b1db408b5e07d) Thanks [@ysitbon](https://github.com/ysitbon)! - Remove the now-dead `@ledgerhq/cryptoassets` currency/fiat store injection from the app bootstraps. Nothing reads the legacy currency/fiat accessors anymore (the runtime source of truth is the domain-backed wallet-framework currency resolver), so `setCryptoCurrenciesStore` / `setFiatCurrenciesStore` injected a store no consumer queried. Drop the calls, drop the `@ledgerhq/cryptoassets` dependency from the apps, and remove the remaining stale references to the package in comments.
+
+### Patch Changes
+
+- Updated dependencies [[`1070564`](https://github.com/LedgerHQ/ledger-live/commit/107056410174d3da2d45c468232a8d742aea021f), [`1af9ec9`](https://github.com/LedgerHQ/ledger-live/commit/1af9ec984928e0bf5fd23ce12edcc6131b0302a0)]:
+  - @ledgerhq/errors@7.0.0
+  - @ledgerhq/live-network@3.0.0
+
+## 0.3.0-next.0
+
+### Minor Changes
+
+- [#20070](https://github.com/LedgerHQ/ledger-live/pull/20070) [`52253f7`](https://github.com/LedgerHQ/ledger-live/commit/52253f70c302056cdc6b367cdd8b1db408b5e07d) Thanks [@ysitbon](https://github.com/ysitbon)! - Remove the now-dead `@ledgerhq/cryptoassets` currency/fiat store injection from the app bootstraps. Nothing reads the legacy currency/fiat accessors anymore (the runtime source of truth is the domain-backed wallet-framework currency resolver), so `setCryptoCurrenciesStore` / `setFiatCurrenciesStore` injected a store no consumer queried. Drop the calls, drop the `@ledgerhq/cryptoassets` dependency from the apps, and remove the remaining stale references to the package in comments.
+
+### Patch Changes
+
+- Updated dependencies [[`1070564`](https://github.com/LedgerHQ/ledger-live/commit/107056410174d3da2d45c468232a8d742aea021f), [`1af9ec9`](https://github.com/LedgerHQ/ledger-live/commit/1af9ec984928e0bf5fd23ce12edcc6131b0302a0)]:
+  - @ledgerhq/errors@7.0.0-next.0
+  - @ledgerhq/live-network@3.0.0-next.0
+
 ## 0.2.0
 
 ### Minor Changes

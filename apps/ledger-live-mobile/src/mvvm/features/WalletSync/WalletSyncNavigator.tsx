@@ -1,3 +1,4 @@
+import { track } from "@shared/analytics";
 import React, { useCallback, useMemo } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useTheme } from "styled-components/native";
@@ -16,12 +17,11 @@ import { ManageInstancesProcess } from "./screens/ManageInstances/ManageInstance
 import { WalletSyncManageInstanceDeletionSuccess } from "./screens/ManageInstances/DeletionSuccess";
 import { NavigationHeaderCloseButton } from "~/components/NavigationHeaderCloseButton";
 import { useClose } from "./hooks/useClose";
-import { track } from "~/analytics";
 import { AnalyticsPage } from "./hooks/useLedgerSyncAnalytics";
 import { NavigationHeaderBackButton } from "~/components/NavigationHeaderBackButton";
 import { hasCompletedOnboardingSelector } from "~/reducers/settings";
 import { useSelector } from "~/context/hooks";
-import { useNotifications } from "LLM/features/NotificationsPrompt";
+import { useNotificationsPrompt } from "LLM/features/NotificationsPrompt";
 
 const Stack = createNativeStackNavigator<WalletSyncNavigatorStackParamList>();
 
@@ -41,12 +41,12 @@ export default function WalletSyncNavigator() {
     navigation.goBack();
   }, []);
 
-  const { tryTriggerPushNotificationDrawerAfterAction } = useNotifications();
+  const { notifyFlowCompleted } = useNotificationsPrompt();
 
   const onCloseFromLedgerSyncOnboarding = useCallback(() => {
     close();
-    tryTriggerPushNotificationDrawerAfterAction("onboarding");
-  }, [close, tryTriggerPushNotificationDrawerAfterAction]);
+    notifyFlowCompleted("onboarding");
+  }, [close, notifyFlowCompleted]);
 
   return (
     <Stack.Navigator screenOptions={stackNavConfig}>

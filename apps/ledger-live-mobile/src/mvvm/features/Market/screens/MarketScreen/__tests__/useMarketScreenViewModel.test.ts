@@ -1,13 +1,12 @@
+import { track } from "@shared/analytics";
 import { useRoute } from "@react-navigation/native";
 import { act, renderHook, withFlagOverrides } from "@tests/test-renderer";
-import { track } from "~/analytics";
 import { createMarketAssetDisplayData } from "../../../__tests__/helpers";
 import { useMarketAssets } from "../useMarketAssets";
 import { useMarketScreenViewModel } from "../useMarketScreenViewModel";
 import { ScreenName } from "~/const";
 import type { State } from "~/reducers/types";
 
-jest.mock("~/analytics", () => ({ track: jest.fn() }));
 jest.mock("@react-navigation/native", () => ({
   ...jest.requireActual("@react-navigation/native"),
   useRoute: jest.fn(),
@@ -176,13 +175,10 @@ describe("useMarketScreenViewModel", () => {
 
     const { result } = renderHook(
       () => useMarketScreenViewModel(),
-      withAssetDiscoverability(
-        true,
-        (state: State): State => ({
-          ...state,
-          settings: { ...state.settings, starredMarketCoins },
-        }),
-      ),
+      withAssetDiscoverability(true, (state: State): State => ({
+        ...state,
+        settings: { ...state.settings, starredMarketCoins },
+      })),
     );
 
     expect(result.current.assetsList.categories.selectedCategory).toBe("starred");
@@ -227,13 +223,10 @@ describe("useMarketScreenViewModel", () => {
 
     const { result } = renderHook(
       () => useMarketScreenViewModel(),
-      withAssetDiscoverability(
-        true,
-        (state: State): State => ({
-          ...state,
-          marketListConfig: { ...state.marketListConfig, sorting: "losers", timeframe: "7D" },
-        }),
-      ),
+      withAssetDiscoverability(true, (state: State): State => ({
+        ...state,
+        marketListConfig: { ...state.marketListConfig, sorting: "losers", timeframe: "7D" },
+      })),
     );
 
     expect(result.current.pageTracking).toEqual({

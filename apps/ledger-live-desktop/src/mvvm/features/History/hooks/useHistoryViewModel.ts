@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo } from "react";
+import { useLocation, useSearchParams } from "react-router";
 import {
   formatSmallValueOperationsThreshold,
   SMALL_VALUE_OPERATIONS_THRESHOLD_REFERENCE_CURRENCY,
 } from "@ledgerhq/live-common/hideSmallValueTokenOperations/smallValueOperationsThreshold";
+import { ContactIdSchema, selectContactById, type Contact } from "@domain/entity-contact";
+import { useFeature } from "@features/platform-feature-flags";
 import { useDispatch, useSelector } from "LLD/hooks/redux";
 import { useHideSmallValueTokenOperations } from "~/renderer/actions/settings";
 import { addExtraTrackingPairs } from "~/renderer/reducers/countervaluesExtraTracking";
@@ -16,14 +19,21 @@ import {
 import type { Virtualizer } from "@tanstack/react-virtual";
 import { OperationDetails } from "~/renderer/drawers/OperationDetails";
 import { setDrawer } from "~/renderer/drawers/Provider";
+import { useCardAssetName } from "./useCardAssetName";
 import { useHistoryOperations } from "./useHistoryOperations";
 import { useHistoryTable } from "./useHistoryTable";
 import { useHistoryVirtualization } from "./useHistoryVirtualization";
 import type { HistoryTable, OperationRow, VirtualItem } from "../types";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import { parseHistoryBackPath } from "../utils/historyLocationState";
 import { usePopNavigationBack } from "LLD/utils/usePopNavigationBack";
-import { HISTORY_DUST_FILTER_THRESHOLD_USD } from "../constants";
+import {
+  HISTORY_DUST_FILTER_THRESHOLD_USD,
+  HISTORY_TAB_CARD,
+  HISTORY_TAB_CRYPTO,
+  HISTORY_TAB_SEARCH_PARAM,
+  type HistoryTab,
+} from "../constants";
 
 export type HistoryViewModel = {
   showBackButton: boolean;
@@ -40,20 +50,68 @@ export type HistoryViewModel = {
   hideSmallValueTokenOperations: boolean;
   dustFilterThreshold: string;
   onToggleHideSmallValueTokenOperations: () => void;
+  contact?: Contact;
+  showHistoryTypeSwitcher: boolean;
+  historyTab: HistoryTab;
+  cardAsset?: string;
+  cardAssetName?: string;
+  onHistoryTabChange: (tab: HistoryTab) => void;
 };
 
 export function useHistoryViewModel(): HistoryViewModel {
   const dispatch = useDispatch();
+  const { showBackButton, navigateBack } = usePopNavigationBack(parseHistoryBackPath);
+
+  const { state: locationState } = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const payTab = useFeature("lwdPayTab");
+  const isPayTabEnabled = !!payTab?.enabled;
+  const showCardHistory = isPayTabEnabled && payTab?.params?.card_native === true;
+  const hasCryptoHistoryFilter = searchParams.has("accountIds") || searchParams.has("contactId");
+  const hasCardAssetFilter =
+    searchParams.get(HISTORY_TAB_SEARCH_PARAM) === HISTORY_TAB_CARD &&
+    Boolean(searchParams.get("asset"));
+  const showHistoryTypeSwitcher = showCardHistory && !hasCryptoHistoryFilter && !hasCardAssetFilter;
+  const historyTab: HistoryTab =
+    showCardHistory && searchParams.get(HISTORY_TAB_SEARCH_PARAM) === HISTORY_TAB_CARD
+      ? HISTORY_TAB_CARD
+      : HISTORY_TAB_CRYPTO;
+  const cardAsset =
+    historyTab === HISTORY_TAB_CARD ? searchParams.get("asset") || undefined : undefined;
+  const cardAssetName = useCardAssetName(cardAsset);
 
   useEffect(() => {
     return () => {
-      dispatch(markOperationsAsSeen());
+      if (historyTab === HISTORY_TAB_CRYPTO) {
+        dispatch(markOperationsAsSeen());
+      }
     };
-  }, [dispatch]);
+  }, [dispatch, historyTab]);
 
-  const { showBackButton, navigateBack } = usePopNavigationBack(parseHistoryBackPath);
+  const onHistoryTabChange = useCallback(
+    (tab: HistoryTab) => {
+      track("button_clicked", {
+        button: tab,
+        buttonLocation: "history tabs",
+        page: "History",
+      });
+      const next = new URLSearchParams(searchParams);
+      if (tab === HISTORY_TAB_CARD) {
+        next.set(HISTORY_TAB_SEARCH_PARAM, HISTORY_TAB_CARD);
+      } else {
+        next.delete(HISTORY_TAB_SEARCH_PARAM);
+      }
+      setSearchParams(next, { replace: true, state: locationState });
+    },
+    [locationState, searchParams, setSearchParams],
+  );
+  const contactIdResult = ContactIdSchema.safeParse(searchParams.get("contactId"));
+  const contactId = isPayTabEnabled && contactIdResult.success ? contactIdResult.data : undefined;
+  const contact = useSelector(state =>
+    contactId ? selectContactById(state, contactId) : undefined,
+  );
 
-  const operations = useHistoryOperations();
+  const operations = useHistoryOperations(contact);
   const table = useHistoryTable(operations);
   const { parentRef, rowVirtualizer, flatItems } = useHistoryVirtualization(table);
 
@@ -70,7 +128,7 @@ export function useHistoryViewModel(): HistoryViewModel {
   }, []);
 
   const onExportClick = () => track("ExportAccountOperations");
-  const operationsCount = flatItems.length;
+  const operationsCount = operations.length;
   const hasPendingOperations = useMemo(() => operations.some(op => op.isPending), [operations]);
   const [hideSmallValueTokenOperations, setHideSmallValueTokenOperations] =
     useHideSmallValueTokenOperations();
@@ -132,5 +190,11 @@ export function useHistoryViewModel(): HistoryViewModel {
     hideSmallValueTokenOperations,
     dustFilterThreshold,
     onToggleHideSmallValueTokenOperations,
+    contact,
+    showHistoryTypeSwitcher,
+    historyTab,
+    cardAsset,
+    cardAssetName,
+    onHistoryTabChange,
   };
 }

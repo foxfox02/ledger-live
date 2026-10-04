@@ -3,7 +3,6 @@ import { setupServer } from "msw/node";
 import { Scenario, ScenarioTransaction } from "@ledgerhq/coin-tester/main";
 import type { Account } from "@ledgerhq/types-live";
 import type { GenericTransaction } from "@ledgerhq/live-common/bridge/generic-coin-framework/types";
-import coinConfig from "@ledgerhq/coin-xrp/config";
 import { LiveConfig } from "@ledgerhq/live-config/LiveConfig";
 import { setCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
 import { XRP, XRP_LOCAL_RPC, RECIPIENT, makeXrpAccount } from "../fixtures";
@@ -107,9 +106,10 @@ export const scenarioXrp: Scenario<GenericTransaction, Account> = {
 
     const localConfig = {
       status: { type: "active" as const },
+      name: "XRP",
+      unit: { name: "XRP", code: "XRP", magnitude: 6 },
       node: XRP_LOCAL_RPC,
     };
-    coinConfig.setCoinConfig(() => localConfig);
     LiveConfig.setConfig({
       config_currency_ripple: {
         type: "object",

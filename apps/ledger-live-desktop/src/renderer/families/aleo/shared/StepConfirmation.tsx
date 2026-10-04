@@ -1,0 +1,168 @@
+import React, { useEffect } from "react";
+import { Trans } from "react-i18next";
+import styled from "styled-components";
+import { TFunction } from "i18next";
+import { SyncOneAccountOnMount } from "@ledgerhq/live-common/bridge/react/index";
+import { Account, Operation } from "@ledgerhq/types-live";
+import { Transaction } from "@ledgerhq/live-common/families/aleo/types";
+import { TrackPage } from "@shared/analytics-react";
+import { track } from "@shared/analytics";
+import { multiline } from "~/renderer/styles/helpers";
+import Box from "~/renderer/components/Box";
+import Button from "~/renderer/components/Button";
+import RetryButton from "~/renderer/components/RetryButton";
+import ErrorDisplay from "~/renderer/components/ErrorDisplay";
+import SuccessDisplay from "~/renderer/components/SuccessDisplay";
+import BroadcastErrorDisclaimer from "~/renderer/components/BroadcastErrorDisclaimer";
+import { OperationDetails } from "~/renderer/drawers/OperationDetails";
+import { setDrawer } from "~/renderer/drawers/Provider";
+
+type StepConfirmationProps = Readonly<{
+  t: TFunction;
+  optimisticOperation?: Operation;
+  error?: Error;
+  signed: boolean;
+  transaction?: Transaction | null;
+  source?: string;
+}>;
+
+type StepConfirmationFooterProps = Readonly<{
+  account?: Account | null;
+  optimisticOperation?: Operation;
+  error?: Error;
+  onRetry: (a: void) => void;
+  onClose: () => void;
+}>;
+
+const Container = styled(Box).attrs(() => ({
+  alignItems: "center",
+  grow: true,
+  color: "neutral.c100",
+}))<{
+  shouldSpace?: boolean;
+}>`
+  justify-content: ${p => (p.shouldSpace ? "space-between" : "center")};
+`;
+
+// Widen only alongside the matching `aleo.<flow>.*` i18n subtree: a flow named here
+// without one renders raw keys.
+type StakingFlow = "bond" | "unbond" | "claim";
+
+export type StakingConfirmationConfig = {
+  flow: StakingFlow;
+  trackField: "validator" | "staker";
+};
+
+const ACTIONS: Record<StakingFlow, string> = {
+  bond: "bonding",
+  unbond: "unbonding",
+  claim: "claiming",
+};
+
+export function createStepConfirmation({ flow, trackField }: StakingConfirmationConfig) {
+  const action = ACTIONS[flow];
+  const i18nPrefix = `aleo.${flow}.flow.steps.confirmation`;
+  const flowLabel = `${flow[0].toUpperCase()}${flow.slice(1)} Flow`;
+  const category = `${flow[0].toUpperCase()}${flow.slice(1)} ALEO`;
+
+  function StepConfirmation({
+    t,
+    optimisticOperation,
+    error,
+    signed,
+    transaction,
+    source,
+  }: StepConfirmationProps) {
+    useEffect(() => {
+      const address = transaction?.recipient;
+      if (optimisticOperation && address) {
+        track("staking_completed", {
+          currency: "ALEO",
+          [trackField]: address,
+          source,
+          delegation: action,
+          flow,
+        });
+      }
+    }, [optimisticOperation, source, transaction?.recipient]);
+
+    if (optimisticOperation) {
+      return (
+        <Container>
+          <TrackPage
+            category="Delegation Flow"
+            name="Step Confirmed"
+            flow={flow}
+            action={action}
+            currency="aleo"
+          />
+          <SyncOneAccountOnMount priority={10} accountId={optimisticOperation.accountId} />
+          <SuccessDisplay
+            title={<Trans i18nKey={`${i18nPrefix}.success.title`} />}
+            description={multiline(t(`${i18nPrefix}.success.text`))}
+          />
+        </Container>
+      );
+    }
+
+    if (error) {
+      return (
+        <Container shouldSpace={signed}>
+          <TrackPage
+            category={category}
+            name="Step Confirmation Error"
+            flow={flow}
+            action={action}
+            currency="aleo"
+          />
+          {signed ? (
+            <BroadcastErrorDisclaimer title={<Trans i18nKey={`${i18nPrefix}.broadcastError`} />} />
+          ) : null}
+          <ErrorDisplay error={error} withExportLogs />
+        </Container>
+      );
+    }
+
+    return null;
+  }
+
+  function StepConfirmationFooter({
+    account,
+    onRetry,
+    error,
+    onClose,
+    optimisticOperation,
+  }: StepConfirmationFooterProps) {
+    const concernedOperation = optimisticOperation?.subOperations?.length
+      ? optimisticOperation.subOperations[0]
+      : (optimisticOperation ?? null);
+    return (
+      <Box horizontal alignItems="right">
+        <Button data-testid="modal-close-button" ml={2} onClick={onClose}>
+          <Trans i18nKey="common.close" />
+        </Button>
+        {concernedOperation && (
+          <Button
+            primary
+            ml={2}
+            event={`${flowLabel} Step 3 View OpD Clicked`}
+            onClick={() => {
+              onClose();
+              if (account) {
+                setDrawer(OperationDetails, {
+                  operationId: concernedOperation.id,
+                  accountId: account.id,
+                });
+              }
+            }}
+          >
+            <Trans i18nKey={`${i18nPrefix}.success.cta`} />
+          </Button>
+        )}
+        {!concernedOperation && error && <RetryButton primary ml={2} onClick={onRetry} />}
+      </Box>
+    );
+  }
+
+  return { StepConfirmation, StepConfirmationFooter };
+}

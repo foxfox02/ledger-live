@@ -1,0 +1,309 @@
+import React, { type PropsWithChildren } from "react";
+import { AppState, type AppStateStatus } from "react-native";
+import { act, cleanup, render, screen, userEvent } from "@testing-library/react-native";
+import { PayCardTransactionSchema } from "@domain/api-card-management";
+import { mockPayCardTransactions } from "@domain/api-card-management/mock/card-transactions";
+import {
+  cardApiWrapper,
+  listenToCardApi,
+  signedInCardApiHandlers,
+} from "@support/msw-features-flow-pay-card";
+import {
+  ADD_TO_WALLET_COPY,
+  CARD_COPY,
+  CARD_DISCLAIMER,
+  I18nWrapper,
+  MORE_COPY,
+} from "../../__tests__/i18nWrapper";
+import { buildMoreViewProps } from "../More/fixtures";
+import type { CardDetailsRoute } from "./Scenes/navigation";
+import type { CardDetailsSceneProps } from "./Scenes/types";
+import type { ConfirmState, FreezeViewModel } from "../../types";
+import { CardDetailsSheet } from "./CardDetailsSheet";
+
+jest.mock("@features/flow-pay-card-auth", () => ({
+  useIsCardSignedIn: () => true,
+}));
+
+listenToCardApi(signedInCardApiHandlers);
+
+const StoreWrapper = cardApiWrapper({ signedIn: true });
+const transaction = PayCardTransactionSchema.parse(mockPayCardTransactions()[0]);
+
+function Wrapper({ children }: PropsWithChildren) {
+  return (
+    <StoreWrapper>
+      <I18nWrapper>{children}</I18nWrapper>
+    </StoreWrapper>
+  );
+}
+
+type SheetOverrides = Readonly<{
+  isOpen?: boolean;
+  route?: CardDetailsRoute;
+  confirmState?: ConfirmState;
+}>;
+
+const onAddToWalletPress = jest.fn();
+const onAddToWalletDone = jest.fn();
+let appStateListener: ((state: AppStateStatus) => void) | undefined;
+
+function buildScene({ route, confirmState }: SheetOverrides): CardDetailsSceneProps {
+  const viewModel: FreezeViewModel = {
+    status: "ACTIVE",
+    isActionDisabled: false,
+    confirmState: confirmState ?? "closed",
+    onOpenConfirm: jest.fn(),
+    onClose: jest.fn(),
+    onConfirm: jest.fn(),
+  };
+  const more = buildMoreViewProps();
+
+  return {
+    route: route ?? { name: "overview" },
+    header: {},
+    overview: {
+      assetsViewModel: null,
+      freezeViewModel: viewModel,
+      moreViewModel: more,
+      onFreezePress: jest.fn(),
+      onMorePress: jest.fn(),
+      onTransactionPress: jest.fn(),
+      onAddToWalletPress,
+      disclaimer: CARD_DISCLAIMER,
+    },
+    freeze: { viewModel },
+    more: { viewModel: more },
+    addToWallet: { onDone: onAddToWalletDone },
+    transaction: route?.name === "transaction" ? { transaction: route.transaction } : null,
+    assetDetails: null,
+    assetWithdraw: null,
+    assetsManage: null,
+    assetTransaction: null,
+  };
+}
+
+function renderSheet(overrides: SheetOverrides = {}) {
+  const onClose = jest.fn();
+  const onBack = jest.fn();
+  const user = userEvent.setup();
+  const sheet = (props: SheetOverrides) => (
+    <CardDetailsSheet
+      isOpen={props.isOpen ?? true}
+      scene={buildScene(props)}
+      onClose={onClose}
+      onBack={onBack}
+    />
+  );
+  const view = render(sheet(overrides), { wrapper: Wrapper });
+
+  return {
+    ...view,
+    onClose,
+    onBack,
+    pressDismiss: () => user.press(screen.getByTestId("card-details-sheet-dismiss")),
+    pressBack: () => user.press(screen.getByTestId("card-details-sheet-back")),
+    pressAddToWallet: async () =>
+      user.press(await screen.findByTestId("pay-card-add-to-wallet-cta-entry")),
+    pressOpenWallet: () => user.press(screen.getByTestId("pay-card-add-to-wallet-cta")),
+    goTo: (next: SheetOverrides) => view.rerender(sheet(next)),
+  };
+}
+
+describe("CardDetailsSheet (native)", () => {
+  beforeEach(() => {
+    appStateListener = undefined;
+    jest.mocked(AppState.addEventListener).mockImplementation((_type, listener) => {
+      appStateListener = listener;
+      return { remove: jest.fn() };
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    jest.clearAllMocks();
+  });
+
+  it("should keep the sheet content hidden when the sheet is closed", () => {
+    renderSheet({ isOpen: false });
+
+    expect(screen.getByTestId("card-details-sheet")).toBeVisible();
+    expect(screen.queryByText(CARD_COPY.freeze)).toBeNull();
+  });
+
+  it("should report the open flag when the sheet is open", () => {
+    renderSheet();
+
+    expect(screen.getByTestId("card-details-sheet").props.accessibilityState.expanded).toBe(true);
+  });
+
+  it("should show the card face, freeze and more when the sheet is open", () => {
+    renderSheet();
+
+    expect(screen.getByTestId("card-artwork")).toBeVisible();
+    expect(screen.getByText(CARD_COPY.freeze)).toBeVisible();
+    expect(screen.getByLabelText(MORE_COPY.tile)).toBeVisible();
+  });
+
+  it("should float the add-to-wallet CTA over the overview", async () => {
+    renderSheet();
+
+    expect(await screen.findByTestId("pay-card-add-to-wallet-cta-entry")).toBeVisible();
+  });
+
+  it("should show the disclaimer after transactions on the overview", () => {
+    renderSheet();
+
+    expect(screen.getByTestId("card-details-overview-disclaimer")).toBeVisible();
+    expect(screen.getByText(CARD_DISCLAIMER)).toBeVisible();
+  });
+
+  it("should keep the disclaimer off the scenes it would cover", () => {
+    renderSheet({ route: { name: "transaction", transaction } });
+
+    expect(screen.queryByTestId("card-details-overview-disclaimer")).toBeNull();
+  });
+
+  it("should keep the add-to-wallet CTA off the scenes it would cover", () => {
+    renderSheet({ route: { name: "transaction", transaction } });
+
+    expect(screen.queryByTestId("pay-card-add-to-wallet-cta-entry")).toBeNull();
+  });
+
+  it("should send the add-to-wallet CTA to its own scene rather than stacking a sheet", async () => {
+    const { pressAddToWallet } = renderSheet();
+
+    await pressAddToWallet();
+
+    expect(onAddToWalletPress).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("pay-card-add-to-wallet-sheet-content")).toBeNull();
+  });
+
+  it("should show the add-to-wallet instructions with a way back to the overview", async () => {
+    const { onBack, pressBack } = renderSheet({ route: { name: "addToWallet" } });
+
+    expect(screen.getByTestId("card-details-add-to-wallet-content")).toBeVisible();
+    expect(screen.getByText(ADD_TO_WALLET_COPY.title)).toBeVisible();
+    expect(screen.getByText(ADD_TO_WALLET_COPY.step1)).toBeVisible();
+
+    await pressBack();
+
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("should stay on the add-to-wallet scene while the user is in the wallet app", async () => {
+    const { pressOpenWallet } = renderSheet({ route: { name: "addToWallet" } });
+
+    await pressOpenWallet();
+
+    expect(onAddToWalletDone).not.toHaveBeenCalled();
+  });
+
+  it("should leave the add-to-wallet scene once the user comes back from the wallet app", async () => {
+    const { pressOpenWallet } = renderSheet({ route: { name: "addToWallet" } });
+
+    await pressOpenWallet();
+
+    act(() => appStateListener?.("background"));
+    act(() => appStateListener?.("active"));
+
+    expect(onAddToWalletDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("should show the scene the route selects, not one derived from the view models", () => {
+    renderSheet({ route: { name: "more" } });
+
+    expect(screen.getByTestId("card-details-more-content")).toBeVisible();
+    expect(screen.getByText(MORE_COPY.rows.managePin)).toBeVisible();
+  });
+
+  it("should show freeze confirmation in the same sheet", () => {
+    renderSheet({ route: { name: "freeze" }, confirmState: "prompt" });
+
+    expect(screen.getByTestId("card-details-freeze-content")).toBeVisible();
+    expect(screen.getByText(CARD_COPY.freezeTitle)).toBeVisible();
+  });
+
+  it("should show transaction details in the same sheet", () => {
+    renderSheet({ route: { name: "transaction", transaction } });
+
+    expect(screen.getByTestId("card-details-transaction-content")).toBeVisible();
+    expect(screen.getByText("NETFLIX.COM")).toBeVisible();
+  });
+
+  it("should give transaction details nothing to scroll, so its header stays put", () => {
+    renderSheet({ route: { name: "transaction", transaction } });
+
+    expect(screen.getByTestId("card-details-sheet-static-content")).toBeVisible();
+    expect(screen.queryByTestId("card-details-sheet-content")).toBeNull();
+  });
+
+  it("should keep the overview scrollable, since it opens at full height", () => {
+    renderSheet();
+
+    expect(screen.getByTestId("card-details-sheet-content")).toBeVisible();
+    expect(screen.queryByTestId("card-details-sheet-static-content")).toBeNull();
+  });
+
+  it("should offer a way back to the overview from transaction details", async () => {
+    const { onBack, onClose, pressBack } = renderSheet({
+      route: { name: "transaction", transaction },
+    });
+
+    await pressBack();
+
+    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("should offer a way back to the overview from more", async () => {
+    const { onBack, onClose, pressBack } = renderSheet({ route: { name: "more" } });
+
+    await pressBack();
+
+    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("should offer no way back from the overview", () => {
+    renderSheet();
+
+    expect(screen.queryByTestId("card-details-sheet-back")).toBeNull();
+  });
+
+  it("should render no freeze confirmation when the confirm state is closed", () => {
+    renderSheet({ route: { name: "freeze" } });
+
+    expect(screen.queryByTestId("card-details-freeze-content")).toBeNull();
+    expect(screen.queryByText(CARD_COPY.freezeTitle)).toBeNull();
+  });
+
+  it("should close once when dismiss is pressed twice", async () => {
+    const { onClose, pressDismiss } = renderSheet();
+
+    await pressDismiss();
+    await pressDismiss();
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("should not report a close when navigating to another scene", () => {
+    const { onClose, goTo } = renderSheet();
+
+    goTo({ route: { name: "freeze" }, confirmState: "prompt" });
+
+    expect(screen.getByTestId("card-details-freeze-content")).toBeVisible();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("should ignore dismiss while freeze is pending", async () => {
+    const { onClose, pressDismiss } = renderSheet({
+      route: { name: "freeze" },
+      confirmState: "pending",
+    });
+
+    await pressDismiss();
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});

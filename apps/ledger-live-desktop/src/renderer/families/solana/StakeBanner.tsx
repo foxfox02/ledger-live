@@ -1,11 +1,14 @@
 import { useTranslation } from "react-i18next";
 import { useFeature } from "@features/platform-feature-flags";
 import { AccountBanner } from "~/renderer/screens/account/AccountBanner";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import { stakeDefaultTrack } from "~/renderer/screens/stake/constants";
 import React from "react";
 import { StakeAccountBannerParams } from "~/renderer/screens/account/types";
-import { useSolanaStakesWithMeta } from "@ledgerhq/live-common/families/solana/react";
+import {
+  useSolanaStakesWithMeta,
+  useValidators,
+} from "@ledgerhq/live-common/families/solana/react";
 import { getAccountBannerState as getSolanaBannerState } from "@ledgerhq/live-common/families/solana/banner";
 import { useAccountBridge } from "@ledgerhq/live-common/bridge/useAccountBridge";
 import { openModal } from "~/renderer/actions/modals";
@@ -16,21 +19,19 @@ const StakeBanner: React.FC<{ account: SolanaAccount }> = ({ account }) => {
   const dispatch = useDispatch();
   const { t } = useTranslation();
   const stakeAccountBanner = useFeature("stakeAccountBanner");
-  const stakesWithMeta = useSolanaStakesWithMeta(
-    account.currency,
-    account?.solanaResources?.stakes,
-  );
+  const stakesWithMeta = useSolanaStakesWithMeta(account.currency, account.stakingResources);
   const stakeAccountBannerParams: StakeAccountBannerParams | null =
     stakeAccountBanner?.params ?? null;
   const bridge = useAccountBridge(account);
-  const state = getSolanaBannerState(account, bridge);
+  const validators = useValidators(account.currency);
+  const state = getSolanaBannerState(account, bridge, validators);
   const { redelegate, display, ledgerValidator, stakeAccAddr } = state;
 
   if (redelegate && !stakeAccountBannerParams?.solana?.redelegate) return null;
   if (!redelegate && !stakeAccountBannerParams?.solana?.delegate) return null;
 
   const commission = ledgerValidator?.commission ? ledgerValidator?.commission : 1;
-  const stakeWithMeta = stakesWithMeta?.find(s => s.stake?.stakeAccAddr === stakeAccAddr);
+  const stakeWithMeta = stakesWithMeta?.find(s => s.stake?.positionId === stakeAccAddr);
   const title = redelegate
     ? t("account.banner.redelegation.solana.title")
     : t("account.banner.delegation.title");

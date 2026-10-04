@@ -1,0 +1,210 @@
+import type {
+  PayCardAuthorizationCodeRequest,
+  PayCardSession,
+  PayCardUser,
+} from "@domain/api-card-management";
+import type { PayCardLoginErrorKind } from "./errors";
+
+/* --- The login attempt, and what the provider sends back ------------------------------------- */
+
+/**
+ * One login attempt: the PKCE verifier the token exchange must present, the challenge derived from
+ * that verifier for the authorize URL, and a local id this session uses to recognize its own
+ * redirect.
+ */
+export type PayCardAuthorizeAttempt = Readonly<{
+  codeVerifier: string;
+  codeChallenge: string;
+  state: string;
+}>;
+
+/**
+ * What survives the hosted login. The challenge is spent on the authorize URL, so only the verifier
+ * is kept, and the token exchange presents it.
+ */
+export type PayCardStoredAttempt = Readonly<{
+  codeVerifier: string;
+}>;
+
+/**
+ * What the provider sends back on the redirect. PKCE binds the code to the verifier on disk, so this
+ * is not a CSRF check. `state` only lets the app recognize a redirect from an attempt it has already
+ * abandoned, when the source it arrived through can supply it.
+ *
+ * `appId` names the provider app the holder belongs to. The provider runs one app per region, and
+ * this is the only place it says which one, so the flow records it for the Card API to route on.
+ */
+export type PayCardAuthCallback = Readonly<{
+  code: string;
+  state?: string;
+  appId?: string;
+}>;
+
+/**
+ * Per-app OAuth client configuration. The values are the app's to know: the API host and the client
+ * id come from its environment, and the redirect URI is the one it has whitelisted with the provider.
+ */
+export type CardLoginOauthConfig = Readonly<{
+  /** Base of the Card API, which also hosts the authorize page the browser opens. */
+  apiUrl: string;
+  clientId: string;
+  /**
+   * Base of the provider's hosted UI, which carries the signup page the intro opens.
+   *
+   * Optional, because it can be derived elsewhere (e.g. manifest-driven). Leave it out and
+   * `buildSignupUrl` throws.
+   */
+  hostedUiUrl?: string;
+  /**
+   * Sent to the provider on authorize. The token exchange does not repeat it. The provider whitelists
+   * an `https` URL only, so this one cannot be the app's own link. It redirects to `deepLink`.
+   */
+  redirectUri: string;
+  /**
+   * The app's own link, which the redirect above lands on. This is what closes the secure browser:
+   * `ASWebAuthenticationSession` takes the scheme of this value as its `callbackURLScheme`, and the
+   * Android polyfill matches the incoming link against the whole of it. Only a custom scheme can end a
+   * session, so the redirect URI above cannot serve here.
+   *
+   * Optional, because only a secure browser session has an API that acts on it. Desktop opens the
+   * page in a plain webview with no such API to close it, so it passes none. Leave it out on a
+   * platform that does have one and the login still completes through the app's deep link, but
+   * nothing closes the browser and it stays on top of the app.
+   */
+  deepLink?: string;
+}>;
+
+/* --- What the machine needs from the outside world ------------------------------------------- */
+
+/**
+ * What the hosted login reports back. `success` carries the URL the session stopped on, which is the
+ * redirect; `dismissed` covers every way the user left without one; `pending` says the page is open
+ * in a context that reports nothing, so the redirect reaches the app by its own deep link instead.
+ */
+export type HostedLoginResult =
+  | Readonly<{ type: "success"; url: string }>
+  | Readonly<{ type: "dismissed" }>
+  | Readonly<{ type: "pending" }>;
+
+export type OpenHostedLogin = (loginUrl: string, deepLink?: string) => Promise<HostedLoginResult>;
+
+export type OpenCardHostedPage = (path: string) => Promise<void>;
+
+/**
+ * Everything the login machine needs from the outside world. The machine itself holds no React, no
+ * redux, no platform API — the ViewModel binds these to RTK Query, to the PKCE store and to the
+ * platform-card session store.
+ */
+export type CardLoginPorts = Readonly<{
+  /** Mints a fresh PKCE pair and a local attempt id. */
+  createAttempt: () => Promise<PayCardAuthorizeAttempt>;
+  saveAttempt: (attempt: PayCardStoredAttempt) => Promise<void>;
+  loadAttempt: () => Promise<PayCardStoredAttempt | null>;
+  clearAttempt: () => Promise<void>;
+  /** True when a Card session is already on disk. */
+  hasSession: () => Promise<boolean>;
+  persistSession: (session: PayCardSession) => Promise<void>;
+  clearSession: () => Promise<void>;
+  /** Removes the cached Card user, so no other screen shows whoever just left. */
+  forgetUser: () => void;
+  exchangeAuthorizationCode: (request: PayCardAuthorizationCodeRequest) => Promise<PayCardSession>;
+  /** Fills the RTK Query cache, so every other screen sees the user too. */
+  getUser: () => Promise<PayCardUser>;
+  /**
+   * Publishes "the card holder is signed in" for the components the machine does not render.
+   * `More` reads that flag to decide whether it belongs on screen.
+   */
+  setSignedIn: (isSignedIn: boolean) => void;
+  /** Records that the card holder has logged in once, so the intro is never sold to them again. */
+  markIntroSeen: () => void;
+  /**
+   * Records the provider app the redirect named, so the Card API can route every later request. It
+   * is kept beside the session, whose lifetime it shares, and the comparison with the US app id
+   * belongs to the API layer, which reads the env on every request.
+   */
+  setProviderAppId: (appId: string | null) => void;
+  openHostedLogin: OpenHostedLogin;
+}>;
+
+/**
+ * What the logout needs from the outside world. It is a separate list, because `More` is a
+ * separate component with no machine: it ends one session and says so, and it never logs anybody in.
+ */
+export type CardLogoutPorts = Readonly<{
+  /** Ends the session at the provider before the local session is cleared. */
+  logout: () => Promise<void>;
+  clearSession: () => Promise<void>;
+  clearAttempt: () => Promise<void>;
+  /** Removes the cached Card user, so no other screen shows whoever just left. */
+  forgetUser: () => void;
+  setSignedIn: (isSignedIn: boolean) => void;
+}>;
+
+/* --- The machine's own shapes ---------------------------------------------------------------- */
+
+/** What the ViewModel hands the machine when it starts. */
+export type CardLoginMachineInput = Readonly<{
+  ports: CardLoginPorts;
+  oauthConfig: CardLoginOauthConfig;
+  /** A redirect the app already held when the screen mounted, from a cold start on the deep link. */
+  callback?: PayCardAuthCallback | null;
+}>;
+
+/**
+ * The machine's working memory. No secret is kept here as a source of truth: the PKCE verifier lives
+ * in the flow's store and the session lives in platform-card. `session` holds the freshly exchanged
+ * tokens for the one step between the exchange and the disk write, and is dropped again straight
+ * after.
+ */
+export type CardLoginContext = {
+  ports: CardLoginPorts;
+  oauthConfig: CardLoginOauthConfig;
+  callback: PayCardAuthCallback | null;
+  loginUrl: string | null;
+  /**
+   * The current attempt's local id, so a redirect from an attempt already abandoned is told apart
+   * from the one this session is waiting on. Not a CSRF value: PKCE already ties the code to the
+   * verifier on disk.
+   */
+  attemptState: string | null;
+  session: PayCardSession | null;
+  errorKind: PayCardLoginErrorKind | null;
+  /** Set when the session on disk turned out to be dead, so the wipe takes it as well. */
+  clearSession: boolean;
+  /** Set when the wipe is only hygiene and a valid session is waiting behind it. */
+  resumeAuthenticated: boolean;
+};
+
+/** Everything the outside world can tell the machine. Actor results drive the rest. */
+export type CardLoginEvent =
+  | { type: "LOGIN" }
+  | { type: "RETRY" }
+  | { type: "DISMISS" }
+  | { type: "SESSION_ENDED" }
+  | { type: "CALLBACK_RECEIVED"; code: string; state?: string; appId?: string };
+
+/* --- Redux ----------------------------------------------------------------------------------- */
+
+/**
+ * Where the Card session stands. `unknown` is the boot value: the login machine is still reading the
+ * stored session, so no one can yet say whether the holder is signed in. It lets a host tell "still
+ * resolving" from "signed out", which a bare boolean cannot, and so keeps the login CTA from flashing
+ * before the machine hydrates.
+ */
+export type PayCardAuthStatus = "unknown" | "signedOut" | "signedIn";
+export type PayCardLoginType = "signin" | "signup";
+
+export type PayCardAuthState = Readonly<{
+  hasCard: boolean;
+  pendingLoginType: PayCardLoginType | null;
+  /**
+   * Where the Card session stands. The login machine owns the value, and every component outside it
+   * reads this instead, because two machines would each hydrate and neither would agree.
+   */
+  status: PayCardAuthStatus;
+  isSessionResolving: boolean;
+}>;
+
+export type PayCardLoginIntroState = Readonly<{
+  hasSeenLoginIntro: boolean;
+}>;

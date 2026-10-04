@@ -5,18 +5,18 @@ import {
   makeSync,
 } from "@ledgerhq/ledger-wallet-framework/bridge/jsHelpers";
 import type { AccountBridge, CurrencyBridge } from "@ledgerhq/types-live";
-import type { CoinConfig } from "../config";
-import { setCoinConfig } from "../config";
+import type { ZcashContext } from "../config";
 import type { SignerContext } from "../types/signer";
 import type { Transaction, TransactionStatus, ZcashAccount } from "../types/bridge";
-import { ZCASH_ESTIMATION_RECIPIENT } from "../constants";
+import { zainoEndpoint, ZCASH_ESTIMATION_RECIPIENT } from "../constants";
 import getAddress from "../signer/getAddress";
 import getFullViewingKeyResolver, {
   type GetFullViewingKeyResult,
 } from "../signer/getFullViewingKey";
+import getShieldedAddressResolver from "../signer/getShieldedAddress";
 import { getSerializedAddressParameters } from "./exchange";
 import { validateAddress } from "../logic/validateAddress";
-import { broadcast } from "./broadcast";
+import { buildBroadcast } from "./broadcast";
 import { createTransaction } from "./createTransaction";
 import { estimateMaxSpendable } from "./estimateMaxSpendable";
 import { getTransactionStatus } from "./getTransactionStatus";
@@ -26,6 +26,7 @@ import { makeGetAccountShape, postSync } from "./sync";
 import { updateTransaction } from "./updateTransaction";
 import { assignFromAccountRaw, assignToAccountRaw } from "./serialization";
 import formatters from "./transaction";
+import { getZCashClient } from "../logic/engineClient";
 
 /**
  * `getFullViewingKey` is not part of `AccountBridge`: the UFVK export flow is
@@ -37,6 +38,11 @@ export type ZcashAccountBridge = AccountBridge<Transaction, ZcashAccount, Transa
     account: ZcashAccount,
     options: { deviceId: string; path?: string },
   ) => Promise<GetFullViewingKeyResult>;
+  deriveShieldedAddress: (ufvk: string) => Promise<string>;
+  getShieldedAddress: (
+    account: ZcashAccount,
+    options: { deviceId: string; path?: string; display?: boolean },
+  ) => Promise<{ address: string }>;
 };
 
 /**
@@ -46,12 +52,11 @@ export type ZcashAccountBridge = AccountBridge<Transaction, ZcashAccount, Transa
  * broadcast). The only bespoke residue is `signOperation` (PCZT device
  * orchestration).
  */
-export function createBridges(signerContext: SignerContext, coinConfig: CoinConfig) {
-  setCoinConfig(coinConfig);
-
+export function createBridges(signerContext: SignerContext, context: ZcashContext) {
   const getAddressFn = getAddress(signerContext);
   const getFullViewingKeyFn = getFullViewingKeyResolver(signerContext);
-  const getAccountShape = makeGetAccountShape(signerContext);
+  const getShieldedAddressFn = getShieldedAddressResolver(signerContext);
+  const getAccountShape = makeGetAccountShape(signerContext, context);
 
   const scanAccounts = makeScanAccounts<ZcashAccount>({
     getAccountShape,
@@ -79,11 +84,11 @@ export function createBridges(signerContext: SignerContext, coinConfig: CoinConf
     estimateMaxSpendable,
     sync,
     receive,
-    signOperation: buildSignOperation(signerContext),
+    signOperation: buildSignOperation(signerContext, context),
     signRawOperation: () => {
       throw new Error("signRawOperation is not supported");
     },
-    broadcast,
+    broadcast: buildBroadcast(context),
     assignFromAccountRaw,
     assignToAccountRaw,
     formatAccountSpecifics: () => "",
@@ -98,6 +103,15 @@ export function createBridges(signerContext: SignerContext, coinConfig: CoinConf
       getFullViewingKeyFn(deviceId, {
         currency: account.currency,
         path: path ?? account.freshAddressPath,
+      }),
+    deriveShieldedAddress: async (ufvk: string) => {
+      const client = await getZCashClient(zainoEndpoint((await context.config("zcash")).zaino.url));
+      return client.deriveShieldedAddress(ufvk);
+    },
+    getShieldedAddress: (account, { deviceId, path, display }) =>
+      getShieldedAddressFn(deviceId, {
+        path: path ?? account.freshAddressPath,
+        ...(display !== undefined && { display }),
       }),
   };
 

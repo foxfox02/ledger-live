@@ -1,8 +1,6 @@
 import { test } from "tests/fixtures/common";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
 import { Account } from "@ledgerhq/live-e2e-shared/enum/Account";
-import { addTmsLink } from "tests/utils/allureUtils";
-import { getDescription } from "tests/utils/customJsonReporter";
 import { waitForAccountRenamed } from "tests/utils/userdata";
 import { liveDataCommand } from "@ledgerhq/live-e2e-shared/cliCommandsUtils";
 import { buildTags } from "tests/utils/tagsUtils";
@@ -10,7 +8,7 @@ import { buildTags } from "tests/utils/tagsUtils";
 const accounts = [{ account: Account.ATOM_1, xrayTicket: "B2CQA-2996" }];
 
 for (const account of accounts) {
-  test.describe("Rename Account", () => {
+  test.describe("Rename account", () => {
     test.use({
       teamOwner: Team.WALLET_XP,
       userdata: "skip-onboarding-with-last-seen-device",
@@ -20,7 +18,7 @@ for (const account of accounts) {
     });
 
     test(
-      `[${account.account.currency.name}] Rename Account`,
+      `[${account.account.currency.testLabel}] - Rename account and persist after restart`,
       {
         tag: buildTags({ currencyId: account.account.currency.id }),
         annotation: {
@@ -29,7 +27,6 @@ for (const account of accounts) {
         },
       },
       async ({ app, userdataFile }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
         await app.redux.listenToReduxActions();
 
         await app.mainNavigation.openTargetFromMainNavigation("accounts");

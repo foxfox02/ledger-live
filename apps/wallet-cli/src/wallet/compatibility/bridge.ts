@@ -8,13 +8,17 @@ import { formatCurrencyUnit } from "@ledgerhq/live-common/currencies/index";
 import { getAccountBridge, getCurrencyBridge } from "@ledgerhq/live-common/bridge/index";
 import { decodeAccountId } from "@ledgerhq/ledger-wallet-framework/account/index";
 import { makeBridgeCacheSystem } from "@ledgerhq/live-common/bridge/cache";
-import { accountDataToAccount } from "@ledgerhq/live-wallet/liveqr/cross";
+import { descriptorToAccount } from "@ledgerhq/live-wallet/accounts";
 import type { Account, SignedOperation, TokenAccount } from "@ledgerhq/types-live";
 import type { DeviceModelId } from "@ledgerhq/types-devices";
-import type {
-  TransactionModel as SolanaTransactionModel,
-  SolanaAccount,
-} from "@ledgerhq/coin-solana/types";
+import { listSolanaStakingPositions, solanaActivationState } from "@ledgerhq/coin-solana/logic";
+import type { SolanaAccount } from "@ledgerhq/coin-solana/types";
+import {
+  createStakeAccountTransaction,
+  delegateTransaction,
+  setTransactionMemo,
+  undelegateTransaction,
+} from "@ledgerhq/live-common/families/solana/transactions";
 import { BigNumber } from "bignumber.js";
 import { BigNumberStrSchema, DateTimeIsoSchema } from "@shared/schema-primitives";
 import type { AccountDescriptor, Balance, Operation, SendEvent } from "../models";
@@ -26,44 +30,24 @@ type SendOptions = { deviceId: string; deviceModelId: DeviceModelId };
 
 type SolanaTransactionIntent = Extract<TransactionIntent, { family: "solana" }>;
 
-// Maps a Solana CLI intent to the coin-solana transaction `model` (kind + uiState).
-// coin-solana routes createTransaction/prepareTransaction on `model.kind`, so the stake
-// behaviour MUST be expressed through this model — loose patch fields are ignored by the
-// generic shallow-merge updateTransaction. Mirrors coin-solana's cli-transaction inferTransactions.
-export function buildSolanaTransactionModel(
+export function buildSolanaTransactionPatch(
   intent: SolanaTransactionIntent,
-  tokenAccount?: TokenAccount,
-): SolanaTransactionModel {
+): Record<string, unknown> {
   switch (intent.mode) {
     case "stake.createAccount":
-      return {
-        kind: "stake.createAccount",
-        uiState: { delegate: { voteAccAddress: intent.validator ?? "" } },
-      };
+      return createStakeAccountTransaction(intent.validator ?? "");
     case "stake.delegate":
-      return {
-        kind: "stake.delegate",
-        uiState: { stakeAccAddr: intent.stakeAccount ?? "", voteAccAddr: intent.validator ?? "" },
-      };
+      return delegateTransaction(intent.stakeAccount ?? "", intent.validator ?? "");
     case "stake.undelegate":
-      return {
-        kind: "stake.undelegate",
-        uiState: { stakeAccAddr: intent.stakeAccount ?? "" },
-      };
+      return undelegateTransaction(intent.stakeAccount ?? "");
     case "stake.withdraw":
-      return {
-        kind: "stake.withdraw",
-        uiState: { stakeAccAddr: intent.stakeAccount ?? "" },
-      };
+      return { mode: "unstake", recipient: intent.stakeAccount ?? "" };
     case "send":
     default:
-      // Token transfers carry the sub-account; native transfers just carry the memo.
-      return tokenAccount
-        ? {
-            kind: "token.transfer",
-            uiState: { subAccountId: tokenAccount.id, memo: intent.memo },
-          }
-        : { kind: "transfer", uiState: { memo: intent.memo } };
+      return {
+        mode: "send",
+        ...(intent.memo !== undefined ? setTransactionMemo(intent.memo) : {}),
+      };
   }
 }
 
@@ -176,20 +160,32 @@ export class BridgeAdapter {
 
   /**
    * On-chain Solana stake accounts for the account, mapped to the serializable shape `earn
-   * positions` exposes. A full bridge sync populates `solanaResources.stakes`; we surface the
+   * positions` exposes. A full bridge sync populates `stakingResources`; we surface the
    * stake-account address + delegation + activation state so `earn withdraw --stake-account` has a
    * concrete target. Returns [] for accounts without staking resources.
    */
   async getSolanaStakes(descriptor: AccountDescriptor): Promise<EarnSolanaStake[]> {
     const account = (await this.sync(descriptor)) as SolanaAccount;
-    const stakes = account.solanaResources?.stakes ?? [];
-    return stakes.map(stake => ({
-      stakeAccount: stake.stakeAccAddr,
-      validator: stake.delegation?.voteAccAddr,
-      state: stake.activation.state,
-      stakeBalance: stake.stakeAccBalance,
-      withdrawable: stake.withdrawable,
-    }));
+    return listSolanaStakingPositions(account.stakingResources).flatMap(stake => {
+      const stakeAccount = stake.positionId;
+      // Without a stake account address there is nothing `earn withdraw --stake-account` could
+      // target, so drop the position instead of emitting an unusable empty address.
+      if (!stakeAccount) return [];
+      return [
+        {
+          stakeAccount,
+          validator: stake.validatorAddress || undefined,
+          state: solanaActivationState(stake),
+          stakeBalance: BigNumberStrSchema.parse(
+            (stake.activeAmount ?? new BigNumber(0))
+              .plus(stake.inactiveAmount ?? 0)
+              .plus(stake.lockedReserve ?? 0)
+              .toFixed(),
+          ),
+          withdrawable: BigNumberStrSchema.parse(stake.withdrawableAmount?.toFixed() ?? "0"),
+        },
+      ];
+    });
   }
 
   async verifyAddress(descriptor: AccountDescriptor, deviceId: string): Promise<string> {
@@ -276,9 +272,7 @@ export class BridgeAdapter {
         }
         break;
       case "solana":
-        // coin-solana behaviour is driven entirely by `model.kind`; setting loose
-        // mode/validator/stakeAccount fields is a no-op (generic merge ignores them).
-        patch.model = buildSolanaTransactionModel(intent, tokenAccount);
+        Object.assign(patch, buildSolanaTransactionPatch(intent));
         break;
     }
     return patch;
@@ -346,7 +340,7 @@ export class BridgeAdapter {
   }
 
   private buildAccount(descriptor: AccountDescriptor): Account {
-    const [account] = accountDataToAccount({ ...descriptor, balance: "0", name: "" });
+    const account = descriptorToAccount(descriptor);
     return account;
   }
 

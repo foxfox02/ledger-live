@@ -11,11 +11,17 @@ export const mockFeeByTransactionType: Record<TransactionType, number> = {
   [TRANSACTION_TYPE.TRANSFER_TOKEN_PRIVATE]: 2308,
   [TRANSACTION_TYPE.CONVERT_TOKEN_PRIVATE_TO_PUBLIC]: 18494,
   [TRANSACTION_TYPE.CONVERT_TOKEN_PUBLIC_TO_PRIVATE]: 17972,
+  [TRANSACTION_TYPE.BOND_PUBLIC]: 5621,
+  [TRANSACTION_TYPE.UNBOND_PUBLIC]: 10813,
+  [TRANSACTION_TYPE.CLAIM_UNBOND_PUBLIC]: 3066,
 };
 
 export const getMockedConfig = (networkType: "mainnet" | "testnet"): AleoCoinConfig => {
   return {
     networkType,
+    name: networkType === "testnet" ? "Aleo (Testnet)" : "Aleo",
+    unit: { name: "Aleo", code: "ALEO", magnitude: 6 },
+    defaultValidator: "aleo1validator000000000000000000000000000000000000000000000000q",
     apiUrls: {
       node: "https://node.example.com",
       sdk: "https://sdk.example.com",
@@ -24,8 +30,11 @@ export const getMockedConfig = (networkType: "mainnet" | "testnet"): AleoCoinCon
     feeSafetyMultiplier: 1,
     isFeeSponsored: true,
     enableTokens: false,
+    enableStaking: false,
     useEncryptedProve: false,
     recordPickingStrategy: "manual",
+    liveBlockHeightPollMs: 10_000,
+    maxUnbondingSyncAttempts: 3,
     status: { type: "active" },
   };
 };
@@ -36,7 +45,10 @@ export const getMockedConfig = (networkType: "mainnet" | "testnet"): AleoCoinCon
  */
 export const getTestnetIntegConfig = (overrides?: Partial<AleoCoinConfig>): AleoCoinConfig => ({
   status: { type: "active" },
+  name: "Aleo (Testnet)",
+  unit: { name: "Aleo", code: "ALEO", magnitude: 6 },
   networkType: "testnet",
+  defaultValidator: "aleo1validator000000000000000000000000000000000000000000000000q",
   apiUrls: {
     node: getEnv("ALEO_NODE_ENDPOINT"),
     sdk: getEnv("ALEO_TESTNET_SDK_ENDPOINT"),
@@ -45,7 +57,10 @@ export const getTestnetIntegConfig = (overrides?: Partial<AleoCoinConfig>): Aleo
   feeSafetyMultiplier: 1,
   isFeeSponsored: true,
   enableTokens: false,
+  enableStaking: false,
   useEncryptedProve: false,
   recordPickingStrategy: "manual",
+  liveBlockHeightPollMs: 10_000,
+  maxUnbondingSyncAttempts: 3,
   ...overrides,
 });

@@ -23,9 +23,11 @@ import {
   broadcastTransactionJob,
   transactionDetailsJob,
   buildIronwoodTransactionJob,
+  deriveShieldedAddress,
 } from "../engine";
 import type {
   CancelSyncArgs,
+  DeriveShieldedAddressArgs,
   FindBlockHeightArgs,
   GetChainTipArgs,
   StartSyncArgs,
@@ -207,6 +209,7 @@ async function handleBroadcastTransaction(
       type: "broadcast-transaction-error",
       requestId: args.requestId,
       message: err instanceof Error ? err.message : String(err),
+      endpoint: args.grpcUrl,
     });
   }
 }
@@ -226,6 +229,22 @@ async function handleTransactionDetails(
   } catch (err) {
     send(port, {
       type: "transaction-details-error",
+      requestId: args.requestId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+async function handleDeriveShieldedAddress(
+  port: ParentPort,
+  args: DeriveShieldedAddressArgs,
+): Promise<void> {
+  try {
+    const address = await deriveShieldedAddress(args.ufvk);
+    send(port, { type: "derive-shielded-address-result", requestId: args.requestId, address });
+  } catch (err) {
+    send(port, {
+      type: "derive-shielded-address-error",
       requestId: args.requestId,
       message: err instanceof Error ? err.message : String(err),
     });
@@ -266,6 +285,9 @@ export function bootstrapUtility(port: ParentPort): void {
         break;
       case "build-ironwood-transaction":
         void handleBuildIronwoodTransaction(port, message.args);
+        break;
+      case "derive-shielded-address":
+        void handleDeriveShieldedAddress(port, message.args);
         break;
       default: {
         const exhaustive: never = message;

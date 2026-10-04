@@ -1,8 +1,17 @@
+import type { Logger } from "@ledgerhq/coin-module-framework/config";
+import type { TronCoinConfig } from "../config";
 import type { BlockInfo } from "@ledgerhq/coin-module-framework/api/index";
 import { getLastBlock } from "../network";
 import { lastBlock } from "./lastBlock";
 
 jest.mock("../network");
+
+const mockLogger: Logger = jest.fn();
+
+const mockConfig = {
+  status: { type: "active" },
+  explorer: { url: "https://tron.coin.ledger.com" },
+} as TronCoinConfig;
 
 describe("lastBlock", () => {
   it("should return the last block info", async () => {
@@ -14,7 +23,7 @@ describe("lastBlock", () => {
 
     (getLastBlock as jest.Mock).mockResolvedValue(mockBlockInfo);
 
-    const result = await lastBlock();
+    const result = await lastBlock(mockLogger, mockConfig);
 
     expect(result).toEqual(mockBlockInfo);
     expect(getLastBlock).toHaveBeenCalledTimes(1);

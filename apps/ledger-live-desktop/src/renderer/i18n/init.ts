@@ -1,7 +1,9 @@
-import i18n, { InitOptions } from "i18next";
+import { installContentAbTestCopyOverrides } from "@features/platform-content-ab-tests";
+import { createInstance, type InitOptions } from "i18next";
 import { initReactI18next } from "react-i18next";
 import locales, { i18_DEFAULT_NAMESPACE } from ".";
 import { DEFAULT_LANGUAGE } from "~/config/languages";
+import en from "../../../static/i18n/en/app.json";
 
 const config: InitOptions = {
   resources: locales,
@@ -17,6 +19,17 @@ const config: InitOptions = {
   },
 };
 
+// An explicit instance, never the i18next global singleton: it is what lets `@shared/i18n` hand
+// one engine to `features/*` and `domain/*`, and what will let a future module-federation remote
+// own its own without namespaces clobbering each other.
+const i18n = createInstance();
+
 i18n.use(initReactI18next).init(config);
+installContentAbTestCopyOverrides(i18n, en, i18_DEFAULT_NAMESPACE);
+
+// The app instance's `t`, for the non-React call sites that used to import `t` from `i18next`.
+// i18next already binds its prototype methods at construction and never reassigns `t`, so this
+// follows language changes; `.bind` is a no-op that keeps the call site safe if that ever changes.
+export const t = i18n.t.bind(i18n);
 
 export default i18n;

@@ -3,6 +3,7 @@ import { useSendFlowTransaction } from "../useSendFlowTransaction";
 import * as bridgeModule from "@ledgerhq/live-common/bridge/index";
 import * as useBridgeTransactionModule from "@ledgerhq/live-common/bridge/useBridgeTransaction";
 import * as useAccountBridgeModule from "@ledgerhq/live-common/bridge/useAccountBridge";
+import { sendFeatures } from "@ledgerhq/live-common/bridge/descriptor/send/features";
 import type { Account } from "@ledgerhq/types-live";
 import type { Transaction } from "@ledgerhq/live-common/generated/types";
 import BigNumber from "bignumber.js";
@@ -13,10 +14,34 @@ jest.mock("@ledgerhq/live-common/bridge/useAccountBridge", () => ({
   useAccountBridge: jest.fn(),
   useAccountBridgeOrNull: jest.fn(),
 }));
+jest.mock("@ledgerhq/live-common/bridge/descriptor/send/features", () => ({
+  sendFeatures: { getBalanceTypeConfig: jest.fn(() => null) },
+}));
+
+const mockedGetBalanceTypeConfig = jest.mocked(sendFeatures.getBalanceTypeConfig);
+
+/** Stubs a currency holding balance pools and returns its self-transfer patch builder. */
+function stubBalanceTypeConfig() {
+  const buildSelfTransferPatch = jest.fn(({ isSelfTransfer }: { isSelfTransfer: boolean }) => ({
+    selfTransfer: isSelfTransfer,
+  }));
+
+  mockedGetBalanceTypeConfig.mockReturnValue({
+    getOptions: jest.fn(() => []),
+    getSelectedOptionId: jest.fn(() => null),
+    buildSelectionPatch: jest.fn(() => ({})),
+    getSelfTransferTarget: jest.fn(() => null),
+    buildSelfTransferPatch,
+    getSelectableBalance: jest.fn(),
+  });
+
+  return buildSelfTransferPatch;
+}
 
 describe("useSendFlowTransaction", () => {
   const mockAccount = {
     id: "mock-account-id",
+    type: "Account",
     currency: { family: "cosmos" },
   } as Account;
 
@@ -36,6 +61,7 @@ describe("useSendFlowTransaction", () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
+    mockedGetBalanceTypeConfig.mockReturnValue(null);
     mockBridge.updateTransaction = mockUpdateTransaction;
 
     (useAccountBridgeModule.useAccountBridgeOrNull as jest.Mock).mockReturnValue(mockBridge);
@@ -95,18 +121,17 @@ describe("useSendFlowTransaction", () => {
       expect(mockUpdateTransaction).toHaveBeenCalledWith(mockTransaction, {
         recipient: "cosmos1abc123",
         memo: "test memo",
+        memoType: "text",
+        memoValue: "test memo",
       });
     });
 
-    it("should apply memo for solana with nested structure", () => {
+    it("should apply memo for solana", () => {
       const solanaTransaction = {
         family: "solana",
         recipient: "",
         amount: new BigNumber(0),
-        model: {
-          kind: "transfer",
-          uiState: {},
-        },
+        mode: "send",
       } as Transaction;
 
       (useBridgeTransactionModule.default as jest.Mock).mockReturnValue({
@@ -137,11 +162,8 @@ describe("useSendFlowTransaction", () => {
         solanaTransaction,
         expect.objectContaining({
           recipient: "solana-address",
-          model: expect.objectContaining({
-            uiState: expect.objectContaining({
-              memo: "solana memo",
-            }),
-          }),
+          memoType: "TEXT",
+          memoValue: "solana memo",
         }),
       );
     });
@@ -183,7 +205,7 @@ describe("useSendFlowTransaction", () => {
       });
     });
 
-    it("should apply transferId for casper", () => {
+    it("should apply memo for casper", () => {
       const casperTransaction = {
         family: "casper",
         recipient: "",
@@ -218,6 +240,8 @@ describe("useSendFlowTransaction", () => {
       expect(mockUpdateTransaction).toHaveBeenCalledWith(casperTransaction, {
         recipient: "casper-address",
         transferId: "transfer-id-123",
+        memoType: "transferId",
+        memoValue: "transfer-id-123",
       });
     });
 
@@ -277,6 +301,47 @@ describe("useSendFlowTransaction", () => {
       expect(mockUpdateTransaction).toHaveBeenCalledWith(mockTransaction, {
         recipient: "xrp-address",
       });
+    });
+
+    it.each([true, false])(
+      "asks the balance-pool descriptor for a self-transfer of %s and applies its patch",
+      isSelfTransfer => {
+        const buildSelfTransferPatch = stubBalanceTypeConfig();
+
+        const { result } = renderHook(() =>
+          useSendFlowTransaction({
+            account: mockAccount,
+            parentAccount: null,
+          }),
+        );
+
+        act(() => {
+          result.current.actions.setRecipient({ address: "u1shielded", isSelfTransfer });
+        });
+
+        expect(buildSelfTransferPatch).toHaveBeenCalledWith({ isSelfTransfer });
+        expect(mockUpdateTransaction).toHaveBeenCalledWith(mockTransaction, {
+          recipient: "u1shielded",
+          selfTransfer: isSelfTransfer,
+        });
+      },
+    );
+
+    it("treats a recipient that says nothing about a self-transfer as a plain send", () => {
+      const buildSelfTransferPatch = stubBalanceTypeConfig();
+
+      const { result } = renderHook(() =>
+        useSendFlowTransaction({
+          account: mockAccount,
+          parentAccount: null,
+        }),
+      );
+
+      act(() => {
+        result.current.actions.setRecipient({ address: "t1transparent" });
+      });
+
+      expect(buildSelfTransferPatch).toHaveBeenCalledWith({ isSelfTransfer: false });
     });
 
     it("should not update when account is null", () => {

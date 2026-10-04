@@ -1,3 +1,4 @@
+import { track } from "@shared/analytics";
 import { useCallback, useEffect, useState } from "react";
 import { createQRCodeHostInstance } from "@ledgerhq/ledger-key-ring-protocol/qrcode/index";
 import { NoTrustchainInitialized } from "@ledgerhq/ledger-key-ring-protocol/errors";
@@ -9,7 +10,7 @@ import {
   setTrustchain,
 } from "@ledgerhq/ledger-key-ring-protocol/store";
 import { AnalyticsEvents } from "LLM/features/WalletSync/Analytics/enums";
-import { track } from "~/analytics";
+import { useWalletSyncTrackingFlow } from "./useLedgerSyncAnalytics";
 import { useTrustchainSdk } from "./useTrustchainSdk";
 import { Options, Steps } from "../types/Activation";
 import { useNavigation } from "@react-navigation/native";
@@ -45,6 +46,7 @@ export function useQRCodeHost({ currentOption }: Props) {
   const [pinCode, setPinCode] = useState<string | null>(null);
 
   const navigation = useNavigation();
+  const trackingFlow = useWalletSyncTrackingFlow();
 
   const { mutate, isPending, error } = useMutation({
     mutationFn: (memberCredentials: MemberCredentials) =>
@@ -72,7 +74,7 @@ export function useQRCodeHost({ currentOption }: Props) {
     onSuccess: newTrustchain => {
       if (newTrustchain) {
         dispatch(setTrustchain(newTrustchain));
-        if (!trustchain) track(AnalyticsEvents.LedgerSyncActivated);
+        if (!trustchain) track(AnalyticsEvents.LedgerSyncActivated, { flow: trackingFlow });
       }
       queryClient.invalidateQueries({ queryKey: [QueryKey.getMembers] });
       navigation.navigate(NavigatorName.WalletSync, {
@@ -92,7 +94,7 @@ export function useQRCodeHost({ currentOption }: Props) {
         const { time } = e as unknown as { time: number };
         if (time >= MIN_TIME_TO_REFRESH) startQRCodeProcessing();
       }
-      if (e?.name === "InvalidDigitsError") {
+      if (e?.name === "InvalidDigitsError" || e?.name === "QRCodeProtocolError") {
         setCurrentStep(Steps.SyncError);
       }
       if (e?.name === "NoTrustchainInitialized") {

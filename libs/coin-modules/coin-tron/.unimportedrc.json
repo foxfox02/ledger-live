@@ -7,16 +7,10 @@
   "entry": [
     "src/index.ts",
     "src/api/index.ts",
-    "src/bridge/index.ts",
-    "src/network/index.ts",
-    "src/signer/index.ts"
+    "src/network/index.ts"
   ],
   "ignoreUnimported": [
-    "src/bridge/deviceTransactionConfig.ts",
-    "src/bridge/transaction.ts",
-    "src/network/superRepresentativesData.mock.ts",
-    "src/test/bridgeDatasetTest.ts",
-    "src/test/index.ts",
+    "src/constants.ts",
     "src/supportedFeatures.ts"
   ],
   "ignorePatterns": [
@@ -26,7 +20,6 @@
     "**/*.test.ts"
   ],
   "ignoreUnused": [
-    "@ledgerhq/devices",
     "invariant"
   ]
 }

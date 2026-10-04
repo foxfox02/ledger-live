@@ -25,6 +25,8 @@ import { useDeeplinkCustomHandlers } from "../WebPlatformPlayer/CustomHandlers";
 import { WalletAPICustomHandlers } from "@ledgerhq/live-common/wallet-api/types";
 import { BackConfig, BackToInternalDomain } from "./BackToLwButton";
 import { handleBackToLwEntryPoint } from "./handleBackToLwEntryPoint";
+import Config from "react-native-config";
+import { ptxHandoffStore } from "~/e2e/ptxHandoffStore";
 
 export type { BackConfig } from "./BackToLwButton";
 
@@ -44,6 +46,8 @@ export const WebPTXPlayer = ({
   },
   softExit = false,
   Interstitial,
+  onAccountRequestCancel,
+  onAccountRequestSuccess,
 }: {
   manifest: LiveAppManifest;
   inputs?: Record<string, string | undefined>;
@@ -51,6 +55,8 @@ export const WebPTXPlayer = ({
   config?: BackConfig;
   softExit?: boolean;
   Interstitial?: InterstitialType;
+  onAccountRequestCancel?: () => void;
+  onAccountRequestSuccess?: () => void;
 }) => {
   const lastMatchingURL = useRef<string | null>(null);
   const webviewAPIRef = useRef<WebviewAPI>(null);
@@ -85,6 +91,10 @@ export const WebPTXPlayer = ({
           const manifestId = url.searchParams.get("goToManifest");
 
           if (manifestId && goToURL) {
+            // e2e asserts the handoff contract on this URL instead of driving into
+            // the partner's own page. See ptxHandoffStore.
+            if (Config.DETOX) ptxHandoffStore.set(url.href);
+
             const searchParams = url.searchParams;
             const flowName = searchParams.get("flowName") || "";
             const lastScreen = searchParams.get("lastScreen") || flowName;
@@ -182,6 +192,8 @@ export const WebPTXPlayer = ({
         inputs={inputs}
         onStateChange={setWebviewState}
         customHandlers={customHandlers}
+        onAccountRequestCancel={onAccountRequestCancel}
+        onAccountRequestSuccess={onAccountRequestSuccess}
         Loader={PTXLoader}
       />
       {Interstitial && <Interstitial manifest={manifest} isLoading={webviewState.loading} />}

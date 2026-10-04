@@ -12,13 +12,14 @@ The wallet-cli source code itself is licensed under Apache License 2.0; see the 
 |---|---|---|---|
 | @napi-rs/keyring | 1.3.0 | MIT | Copyright (c) 2020 N-API for Rust |
 | @segment/analytics-node | 3.1.0 | MIT | Copyright © 2021 Segment |
+| axios | 1.20.0 | MIT | Copyright (c) 2014-present Matt Zabriskie & Collaborators |
 | bignumber.js | 9.1.2 | MIT | Copyright (c) 2023 Michael Mclaughlin |
 | debug | 4.4.3 | MIT | Copyright (c) 2014-2017 TJ Holowaychuk; Copyright (c) 2018-2021 Josh Junon |
 | purify-ts | 2.1.0 | ISC | Copyright (c) 2018, Stanislav Iliev |
 | rxjs | 7.8.2 | Apache-2.0 | Copyright (c) 2015-2018 Google, Inc., Netflix, Inc., Microsoft Corp. and contributors |
 | usb | 2.17.0 | MIT | Copyright (c) 2012 Nonolith Labs, LLC |
 | yocto-spinner | 0.2.0 | MIT | Copyright (c) Sindre Sorhus |
-| zod | 4.3.6 | MIT | Copyright (c) 2025 Colin McDonnell |
+| zod | 4.4.3 | MIT | Copyright (c) 2025 Colin McDonnell |
 
 For `rxjs` (Apache-2.0), the same Apache-2.0 v2.0 text shipped in the `LICENSE` file alongside this notice applies; rxjs does not ship a separate NOTICE file.
 
@@ -149,7 +150,7 @@ The packages below are inlined into `bin/wallet-cli` by the bundler, in addition
 | bmp-ts | 1.0.9 | Andrew lisowski |
 | buffer | 6.0.3 | Copyright (c) Feross Aboukhadijeh, and other contributors. |
 | bun-ffi-structs | 0.1.2 | Copyright (c) Oven and contributors |
-| bun-types | 1.3.12 | Copyright (c) Oven and contributors |
+| bun-types | 1.4.2 | Copyright (c) Oven and contributors |
 | bunli | 0.9.1 | Arya Labs, Inc. |
 | call-bind-apply-helpers | 1.0.2 | Copyright (c) 2024 Jordan Harband |
 | call-bound | 1.0.4 | Copyright (c) 2024 Jordan Harband |

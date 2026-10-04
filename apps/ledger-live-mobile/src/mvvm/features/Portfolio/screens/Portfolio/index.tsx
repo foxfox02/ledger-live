@@ -1,20 +1,20 @@
+import { TrackScreen } from "@shared/analytics-react";
 import React, { useMemo } from "react";
 import { Platform } from "react-native";
 import Animated from "react-native-reanimated";
 import { ProductTourPortfolioMount } from "LLM/features/ProductTour";
 import { useQ2WalletV4TourDrawer, Q2WalletV4TourDrawer } from "LLM/features/Q2WalletV4Tour/Drawer";
+import { useQ3WalletV4TourDrawer, Q3WalletV4TourDrawer } from "LLM/features/Q3WalletV4Tour/Drawer";
 import CheckLanguageAvailability from "~/components/CheckLanguageAvailability";
 import CheckTermOfUseUpdate from "~/components/CheckTermOfUseUpdate";
 import CollapsibleHeaderFlatList from "~/components/WalletTab/CollapsibleHeaderFlatList";
 import globalSyncRefreshControl from "~/components/globalSyncRefreshControl";
 import AddAccountDrawer from "LLM/features/Accounts/screens/AddAccount";
-import { useWalletV4TourDrawer, WalletV4TourDrawer } from "LLM/features/WalletV4Tour/Drawer";
 import { renderItem } from "LLM/utils/renderItem";
 import { ScreenName } from "~/const";
 import { BaseComposite, StackNavigatorProps } from "~/components/RootNavigator/types/helpers";
 import { PortfolioNavigatorStackParamList } from "~/components/RootNavigator/types/PortfolioNavigator";
 import { AnalyticsConsentDrawer } from "LLM/features/AnalyticsConsentDrawer";
-import TrackScreen from "~/analytics/TrackScreen";
 import {
   PROGRESS_VIEW_OFFSET_LEGACY_ANDROID,
   PROGRESS_VIEW_OFFSET_LEGACY_IOS,
@@ -28,6 +28,7 @@ import MarketBanner from "LLM/features/MarketBanner";
 import { GenericAwarenessModalDrawer } from "LLM/features/GenericAwarenessModal/screens/GenericAwarenessModalDrawer";
 import { RecoverIntroPortfolioMount } from "LLM/features/BackupHub";
 import { LargeScreenUpsellModalPortfolioMount } from "LLM/features/LargeScreenUpsell";
+import { LazyOnboardingTourPortfolioMount } from "LLM/features/LazyOnboardingBanner";
 
 import {
   PortfolioAssetsSection,
@@ -74,14 +75,21 @@ export const PortfolioScreen = ({ navigation }: NavigationProps) => {
 
   const { handleFlatListRef } = useScrollToTop();
 
-  const { isDrawerOpen, handleCloseDrawer, closeDrawer, onSlideChange, slides } =
-    useWalletV4TourDrawer();
   const {
     isDrawerOpen: isQ2DrawerOpen,
     handleCloseDrawer: handleCloseQ2Drawer,
     closeDrawer: closeQ2Drawer,
     onSlideChange: onQ2SlideChange,
   } = useQ2WalletV4TourDrawer();
+  const {
+    isDrawerOpen: isQ3DrawerOpen,
+    handleCloseDrawer: handleCloseQ3Drawer,
+    closeDrawer: closeQ3Drawer,
+    onSlideChange: onQ3SlideChange,
+    onHeaderClosePressed: onQ3HeaderClosePressed,
+    dismissDrawer: dismissQ3Drawer,
+    onContinueClick: onQ3ContinueClick,
+  } = useQ3WalletV4TourDrawer();
 
   const data = useMemo(() => {
     const sections: React.JSX.Element[] = [];
@@ -191,24 +199,27 @@ export const PortfolioScreen = ({ navigation }: NavigationProps) => {
           doesNotHaveAccount={!showAssets}
         />
       </Animated.View>
-      <WalletV4TourDrawer
-        isDrawerOpen={isDrawerOpen}
-        handleCloseDrawer={handleCloseDrawer}
-        closeDrawer={closeDrawer}
-        onSlideChange={onSlideChange}
-        slides={slides}
-      />
       <Q2WalletV4TourDrawer
         isDrawerOpen={isQ2DrawerOpen}
         handleCloseDrawer={handleCloseQ2Drawer}
         closeDrawer={closeQ2Drawer}
         onSlideChange={onQ2SlideChange}
       />
+      <Q3WalletV4TourDrawer
+        isDrawerOpen={isQ3DrawerOpen}
+        handleCloseDrawer={handleCloseQ3Drawer}
+        closeDrawer={closeQ3Drawer}
+        onSlideChange={onQ3SlideChange}
+        onHeaderClosePressed={onQ3HeaderClosePressed}
+        dismissDrawer={dismissQ3Drawer}
+        onContinueClick={onQ3ContinueClick}
+      />
       <ProductTourPortfolioMount />
       <AnalyticsConsentDrawer />
       <GenericAwarenessModalDrawer />
       <RecoverIntroPortfolioMount />
       <LargeScreenUpsellModalPortfolioMount />
+      <LazyOnboardingTourPortfolioMount />
     </>
   );
 };

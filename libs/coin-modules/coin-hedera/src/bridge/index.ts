@@ -8,11 +8,16 @@ import {
 } from "@ledgerhq/ledger-wallet-framework/bridge/jsHelpers";
 import type { SignerContext } from "@ledgerhq/ledger-wallet-framework/signer";
 import type { AccountBridge, CurrencyBridge } from "@ledgerhq/types-live";
-import hederaCoinConfig, { type HederaCoinConfig } from "../config";
+import hederaCoinConfig from "../config";
 import { HEDERA_DUMMY_ADDRESS } from "../constants";
-import { getPreloadStrategy, hydrate, preload } from "../preload";
 import resolver from "../signer/index";
-import type { Transaction, TransactionStatus, HederaSigner, HederaAccount } from "../types";
+import type {
+  Transaction,
+  TransactionStatus,
+  HederaSigner,
+  HederaAccount,
+  HederaCoinConfig,
+} from "../types";
 import { broadcast } from "./broadcast";
 import { createTransaction } from "./createTransaction";
 import { estimateMaxSpendable } from "./estimateMaxSpendable";
@@ -34,9 +39,6 @@ function buildCurrencyBridge(signerContext: SignerContext<HederaSigner>): Curren
   });
 
   return {
-    preload,
-    hydrate,
-    getPreloadStrategy,
     scanAccounts,
   };
 }

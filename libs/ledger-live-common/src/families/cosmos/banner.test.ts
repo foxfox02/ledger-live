@@ -2,7 +2,13 @@
 
 import { getAccountBannerState } from "./banner";
 import * as preloadedData from "@ledgerhq/coin-cosmos/preloadedData";
-import type { CosmosAccount, CosmosValidatorItem } from "./types";
+import type {
+  CosmosAccount,
+  CosmosDelegation,
+  CosmosRedelegation,
+  CosmosUnbonding,
+  CosmosValidatorItem,
+} from "./types";
 import data from "@ledgerhq/coin-cosmos/preloadedData.mock";
 import { BigNumber } from "bignumber.js";
 import { LiveConfig } from "@ledgerhq/live-config/LiveConfig";
@@ -32,6 +38,20 @@ const expensiveValidator: CosmosValidatorItem | undefined = data.validators.find
 const cheapValidator: CosmosValidatorItem | undefined = data.validators.find(
   x => x.validatorAddress === "cosmosvaloper1qaa9zej9a0ge3ugpx3pxyx602lxh3ztqgfnp42",
 );
+
+const delegations: CosmosDelegation[] = [
+  {
+    amount: new BigNumber("50000"),
+    status: "bonded",
+    pendingRewards: new BigNumber("112"),
+    validatorAddress: "cosmosvaloper1c4k24jzduc365kywrsvf5ujz4ya6mwympnc4en",
+  },
+];
+const redelegations: CosmosRedelegation[] = [];
+const unbondings: CosmosUnbonding[] = [];
+const delegatedBalance = new BigNumber("0");
+const pendingRewardsBalance = new BigNumber("0");
+const unbondingBalance = new BigNumber("0");
 
 const account: CosmosAccount = {
   type: "Account",
@@ -79,22 +99,22 @@ const account: CosmosAccount = {
   },
   xpub: "cosmos1f9y7wdychcdhwvyrhff3zvs3gy3qxcu2th4g8u",
   cosmosResources: {
-    delegations: [
-      {
-        amount: new BigNumber("50000"),
-        status: "bonded",
-        pendingRewards: new BigNumber("112"),
-        validatorAddress: "cosmosvaloper1c4k24jzduc365kywrsvf5ujz4ya6mwympnc4en",
-      },
-    ],
-    redelegations: [],
-    unbondings: [],
-    delegatedBalance: new BigNumber("0"),
-    pendingRewardsBalance: new BigNumber("0"),
-    unbondingBalance: new BigNumber("0"),
-    withdrawAddress: "",
+    delegations,
+    redelegations,
+    unbondings,
+    delegatedBalance,
+    pendingRewardsBalance,
+    unbondingBalance,
     sequence: 0,
     publicKey: "",
+  },
+  stakingResources: {
+    delegations,
+    redelegations,
+    unbondings,
+    delegatedBalance,
+    pendingRewardsBalance,
+    unbondingBalance,
   },
 };
 
@@ -148,7 +168,7 @@ describe("cosmos/banner", () => {
         validatorSrcAddress: "xxxx",
         validatorDstAddress: expensiveValidator?.validatorAddress as string,
         amount: new BigNumber(1000),
-        completionDate: new Date(),
+        completionDate: new Date("2999-01-01T00:00:00.000Z"),
       });
       const accountWithSpendable5000 = {
         ...account,
@@ -170,9 +190,78 @@ describe("cosmos/banner", () => {
         validatorSrcAddress: "xxxx",
         validatorDstAddress: expensiveValidator?.validatorAddress as string,
         amount: new BigNumber(1000),
-        completionDate: new Date(),
+        completionDate: new Date("2999-01-01T00:00:00.000Z"),
       });
       const result = getAccountBannerState(account);
+      expect(result).toStrictEqual({
+        display: false,
+        redelegate: false,
+        validatorSrcAddress: "",
+        ledgerValidator,
+      });
+    });
+
+    it("should guard the banner CTA from shared staking resources", () => {
+      jest.spyOn(preloadedData, "getCurrentCosmosPreloadData").mockReturnValue(validatorsMap);
+      require("@ledgerhq/coin-cosmos/logic").canDelegate.mockReturnValue(false);
+      require("@ledgerhq/coin-cosmos/logic").canRedelegate.mockReturnValue(true);
+      const { cosmosResources: _legacyResources, ...baseAccount } = account;
+      const genericAccount = {
+        ...baseAccount,
+        stakingResources: {
+          delegations: [
+            {
+              amount: new BigNumber("50000"),
+              status: "bonded",
+              pendingRewards: new BigNumber("112"),
+              validatorAddress: expensiveValidator?.validatorAddress as string,
+            },
+          ],
+          redelegations: [],
+          unbondings: [],
+          delegatedBalance: new BigNumber("50000"),
+          pendingRewardsBalance: new BigNumber("112"),
+          unbondingBalance: new BigNumber(0),
+        },
+      } as unknown as CosmosAccount;
+
+      const result = getAccountBannerState(genericAccount);
+
+      expect(result.display).toBe(true);
+      expect(result.redelegate).toBe(true);
+      expect(result.validatorSrcAddress).toBe(expensiveValidator?.validatorAddress);
+      expect(require("@ledgerhq/coin-cosmos/logic").canRedelegate).toHaveBeenCalledWith(
+        genericAccount,
+        expensiveValidator,
+      );
+    });
+
+    it("should ignore expired redelegations when selecting the banner CTA source", () => {
+      jest.spyOn(preloadedData, "getCurrentCosmosPreloadData").mockReturnValue(validatorsMap);
+      require("@ledgerhq/coin-cosmos/logic").canDelegate.mockReturnValue(false);
+      require("@ledgerhq/coin-cosmos/logic").canRedelegate.mockReturnValue(true);
+      const { cosmosResources: _legacyResources, ...baseAccount } = account;
+      const genericAccount = {
+        ...baseAccount,
+        stakingResources: {
+          delegations: [],
+          redelegations: [
+            {
+              validatorSrcAddress: "cosmosvaloper1origin",
+              validatorDstAddress: expensiveValidator?.validatorAddress as string,
+              amount: new BigNumber("50000"),
+              completionDate: new Date("2000-01-01T00:00:00.000Z"),
+            },
+          ],
+          unbondings: [],
+          delegatedBalance: new BigNumber(0),
+          pendingRewardsBalance: new BigNumber(0),
+          unbondingBalance: new BigNumber(0),
+        },
+      } as unknown as CosmosAccount;
+
+      const result = getAccountBannerState(genericAccount);
+
       expect(result).toStrictEqual({
         display: false,
         redelegate: false,

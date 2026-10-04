@@ -16,7 +16,33 @@ jest.mock(
 );
 jest.mock(
   "@devtools/bindings",
-  () => ({ useFeatureFlagsToolProps: () => ({ marker: "ff-props" }) }),
+  () => ({
+    useFeatureFlagsToolProps: () => ({ marker: "ff-props" }),
+    usePayCardToolProps: () => ({ marker: "pay-card-props" }),
+    useEnvDevToolProps: () => ({ marker: "env-props" }),
+  }),
+  { virtual: true },
+);
+jest.mock("@features/platform-currencies", () => ({
+  ...jest.requireActual("@features/platform-currencies"),
+  useCurrenciesByIds: () => new Map(),
+}));
+jest.mock("@devtools/transport-panel", () => ({ TransportPanel: () => null }), { virtual: true });
+jest.mock(
+  "@devtools/wire",
+  () => {
+    const wireState = { hubUrl: "ws://127.0.0.1:9090", role: "tool" };
+    return {
+      buildTransport: () => ({
+        transport: {},
+        subscribe: () => () => {},
+        getState: () => wireState,
+        setHubUrl: jest.fn(),
+      }),
+      buildCopyStoreProtocol: () => ({}),
+      combineProtocols: (...args: unknown[]) => args[0],
+    };
+  },
   { virtual: true },
 );
 
@@ -34,13 +60,36 @@ function withBottomInset(children: React.ReactNode) {
 }
 
 describe("DevToolsScreen", () => {
-  it("mounts DevTools with the feature-flags tool and stack screen options padded by the bottom inset", () => {
+  it("mounts DevTools with the configured tools and stack screen options padded by the bottom inset", () => {
     render(withBottomInset(<DevToolsScreen />));
 
-    expect(devToolsSpy).toHaveBeenCalledTimes(1);
-    const props = devToolsSpy.mock.calls[0][0];
+    expect(devToolsSpy).toHaveBeenCalled();
+    const props = devToolsSpy.mock.lastCall![0];
 
-    expect(props.config).toEqual([{ id: "feature-flags", config: { marker: "ff-props" } }]);
+    expect(props.config).toEqual([
+      { id: "feature-flags", config: { marker: "ff-props" } },
+      { id: "env", config: { marker: "env-props" } },
+      {
+        id: "pay-card",
+        config: {
+          marker: "pay-card-props",
+          onNavigateToPortfolio: expect.any(Function),
+          onNavigateToPayTab: expect.any(Function),
+          onNavigateToPaySuccess: expect.any(Function),
+          onNavigateToPaySuccessMe: expect.any(Function),
+          onNavigateToSendSuccess: expect.any(Function),
+        },
+      },
+      {
+        id: "device-onboarding",
+        config: expect.objectContaining({
+          status: "idle",
+          connect: expect.any(Function),
+          send: expect.any(Function),
+          reset: expect.any(Function),
+        }),
+      },
+    ]);
     expect(props.screenOptions.contentStyle).toEqual([expect.anything(), { paddingBottom: 34 }]);
   });
 });

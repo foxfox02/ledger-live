@@ -52,24 +52,36 @@ jest.mock("../Body", () => {
   return function MockBody({
     onUfvkChanged,
     handleBirthdayChange,
+    handleSyncFromZero,
     handleEnableShieldedBalance,
+    invalidBirthday,
   }: {
     onUfvkChanged: (ufvk: string) => void;
     handleBirthdayChange: (birthday: string) => void;
-    handleEnableShieldedBalance: (nextSyncState: "ready" | "running") => void;
+    handleSyncFromZero: () => void;
+    handleEnableShieldedBalance: (options: { startSyncNow: boolean }) => void;
+    invalidBirthday: boolean;
   }) {
     return (
       <div>
         <button type="button" onClick={() => onUfvkChanged("test-ufvk")}>
           set ufvk
         </button>
-        <button type="button" onClick={() => handleBirthdayChange("2025-01-01")}>
+        <button type="button" onClick={() => handleBirthdayChange("2026-08-01")}>
           set birthday
         </button>
-        <button type="button" onClick={() => handleEnableShieldedBalance("ready")}>
+        <input
+          data-testid="birthday-input"
+          onChange={event => handleBirthdayChange(event.target.value)}
+        />
+        <button type="button" onClick={handleSyncFromZero}>
+          sync from zero
+        </button>
+        <span data-testid="invalid-birthday">{String(invalidBirthday)}</span>
+        <button type="button" onClick={() => handleEnableShieldedBalance({ startSyncNow: false })}>
           Close
         </button>
-        <button type="button" onClick={() => handleEnableShieldedBalance("running")}>
+        <button type="button" onClick={() => handleEnableShieldedBalance({ startSyncNow: true })}>
           Start sync
         </button>
       </div>
@@ -353,6 +365,102 @@ describe("ZCash Export UFVK Flow - Integration test", () => {
       expect(screen.getByRole("button", { name: /start sync/i })).toBeVisible();
     });
   });
+
+  it("reports the UFVK export error to onUfvkChanged when the device rejects", async () => {
+    const exportError = new Error("device rejected");
+    mockedUseAccountBridge.mockReturnValue({
+      getFullViewingKey: jest.fn().mockRejectedValue(exportError),
+    } as unknown as ReturnType<typeof useAccountBridge>);
+
+    const onUfvkChanged = jest.fn();
+
+    render(
+      <RealBody
+        stepId="device"
+        ufvk=""
+        ufvkExportError={null}
+        onStepIdChanged={jest.fn()}
+        onUfvkChanged={onUfvkChanged}
+        onRetry={jest.fn()}
+        onClose={jest.fn()}
+        birthday={new Date().toISOString().split("T")[0]}
+        invalidBirthday={false}
+        syncFromZero={false}
+        handleBirthdayChange={jest.fn()}
+        handleSyncFromZero={jest.fn()}
+        handleEnableShieldedBalance={jest.fn()}
+        params={{ account }}
+      />,
+      {
+        initialState: {
+          settings: AFTER_ONBOARDING_STATE,
+          devices: { currentDevice: mockDevice, devices: [mockDevice] },
+        },
+      },
+    );
+
+    await waitFor(() => {
+      expect(onUfvkChanged).toHaveBeenCalledWith("", null, exportError);
+    });
+  });
+
+  it("disables Continue on the birthday step when the birthday is invalid", async () => {
+    render(
+      <RealBody
+        stepId="birthday"
+        ufvk={ufvk}
+        ufvkExportError={ufvkExportError}
+        onStepIdChanged={jest.fn()}
+        onUfvkChanged={jest.fn()}
+        onRetry={jest.fn()}
+        onClose={jest.fn()}
+        birthday="2000-02-11"
+        invalidBirthday
+        syncFromZero={false}
+        handleBirthdayChange={jest.fn()}
+        handleSyncFromZero={jest.fn()}
+        handleEnableShieldedBalance={jest.fn()}
+        params={{ account }}
+      />,
+      {
+        initialState: {
+          settings: AFTER_ONBOARDING_STATE,
+          devices: { currentDevice: mockDevice, devices: [mockDevice] },
+        },
+      },
+    );
+
+    expect(screen.getByRole("button", { name: /continue/i })).toBeDisabled();
+  });
+
+  it("enables Continue on the birthday step when the birthday is valid", async () => {
+    render(
+      <RealBody
+        stepId="birthday"
+        ufvk={ufvk}
+        ufvkExportError={ufvkExportError}
+        onStepIdChanged={jest.fn()}
+        onUfvkChanged={jest.fn()}
+        onRetry={jest.fn()}
+        onClose={jest.fn()}
+        birthday={birthday}
+        invalidBirthday={false}
+        syncFromZero={false}
+        handleBirthdayChange={jest.fn()}
+        handleSyncFromZero={jest.fn()}
+        handleEnableShieldedBalance={jest.fn()}
+        params={{ account }}
+      />,
+      {
+        initialState: {
+          settings: AFTER_ONBOARDING_STATE,
+          devices: { currentDevice: mockDevice, devices: [mockDevice] },
+        },
+      },
+    );
+
+    expect(screen.getByRole("button", { name: /continue/i })).toBeEnabled();
+  });
 });
 
 describe("ZCash Export UFVK Flow - Persistence integration", () => {
@@ -375,14 +483,18 @@ describe("ZCash Export UFVK Flow - Persistence integration", () => {
         expect.objectContaining({
           syncState: "ready",
           ufvk: "test-ufvk",
-          birthday: "2025-01-01",
+          birthday: "2026-08-01",
         }),
       );
     });
     expect(mockDispatch).toHaveBeenCalledWith({ type: "TEST_SYNC_STATE_ACTION" });
   });
 
-  it("persists ufvk and birthday when clicking Start sync", async () => {
+  // "Start sync" persists the key as "ready" exactly like Close, and leaves the
+  // "running" transition to startShieldedSync, which is the only place that also
+  // registers the subscription driving the sync. Persisting "running" here instead
+  // stranded the account on a 0% spinner nothing ever advanced.
+  it("persists ufvk and birthday as ready when clicking Start sync", async () => {
     mockSyncStateUpdater.mockReturnValue({ type: "TEST_SYNC_STATE_ACTION" });
     render(<ExportKeyModal account={account} />);
 
@@ -394,12 +506,109 @@ describe("ZCash Export UFVK Flow - Persistence integration", () => {
       expect(mockSyncStateUpdater).toHaveBeenCalledWith(
         account,
         expect.objectContaining({
-          syncState: "running",
+          syncState: "ready",
           ufvk: "test-ufvk",
-          birthday: "2025-01-01",
+          birthday: "2026-08-01",
         }),
       );
     });
+    expect(mockSyncStateUpdater).not.toHaveBeenCalledWith(
+      account,
+      expect.objectContaining({ syncState: "running" }),
+    );
     expect(mockDispatch).toHaveBeenCalledWith({ type: "TEST_SYNC_STATE_ACTION" });
+  });
+
+  describe("birthday validation", () => {
+    // Local date parts, matching the component's own "today" (see index.tsx) -- not
+    // toISOString(), which would desync from the assertions on machines/CI runners
+    // whose timezone isn't UTC.
+    const toLocalDateString = (date: Date) =>
+      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const today = toLocalDateString(new Date());
+    const tomorrow = toLocalDateString(new Date(Date.now() + 24 * 60 * 60 * 1000));
+
+    it("rejects a birthday before Ironwood activation", async () => {
+      render(<ExportKeyModal account={account} />);
+
+      fireEvent.change(screen.getByTestId("birthday-input"), {
+        target: { value: "2026-07-27" },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("invalid-birthday")).toHaveTextContent("true");
+      });
+    });
+
+    it("accepts a birthday exactly at Ironwood activation", async () => {
+      render(<ExportKeyModal account={account} />);
+
+      fireEvent.change(screen.getByTestId("birthday-input"), {
+        target: { value: "2026-07-28" },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("invalid-birthday")).toHaveTextContent("false");
+      });
+    });
+
+    it("rejects a future birthday", async () => {
+      render(<ExportKeyModal account={account} />);
+
+      fireEvent.change(screen.getByTestId("birthday-input"), {
+        target: { value: tomorrow },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("invalid-birthday")).toHaveTextContent("true");
+      });
+    });
+
+    it("accepts a birthday equal to today", async () => {
+      render(<ExportKeyModal account={account} />);
+
+      fireEvent.change(screen.getByTestId("birthday-input"), {
+        target: { value: today },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("invalid-birthday")).toHaveTextContent("false");
+      });
+    });
+
+    it("rejects a malformed birthday", async () => {
+      render(<ExportKeyModal account={account} />);
+
+      fireEvent.change(screen.getByTestId("birthday-input"), {
+        target: { value: "not-a-date" },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("invalid-birthday")).toHaveTextContent("true");
+      });
+    });
+
+    it("syncFromZero sets the Ironwood activation date", async () => {
+      mockSyncStateUpdater.mockReturnValue({ type: "TEST_SYNC_STATE_ACTION" });
+      render(<ExportKeyModal account={account} />);
+
+      await userEvent.click(screen.getByRole("button", { name: /set ufvk/i }));
+      await userEvent.click(screen.getByRole("button", { name: /sync from zero/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("invalid-birthday")).toHaveTextContent("false");
+      });
+
+      await userEvent.click(screen.getByRole("button", { name: /close/i }));
+
+      await waitFor(() => {
+        expect(mockSyncStateUpdater).toHaveBeenCalledWith(
+          account,
+          expect.objectContaining({
+            birthday: "2026-07-28",
+          }),
+        );
+      });
+    });
   });
 });

@@ -1,3 +1,4 @@
+import { TrackScreen } from "@shared/analytics-react";
 import invariant from "invariant";
 import React, { useCallback, useMemo, useRef } from "react";
 import { StyleSheet } from "react-native";
@@ -8,7 +9,6 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import DeviceAction from "~/components/DeviceAction";
 import { renderLoading } from "~/components/DeviceAction/rendering";
 import { useSignedTxHandler } from "~/logic/screenTransactionHooks";
-import { TrackScreen } from "~/analytics";
 import type { SendFundsNavigatorStackParamList } from "~/components/RootNavigator/types/SendFundsNavigator";
 import { ScreenName } from "~/const";
 import type { StackNavigatorProps } from "~/components/RootNavigator/types/helpers";
@@ -32,6 +32,7 @@ import type { CeloUnlockFlowParamList } from "~/families/celo/UnlockFlow/types";
 import type { CeloLockFlowParamList } from "~/families/celo/LockFlow/types";
 import type { CeloRegistrationFlowParamList } from "~/families/celo/RegistrationFlow/types";
 import type { CosmosDelegationFlowParamList } from "~/families/cosmos/DelegationFlow/types";
+import type { MinaStakingFlowParamList } from "~/families/mina/StakingFlow/types";
 import type { CosmosRedelegationFlowParamList } from "~/families/cosmos/RedelegationFlow/types";
 import type { CosmosUndelegationFlowParamList } from "~/families/cosmos/UndelegationFlow/types";
 import type { CosmosClaimRewardsFlowParamList } from "~/families/cosmos/ClaimRewardsFlow/types";
@@ -62,6 +63,9 @@ import type { EvmDelegationFlowParamList } from "~/families/evm/DelegationFlow/t
 import type { EvmUndelegationFlowParamList } from "~/families/evm/UndelegationFlow/types";
 import type { EvmClaimRewardsFlowParamList } from "~/families/evm/ClaimRewardsFlow/types";
 import type { EvmWithdrawFlowParamList } from "~/families/evm/WithdrawFlow/types";
+import type { AleoBondPublicFlowParamList } from "~/families/aleo/BondPublicFlow/types";
+import type { AleoClaimUnbondFlowParamList } from "~/families/aleo/ClaimUnbondFlow/types";
+import type { AleoUnbondFlowParamList } from "~/families/aleo/UnbondFlow/types";
 import { useAccountScreen } from "LLM/hooks/useAccountScreen";
 
 type Props =
@@ -97,6 +101,7 @@ type Props =
   | StackNavigatorProps<CosmosDelegationFlowParamList, ScreenName.CosmosDelegationConnectDevice>
   | StackNavigatorProps<CosmosRedelegationFlowParamList, ScreenName.CosmosRedelegationConnectDevice>
   | StackNavigatorProps<CosmosUndelegationFlowParamList, ScreenName.CosmosUndelegationConnectDevice>
+  | StackNavigatorProps<MinaStakingFlowParamList, ScreenName.MinaStakingConnectDevice>
   | StackNavigatorProps<CosmosClaimRewardsFlowParamList, ScreenName.CosmosClaimRewardsConnectDevice>
   | StackNavigatorProps<
       MultiversXDelegationFlowParamList,
@@ -134,7 +139,10 @@ type Props =
   | StackNavigatorProps<EvmUndelegationFlowParamList, ScreenName.EvmUndelegationConnectDevice>
   | StackNavigatorProps<EvmDelegationFlowParamList, ScreenName.EvmRedelegationConnectDevice>
   | StackNavigatorProps<EvmClaimRewardsFlowParamList, ScreenName.EvmClaimRewardsConnectDevice>
-  | StackNavigatorProps<EvmWithdrawFlowParamList, ScreenName.EvmWithdrawConnectDevice>;
+  | StackNavigatorProps<EvmWithdrawFlowParamList, ScreenName.EvmWithdrawConnectDevice>
+  | StackNavigatorProps<AleoBondPublicFlowParamList, ScreenName.AleoBondPublicConnectDevice>
+  | StackNavigatorProps<AleoClaimUnbondFlowParamList, ScreenName.AleoClaimUnbondConnectDevice>
+  | StackNavigatorProps<AleoUnbondFlowParamList, ScreenName.AleoUnbondConnectDevice>;
 
 export const navigateToSelectDevice = (navigation: Props["navigation"], route: Props["route"]) =>
   // Assumes that it will always navigate to a "SelectDevice"

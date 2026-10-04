@@ -1,0 +1,376 @@
+import { unlockApp } from "@features/platform-app-lock";
+import { act, render, screen, waitFor } from "@tests/test-renderer";
+import React from "react";
+import { AppState, Text, type AppStateStatus } from "react-native";
+import { AppLockGate } from "../AppLockGate";
+
+jest.mock("@features/platform-app-lock", () => ({
+  ...jest.requireActual("@features/platform-app-lock"),
+  hasPasswordVerifier: jest.fn(async () => false),
+  hasBiometricsMarker: jest.fn(async () => false),
+  needsLongerStoredPassword: jest.fn(async () => false),
+  clearStoredPassword: jest.fn(async () => undefined),
+  clearBiometricsMarker: jest.fn(async () => undefined),
+  checkPassword: jest.fn(async () => ({ status: "incorrect" })),
+  promptBiometrics: jest.fn(async () => ({ status: "failed" })),
+}));
+
+const {
+  hasPasswordVerifier,
+  hasBiometricsMarker,
+  needsLongerStoredPassword,
+  clearStoredPassword,
+  checkPassword,
+} = jest.requireMock("@features/platform-app-lock");
+
+const dismissAll = jest.fn();
+
+jest.mock("@gorhom/bottom-sheet", () => ({
+  ...jest.requireActual("@gorhom/bottom-sheet"),
+  useBottomSheetModal: () => ({ dismiss: jest.fn(), dismissAll }),
+}));
+
+jest.mock("../adapters/installMarker", () => ({
+  hasKnownInstall: jest.fn(),
+  writeInstallMarker: jest.fn(async () => undefined),
+}));
+
+const { hasKnownInstall, writeInstallMarker } = jest.requireMock("../adapters/installMarker");
+
+let mockIsInBackground = false;
+let mockBackgroundListeners: (() => void)[] = [];
+let mockForegroundListeners: (() => void)[] = [];
+
+jest.mock("../adapters/appVisibility", () => ({
+  isAppInBackground: () => mockIsInBackground,
+  onAppBackground: (listener: () => void) => {
+    mockBackgroundListeners.push(listener);
+    return () => {
+      mockBackgroundListeners = mockBackgroundListeners.filter(other => other !== listener);
+    };
+  },
+  onAppForeground: (listener: () => void) => {
+    mockForegroundListeners.push(listener);
+    return () => {
+      mockForegroundListeners = mockForegroundListeners.filter(other => other !== listener);
+    };
+  },
+}));
+
+let now = 0;
+
+let appStateSpy: jest.SpyInstance | undefined;
+
+const APP_CONTENT = "portfolio";
+const UNLOCK_SCREEN = "app-lock-unlock-screen";
+
+const renderGate = () => {
+  const listeners: ((state: AppStateStatus) => void)[] = [];
+
+  appStateSpy = jest.spyOn(AppState, "addEventListener").mockImplementation(((
+    _type: string,
+    listener: (state: AppStateStatus) => void,
+  ) => {
+    listeners.push(listener);
+    return { remove: jest.fn() };
+  }) as typeof AppState.addEventListener);
+
+  const rendered = render(
+    <AppLockGate>
+      <Text>{APP_CONTENT}</Text>
+    </AppLockGate>,
+  );
+
+  const pause = () => {
+    Object.assign(AppState, { currentState: "background" });
+    listeners.forEach(listener => listener("background"));
+  };
+
+  return {
+    ...rendered,
+    pause: () => act(pause),
+    background: () =>
+      act(() => {
+        pause();
+        mockIsInBackground = true;
+        mockBackgroundListeners.forEach(listener => listener());
+      }),
+    foregroundAfter: (awayMs: number) =>
+      act(() => {
+        now += awayMs;
+        Object.assign(AppState, { currentState: "active" });
+        mockIsInBackground = false;
+        mockForegroundListeners.forEach(listener => listener());
+      }),
+  };
+};
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  // Implementations survive clearAllMocks, so each case would otherwise inherit whatever the
+  // previous one last set on these two reads.
+  hasPasswordVerifier.mockResolvedValue(false);
+  hasBiometricsMarker.mockResolvedValue(false);
+  needsLongerStoredPassword.mockResolvedValue(false);
+  hasKnownInstall.mockResolvedValue(true);
+  Object.assign(AppState, { currentState: "active" });
+  mockIsInBackground = false;
+  mockBackgroundListeners = [];
+  mockForegroundListeners = [];
+  now = 1_000_000;
+  jest.spyOn(Date, "now").mockImplementation(() => now);
+});
+
+afterEach(() => {
+  // Not restoreAllMocks: it would undo the jest setup's own spies for every later test.
+  appStateSpy?.mockRestore();
+  appStateSpy = undefined;
+  jest.mocked(Date.now).mockRestore();
+});
+
+describe("the app lock gate", () => {
+  it("leaves an unprotected app alone", async () => {
+    renderGate();
+
+    expect(await screen.findByText(APP_CONTENT)).toBeVisible();
+    await waitFor(() => expect(screen.queryByTestId(UNLOCK_SCREEN)).toBeNull());
+  });
+
+  it("locks a protected app on boot, keeping it mounted but out of reach", async () => {
+    hasPasswordVerifier.mockResolvedValue(true);
+
+    renderGate();
+
+    expect(await screen.findByTestId(UNLOCK_SCREEN)).toBeVisible();
+    expect(screen.getByText(APP_CONTENT, { includeHiddenElements: true })).toBeTruthy();
+    expect(screen.queryByText(APP_CONTENT)).toBeNull();
+  });
+
+  it("keeps an unlocked app open when the tree reboots, as clearing the cache does", async () => {
+    hasPasswordVerifier.mockResolvedValue(true);
+
+    const { store, rerender } = renderGate();
+
+    expect(await screen.findByTestId(UNLOCK_SCREEN)).toBeVisible();
+
+    act(() => {
+      store.dispatch(unlockApp());
+    });
+
+    rerender(
+      <AppLockGate key="rebooted">
+        <Text>{APP_CONTENT}</Text>
+      </AppLockGate>,
+    );
+
+    expect(await screen.findByText(APP_CONTENT)).toBeVisible();
+    expect(screen.queryByTestId(UNLOCK_SCREEN)).toBeNull();
+  });
+
+  it("sends away the sheets the app left open, which sit above the lock's own overlay", async () => {
+    hasPasswordVerifier.mockResolvedValue(true);
+
+    renderGate();
+
+    await screen.findByTestId(UNLOCK_SCREEN);
+
+    expect(dismissAll).toHaveBeenCalled();
+  });
+
+  it("leaves the sheets alone while the app is open", async () => {
+    renderGate();
+
+    expect(await screen.findByText(APP_CONTENT)).toBeVisible();
+    expect(dismissAll).not.toHaveBeenCalled();
+  });
+
+  it("locks an app protected by biometrics alone, read back at boot", async () => {
+    hasBiometricsMarker.mockResolvedValue(true);
+
+    const { store } = renderGate();
+
+    expect(await screen.findByTestId(UNLOCK_SCREEN)).toBeVisible();
+    expect(store.getState().appLock.biometricsEnabled).toBe(true);
+    expect(store.getState().appLock.hasPassword).toBe(false);
+  });
+
+  // iOS keeps keychain items when the app is deleted, so a reinstall found the previous protection
+  // and demanded it — for data that went with the uninstall, and with no way back for an owner who
+  // had forgotten the password.
+  it("opens an app whose protection outlived its install, and destroys it", async () => {
+    hasPasswordVerifier.mockResolvedValue(true);
+    hasBiometricsMarker.mockResolvedValue(true);
+    hasKnownInstall.mockResolvedValue(false);
+
+    const { store } = renderGate();
+
+    expect(await screen.findByText(APP_CONTENT)).toBeVisible();
+    expect(clearStoredPassword).toHaveBeenCalled();
+    expect(store.getState().appLock.hasPassword).toBe(false);
+    expect(store.getState().appLock.biometricsEnabled).toBe(false);
+  });
+
+  it("marks the install, so the next launch keeps the protection it finds", async () => {
+    hasPasswordVerifier.mockResolvedValue(true);
+
+    const { store } = renderGate();
+
+    await screen.findByTestId(UNLOCK_SCREEN);
+
+    expect(writeInstallMarker).toHaveBeenCalled();
+    expect(clearStoredPassword).not.toHaveBeenCalled();
+    expect(store.getState().appLock.hasPassword).toBe(true);
+  });
+
+  it("treats a keychain that will not answer as protected", async () => {
+    hasPasswordVerifier.mockRejectedValue(new Error("keychain unavailable"));
+
+    const { store } = renderGate();
+
+    expect(await screen.findByTestId(UNLOCK_SCREEN)).toBeVisible();
+    expect(store.getState().appLock.hasPassword).toBe(true);
+  });
+
+  it("withholds the app until the read answers", async () => {
+    let release = (_: boolean) => {};
+    hasPasswordVerifier.mockImplementation(
+      () =>
+        new Promise<boolean>(resolve => {
+          release = resolve;
+        }),
+    );
+
+    renderGate();
+
+    await waitFor(() => expect(screen.queryByText(APP_CONTENT)).toBeNull());
+
+    await act(async () => {
+      release(false);
+    });
+
+    expect(await screen.findByText(APP_CONTENT)).toBeVisible();
+  });
+
+  it("never paints the app on a protected start", async () => {
+    hasPasswordVerifier.mockResolvedValue(true);
+
+    renderGate();
+
+    await screen.findByTestId(UNLOCK_SCREEN);
+    expect(screen.queryByText(APP_CONTENT)).toBeNull();
+  });
+
+  it("locks when the app comes back after 15 seconds away", async () => {
+    hasPasswordVerifier.mockResolvedValue(true);
+
+    const { store, background, foregroundAfter } = renderGate();
+
+    await screen.findByTestId(UNLOCK_SCREEN);
+
+    await act(async () => {
+      store.dispatch(unlockApp());
+    });
+    await waitFor(() => expect(store.getState().appLock.isLocked).toBe(false));
+
+    background();
+
+    expect(store.getState().appLock.isLocked).toBe(false);
+
+    foregroundAfter(15_000);
+
+    expect(store.getState().appLock.isLocked).toBe(true);
+    expect(await screen.findByTestId(UNLOCK_SCREEN)).toBeVisible();
+  });
+
+  it("stays unlocked when the app comes back within 15 seconds", async () => {
+    hasPasswordVerifier.mockResolvedValue(true);
+
+    const { store, background, foregroundAfter } = renderGate();
+
+    await screen.findByTestId(UNLOCK_SCREEN);
+    await act(async () => {
+      store.dispatch(unlockApp());
+    });
+
+    background();
+    foregroundAfter(14_999);
+
+    expect(store.getState().appLock.isLocked).toBe(false);
+    expect(await screen.findByText(APP_CONTENT)).toBeVisible();
+  });
+
+  it("hides the app while it is away, so the app switcher does not show it", async () => {
+    hasPasswordVerifier.mockResolvedValue(true);
+
+    const { store, background, foregroundAfter } = renderGate();
+
+    await screen.findByTestId(UNLOCK_SCREEN);
+    await act(async () => {
+      store.dispatch(unlockApp());
+    });
+
+    background();
+
+    expect(screen.queryByText(APP_CONTENT)).toBeNull();
+
+    foregroundAfter(1_000);
+
+    expect(await screen.findByText(APP_CONTENT)).toBeVisible();
+  });
+
+  it("leaves an unprotected app visible while it is away", async () => {
+    const { background } = renderGate();
+
+    expect(await screen.findByText(APP_CONTENT)).toBeVisible();
+
+    background();
+
+    expect(screen.getByText(APP_CONTENT)).toBeVisible();
+  });
+
+  // The unlock screen dispatches on a successful check without knowing the app was backgrounded
+  // meanwhile; the time away still counts once it lands.
+  it("re-locks an unlock that lands while the app is away, once it has been gone 15 seconds", async () => {
+    hasPasswordVerifier.mockResolvedValue(true);
+
+    let release = (_: { status: string }) => {};
+    checkPassword.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          release = resolve;
+        }),
+    );
+
+    const { store, background, foregroundAfter, user } = renderGate();
+
+    await screen.findByTestId(UNLOCK_SCREEN);
+    await user.type(screen.getByTestId("app-lock-unlock-field"), "longenough");
+    await user.press(screen.getByTestId("app-lock-unlock-submit"));
+
+    background();
+
+    await act(async () => {
+      release({ status: "correct" });
+    });
+
+    foregroundAfter(15_000);
+
+    expect(store.getState().appLock.isLocked).toBe(true);
+  });
+
+  // A permission dialog pauses the app without it leaving. Only the app actually leaving locks.
+  it("stays unlocked when the app only pauses under a system dialog", async () => {
+    hasPasswordVerifier.mockResolvedValue(true);
+
+    const { store, pause } = renderGate();
+
+    await screen.findByTestId(UNLOCK_SCREEN);
+    await act(async () => {
+      store.dispatch(unlockApp());
+    });
+
+    pause();
+
+    expect(store.getState().appLock.isLocked).toBe(false);
+  });
+});

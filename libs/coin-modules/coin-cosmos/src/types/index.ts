@@ -5,6 +5,11 @@ import {
   OperationExtra,
   OperationExtraRaw,
   OperationRaw,
+  StakingDelegation,
+  StakingRedelegation,
+  StakingResources,
+  StakingResourcesRaw,
+  StakingUnbonding,
   TransactionCommon,
   TransactionCommonRaw,
   TransactionStatusCommon,
@@ -64,12 +69,15 @@ export type CosmosResources = {
   delegatedBalance: BigNumber;
   pendingRewardsBalance: BigNumber;
   unbondingBalance: BigNumber;
-  withdrawAddress: string;
-  sequence: number;
+} & LegacyCosmosResourcesFields;
+
+export type LegacyCosmosResourcesFields = {
+  sequence?: number;
   // Compressed secp256k1 public key (hex) of this account, captured at scan from the
   // device. Optional/empty when unknown (e.g. accounts synced before this was persisted).
   publicKey?: string;
 };
+
 export type CosmosDelegationRaw = {
   validatorAddress: string;
   amount: string;
@@ -94,8 +102,7 @@ export type CosmosResourcesRaw = {
   delegatedBalance: string;
   pendingRewardsBalance: string;
   unbondingBalance: string;
-  withdrawAddress: string;
-  sequence: number;
+  sequence?: number;
   publicKey?: string;
 };
 // NB this must be serializable (no Date, no BigNumber)
@@ -119,7 +126,8 @@ export type CosmosOperationMode =
   | "undelegate"
   | "redelegate"
   | "claimReward"
-  | "claimRewardCompound";
+  | "claimRewardCompound"
+  | "compoundReward";
 
 export type CosmosLikeNetworkInfo = {
   family: string;
@@ -197,8 +205,12 @@ export type CosmosLikeTransaction = TransactionCommon & {
   fees: BigNumber | null | undefined;
   gas: BigNumber | null | undefined;
   memo: string | null | undefined;
+  memoType?: string | null;
+  memoValue?: string | null;
   validators: CosmosDelegationInfo[];
   sourceValidator: string | null | undefined;
+  valAddress?: string;
+  dstValAddress?: string;
 };
 
 export type Transaction = CosmosLikeTransaction & {
@@ -213,8 +225,12 @@ export type CosmosLikeTransactionRaw = TransactionCommonRaw & {
   fees: string | null | undefined;
   gas: string | null | undefined;
   memo: string | null | undefined;
+  memoType?: string | null;
+  memoValue?: string | null;
   validators: CosmosDelegationInfoRaw[];
   sourceValidator: string | null | undefined;
+  valAddress?: string;
+  dstValAddress?: string;
 };
 
 export type TransactionRaw = CosmosLikeTransactionRaw & {
@@ -234,17 +250,17 @@ export type StatusErrorMap = {
   feeTooHigh?: Error;
 };
 
-export type CosmosMappedDelegation = CosmosDelegation & {
+export type CosmosMappedDelegation = StakingDelegation & {
   formattedAmount: string;
   formattedPendingRewards: string;
   rank: number;
   validator: CosmosValidatorItem | null | undefined;
 };
-export type CosmosMappedUnbonding = CosmosUnbonding & {
+export type CosmosMappedUnbonding = StakingUnbonding & {
   formattedAmount: string;
   validator: CosmosValidatorItem | null | undefined;
 };
-export type CosmosMappedRedelegation = CosmosRedelegation & {
+export type CosmosMappedRedelegation = StakingRedelegation & {
   formattedAmount: string;
   validatorSrc: CosmosValidatorItem | null | undefined;
   validatorDst: CosmosValidatorItem | null | undefined;
@@ -263,9 +279,14 @@ export type CosmosSearchFilter = (
 export function isCosmosAccount(account: Account): account is CosmosAccount {
   return "cosmosResources" in account;
 }
-export type CosmosAccount = Account & { cosmosResources: CosmosResources };
+export type CosmosAccount = Account & {
+  cosmosResources: CosmosResources;
+  stakingResources: StakingResources & LegacyCosmosResourcesFields;
+};
+
 export type CosmosAccountRaw = AccountRaw & {
   cosmosResources: CosmosResourcesRaw;
+  stakingResources: StakingResourcesRaw & LegacyCosmosResourcesFields;
 };
 export type TransactionStatus = TransactionStatusCommon;
 

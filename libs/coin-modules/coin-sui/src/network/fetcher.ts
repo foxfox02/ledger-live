@@ -14,7 +14,7 @@ export function inferNetworkFromUrl(url: string): SuiClientTypes.Network {
 }
 
 /**
- * Retry-aware fetch shared by JSON-RPC and GraphQL transports. Each attempt
+ * Retry-aware fetch shared by the gRPC-web and GraphQL transports. Each attempt
  * gets its own AbortController as a per-request timeout safety net so a stuck
  * request can't hang forever; the timer is cleared per-attempt so timers don't
  * pile up across retries.
@@ -28,10 +28,11 @@ const fetchWithRetry = (
 ): Promise<Response> => {
   const version = getEnv("LEDGER_CLIENT_VERSION") || "";
   const isCI = version.includes("ll-ci") || version === "";
-  const headers = {
-    ...options?.headers,
-    "X-Ledger-Client-Version": isCI ? "lld/2.124.0-dev" : version, // for integration cli tests
-  };
+  // `new Headers(...)` rather than a spread: `HeadersInit` may be a `Headers` instance (the
+  // gRPC-web transport passes one), which spreads to `{}` and would silently drop
+  // content-type and x-grpc-web, leaving the server to reject the request.
+  const headers = new Headers(options?.headers);
+  headers.set("X-Ledger-Client-Version", isCI ? "lld/2.124.0-dev" : version); // for integration cli tests
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);

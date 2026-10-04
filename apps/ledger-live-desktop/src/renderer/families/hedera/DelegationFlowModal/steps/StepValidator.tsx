@@ -5,7 +5,7 @@ import { useAccountBridge } from "@ledgerhq/live-common/bridge/useAccountBridge"
 import { HEDERA_TRANSACTION_MODES } from "@ledgerhq/live-common/families/hedera/constants";
 import { HederaValidator, Transaction } from "@ledgerhq/live-common/families/hedera/types";
 import { isStakingTransaction } from "@ledgerhq/live-common/families/hedera/utils";
-import TrackPage from "~/renderer/analytics/TrackPage";
+import { TrackPage } from "@shared/analytics-react";
 import Box from "~/renderer/components/Box";
 import Button from "~/renderer/components/Button";
 import ErrorBanner from "~/renderer/components/ErrorBanner";
@@ -21,7 +21,8 @@ export default function StepValidator({
 }: Readonly<StepProps>) {
   invariant(account && transaction, "hedera: account and transaction required");
   invariant(isStakingTransaction(transaction), "hedera: staking tx expected");
-  const selectedValidatorNodeId = transaction.properties?.stakingNodeId ?? null;
+  const stakingNodeId = transaction.properties?.stakingNodeId;
+  const selectedValidatorId = typeof stakingNodeId === "number" ? String(stakingNodeId) : null;
   const bridge = useAccountBridge<Transaction>(account, parentAccount);
 
   const updateValidator = (validator: HederaValidator) => {
@@ -29,7 +30,7 @@ export default function StepValidator({
       return bridge.updateTransaction(transaction, {
         mode: HEDERA_TRANSACTION_MODES.Delegate,
         properties: {
-          stakingNodeId: validator.nodeId,
+          stakingNodeId: Number(validator.id),
         },
       });
     });
@@ -50,7 +51,7 @@ export default function StepValidator({
       <ValidatorsListField
         account={account}
         onChangeValidator={updateValidator}
-        selectedValidatorNodeId={selectedValidatorNodeId}
+        selectedValidatorId={selectedValidatorId}
       />
     </Box>
   );
@@ -81,6 +82,7 @@ export function StepValidatorFooter({
       </Button>
       <Button
         id="stake-continue-button"
+        isLoading={bridgePending}
         disabled={!canNext}
         primary
         onClick={() => transitionTo("amount")}

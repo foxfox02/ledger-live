@@ -1,3 +1,4 @@
+import { track } from "@shared/analytics";
 import { useNavigation } from "@react-navigation/core";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import React, { useCallback, useEffect, useMemo } from "react";
@@ -5,7 +6,7 @@ import { useTranslation } from "~/context/Locale";
 import SwapHistory from "~/screens/Swap/History";
 
 import { useTheme } from "styled-components/native";
-import { useTrack } from "~/analytics";
+import { usePageNameFromRoute } from "~/analytics";
 import { NavigatorName, ScreenName } from "~/const";
 import { useNoNanoBuyNanoWallScreenOptions } from "~/context/NoNanoBuyNanoWall";
 import { getStackNavigatorConfig } from "~/navigation/navigatorConfig";
@@ -17,7 +18,7 @@ import { StackNavigatorNavigation, StackNavigatorProps } from "./types/helpers";
 import { SwapNavigatorParamList } from "./types/SwapNavigator";
 import { NavigationHeaderBackButton } from "../NavigationHeaderBackButton";
 import SwapCustomError from "~/screens/Swap/SubScreens/SwapCustomError";
-import { useNotificationsContext } from "LLM/features/NotificationsPrompt";
+import { useNotificationsPrompt } from "LLM/features/NotificationsPrompt";
 
 const TRACKING_SOURCES = {
   Accounts: "Account",
@@ -53,20 +54,21 @@ export default function SwapNavigator(
   const { colors } = useTheme();
   const stackNavigationConfig = useMemo(() => getStackNavigatorConfig(colors, true), [colors]);
   const noNanoBuyNanoWallScreenOptions = useNoNanoBuyNanoWallScreenOptions();
-  const track = useTrack();
+  const page = usePageNameFromRoute();
   const navigation = useNavigation<StackNavigatorNavigation<SwapNavigatorParamList>>();
-  const { notifyFlowCompleted } = useNotificationsContext();
+  const { notifyFlowCompleted } = useNotificationsPrompt();
 
   const trackButtonClick = useCallback(
     (source: string) => {
       track("button_clicked", {
+        page,
         button: "swap",
         source,
         flow: "swap",
         swapVersion: SWAP_VERSION,
       });
     },
-    [track],
+    [page],
   );
 
   useEffect(() => {

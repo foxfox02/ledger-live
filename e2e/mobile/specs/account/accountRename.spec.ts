@@ -1,8 +1,8 @@
 import { Account } from "@ledgerhq/live-e2e-shared/enum/Account";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { launchApp } from "../../helpers/commonHelpers";
-import { setTeamOwner } from "../../helpers/allure/allure-helper";
-import { loadConfig } from "../../bridge/server";
+import { launchApp } from "@e2e/helpers/commonHelpers";
+import { setTeamOwner } from "@e2e/helpers/allure/allure-helper";
+import { loadConfig } from "@e2e/bridge/server";
 import { device } from "detox";
 
 setTeamOwner(Team.WALLET_XP);
@@ -19,7 +19,7 @@ const tags: string[] = [
   `@family-bitcoin`,
 ];
 tags.forEach(tag => $Tag(tag));
-describe("Account name change", () => {
+describe("Rename account", () => {
   const account = Account.BTC_NATIVE_SEGWIT_1;
   const newAccountName = "New Account Name";
 
@@ -32,7 +32,7 @@ describe("Account name change", () => {
     await app.mainNavigation.waitForWallet40Ready();
   });
 
-  it("should persist Account name change after app restart", async () => {
+  it(`[${account.currency.testLabel}] - Rename account and persist after restart`, async () => {
     await app.accounts.openViaDeeplink();
     await app.common.expectAccountName(account.accountName);
     await app.common.goToAccountByName(account.accountName);

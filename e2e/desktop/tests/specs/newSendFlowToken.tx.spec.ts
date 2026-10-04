@@ -1,7 +1,7 @@
-import { test } from "tests/fixtures/common";
 import { TokenAccount } from "@ledgerhq/live-e2e-shared/enum/Account";
 import { Transaction } from "@ledgerhq/live-e2e-shared/models/Transaction";
 import { NewSendFlowEntry, registerNewSendFlowTests } from "tests/utils/newSendFlowUtils";
+import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
 
 const tokenSendTransactions: NewSendFlowEntry[] = [
   {
@@ -11,10 +11,12 @@ const tokenSendTransactions: NewSendFlowEntry[] = [
       "0.000001",
     ),
     xrayTicket: "B2CQA-6111",
+    verifyOperationAmount: true,
   },
   {
     transaction: new Transaction(TokenAccount.ALGO_USDT_1, TokenAccount.ALGO_USDT_2, "0.01"),
     xrayTicket: "B2CQA-6111",
+    teamOwner: Team.BST,
   },
   {
     transaction: new Transaction(TokenAccount.SOL_GIGA_1, TokenAccount.SOL_GIGA_2, "0.00001"),
@@ -31,9 +33,14 @@ const tokenSendTransactions: NewSendFlowEntry[] = [
   {
     transaction: new Transaction(TokenAccount.ETH_USDT_1, TokenAccount.ETH_USDT_3, "0.01"),
     xrayTicket: "B2CQA-6111",
+    verifyOperationAmount: true,
+  },
+  {
+    transaction: new Transaction(TokenAccount.ETH_WGNK_1, TokenAccount.ETH_WGNK_3, "0.123456789"),
+    xrayTicket: "B2CQA-6111",
+    verifyAmountPrecision: true,
+    verifyOperationAmount: true,
   },
 ];
 
-test.describe("New Send Flow - Token Send", () => {
-  registerNewSendFlowTests(tokenSendTransactions);
-});
+registerNewSendFlowTests(tokenSendTransactions);

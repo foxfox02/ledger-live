@@ -26,11 +26,11 @@ import { prepareMessageToSign } from "../hw/signMessage/index";
 import { getAccountBridge } from "../bridge";
 import { Exchange } from "../exchange/types";
 import { getCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
-import { WalletState } from "@ledgerhq/live-wallet/store";
+import { type AccountNamesState } from "@domain/entity-account-name";
 import { getWalletAccount } from "@ledgerhq/coin-bitcoin/getWalletAccount";
 import type { CosmosAccount } from "@ledgerhq/coin-cosmos/types/index";
 import { CryptoOrTokenCurrency } from "@domain/entity-currency";
-import { normalizePublicKeyForAddress } from "@ledgerhq/coin-tezos/utils";
+import { normalizePublicKeyForAddress } from "@ledgerhq/coin-tezos/logic-public";
 import { AccountPublicKeyUnavailable } from "../errors";
 
 export function translateContent(content: string | TranslatableString, locale = "en"): string {
@@ -45,7 +45,7 @@ export type WalletAPIContext = {
 };
 
 export async function receiveOnAccountLogic(
-  walletState: WalletState,
+  accountNames: AccountNamesState,
   { manifest, accounts, tracking }: WalletAPIContext,
   walletAccountId: string,
   uiNavigation: (
@@ -74,7 +74,7 @@ export async function receiveOnAccountLogic(
   const mainAccount = getMainAccount(account, parentAccount);
   const currency = tokenCurrency ? await getCryptoAssetsStore().findTokenById(tokenCurrency) : null;
   const receivingAccount = currency ? makeEmptyTokenAccount(mainAccount, currency) : account;
-  const accountAddress = accountToWalletAPIAccount(walletState, account, parentAccount).address;
+  const accountAddress = accountToWalletAPIAccount(accountNames, account, parentAccount).address;
   return uiNavigation(receivingAccount, parentAccount, accountAddress);
 }
 
@@ -357,6 +357,8 @@ export const bitcoinFamilyAccountGetPublicKeyLogic = async (
 
 type AccountPublicKeyResolver = (account: Account) => string | null;
 
+const COMPRESSED_SECP256K1_HEX = /^0[23][0-9a-f]{64}$/i;
+
 const ACCOUNT_PUBLIC_KEY_RESOLVERS: Partial<Record<string, AccountPublicKeyResolver>> = {
   // xpub holds the account public key (generic-coin-framework), either hex (as returned by the
   // Ledger app) or already base58. Normalize it to base58; throw the dedicated error when it
@@ -366,9 +368,10 @@ const ACCOUNT_PUBLIC_KEY_RESOLVERS: Partial<Record<string, AccountPublicKeyResol
     if (publicKey) return publicKey;
     throw new AccountPublicKeyUnavailable();
   },
-  // cosmos seedIdentifier is seed-level (shared across accounts), so the per-account
-  // compressed pubkey (hex) is persisted in cosmosResources at scan time.
-  cosmos: account => (account as CosmosAccount).cosmosResources?.publicKey || null,
+  cosmos: account =>
+    [(account as CosmosAccount).cosmosResources?.publicKey, account.xpub].find(
+      key => key !== undefined && COMPRESSED_SECP256K1_HEX.test(key),
+    ) ?? null,
 };
 
 export const accountGetPublicKeyLogic = async (

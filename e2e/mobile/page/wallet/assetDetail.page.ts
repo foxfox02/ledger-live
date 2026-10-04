@@ -1,10 +1,6 @@
 import { Step } from "jest-allure2-reporter/api";
-import { delay, normalizeText, parseTickerAmount } from "../../helpers/commonHelpers";
-import {
-  DEFAULT_TIMEOUT,
-  QUICK_VISIBILITY_PROBE_TIMEOUT,
-  VISIBILITY_PROBE_TIMEOUT,
-} from "../../helpers/elementHelpers";
+import { delay, normalizeText, parseTickerAmount } from "@e2e/helpers/commonHelpers";
+import { INTERVAL, TIMEOUT } from "@e2e/utils/timeouts";
 
 type HoldingAddressExpectation = {
   accountId: string;
@@ -12,8 +8,13 @@ type HoldingAddressExpectation = {
   addressFragment?: string;
 };
 
-const TOKEN_BALANCE_DECIMAL_PRECISION = 5;
-const OPERATION_DETAILS_OPEN_TIMEOUT = 5000;
+// Allows half a unit of the last decimal each displayed value.
+const displayRoundingTolerance = (text: string) => {
+  const decimals = /\.(\d+)/.exec(text)?.[1].length ?? 0;
+  return 0.5 * 10 ** -decimals;
+};
+
+const OPERATION_DETAILS_OPEN_TIMEOUT = TIMEOUT.small;
 
 export default class AssetDetailPage {
   screenId = "asset-detail-screen";
@@ -70,7 +71,7 @@ export default class AssetDetailPage {
     for (let attempt = 0; attempt < 3; attempt++) {
       await tapById(this.operationsListItemId, 0);
       if (await IsIdVisible(this.operationDetailsTitleId, OPERATION_DETAILS_OPEN_TIMEOUT)) return;
-      await delay(500);
+      await delay(INTERVAL.short);
     }
     throw new Error("Operation details did not open after tapping the transaction");
   }
@@ -78,14 +79,12 @@ export default class AssetDetailPage {
   private async scrollToAddressItem(accountId: string) {
     await this.scrollToAddressesSection();
     const scrollViewId = await this.getScrollViewId();
-    await scrollToId(this.addressItemNameId(accountId), scrollViewId, 700, "down");
-    await waitForElementById(this.addressItemNameId(accountId), DEFAULT_TIMEOUT, {
-      checkVisibility: false,
-    });
+    await scrollToId(this.addressItemNameId(accountId), scrollViewId);
+    await detoxExpect(getElementById(this.addressItemNameId(accountId))).toBeVisible();
   }
 
   private async openCoinOptions() {
-    if (await IsIdVisible(this.coinOptionsFavouriteRowId, QUICK_VISIBILITY_PROBE_TIMEOUT)) {
+    if (await IsIdVisible(this.coinOptionsFavouriteRowId, TIMEOUT.xxxsmall)) {
       return;
     }
 
@@ -99,10 +98,10 @@ export default class AssetDetailPage {
     await tapByIdAndExpectToDisappear(this.coinOptionsFavouriteRowId);
   }
 
-  @Step("Expect Asset Detail page for ticker")
+  @Step("Expect Asset Detail page for ticker {{{0}}}")
   async expectAssetDetailPageForTicker(ticker: string) {
     const scrollViewId = await this.getScrollViewId();
-    await scrollToId(this.marketPriceId, scrollViewId, 1200, "up");
+    await scrollToId(this.marketPriceId, scrollViewId, undefined, "up");
     await waitForElementById(this.marketPriceId);
     await waitForElementById(this.coinOptionsTrailingId);
     await detoxExpect(getElementById(this.coinCapsuleIconId(ticker))).toBeVisible();
@@ -117,12 +116,12 @@ export default class AssetDetailPage {
   }
 
   @Step("Check if Asset Detail page is visible")
-  async isAssetDetailPageVisible(timeout = VISIBILITY_PROBE_TIMEOUT) {
+  async isAssetDetailPageVisible(timeout = TIMEOUT.xxsmall) {
     return await IsIdVisible(this.scrollViewId, timeout);
   }
 
-  @Step("Check if Asset Detail page for ticker is visible")
-  async isAssetDetailPageForTickerVisible(ticker: string, timeout = VISIBILITY_PROBE_TIMEOUT) {
+  @Step("Check if Asset Detail page for ticker is visible {{{0}}}")
+  async isAssetDetailPageForTickerVisible(ticker: string, timeout = TIMEOUT.xxsmall) {
     return (
       (await IsIdVisible(this.scrollViewId, timeout)) &&
       (await IsIdVisible(this.coinCapsuleIconId(ticker), timeout))
@@ -132,13 +131,13 @@ export default class AssetDetailPage {
   @Step("Expect Asset Detail market data")
   async expectMarketDataVisible() {
     const scrollViewId = await this.getScrollViewId();
-    await scrollToId(this.marketPriceId, scrollViewId, 1200, "up");
+    await scrollToId(this.marketPriceId, scrollViewId, undefined, "up");
     await waitForElementById(this.marketPriceId);
     await detoxExpect(getElementById(this.marketPriceId)).toBeVisible();
     await detoxExpect(getElementById(this.marketVariationId)).toBeVisible();
   }
 
-  @Step("Expect Asset Detail total crypto balance for ticker")
+  @Step("Expect Asset Detail total crypto balance for ticker {{{0}}}")
   async expectTotalBalanceCryptoForTicker(ticker: string) {
     const scrollViewId = await this.getScrollViewId();
     await scrollToId(this.totalBalanceId, scrollViewId);
@@ -159,7 +158,7 @@ export default class AssetDetailPage {
     await detoxExpect(getElementById(this.transactionsHeaderId)).toBeVisible();
   }
 
-  @Step("Expect holding address details")
+  @Step("Expect holding address details for {{{0.length}}} addresses")
   async expectHoldingAddressDetails(expectedAddresses: HoldingAddressExpectation[]) {
     for (const expectedAddress of expectedAddresses) {
       await this.scrollToAddressItem(expectedAddress.accountId);
@@ -184,37 +183,35 @@ export default class AssetDetailPage {
     }
   }
 
-  @Step("Expect holding address balances to add up to total")
+  @Step("Expect holding address balances to add up to total {{{1}}}")
   async expectHoldingAddressBalancesSumToTotal(accountIds: string[], ticker: string) {
     const scrollViewId = await this.getScrollViewId();
     await scrollToId(this.totalBalanceId, scrollViewId);
-    const totalBalance = parseTickerAmount(
-      await getTextOfElement(this.totalBalanceCryptoId),
-      ticker,
-    );
+    const totalText = await getTextOfElement(this.totalBalanceCryptoId);
+    const totalBalance = parseTickerAmount(totalText, ticker);
 
     let holdingBalance = 0;
+    let tolerance = displayRoundingTolerance(totalText);
     for (const accountId of accountIds) {
       await this.scrollToAddressItem(accountId);
-      const accountBalance = parseTickerAmount(
-        await getTextOfElement(this.addressItemBalanceId(accountId)),
-        ticker,
-      );
+      const balanceText = await getTextOfElement(this.addressItemBalanceId(accountId));
+      const accountBalance = parseTickerAmount(balanceText, ticker);
       jestExpect(accountBalance).toBeGreaterThan(0);
       holdingBalance += accountBalance;
+      tolerance += displayRoundingTolerance(balanceText);
     }
 
-    jestExpect(holdingBalance).toBeCloseTo(totalBalance, TOKEN_BALANCE_DECIMAL_PRECISION);
+    jestExpect(Math.abs(holdingBalance - totalBalance)).toBeLessThanOrEqual(tolerance);
     return { holdingBalance, totalBalance };
   }
 
-  @Step("Open holding address")
+  @Step("Open holding address {{{0}}}")
   async openHoldingAddress(accountId: string) {
     await this.scrollToAddressItem(accountId);
     await tapById(this.addressItemNameId(accountId));
   }
 
-  @Step("Get visible Asset Detail transaction count for ticker")
+  @Step("Get visible Asset Detail transaction count for ticker {{{0}}}")
   async getVisibleTransactionCountForTicker(ticker: string) {
     await this.scrollToTransactions();
     const scrollViewId = await this.getScrollViewId();
@@ -230,14 +227,11 @@ export default class AssetDetailPage {
     return visibleOperationsCount;
   }
 
-  @Step("Open first Asset Detail transaction")
+  @Step("Open first Asset Detail transaction {{{0}}}")
   async openFirstTransaction(ticker: string) {
     await this.scrollToTransactions();
     const scrollViewId = await this.getScrollViewId();
-    await scrollToId(this.operationsListItemId, scrollViewId, 300, "down");
-    // Extra "slack" scroll so the first operation is centered and not stuck behind the
-    // sticky Buy/Swap footer, which would otherwise intercept the tap on Android.
-    await scrollByPixels(scrollViewId, 200, "down");
+    await revealForTap(this.operationsListItemId, { container: scrollViewId });
     await detoxExpect(this.operationByTicker(ticker).atIndex(0)).toBeVisible();
     await this.tapTransactionUntilOperationDetailsOpen();
   }
@@ -255,7 +249,7 @@ export default class AssetDetailPage {
     await this.scrollToAddressesSection();
   }
 
-  @Step("Get address item name at index")
+  @Step("Get address item name at index {{{0}}}")
   async getAddressItemName(index = 0) {
     return await getTextOfElement(/asset-detail-address-item-name-.*/, index);
   }

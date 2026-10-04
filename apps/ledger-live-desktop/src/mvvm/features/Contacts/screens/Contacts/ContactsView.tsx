@@ -1,36 +1,66 @@
 import React from "react";
 import {
   ContactAddressDetailDialog,
-  ContactsAddContactDialog,
-  ContactsListView,
+  ContactsDeleteAddressDialog,
+  ContactsEditSignerMismatchDialog,
+  ContactsView as ContactsFlowView,
   type ContactAddressDetailDialogProps,
-  type ContactsAddContactDialogProps,
-  type ContactsListViewProps,
+  type AddContactAppAdapterResult,
+  type ContactsViewProps as ContactsFlowViewProps,
 } from "@features/flow-contacts";
+import { ContactsAddContactDialog } from "@features/flow-contacts-add-contact";
+import { ContactsDeleteContactDialog } from "@features/flow-contacts-delete-contact";
+import { ContactsRenameContactDialog } from "@features/flow-contacts-edit-contact";
+import { ContactsRenameAddressDialog } from "@features/flow-contacts-edit-address";
 import {
   ContactsAddAddressFlowDialog,
   type ContactsAddAddressFlowDialogProps,
 } from "./components/ContactsAddAddressFlowDialog";
+import type { ContactsDeviceIntentExecutorProps } from "@features/platform-contacts/device";
+import { DeviceIntentExecutorLWD } from "LLD/components/DeviceIntentExecutor";
+import type { ContactAddressDetailActionsDialogProps } from "./useContactAddressDetailActionsAdapter";
+import type { ContactDetailEditDeleteDialogProps } from "./useContactDetailEditDeleteAdapter";
 
-export type ContactsViewProps = ContactsListViewProps &
+export type ContactsViewProps = ContactsFlowViewProps &
   Readonly<{
-    addContactDialog: ContactsAddContactDialogProps;
+    addContactDialog: AddContactAppAdapterResult;
     addAddressFlowDialog: ContactsAddAddressFlowDialogProps;
     addressDetailDialog: ContactAddressDetailDialogProps;
+    editDeleteDialogs: ContactDetailEditDeleteDialogProps;
+    addressDetailActionsDialogs: ContactAddressDetailActionsDialogProps;
+    dieProps: ContactsDeviceIntentExecutorProps | undefined;
   }>;
 
 export function ContactsView({
   addContactDialog,
   addAddressFlowDialog,
   addressDetailDialog,
+  editDeleteDialogs,
+  addressDetailActionsDialogs,
+  dieProps,
   ...pageProps
 }: Readonly<ContactsViewProps>) {
+  const areContactsDialogsHidden = dieProps?.enabled === true;
+
   return (
     <>
-      <ContactsListView {...pageProps} />
-      <ContactsAddContactDialog {...addContactDialog} />
-      <ContactAddressDetailDialog {...addressDetailDialog} />
-      <ContactsAddAddressFlowDialog {...addAddressFlowDialog} />
+      <ContactsFlowView {...pageProps} />
+      {areContactsDialogsHidden ? null : (
+        <>
+          <ContactsAddContactDialog {...addContactDialog} />
+          <ContactAddressDetailDialog {...addressDetailDialog} />
+          <ContactsAddAddressFlowDialog {...addAddressFlowDialog} />
+          <ContactsRenameContactDialog {...editDeleteDialogs.renameDialog} />
+          <ContactsDeleteContactDialog {...editDeleteDialogs.deleteDialog} />
+          <ContactsEditSignerMismatchDialog {...editDeleteDialogs.signerMismatchDialog} />
+          <ContactsDeleteAddressDialog {...addressDetailActionsDialogs.deleteDialog} />
+          <ContactsRenameAddressDialog {...addressDetailActionsDialogs.renameDialog} />
+          <ContactsEditSignerMismatchDialog {...addressDetailActionsDialogs.signerMismatchDialog} />
+        </>
+      )}
+      {dieProps?.enabled === true ? (
+        <DeviceIntentExecutorLWD sourceFlow="contacts" {...dieProps} />
+      ) : null}
     </>
   );
 }

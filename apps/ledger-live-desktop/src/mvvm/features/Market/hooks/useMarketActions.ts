@@ -1,8 +1,7 @@
 import { MarketCurrencyData } from "@ledgerhq/live-common/market/utils/types";
 import { useCallback, useMemo } from "react";
 import { useLocation } from "react-router";
-import { setTrackingSource } from "~/renderer/analytics/TrackPage";
-import { track } from "~/renderer/analytics/segment";
+import { setTrackingSource, track } from "@shared/analytics";
 import { stakeDefaultTrack } from "../../../../renderer/screens/stake/constants";
 import useStakeFlow from "../../../../renderer/screens/stake";
 import { useGetSwapTrackingProperties } from "../../../../renderer/screens/exchange/Swap2/utils";
@@ -15,7 +14,7 @@ import {
 } from "../../../../renderer/screens/market/utils";
 import { useStake } from "LLD/hooks/useStake";
 import { useFetchCurrencyAll } from "@ledgerhq/live-common/exchange/swap/hooks/index";
-import { useLazyLedgerCurrency } from "@ledgerhq/live-common/dada-client/hooks/useLazyLedgerCurrency";
+import { useLazyLedgerCurrency } from "@features/platform-aggregated-assets";
 import useEnv from "@features/platform-env";
 import { useFeatureFlaggedCurrencies } from "@features/platform-currencies";
 import { useSwapNavigation } from "./useSwapNavigation";

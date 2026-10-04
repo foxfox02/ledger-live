@@ -1,5 +1,6 @@
 import { findSubAccountById } from "@ledgerhq/ledger-wallet-framework/account/helpers";
 import { BigNumber } from "bignumber.js";
+import suiConfig from "../config";
 import { SUI_DUMMY_ADDRESS } from "../constants";
 import { estimateFees } from "../logic";
 import { DEFAULT_COIN_TYPE, toSuiAsset } from "../network/sdk";
@@ -23,8 +24,6 @@ export default async function getEstimatedFees({
 }): Promise<{ fees: BigNumber; gasBudget: BigNumber }> {
   const t = {
     ...transaction,
-    recipient: SUI_DUMMY_ADDRESS,
-    // Always use a fake recipient to estimate fees
     amount: calculateAmount({
       account,
       transaction: {
@@ -53,16 +52,28 @@ export default async function getEstimatedFees({
       break;
   }
 
-  const { fees, gasBudget } = await estimateFees({
+  // Estimation can run before a recipient exists, so a placeholder keeps the simulation valid.
+  // `delegate` is the exception: its recipient IS the validator, and the network rejects a stake to
+  // a non-validator.
+  const recipient =
+    transaction.mode === "delegate" && transaction.recipient
+      ? transaction.recipient
+      : SUI_DUMMY_ADDRESS;
+
+  const { fees, gasBudget } = await estimateFees(suiConfig.getCoinConfig(account.currency.id), {
     intentType,
-    recipient: SUI_DUMMY_ADDRESS,
+    recipient,
     sender: account.freshAddress,
     amount: BigInt(t.amount.toString()),
     type: transactionType,
     asset,
     currencyId: account.currency.id,
-    ...(transaction.useAllAmount !== undefined && { useAllAmount: transaction.useAllAmount }),
-    ...(transaction.stakedSuiId !== undefined && { stakedSuiId: transaction.stakedSuiId }),
+    ...(transaction.useAllAmount !== undefined && {
+      useAllAmount: transaction.useAllAmount,
+    }),
+    ...(transaction.stakedSuiId !== undefined && {
+      stakedSuiId: transaction.stakedSuiId,
+    }),
   });
   return {
     fees: new BigNumber(fees.toString()),

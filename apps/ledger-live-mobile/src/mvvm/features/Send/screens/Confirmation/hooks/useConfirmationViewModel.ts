@@ -1,10 +1,14 @@
-import { useCallback } from "react";
+import { trackPage } from "@shared/analytics";
+import { useCallback, useEffect, useMemo } from "react";
 import { useNavigation } from "@react-navigation/native";
 import { ScreenName } from "~/const";
 import type { BaseNavigationComposite } from "~/components/RootNavigator/types/helpers";
 import useExportLogs from "~/components/useExportLogs";
+import { useSendFlowTrackingProperties } from "../../../hooks/useSendFlowTrackingProperties";
+import { FLOW_STATUS } from "@ledgerhq/live-common/flows/wizard/types";
 import { useSendFlowActions, useSendFlowData } from "../../../context/SendFlowContext";
 import { useSendSignature } from "../../../context/SendSignatureContext";
+import { useSendFlowTracking } from "../../../context/SendFlowTrackingContext";
 import type { SendFlowNavigationProp } from "../../../types";
 
 export function useConfirmationViewModel() {
@@ -12,14 +16,35 @@ export function useConfirmationViewModel() {
   const { close, status: statusActions, operation } = useSendFlowActions();
   const { startSigning } = useSendSignature();
   const { state } = useSendFlowData();
+  const { recipientType, savedContactDuringFlow } = useSendFlowTracking();
   const { account, parentAccount } = state.account;
   const onSaveLogs = useExportLogs();
+  const sendFlowTrackingProperties = useSendFlowTrackingProperties();
+  const trackingProperties = useMemo(
+    () => ({
+      ...sendFlowTrackingProperties,
+      recipientType,
+    }),
+    [sendFlowTrackingProperties, recipientType],
+  );
 
   const optimisticOperation = state.operation.optimisticOperation;
   const concernedOperation =
     optimisticOperation?.subOperations?.find(op => op.accountId === account?.id) ??
     optimisticOperation ??
     null;
+
+  useEffect(() => {
+    if (state.flowStatus === FLOW_STATUS.SUCCESS) {
+      void trackPage({
+        category: "Modal send - transaction sent",
+        props: {
+          ...trackingProperties,
+          savedContactDuringFlow,
+        },
+      });
+    }
+  }, [savedContactDuringFlow, state.flowStatus, trackingProperties]);
 
   const onViewTransaction = useCallback(() => {
     if (!account || !concernedOperation) return;
@@ -40,6 +65,7 @@ export function useConfirmationViewModel() {
     status: state.flowStatus,
     transactionError: state.operation.transactionError,
     canViewTransaction: Boolean(account && concernedOperation),
+    trackingProperties,
     onViewTransaction,
     onSaveLogs,
     onRetry,

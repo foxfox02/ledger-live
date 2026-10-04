@@ -2,7 +2,7 @@ import React from "react";
 import { getDeviceModel } from "@ledgerhq/devices";
 import type { DeviceModelId } from "@ledgerhq/types-devices";
 import { Trans } from "~/context/Locale";
-import { InfoState } from "LLM/components/InfoState";
+import { InfoState } from "@shared/ui-info-state";
 
 type RetryableDeviceLockedProps = Readonly<{
   deviceModelId: DeviceModelId;
@@ -28,12 +28,6 @@ export function RetryableDeviceLocked({
       title={
         <Trans
           i18nKey="deviceIntentExecutor.genericStates.retryableDeviceLocked.title"
-          values={{ productName }}
-        />
-      }
-      description={
-        <Trans
-          i18nKey="deviceIntentExecutor.genericStates.retryableDeviceLocked.description"
           values={{ productName }}
         />
       }

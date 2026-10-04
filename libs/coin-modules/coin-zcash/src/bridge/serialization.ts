@@ -16,7 +16,7 @@ import type {
   ZcashPrivateInfoRaw,
 } from "../network/types";
 import { rehydrateOutput } from "../network/serialization/rehydrate";
-import { walletBtcCurrencyById } from "../walletBtcCurrency";
+import { walletBtcCurrencyById, type ExplorerConfig } from "../walletBtcCurrency";
 
 // ── Transparent (bitcoinResources) serialization ────────────────────────
 //
@@ -61,19 +61,25 @@ export function fromBitcoinOutputRaw([
 export function toBitcoinResourcesRaw(r: BitcoinResources): BitcoinResourcesRaw {
   return {
     utxos: r.utxos.map(toBitcoinOutputRaw),
-    walletAccount: r.walletAccount && wallet.exportToSerializedAccountSync(r.walletAccount),
+    ...(r.walletAccount && {
+      walletAccount: wallet.exportToSerializedAccountSync(r.walletAccount),
+    }),
   };
 }
+
+// No explorer endpoint at deserialization: sync and broadcast bind it from the coin config
+// before first use (see bridge/explorer.ts), so a remote endpoint change is not frozen here.
+const UNBOUND_EXPLORER: ExplorerConfig = { explorer: { url: "" } };
 
 export function fromBitcoinResourcesRaw(r: BitcoinResourcesRaw): BitcoinResources {
   return {
     utxos: r.utxos.map(fromBitcoinOutputRaw),
-    walletAccount:
-      r.walletAccount &&
-      wallet.importFromSerializedAccountSync(
+    ...(r.walletAccount && {
+      walletAccount: wallet.importFromSerializedAccountSync(
         r.walletAccount,
-        walletBtcCurrencyById(r.walletAccount.params.currency),
+        walletBtcCurrencyById(r.walletAccount.params.currency, UNBOUND_EXPLORER),
       ),
+    }),
   };
 }
 
@@ -101,11 +107,15 @@ export function toZcashPrivateInfoRaw(info: ZcashPrivateInfo): ZcashPrivateInfoR
     ironwoodBalance: info.ironwoodBalance.toString(),
     lastSyncTimestamp: info.lastSyncTimestamp,
     ufvk: info.ufvk,
+    shieldedAddress: info.shieldedAddress,
     syncState: info.syncState,
     progress: info.progress,
     estimatedTimeRemaining: info.estimatedTimeRemaining,
     birthday: info.birthday,
     lastProcessedBlock: info.lastProcessedBlock,
+    // exactOptionalPropertyTypes: undefined can't be assigned to an optional
+    // field directly -- omit the key entirely rather than write it as undefined.
+    ...(info.lastSyncError !== undefined && { lastSyncError: info.lastSyncError }),
     transactions: info.transactions.map(({ fee, transparentOut, decryptedData, ...tx }) => ({
       ...tx,
       fee: fee.toString(),
@@ -133,11 +143,14 @@ export function fromZcashPrivateInfoRaw(info: ZcashPrivateInfoRaw): ZcashPrivate
     ironwoodBalance: new BigNumber(info.ironwoodBalance ?? "0"),
     lastSyncTimestamp: info.lastSyncTimestamp,
     ufvk: info.ufvk,
+    shieldedAddress: info.shieldedAddress ?? null,
     syncState: info.syncState as ZcashPrivateInfo["syncState"],
     progress: info.progress,
     estimatedTimeRemaining: info.estimatedTimeRemaining,
     birthday: info.birthday,
     lastProcessedBlock: info.lastProcessedBlock,
+    // Guard accounts persisted before this field was added.
+    lastSyncError: info.lastSyncError ?? null,
     transactions: info.transactions.map(({ fee, transparentOut, decryptedData, ...tx }) => ({
       ...tx,
       fee: new BigNumber(fee),

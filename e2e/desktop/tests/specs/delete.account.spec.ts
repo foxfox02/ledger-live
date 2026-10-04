@@ -1,8 +1,6 @@
 import { test } from "tests/fixtures/common";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
 import { Account } from "@ledgerhq/live-e2e-shared/enum/Account";
-import { addTmsLink } from "tests/utils/allureUtils";
-import { getDescription } from "tests/utils/customJsonReporter";
 import { liveDataCommand } from "@ledgerhq/live-e2e-shared/cliCommandsUtils";
 import { buildTags } from "tests/utils/tagsUtils";
 
@@ -25,7 +23,7 @@ const accounts = [
 ];
 
 for (const account of accounts) {
-  test.describe("Delete Accounts", () => {
+  test.describe("Delete account", () => {
     test.use({
       teamOwner: Team.WALLET_XP,
       userdata: "skip-onboarding-with-last-seen-device",
@@ -35,7 +33,7 @@ for (const account of accounts) {
     });
 
     test(
-      `[${account.account.currency.name}] Delete Account`,
+      `[${account.account.currency.testLabel}] - Delete account`,
       {
         tag: buildTags({
           currencyId: account.account.currency.id,
@@ -47,8 +45,6 @@ for (const account of accounts) {
         },
       },
       async ({ app }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
         await app.mainNavigation.openTargetFromMainNavigation("accounts");
         await app.accounts.navigateToAccountByName(account.account.accountName);
         await app.account.expectAccountVisibility(account.account.accountName);

@@ -1,91 +1,60 @@
 import { rejectBalanceOptions } from "@ledgerhq/coin-module-framework/api/getBalance/rejectBalanceOptions";
 import {
-  CoinModuleApi,
-  Balance,
-  Block,
-  BlockInfo,
-  CraftedTransaction,
-  Cursor,
-  FeeEstimation,
-  Page,
-  Reward,
-  Stake,
-  TransactionIntent,
-  TransactionValidation,
-  Validator,
+  CoinModuleImpl,
   BalanceOptions,
+  CraftedTransaction,
+  FeeEstimation,
+  TransactionIntent,
 } from "@ledgerhq/coin-module-framework/api/index";
 import { craftTransactionData } from "@ledgerhq/coin-module-framework/logic/craftTransactionData";
 import BigNumber from "bignumber.js";
-import coinConfig, { type BoilerplateConfig } from "../config";
-import {
-  broadcast,
-  combine,
-  craftTransaction,
-  estimateFees,
-  getBalance,
-  getNextValidSequence,
-  lastBlock,
-  listOperations,
-} from "../logic";
+import { type BoilerplateCoinConfig } from "../config";
+import { broadcast } from "../logic/broadcast";
+import { combine } from "../logic/combine";
+import { craftTransaction } from "../logic/craftTransaction";
+import { estimateFees } from "../logic/estimateFees";
+import { getBalance } from "../logic/getBalance";
+import { getNextSequence } from "../logic/getNextSequence";
+import { lastBlock } from "../logic/lastBlock";
+import { listOperations } from "../logic/listOperations";
 
-export function createApi(config: BoilerplateConfig): CoinModuleApi {
-  coinConfig.setCoinConfig(() => ({ ...config, status: { type: "active" } }));
-
+// Checked against CoinModuleImpl with `satisfies` rather than annotated as it: a module lists the
+// methods it implements and simply omits the capabilities the chain does not have. `satisfies` keeps
+// the precise type of what is returned, so a caller sees exactly which methods exist — an annotation
+// would widen every capability back to optional, including the ones this module does implement. The consumer reaches it through a resolver that applies the
+// framework's `withDefaults`, which supplies each omitted capability — so there is nothing to stub
+// here, and `supports()` can tell a caller which ones are real.
+//
+// The caller builds the {@link BoilerplateContext} (config + logger) and passes it to each method (ADR-019).
+export function createApi() {
   return {
-    broadcast,
-    async call() {
-      throw new Error("call is not supported");
+    broadcast: async (context, tx, _options?) => {
+      return broadcast(await context.config(), tx);
     },
-    combine,
-    craftTransaction: craft,
-    craftRawTransaction: (
-      _transaction: string,
-      _sender: string,
-      _publicKey: string,
-      _sequence: bigint,
-    ): Promise<CraftedTransaction> => {
-      throw new Error("craftRawTransaction is not supported");
+    combine: (_context, tx, signature, options?) => combine(tx, signature, options?.pubkey),
+    craftTransaction: async (context, transactionIntent, _options?) => {
+      return craft(await context.config(), transactionIntent);
     },
-    estimateFees: estimate,
-    getBalance: (address: string, options?: BalanceOptions) =>
-      rejectBalanceOptions(() => getBalance(address), options),
-    lastBlock,
-    listOperations,
-    getBlock(_height): Promise<Block> {
-      throw new Error("getBlock is not supported");
+    craftTransactionData: (_context, intent) => craftTransactionData(intent),
+    estimateFees: async (context, transactionIntent, _options?) => {
+      return estimate(await context.config(), transactionIntent);
     },
-    getBlockInfo(_height: number): Promise<BlockInfo> {
-      throw new Error("getBlockInfo is not supported");
+    getBalance: (context, address, options?: BalanceOptions) =>
+      rejectBalanceOptions(() => getBalance(context, address), options),
+    lastBlock: async context => {
+      return lastBlock(await context.config());
     },
-    getStakes(_address: string, _cursor?: Cursor): Promise<Page<Stake>> {
-      throw new Error("getStakes is not supported");
+    listOperations: async (context, address, options) => {
+      return listOperations(await context.config(), address, options);
     },
-    getRewards(_address: string, _cursor?: Cursor): Promise<Page<Reward>> {
-      throw new Error("getRewards is not supported");
-    },
-    getValidators(_cursor?: Cursor): Promise<Page<Validator>> {
-      throw new Error("getValidators is not supported");
-    },
-    validateIntent: async (
-      _transactionIntent: TransactionIntent,
-      _balances: Balance[],
-      _customFees?: FeeEstimation,
-    ): Promise<TransactionValidation> => {
-      throw new Error("validateIntent is not supported");
-    },
-    getNextSequence: async (_address: string) => {
-      throw new Error("getNextSequence is not supported");
-    },
-    validateAddress: async (_address: string) => {
-      throw new Error("validateAddress is not supported");
-    },
-    craftTransactionData,
-  };
+  } satisfies CoinModuleImpl<BoilerplateCoinConfig>;
 }
 
-async function craft(transactionIntent: TransactionIntent): Promise<CraftedTransaction> {
-  const nextSequenceNumber = await getNextValidSequence(transactionIntent.sender);
+async function craft(
+  config: BoilerplateCoinConfig,
+  transactionIntent: TransactionIntent,
+): Promise<CraftedTransaction> {
+  const nextSequenceNumber = await getNextSequence(config, transactionIntent.sender);
   const tx = await craftTransaction(
     { address: transactionIntent.sender, nextSequenceNumber },
     {
@@ -96,7 +65,10 @@ async function craft(transactionIntent: TransactionIntent): Promise<CraftedTrans
   return { transaction: tx.serializedTransaction };
 }
 
-async function estimate(transactionIntent: TransactionIntent): Promise<FeeEstimation> {
+async function estimate(
+  config: BoilerplateCoinConfig,
+  transactionIntent: TransactionIntent,
+): Promise<FeeEstimation> {
   const { serializedTransaction } = await craftTransaction(
     { address: transactionIntent.sender },
     {
@@ -105,7 +77,7 @@ async function estimate(transactionIntent: TransactionIntent): Promise<FeeEstima
     },
   );
 
-  const value = await estimateFees(serializedTransaction);
+  const value = await estimateFees(config, serializedTransaction);
 
   return { value };
 }

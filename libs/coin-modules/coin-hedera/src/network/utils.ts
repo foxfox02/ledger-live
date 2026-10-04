@@ -1,20 +1,23 @@
 import invariant from "invariant";
 import { AccountId, TransactionId } from "@hashgraph/sdk";
+import { getEnv } from "@ledgerhq/live-env";
 import { getCryptoCurrencyById } from "@ledgerhq/ledger-wallet-framework/currencies";
 import { InvalidAddress } from "@ledgerhq/ledger-wallet-framework/errors";
-import cvsApi from "@ledgerhq/live-countervalues/api/index";
-import { getEnv } from "@ledgerhq/live-env";
-import { makeLRUCache, seconds } from "@ledgerhq/live-network/cache";
-import type {
-  FiatCurrency,
-  TokenCurrency,
-  Currency,
-} from "@ledgerhq/ledger-wallet-framework/types";
+import network from "@ledgerhq/live-network";
+import { makeLRUCache, minutes, seconds } from "@ledgerhq/live-network/cache";
+import type { FiatCurrency, Currency } from "@ledgerhq/ledger-wallet-framework/types";
 import type { Operation, OperationType } from "@ledgerhq/types-live";
 import BigNumber from "bignumber.js";
-import type { HederaCoinConfig } from "../config";
+import { HEDERA_VALIDATORS_CACHE_MINUTES, STAKING_REWARD_ACCOUNT_ID } from "../constants";
 import { HederaRecipientInvalidChecksum } from "../errors";
-import { getChecksum, nanosToSeconds, toEntityId, toTimestamp } from "../logic/utils";
+import {
+  getChecksum,
+  mapMirrorNodesToValidators,
+  nanosToSeconds,
+  resolveConfig,
+  toEntityId,
+  toTimestamp,
+} from "../logic/utils";
 import type {
   HederaMirrorTokenTransfer,
   HederaMirrorCoinTransfer,
@@ -22,7 +25,9 @@ import type {
   ERC20TokenTransfer,
   EnrichedERC20Transfer,
   HederaMirrorTransaction,
+  HederaValidator,
   StakingAnalysis,
+  HederaCoinConfig,
 } from "../types";
 import { apiClient } from "./api";
 import { hgraphClient } from "./hgraph";
@@ -80,7 +85,6 @@ export function parseTransfers(
 
   const senders: string[] = [];
   const recipients: string[] = [];
-  const rewardPayerAddress = getEnv("HEDERA_STAKING_REWARD_ACCOUNT_ID");
 
   for (const transfer of mirrorTransfers) {
     const amount = new BigNumber(transfer.amount);
@@ -96,7 +100,8 @@ export function parseTransfers(
 
     if (amountWithoutReward.isNegative()) {
       // exclude reward payer from senders list, because rewards are shown as separate operations
-      const shouldIgnoreAddress = transfer.account === rewardPayerAddress && stakingReward.gt(0);
+      const shouldIgnoreAddress =
+        transfer.account === STAKING_REWARD_ACCOUNT_ID && stakingReward.gt(0);
 
       if (shouldIgnoreAddress) {
         continue;
@@ -200,20 +205,30 @@ export const enrichERC20Transfers = async ({
   return enrichedTransfers;
 };
 
+// getEnv("LEDGER_COUNTERVALUES_API") must be read lazily, per call — not cached in a
+// module-level const. The mobile debug toggle calls setEnv("LEDGER_COUNTERVALUES_API", ...)
+// at runtime; a const or process.env read at import time pins hedera to whatever was
+// configured at startup and ignores the toggle.
+//
+// Dropping @ledgerhq/live-env from this package is blocked: the intended replacement
+// (shared/api-services/countervalues/) is unreachable from a published package as a runtime
+// dep. Unblock shared/* access first, then migrate the endpoint.
 // note: this is currently called frequently by getTransactionStatus; LRU cache prevents duplicated requests
 export const getCurrencyToUSDRate = makeLRUCache(
   async (currency: Currency) => {
     try {
-      const [rate] = await cvsApi.fetchLatest([
-        {
-          from: currency,
-          to: USD_FIAT,
-          startDate: new Date(),
-        },
-      ]);
-
+      // All callers pass the hedera CryptoCurrency (id = "hedera"), never a TokenCurrency
+      // (token ids include the token path, e.g. "hedera/hts/…").
+      // For the fiat (USD_FIAT) side of the Currency union the API id is the ticker.
+      // The two global remaps (assethub_polkadot, concordium_testnet) don't apply to hedera.
+      const fromId = currency.type !== "FiatCurrency" ? currency.id : currency.ticker;
+      const params = new URLSearchParams({ to: USD_FIAT.ticker, froms: fromId });
+      const { data } = await network<Record<string, number>>({
+        method: "GET",
+        url: `${getEnv("LEDGER_COUNTERVALUES_API")}/v3/spot/simple?${params.toString()}`,
+      });
+      const rate = data[fromId];
       invariant(rate, "no value returned from cvs api");
-
       return new BigNumber(rate);
     } catch {
       return null;
@@ -223,14 +238,38 @@ export const getCurrencyToUSDRate = makeLRUCache(
   seconds(3),
 );
 
-export const checkAccountTokenAssociationStatus = makeLRUCache(
-  async (address: string, token: TokenCurrency) => {
-    if (token.tokenType !== "hts") {
-      return true;
-    }
+export const getHederaValidators = makeLRUCache(
+  async ({
+    currencyId,
+    config,
+  }: {
+    currencyId: string;
+    config?: HederaCoinConfig;
+  }): Promise<HederaValidator[]> => {
+    const resolvedConfig = config ?? resolveConfig(currencyId);
+    const result = await apiClient.getNodes({
+      configOrCurrencyId: resolvedConfig,
+      fetchAllPages: true,
+    });
 
+    return mapMirrorNodesToValidators(result.nodes, String(resolvedConfig.ledgerNodeId));
+  },
+  ({ currencyId }) => currencyId,
+  minutes(HEDERA_VALIDATORS_CACHE_MINUTES),
+);
+
+export const checkAccountTokenAssociationStatus = makeLRUCache(
+  async ({
+    configOrCurrencyId,
+    address,
+    tokenId,
+  }: {
+    configOrCurrencyId: HederaCoinConfig | string;
+    address: string;
+    tokenId: string;
+  }) => {
     const [parsingError, parsingResult] = await safeParseAccountId({
-      configOrCurrencyId: token.parentCurrencyId,
+      configOrCurrencyId,
       address,
     });
 
@@ -240,7 +279,7 @@ export const checkAccountTokenAssociationStatus = makeLRUCache(
 
     const addressWithoutChecksum = parsingResult.accountId;
     const mirrorAccount = await apiClient.getAccount({
-      configOrCurrencyId: token.parentCurrencyId,
+      configOrCurrencyId,
       address: addressWithoutChecksum,
     });
 
@@ -250,12 +289,33 @@ export const checkAccountTokenAssociationStatus = makeLRUCache(
     }
 
     const isTokenAssociated = mirrorAccount.balance.tokens.some(t => {
-      return t.token_id === token.contractAddress;
+      return t.token_id === tokenId;
     });
 
     return isTokenAssociated;
   },
-  (accountId, token) => `${accountId}-${token.contractAddress}`,
+  ({ configOrCurrencyId, address, tokenId }) => {
+    if (typeof configOrCurrencyId === "string") {
+      return `${configOrCurrencyId}-${address}-${tokenId}`;
+    }
+
+    return `${configOrCurrencyId.networkType}-${address}-${tokenId}`;
+  },
+  seconds(30),
+);
+
+export const getHederaAccountForValidation = makeLRUCache(
+  async ({
+    config,
+    address,
+  }: {
+    currencyId: string;
+    config: HederaCoinConfig;
+    address: string;
+  }) => {
+    return apiClient.getAccount({ configOrCurrencyId: config, address });
+  },
+  ({ currencyId, address }) => `${currencyId}:${address}`,
   seconds(30),
 );
 

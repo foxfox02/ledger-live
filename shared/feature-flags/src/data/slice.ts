@@ -2,7 +2,7 @@ import { createSlice, type PayloadAction, type WritableDraft } from "@reduxjs/to
 import type { FeatureFlagsMeta } from "./middleware";
 import type { FeatureId, FeatureFlagsState, PartialFeatures } from "./schema";
 import { FEATURE_FLAGS_INITIAL_STATE } from "../constants";
-import { resolveFeature, resolveAll } from "./internals";
+import { resolveFeature, resolveAll } from "./internals/slice";
 
 const featureFlagsSlice = createSlice({
   name: "featureFlags",
@@ -73,6 +73,14 @@ const featureFlagsSlice = createSlice({
     },
 
     /**
+     * Marks the local cache read as settled. Payload-less and idempotent: the middleware
+     * dispatches it once the cache prime settles, whether it primed, was empty or failed.
+     */
+    setCachedFlagsSettled(state) {
+      state.cachedFlagsSettled = true;
+    },
+
+    /**
      * Replaces the entire feature-flags state. Used during hydration from
      * persisted storage to restore the slice in a single step.
      */
@@ -88,6 +96,7 @@ export const {
   syncRemoteConfig,
   setBannerVisible,
   setRemoteFlagsReady,
+  setCachedFlagsSettled,
   importState,
 } = featureFlagsSlice.actions;
 

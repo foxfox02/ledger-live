@@ -1,10 +1,11 @@
 import { Step } from "jest-allure2-reporter/api";
-import { removeSpeculosAndDeregisterKnownSpeculos } from "../utils/speculosUtils";
+import { removeSpeculosAndDeregisterKnownSpeculos } from "@e2e/utils/speculosUtils";
 import { Account, getParentAccountName } from "@ledgerhq/live-e2e-shared/enum/Account";
-import { isIos, openDeeplink } from "../helpers/commonHelpers";
+import { isIos, openDeeplink } from "@e2e/helpers/commonHelpers";
 import { device } from "detox";
-import ErrorPage from "./error.page";
-import { isAggregatedAssetsEnabled } from "../utils/featureFlagUtils";
+import { TIMEOUT } from "@e2e/utils/timeouts";
+import ErrorPage from "@e2e/page/error.page";
+import { isAggregatedAssetsEnabled } from "@e2e/utils/featureFlagUtils";
 
 export default class CommonPage {
   assetScreenFlatlistId = "asset-screen-flatlist";
@@ -12,13 +13,13 @@ export default class CommonPage {
   successViewDetailsButtonId = "enabled-success-view-details-button";
   validateSuccessScreenId = "validate-success-screen";
   proceedButtonId = "proceed-button";
-  accountCardPrefix = "account-card-";
   accountItemId = "account-item-";
   accountItemNameRegExp = new RegExp(`${this.accountItemId}.*-name`);
   deviceItem = (deviceId: string): string => `device-item-${deviceId}`;
   deviceItemRegex = /device-item-.*/;
   walletApiWebview = "wallet-api-webview";
   closeWithConfirmationButtonId = "button-close-add-account";
+  closeButtonId = "NavigationHeaderCloseButton";
   errorPage = new ErrorPage();
   seeAllTransactionButton = "portfolio-seeAll-transaction";
   assetDetailScrollViewId = /^asset-detail-scroll-view-.*/;
@@ -26,42 +27,39 @@ export default class CommonPage {
   accountGraphId = (accountId: string) => `account-graph-${accountId}`;
 
   searchBar = () => getElementById(this.searchBarId);
-  closeButton = () => getElementById("NavigationHeaderCloseButton");
+  closeButton = () => getElementById(this.closeButtonId);
   backButton = () => getElementById("navigation-header-back-button");
   seeAllOperationsButtonElement = () => getElementById(this.seeAllTransactionButton);
   assetScreenFlatlistElement = () => getElementById(this.assetScreenFlatlistId);
-  accountCardRegExp = (id = ".*") => new RegExp(this.accountCardPrefix + id);
   accountItemRegExp = (id = ".*(?<!-name)$") => new RegExp(`${this.accountItemId}${id}`);
   accountItem = (id: string) => getElementById(this.accountItemRegExp(id));
   accountItemName = (accountId: string) => getElementById(`${this.accountItemId + accountId}-name`);
   accountId = (account: Account) =>
     `test-id-account-${getParentAccountName(account)}${account.tokenType !== undefined ? ` (${account.currency.ticker})` : ""}`;
 
-  @Step("Perform search")
+  @Step("Perform search {{{0}}}")
   async performSearch(text: string) {
     await waitForElementById(this.searchBarId);
     await typeTextByElement(this.searchBar(), text);
   }
 
-  @Step("Expect Search Bar to be visible")
-  async expectSearchBarVisible() {
-    await detoxExpect(this.searchBar()).toBeVisible();
-  }
-
-  @Step("Select currency to debit")
+  @Step("Select currency to debit {{{0.accountName}}}")
   async selectAccount(account: Account) {
     const accountId = this.accountId(account);
     await waitForElementById(accountId);
     await tapByIdAndExpectToDisappear(accountId);
   }
 
-  @Step("Expect search")
+  @Step("Expect search {{{0}}}")
   async expectSearch(text: string) {
     await detoxExpect(this.searchBar()).toHaveText(text);
   }
 
   @Step("Close page")
-  async closePage() {
+  async closePage(options?: { onlyIfVisible: boolean }) {
+    if (options?.onlyIfVisible && !(await IsIdVisible(this.closeButtonId))) {
+      return;
+    }
     await tapByElement(this.closeButton());
   }
 
@@ -72,29 +70,24 @@ export default class CommonPage {
 
   @Step("Tap on view details")
   async successViewDetails() {
-    await waitForElementById(this.validateSuccessScreenId);
+    await waitForElementById(this.validateSuccessScreenId, TIMEOUT.xxlarge, {
+      errorElementId: this.errorPage.genericErrorModalId,
+    });
     await waitForElementById(this.successViewDetailsButtonId);
     await tapById(this.successViewDetailsButtonId);
   }
 
-  @Step("Select the first displayed account")
-  async selectFirstAccount() {
-    await tapById(this.accountCardRegExp());
-  }
-
-  @Step("Go to the account")
-  async goToAccount(accountId: string, currencyId?: string) {
+  @Step("Go to the account {{{0}}}")
+  async goToAccount(accountId: string, currencyId: string) {
     if (await isAggregatedAssetsEnabled()) {
       if (await IsIdVisible(this.accountGraphId(accountId))) {
         return; // already on the account page (e.g. navigated via CryptoAddressesScreen)
       }
-      if (currencyId) {
-        await openDeeplink(`asset/${currencyId}`);
-        await waitForElementById(`asset-detail-scroll-view-${currencyId}`);
-      }
+      const scrollViewId = `asset-detail-scroll-view-${currencyId}`;
+      await openDeeplink(`asset/${currencyId}`);
+      await waitForElementById(scrollViewId);
       const itemId = `asset-detail-address-item-${accountId}`;
-      const scrollViewId = currencyId ? `asset-detail-scroll-view-${currencyId}` : undefined;
-      await scrollToId(itemId, scrollViewId);
+      await revealForTap(itemId, { container: scrollViewId });
       await tapByElement(getElementById(itemId));
     } else {
       await scrollToId(this.accountItemRegExp(accountId), this.assetScreenFlatlistId);
@@ -108,12 +101,7 @@ export default class CommonPage {
     await tapById(this.closeWithConfirmationButtonId);
   }
 
-  @Step("Check number of account rows")
-  async checkAccountRowNumber(nbr: number) {
-    jestExpect(await countElementsById(this.accountItemNameRegExp)).toBeLessThanOrEqual(nbr);
-  }
-
-  @Step("Get the account name at index")
+  @Step("Get the account name at index {{{0}}}")
   async getAccountName(index = 0) {
     if (await isAggregatedAssetsEnabled()) {
       if (await IsIdVisible("CryptoAddressesList")) {
@@ -128,12 +116,12 @@ export default class CommonPage {
     }
   }
 
-  @Step("Expect the account name at index")
+  @Step("Expect the account name {{{0}}}")
   async expectAccountName(accountName: string, index = 0) {
     jestExpect(await this.getAccountName(index)).toBe(accountName);
   }
 
-  @Step("Go to the account with the name")
+  @Step("Go to the account with the name {{{0}}}")
   async goToAccountByName(name: string) {
     const accountTitle = getElementByText(name);
     const rowId = (await getIdOfElement(accountTitle)).replace("-name", ""); // Workaround on iOS (name on top of the return arrow clickable layout)

@@ -1,5 +1,15 @@
 import BigNumber from "bignumber.js";
-import { getMaxAmount, getTotalSpent } from "./logic";
+import { STAKING_GAS } from "./constants";
+import {
+  canStake,
+  getFeeAvailableBalance,
+  getMaxAmount,
+  getNearStakingPositions,
+  getStakingFees,
+  getStakingGas,
+  getTotalSpent,
+} from "./logic";
+import { setNearPreloadData } from "./preload-data";
 import { NearAccount, Transaction } from "./types";
 
 describe("getMaxAmount", () => {
@@ -210,6 +220,182 @@ describe("getMaxAmount", () => {
       },
     );
   });
+
+  describe("when account uses the generic framework's stakingPositions (no nearResources)", () => {
+    const validatorId = "figment.poolv1.near";
+    const frameworkAccount = {
+      spendableBalance: new BigNumber(spendableBalance),
+      pendingOperations: [],
+      stakingPositions: [
+        { state: "active", delegate: validatorId, amount: new BigNumber(4_567) },
+        { state: "deactivating", delegate: validatorId, amount: new BigNumber(111) },
+        { state: "withdrawable", delegate: validatorId, amount: new BigNumber(8_901) },
+        { state: "active", delegate: "other.near", amount: new BigNumber(999) },
+      ],
+    } as unknown as NearAccount;
+
+    it("returns the staked amount for unstake", () => {
+      const result = getMaxAmount(frameworkAccount, {
+        mode: "unstake",
+        recipient: validatorId,
+      } as Transaction);
+      expect(result).toEqual(new BigNumber(4_567));
+    });
+
+    it("returns the withdrawable amount for withdraw", () => {
+      const result = getMaxAmount(frameworkAccount, {
+        mode: "withdraw",
+        recipient: validatorId,
+      } as Transaction);
+      expect(result).toEqual(new BigNumber(8_901));
+    });
+
+    it("returns 0 for an unstake on a validator with no matching position", () => {
+      const result = getMaxAmount(frameworkAccount, {
+        mode: "unstake",
+        recipient: "unknown.near",
+      } as Transaction);
+      expect(result).toEqual(new BigNumber(0));
+    });
+
+    it("prefers stakingPositions over a stale nearResources blob on a migrated account", () => {
+      const migratedAccount = {
+        spendableBalance: new BigNumber(spendableBalance),
+        pendingOperations: [],
+        nearResources: {
+          stakingPositions: [
+            { validatorId, staked: new BigNumber(1), available: new BigNumber(1) },
+          ],
+        },
+        stakingPositions: [
+          { state: "active", delegate: validatorId, amount: new BigNumber(4_567) },
+          { state: "withdrawable", delegate: validatorId, amount: new BigNumber(8_901) },
+        ],
+      } as unknown as NearAccount;
+
+      expect(
+        getMaxAmount(migratedAccount, { mode: "unstake", recipient: validatorId } as Transaction),
+      ).toEqual(new BigNumber(4_567));
+      expect(
+        getMaxAmount(migratedAccount, { mode: "withdraw", recipient: validatorId } as Transaction),
+      ).toEqual(new BigNumber(8_901));
+    });
+  });
+});
+
+describe("getNearStakingPositions", () => {
+  const validatorId = "figment.poolv1.near";
+
+  it("groups framework positions by delegate and sums each state bucket", () => {
+    const account = {
+      stakingPositions: [
+        { state: "active", delegate: validatorId, amount: new BigNumber(100) },
+        { state: "active", delegate: validatorId, amount: new BigNumber(50) },
+        { state: "deactivating", delegate: validatorId, amount: new BigNumber(20) },
+        { state: "withdrawable", delegate: validatorId, amount: new BigNumber(10) },
+      ],
+    } as unknown as NearAccount;
+
+    const [position] = getNearStakingPositions(account);
+
+    expect(position.validatorId).toBe(validatorId);
+    expect(position.staked).toEqual(new BigNumber(150));
+    expect(position.pending).toEqual(new BigNumber(20));
+    expect(position.available).toEqual(new BigNumber(10));
+  });
+
+  it("falls back to nearResources while the routing flag is still off", () => {
+    const legacy = {
+      validatorId,
+      staked: new BigNumber(7),
+      available: new BigNumber(3),
+      pending: new BigNumber(1),
+    };
+    const account = { nearResources: { stakingPositions: [legacy] } } as unknown as NearAccount;
+
+    expect(getNearStakingPositions(account)).toEqual([legacy]);
+  });
+
+  it("prefers framework positions when an account carries both shapes", () => {
+    const account = {
+      nearResources: {
+        stakingPositions: [
+          {
+            validatorId,
+            staked: new BigNumber(1),
+            available: new BigNumber(1),
+            pending: new BigNumber(1),
+          },
+        ],
+      },
+      stakingPositions: [{ state: "active", delegate: validatorId, amount: new BigNumber(999) }],
+    } as unknown as NearAccount;
+
+    expect(getNearStakingPositions(account)[0].staked).toEqual(new BigNumber(999));
+  });
+
+  it("treats an empty framework array as authoritative, not as a missing field", () => {
+    // getAccountShape always writes stakingPositions under the generic route, so [] means
+    // "nothing staked" and must not resurrect a stale nearResources blob.
+    const account = {
+      stakingPositions: [],
+      nearResources: {
+        stakingPositions: [
+          {
+            validatorId,
+            staked: new BigNumber(500),
+            available: new BigNumber(500),
+            pending: new BigNumber(0),
+          },
+        ],
+      },
+    } as unknown as NearAccount;
+
+    expect(getNearStakingPositions(account)).toEqual([]);
+  });
+
+  it("reports zero max amount once a migrated account has unstaked everything", () => {
+    const account = {
+      spendableBalance: new BigNumber(1_000_000),
+      pendingOperations: [],
+      stakingPositions: [],
+      nearResources: {
+        stakingPositions: [
+          {
+            validatorId,
+            staked: new BigNumber(500),
+            available: new BigNumber(500),
+            pending: new BigNumber(0),
+          },
+        ],
+      },
+    } as unknown as NearAccount;
+
+    expect(
+      getMaxAmount(account, { mode: "unstake", recipient: validatorId } as Transaction),
+    ).toEqual(new BigNumber(0));
+    expect(
+      getMaxAmount(account, { mode: "withdraw", recipient: validatorId } as Transaction),
+    ).toEqual(new BigNumber(0));
+  });
+
+  it("returns an empty list when the account carries neither shape", () => {
+    expect(getNearStakingPositions({} as NearAccount)).toEqual([]);
+  });
+
+  it("skips framework positions that have no delegate", () => {
+    const account = {
+      stakingPositions: [
+        { state: "active", amount: new BigNumber(100) },
+        { state: "active", delegate: validatorId, amount: new BigNumber(5) },
+      ],
+    } as unknown as NearAccount;
+
+    const positions = getNearStakingPositions(account);
+
+    expect(positions).toHaveLength(1);
+    expect(positions[0].validatorId).toBe(validatorId);
+  });
 });
 
 describe("getTotalSpent", () => {
@@ -269,5 +455,145 @@ describe("getTotalSpent", () => {
 
     // Then
     expect(result).toEqual(spendableBalance);
+  });
+});
+
+// Regression for LIVE-36138: the fee formula previously divided by 10, which caused a ~10x
+// underestimate and let users sign a withdraw transaction that the network then rejected.
+describe("getStakingGas", () => {
+  it("attaches a budget above what other wallets send on the restake path", () => {
+    // 30 TGas attached succeeds on the first-call-in-epoch path (Stake receipt plus the pool's
+    // 20 TGas on_stake_action callback), measured across five mainnet pools.
+    expect(getStakingGas().toFixed()).toBe(STAKING_GAS);
+    expect(getStakingGas().gte("30000000000000")).toBe(true);
+  });
+});
+
+describe("getStakingFees", () => {
+  // Mainnet at the time of writing: current price 10^8, floor 10^9 yoctoNEAR per gas unit.
+  const gasPrice = new BigNumber("100000000");
+  const minGasPurchasePrice = new BigNumber("1000000000");
+
+  it("buys the attached gas plus overhead at the min_gas_purchase_price floor", () => {
+    const expected = new BigNumber("55000000000000").multipliedBy(minGasPurchasePrice);
+
+    expect(getStakingFees(gasPrice, minGasPurchasePrice)).toEqual(expected);
+  });
+
+  it("stays above what the chain charges for this budget", () => {
+    // A real withdraw_all with 175 TGas attached was quoted 175918963510277000000000 yocto:
+    // 175 TGas at the floor plus 918963510277000000 of action overhead, which does not scale
+    // with the attached gas.
+    const overhead = new BigNumber("918963510277000000");
+    const chainCost = new BigNumber(STAKING_GAS).multipliedBy(minGasPurchasePrice).plus(overhead);
+
+    expect(getStakingFees(gasPrice, minGasPurchasePrice).gte(chainCost)).toBe(true);
+  });
+
+  it("uses the current gas price when it has risen above the floor", () => {
+    const highGasPrice = new BigNumber("5000000000");
+    const expected = new BigNumber("55000000000000").multipliedBy(highGasPrice);
+
+    expect(getStakingFees(highGasPrice, minGasPurchasePrice)).toEqual(expected);
+  });
+});
+
+describe("getFeeAvailableBalance", () => {
+  const storageDeposit = new BigNumber("1820000000000000000000");
+  const reserve = new BigNumber("50000000000000000000000");
+  const inPool = new BigNumber("1000000000000000000000000");
+
+  const account = (liquidBalance: BigNumber, resources?: Partial<NearAccount["nearResources"]>) =>
+    ({
+      balance: liquidBalance.plus(inPool),
+      spendableBalance: BigNumber.max(
+        liquidBalance.minus(storageDeposit).minus(reserve),
+        new BigNumber(0),
+      ),
+      nearResources: {
+        stakedBalance: new BigNumber(0),
+        availableBalance: inPool,
+        pendingBalance: new BigNumber(0),
+        storageUsageBalance: storageDeposit.plus(reserve),
+        stakingPositions: [],
+        ...resources,
+      },
+    }) as unknown as NearAccount;
+
+  it("keeps our reserve available while holding back the storage deposit", () => {
+    const liquidBalance = new BigNumber("55000000000000000000000");
+
+    expect(getFeeAvailableBalance(account(liquidBalance)).toFixed()).toBe(
+      liquidBalance.minus(storageDeposit).toFixed(),
+    );
+  });
+
+  it("excludes every delegated bucket from the liquid balance", () => {
+    const liquidBalance = new BigNumber("55000000000000000000000");
+    const resources = {
+      stakedBalance: new BigNumber("2000000000000000000000000"),
+      availableBalance: inPool,
+      pendingBalance: new BigNumber("3000000000000000000000000"),
+    };
+    const staking = account(liquidBalance, resources);
+    staking.balance = liquidBalance
+      .plus(resources.stakedBalance)
+      .plus(resources.availableBalance)
+      .plus(resources.pendingBalance);
+
+    expect(getFeeAvailableBalance(staking).toFixed()).toBe(
+      liquidBalance.minus(storageDeposit).toFixed(),
+    );
+  });
+
+  it("floors at zero when the balance is below the storage deposit", () => {
+    expect(getFeeAvailableBalance(account(new BigNumber(1))).toFixed()).toBe("0");
+  });
+
+  it("falls back to the spendable balance when the account carries no resources", () => {
+    const bare = {
+      balance: new BigNumber("55000000000000000000000"),
+      spendableBalance: new BigNumber("3180000000000000000000"),
+    } as unknown as NearAccount;
+
+    expect(getFeeAvailableBalance(bare).toFixed()).toBe("3180000000000000000000");
+  });
+});
+
+describe("canStake", () => {
+  // Mainnet-like preload: current price 10^8, floor 10^9. Three staking fees at the floor come
+  // to 3 x 55 TGas x 10^9 = 0.165 NEAR, the headroom a stake has to leave for the unstake and
+  // the withdraw that follow it.
+  beforeAll(() => {
+    setNearPreloadData({
+      storageCost: new BigNumber(0),
+      gasPrice: new BigNumber("100000000"),
+      minGasPurchasePrice: new BigNumber("1000000000"),
+      createAccountCostSend: new BigNumber(0),
+      createAccountCostExecution: new BigNumber(0),
+      transferCostSend: new BigNumber(0),
+      transferCostExecution: new BigNumber(0),
+      addKeyCostSend: new BigNumber(0),
+      addKeyCostExecution: new BigNumber(0),
+      receiptCreationSend: new BigNumber(0),
+      receiptCreationExecution: new BigNumber(0),
+      accountCreationCharge: new BigNumber(0),
+      validators: [],
+    });
+  });
+
+  const account = (spendableBalance: string) =>
+    ({
+      spendableBalance: new BigNumber(spendableBalance),
+      pendingOperations: [],
+      nearResources: { stakingPositions: [] },
+    }) as unknown as NearAccount;
+
+  it("allows staking when the spendable balance clears three floor-priced fees", () => {
+    expect(canStake(account("165000000000000000000001"))).toBe(true);
+  });
+
+  it("refuses staking when the spendable balance cannot fund the unstake and withdraw after it", () => {
+    expect(canStake(account("165000000000000000000000"))).toBe(false);
   });
 });

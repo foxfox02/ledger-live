@@ -4,7 +4,8 @@ import { useNavigate, Navigate } from "react-router";
 import styled from "styled-components";
 import { Account, AccountLike } from "@ledgerhq/types-live";
 import { LNSUpsellBanner } from "LLD/features/LNSUpsell";
-import TrackPage, { setTrackingSource } from "~/renderer/analytics/TrackPage";
+import { setTrackingSource } from "@shared/analytics";
+import { TrackPage } from "@shared/analytics-react";
 import Box from "~/renderer/components/Box";
 import { useFlattenSortAccounts } from "~/renderer/actions/general";
 import { accountsSelector, starredAccountsSelector } from "~/renderer/reducers/accounts";
@@ -14,6 +15,7 @@ import AccountList from "./AccountList";
 import AccountsHeader from "./AccountsHeader";
 import LedgerSyncEntryPoint from "LLD/features/LedgerSyncEntryPoints";
 import { EntryPoint } from "LLD/features/LedgerSyncEntryPoints/types";
+import { getAccountUrl } from "~/renderer/utils";
 
 export default function AccountsPage() {
   const mode = useSelector(accountsViewModeSelector);
@@ -33,9 +35,7 @@ export default function AccountsPage() {
   const onAccountClick = useCallback(
     (account: AccountLike, parentAccount?: Account | null) => {
       setTrackingSource("accounts page");
-      navigate(
-        parentAccount ? `/account/${parentAccount.id}/${account.id}` : `/account/${account.id}`,
-      );
+      navigate(getAccountUrl(account.id, parentAccount?.id));
     },
     [navigate],
   );

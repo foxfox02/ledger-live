@@ -1,5 +1,9 @@
-import { EditType } from "@ledgerhq/coin-evm/types/editTransaction";
-import { Transaction as EvmTransaction, TransactionRaw } from "@ledgerhq/coin-evm/types/index";
+import { TrackScreen } from "@shared/analytics-react";
+import { EditType } from "@ledgerhq/coin-evm/types";
+import {
+  Transaction as EvmTransaction,
+  TransactionRaw,
+} from "@ledgerhq/live-common/families/evm/types";
 import { isOldestPendingOperation } from "@ledgerhq/ledger-wallet-framework/operation";
 import { TransactionHasBeenValidatedError } from "@ledgerhq/live-common/errors";
 import { getMainAccount } from "@ledgerhq/live-common/account/index";
@@ -11,7 +15,6 @@ import { Flex } from "@ledgerhq/native-ui";
 import { urls } from "~/utils/urls";
 import invariant from "invariant";
 import React, { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { TrackScreen } from "~/analytics";
 import MethodSelectionList from "~/components/EditTransaction/MethodSelectionList";
 import { StackNavigatorProps } from "~/components/RootNavigator/types/helpers";
 import { ScreenName } from "~/const";

@@ -15,6 +15,7 @@ import dynamicContent from "./dynamicContent";
 import earn from "./earn";
 import genericAwarenessModal from "./genericAwarenessModal";
 import backupHubFeatureIntro from "./backupHubFeatureIntro";
+import productTourDrawer from "./productTourDrawer";
 import history from "./history";
 import inView from "./inView";
 import knownDevices from "./knownDevices";
@@ -26,6 +27,7 @@ import receiveOptionsDrawer from "./receiveOptionsDrawer";
 import rebornBuyDeviceDrawer from "./rebornBuyDeviceDrawer";
 import transferDrawer from "./transferDrawer";
 import swapTransactionStatusDrawer from "./swapTransactionStatusDrawer";
+import currencyRegionRestrictedDrawer from "./currencyRegionRestrictedDrawer";
 import notifications from "./notifications";
 import protect from "./protect";
 import ratings from "./ratings";
@@ -44,8 +46,13 @@ import liveAppModal from "./liveAppModal";
 import { authEnvironmentReducer } from "@shared/auth";
 import { identitiesSlice } from "@domain/entity-client-identity";
 import { supportedFiatsSlice } from "@domain/entity-currency-fiat";
-import { payCardSlice } from "@domain/entity-pay-card";
+import { payCardBalanceSlice } from "@features/flow-pay-balance/state";
+import { payCardFeatureTourSlice } from "@features/flow-pay-feature-tour/state";
+import { payRequestVerifyHintSlice } from "@features/flow-pay-request/state";
+import { payCardAuthSlice, payCardLoginIntroSlice } from "@features/flow-pay-card-auth/state";
+import { payCardOnboardingWidgetSlice } from "@features/flow-pay-card-widget/state";
 import { contactsSlice } from "@domain/entity-contact";
+import { appLockSlice } from "@features/platform-app-lock";
 import type { UnknownAction } from "@reduxjs/toolkit";
 
 export type AppStore = Store<State>;
@@ -63,6 +70,7 @@ const appReducer = combineReducers({
   featureFlags,
   genericAwarenessModal,
   backupHubFeatureIntro,
+  productTourDrawer,
   history,
   identities: identitiesSlice.reducer,
   inView,
@@ -77,6 +85,7 @@ const appReducer = combineReducers({
   rebornBuyDeviceDrawer,
   transferDrawer,
   swapTransactionStatusDrawer,
+  currencyRegionRestrictedDrawer,
   notifications,
   largeScreenUpsellModal: largeScreenUpsellModalReducer,
   postOnboarding,
@@ -85,7 +94,12 @@ const appReducer = combineReducers({
   ratings,
   settings,
   sendFlow,
-  payCard: payCardSlice.reducer,
+  payCardBalance: payCardBalanceSlice.reducer,
+  payCardFeatureTour: payCardFeatureTourSlice.reducer,
+  payRequestVerifyHint: payRequestVerifyHintSlice.reducer,
+  payCardOnboardingWidget: payCardOnboardingWidgetSlice.reducer,
+  payCardAuth: payCardAuthSlice.reducer,
+  payCardLoginIntro: payCardLoginIntroSlice.reducer,
   toasts,
   trustchain,
   wallet,
@@ -97,6 +111,7 @@ const appReducer = combineReducers({
   liveAppModal,
   supportedFiats: supportedFiatsSlice.reducer,
   contacts: contactsSlice.reducer,
+  appLock: appLockSlice.reducer,
   ...llmRTKApiReducers,
 });
 

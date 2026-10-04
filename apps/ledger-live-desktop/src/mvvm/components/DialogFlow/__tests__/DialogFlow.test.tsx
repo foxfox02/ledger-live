@@ -1,18 +1,21 @@
 import React from "react";
 import { render, screen } from "tests/testSetup";
-import { DialogFlow } from "..";
+import { DialogFlow, type DialogFlowProps } from "..";
 
 type Step = "first" | "second";
+type TestDialogFlowProps = Readonly<{
+  currentStep: Step;
+  height?: DialogFlowProps<Step>["height"];
+  onBack?: () => void;
+  onClose?: () => void;
+}>;
 
 function TestDialogFlow({
   currentStep,
+  height,
   onBack = jest.fn(),
   onClose = jest.fn(),
-}: Readonly<{
-  currentStep: Step;
-  onBack?: () => void;
-  onClose?: () => void;
-}>) {
+}: TestDialogFlowProps) {
   return (
     <DialogFlow
       currentStep={currentStep}
@@ -21,6 +24,7 @@ function TestDialogFlow({
         dialogContentProps: { className: "default-content" },
         dialogHeaderProps: { density: "expanded" },
       }}
+      height={height}
       isOpen
       onBack={onBack}
       onClose={onClose}
@@ -65,6 +69,13 @@ describe("DialogFlow", () => {
     expect(screen.getByText("Second content").parentElement).not.toHaveClass("default-body");
   });
 
+  it("should support a fixed dialog height for scrollable screens", () => {
+    render(<TestDialogFlow currentStep="first" height="fixed" />);
+
+    expect(screen.getByRole("dialog")).toHaveClass("h-560");
+    expect(screen.getByText("First content").parentElement).toHaveClass("basis-0");
+  });
+
   it("should expose back and close actions for the current screen", async () => {
     const onBack = jest.fn();
     const onClose = jest.fn();
@@ -72,8 +83,8 @@ describe("DialogFlow", () => {
       <TestDialogFlow currentStep="second" onBack={onBack} onClose={onClose} />,
     );
 
-    await user.click(screen.getByLabelText("components.dialogHeader.goBackAriaLabel"));
-    await user.click(screen.getByLabelText("components.dialogHeader.closeAriaLabel"));
+    await user.click(screen.getByLabelText("Go back"));
+    await user.click(screen.getByLabelText("Close"));
 
     expect(onBack).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);

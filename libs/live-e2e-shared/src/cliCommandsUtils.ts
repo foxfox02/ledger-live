@@ -15,9 +15,12 @@ import {
 } from "./runCli";
 import type { TokenApprovalOpts } from "./runCli";
 import { sleep } from "./index";
+import { setEnv } from "@shared/env";
 import { runWithCrossProcessLock } from "./crossProcessLock";
 import { getCcdAccountAddress } from "./families/concordium";
 import { approveToken } from "./families/evm";
+import { ZCASH_TEST_PRIVATE_INFO } from "./families/zcash";
+import type { ZcashPrivateInfoRaw } from "@ledgerhq/coin-zcash/network/types";
 import { getCryptoCurrencyById } from "@domain/entity-currency-crypto";
 import { parseCurrencyUnit } from "@ledgerhq/live-common/currencies/index";
 import {
@@ -31,7 +34,17 @@ import { getCachedUtxoAddress } from "./utxoAddressCache";
 export type LiveDataCommandOptions = {
   readonly useScheme?: boolean;
   readonly currency?: string;
+  readonly postSeedHook?: (userdataPath?: string) => Promise<void>;
 };
+
+/**
+ * Tag a CLI command with a stable, human-readable name so Allure attachment titles read
+ * `CLI liveDataCommand — result` instead of `CLI cmd` / `CLI anonymous` (QAA-1433).
+ */
+function named<T extends (...args: never[]) => unknown>(name: string, cmd: T): T {
+  Object.defineProperty(cmd, "name", { value: name, configurable: true });
+  return cmd;
+}
 
 export const getAccountAddress = async (account: Account | TokenAccount): Promise<string> => {
   if (account.currency.id === Currency.HBAR.id) {
@@ -74,17 +87,20 @@ export const liveDataCommand = (
   options?: LiveDataCommandOptions,
 ) => {
   const cmd = async (userdataPath?: string) => {
-    if (applyGeneratedUserdata(account, userdataPath)) return;
-    await runCliLiveData({
-      currency: options?.currency ?? account.currency.speculosApp.name,
-      index: account.index,
-      ...(options?.useScheme && account.derivationMode ? { scheme: account.derivationMode } : {}),
-      add: true,
-      appjson: userdataPath,
-    });
+    if (!applyGeneratedUserdata(account, userdataPath)) {
+      await runCliLiveData({
+        currency: options?.currency ?? account.currency.speculosApp.name,
+        index: account.index,
+        ...(options?.useScheme && account.derivationMode ? { scheme: account.derivationMode } : {}),
+        add: true,
+        appjson: userdataPath,
+      });
+    }
+
+    await options?.postSeedHook?.(userdataPath);
   };
-  cmd.canUseGeneratedUserdata = () => hasGeneratedUserdata(account);
-  return cmd;
+  cmd.canUseGeneratedUserdata = () => !options?.postSeedHook && hasGeneratedUserdata(account);
+  return named("liveDataCommand", cmd);
 };
 
 /**
@@ -130,8 +146,8 @@ function emptyFamilyExtras(family: string): Record<string, unknown> {
  *
  * The stub is idempotent (no-op if an account with the same id already exists).
  */
-export const addEmptyAccountCommand =
-  (account: Account, options?: LiveDataCommandOptions) => async (userdataPath?: string) => {
+export const addEmptyAccountCommand = (account: Account, options?: LiveDataCommandOptions) =>
+  named("addEmptyAccountCommand", async (userdataPath?: string) => {
     if (!userdataPath) {
       throw new Error("addEmptyAccountCommand requires a userdataPath");
     }
@@ -205,7 +221,45 @@ export const addEmptyAccountCommand =
       raw.data.accounts.push({ data: stub, version: 1 });
       fs.writeFileSync(userdataPath, JSON.stringify(raw), "utf-8");
     }
+  });
+
+/**
+ * Seeds an already-activated Zcash private balance onto the account
+ * liveDataCommand just added. Pass as a postSeedHook:
+ * liveDataCommand(account, { postSeedHook: seedZcashPrivateInfo(account, shieldedAddress) }).
+ *
+ * Matches on (currencyId, index) rather than a currencyId substring -- Zcash
+ * test accounts (ZEC_1, ZEC_2) share the same currencyId, so a substring
+ * match can silently seed the wrong one.
+ */
+export function seedZcashPrivateInfo(account: Account, shieldedAddress: string) {
+  return async (userdataPath?: string): Promise<void> => {
+    if (!userdataPath) {
+      throw new Error("seedZcashPrivateInfo requires a userdataPath");
+    }
+    const raw = JSON.parse(fs.readFileSync(userdataPath, "utf-8"));
+    if (typeof raw?.data?.accounts === "string") {
+      throw new TypeError("encrypted ledger live data is not supported");
+    }
+    if (!Array.isArray(raw?.data?.accounts)) {
+      throw new TypeError(
+        `seedZcashPrivateInfo: expected raw.data.accounts to be an array in ${userdataPath}, got ${JSON.stringify(raw?.data)}`,
+      );
+    }
+    const entry = raw.data.accounts.find(
+      (a: { data?: { currencyId?: string; index?: number } }) =>
+        a?.data?.currencyId === account.currency.id && a?.data?.index === account.index,
+    );
+    if (!entry) {
+      throw new Error(
+        `seedZcashPrivateInfo: no account matching currencyId "${account.currency.id}" and index ${account.index} in ${userdataPath}. Did liveDataCommand run first?`,
+      );
+    }
+    const privateInfo: ZcashPrivateInfoRaw = { ...ZCASH_TEST_PRIVATE_INFO, shieldedAddress };
+    entry.data.privateInfo = privateInfo;
+    fs.writeFileSync(userdataPath, JSON.stringify(raw), "utf-8");
   };
+}
 
 export const liveDataWithAddressCommand = (
   account: Account | TokenAccount,
@@ -224,8 +278,10 @@ export const liveDataWithAddressCommand = (
     return address;
   };
   cmd.canUseGeneratedUserdata = () =>
-    hasGeneratedUserdata(account) && !isUtxoBasedCurrency(account.currency.id);
-  return cmd;
+    !options?.postSeedHook &&
+    hasGeneratedUserdata(account) &&
+    !isUtxoBasedCurrency(account.currency.id);
+  return named("liveDataWithAddressCommand", cmd);
 };
 
 export const liveDataWithParentAddressCommand = (
@@ -256,14 +312,14 @@ export const liveDataWithParentAddressCommand = (
     !!accountToAssign.parentAccount &&
     hasGeneratedUserdata(accountToAssign.parentAccount) &&
     !isUtxoBasedCurrency(accountToAssign.parentAccount.currency.id);
-  return cmd;
+  return named("liveDataWithParentAddressCommand", cmd);
 };
 
 export const liveDataWithRecipientAddressCommand = (
   tx: Transaction,
   options?: LiveDataCommandOptions,
 ) => {
-  return async (userdataPath?: string) => {
+  return named("liveDataWithRecipientAddressCommand", async (userdataPath?: string) => {
     if (!applyGeneratedUserdata(tx.accountToDebit, userdataPath)) {
       await runCliLiveData({
         currency: tx.accountToDebit.currency.speculosApp.name,
@@ -276,13 +332,15 @@ export const liveDataWithRecipientAddressCommand = (
       });
     }
 
+    await options?.postSeedHook?.(userdataPath);
+
     const address = await getAccountAddress(tx.accountToCredit);
 
     tx.accountToCredit.address = address;
     tx.recipientAddress = address;
 
     return address;
-  };
+  });
 };
 
 export function parseTokenAllowanceCliOutput(output: string): {
@@ -397,6 +455,10 @@ async function runTokenApprovalWithRetry(opts: TokenApprovalOpts): Promise<strin
     // holding the flag set across the awaits below could leak it into unrelated
     // work in the same worker process. The finally is kept as a safety net.
     setDisableTransactionBroadcastEnv(original);
+
+    const cliSpeculosPort = process.env.SPECULOS_API_PORT;
+    if (cliSpeculosPort) setEnv("SPECULOS_API_PORT", Number(cliSpeculosPort));
+
     const cliSettled = result.catch(() => undefined);
 
     try {

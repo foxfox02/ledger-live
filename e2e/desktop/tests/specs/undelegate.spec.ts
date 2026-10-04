@@ -2,48 +2,107 @@ import { test } from "tests/fixtures/common";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
 import { Account } from "@ledgerhq/live-e2e-shared/enum/Account";
 import { Delegate } from "@ledgerhq/live-e2e-shared/models/Delegate";
-import { addTmsLink } from "tests/utils/allureUtils";
-import { getDescription } from "tests/utils/customJsonReporter";
-import { liveDataCommand } from "@ledgerhq/live-e2e-shared/cliCommandsUtils";
+import { Currency } from "@ledgerhq/live-e2e-shared/enum/Currency";
+import { delegateTeamOwner } from "@ledgerhq/live-e2e-shared/data/delegateTeamOwner";
+import {
+  liveDataCommand,
+  liveDataWithAddressCommand,
+} from "@ledgerhq/live-e2e-shared/cliCommandsUtils";
+import {
+  MINA_DELEGATION_PAIR,
+  MINA_PAIR_SYNC_TIMEOUT_MS,
+  pickMinaAccountToUndelegate,
+} from "@ledgerhq/live-e2e-shared/families/minaStakingState";
 import { buildTags } from "tests/utils/tagsUtils";
+import { skipSharedAccountOnSecondaryLeg } from "tests/utils/sharedAccountUtils";
 
-const account = new Delegate(Account.SUI_1, "1", "Ledger by P2P.ORG");
+const suiAccount = new Delegate(Account.SUI_1, "1", "Ledger by P2P.ORG");
 
-test.use({
-  teamOwner: Team.EARN,
-  userdata: "skip-onboarding-with-last-seen-device",
-  speculosApp: account.account.currency.speculosApp,
-  cliCommands: [liveDataCommand(account.account)],
-});
+test.describe("Undelegate", () => {
+  test.use({
+    teamOwner: Team.EARN,
+    userdata: "skip-onboarding-with-last-seen-device",
+    speculosApp: suiAccount.account.currency.speculosApp,
+    cliCommands: [liveDataCommand(suiAccount.account)],
+  });
 
-test.describe("SUI - Undelegate", () => {
   test(
-    `[${account.account.currency.name}] Undelegate`,
+    `[${suiAccount.account.currency.testLabel}] - Undelegate`,
     {
-      tag: buildTags({ currencyId: account.account.currency.id, skipLNS: true }),
-      annotation: { type: "TMS", description: "B2CQA-387-2" },
+      tag: buildTags({ currencyId: suiAccount.account.currency.id, skipLNS: true }),
+      annotation: { type: "TMS", description: "B2CQA-387" },
     },
     async ({ app }) => {
-      await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
-
       await app.mainNavigation.openTargetFromMainNavigation("accounts");
-      await app.accounts.navigateToAccountByName(account.account.accountName);
+      await app.accounts.navigateToAccountByName(suiAccount.account.accountName);
 
-      await app.undelegate.openFromManageMenu();
-      await app.undelegate.verifyValidatorName(account.provider);
-      await app.undelegate.fillAmount(account.amount);
+      await app.undelegate.openFromManageMenu(suiAccount.account.currency.id, 0);
+      await app.undelegate.verifyValidatorName(suiAccount.provider);
+      await app.undelegate.fillAmount(suiAccount.amount);
       await app.undelegate.verifyPercentageButtonsVisible();
       await app.undelegate.verifyInfoMessage();
       await app.undelegate.continueFromAmount();
 
-      await app.speculos.signDelegationTransaction(account);
+      await app.speculos.signDelegationTransaction(suiAccount);
       await app.undelegate.verifySuccessMessage();
       await app.undelegate.clickViewDetailsButton();
 
       await app.drawer.waitForDrawerToBeVisible();
       await app.delegateDrawer.verifyTxTypeIsVisible();
       await app.delegateDrawer.verifyTxTypeIs("Undelegated");
-      await app.delegateDrawer.amountValueIsVisible(account.account.currency.ticker);
+      await app.delegateDrawer.amountValueIsVisible(suiAccount.account.currency.ticker);
+      await app.drawer.closeDrawer();
+    },
+  );
+});
+
+// Tests are skipped while waiting for LIVE-37757 to be done
+test.describe.skip("Undelegate - MINA", () => {
+  test.slow();
+  skipSharedAccountOnSecondaryLeg("Mina undelegate");
+
+  // Broadcasting is left to the nightly policy: this flow frees the delegated account of the pair,
+  // which the delegate flow stakes back.
+  test.use({
+    teamOwner: delegateTeamOwner(Currency.MINA.id),
+    userdata: "skip-onboarding-with-last-seen-device",
+    speculosApp: Currency.MINA.speculosApp,
+    // Either account of the pair can be the delegated one, so both are seeded. Seeding also
+    // resolves their address, which the picker reads back and the device renders when signing.
+    cliCommands: MINA_DELEGATION_PAIR.map(account => liveDataWithAddressCommand(account)),
+  });
+
+  test(
+    `[${Currency.MINA.testLabel}] - Undelegate`,
+    {
+      // The Nano S build of the Mina app stops at 1.4.2, before the delegation flow.
+      tag: buildTags({ currencyId: Currency.MINA.id, skipLNS: true }),
+      annotation: { type: "TMS", description: "B2CQA-6628" },
+    },
+    async ({ app }) => {
+      // Undelegating is a delegation to the account itself, so the account's own address is the
+      // target the device renders and the speculos helper asserts against.
+      const { account, address } = await pickMinaAccountToUndelegate();
+      const delegation = new Delegate(account, "N/A", "N/A", address);
+
+      await app.mainNavigation.openTargetFromMainNavigation("accounts");
+      await app.accounts.navigateToAccountByName(account.accountName);
+
+      await app.layout.waitForSyncButtonToBeEnabled({ timeout: MINA_PAIR_SYNC_TIMEOUT_MS });
+      // Mina holds a single delegation, so its row is not indexed.
+      await app.undelegate.openFromManageMenu(Currency.MINA.id);
+
+      await app.speculos.signDelegationTransaction(delegation);
+      await app.undelegate.verifySuccessMessage();
+      // Both mina staking flows share a single confirmation step, whose CTA is the generic one.
+      await app.delegate.clickViewDetailsButton();
+
+      await app.drawer.waitForDrawerToBeVisible();
+      await app.delegateDrawer.verifyTxTypeIsVisible();
+      await app.delegateDrawer.verifyTxTypeIs("Undelegated");
+      await app.delegateDrawer.verifyAccountName(account.accountName);
+      // Undelegating moves no value either: the drawer amount is the fee.
+      await app.delegateDrawer.amountValueIsVisible(Currency.MINA.ticker);
       await app.drawer.closeDrawer();
     },
   );

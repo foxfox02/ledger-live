@@ -9,7 +9,7 @@ import {
   getFeesUnit,
   getMainAccount,
 } from "@ledgerhq/live-common/account/index";
-import TrackPage from "~/renderer/analytics/TrackPage";
+import { TrackPage } from "@shared/analytics-react";
 import Box from "~/renderer/components/Box";
 import Button from "~/renderer/components/Button";
 import CryptoCurrencyIcon from "~/renderer/components/CryptoCurrencyIcon";
@@ -90,11 +90,6 @@ const StepSummary = (props: StepProps) => {
   return (
     <Box flow={4} mx={40}>
       <TrackPage category="Sign Flow" name="Step Summary" />
-      {isSolanaRawTransaction ? (
-        <Alert type="warning" title={t("send.steps.details.solanaRawTransaction.title")}>
-          <Trans i18nKey="send.steps.details.solanaRawTransaction.description" />
-        </Alert>
-      ) : null}
       {utxoLag ? (
         <Alert type="warning">
           <Trans i18nKey="send.steps.details.utxoLag" />

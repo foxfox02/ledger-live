@@ -11,8 +11,13 @@ import {
 } from "./sdk";
 import { getFees } from "./getFees";
 import type { AccountResponse, VechainSDKTransaction } from "../types";
+import { mockVechainConfig } from "../test/context";
 
 const LAST_BLOCK_COUNT = 24580112;
+// keccak256("Transfer(address,address,uint256)") -- spelled out rather than imported, so the
+// assertion below pins the wire value instead of restating whatever the module happens to export.
+const TRANSFER_EVENT_SIGNATURE =
+  "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const mockAccount = {
   balance: "",
   energy: "",
@@ -24,31 +29,38 @@ const mockTransaction: VechainSDKTransaction = {
   },
 } as unknown as VechainSDKTransaction;
 
+// Raw bodies of every POST /logs/event, so the serialized Thor criteria can be asserted.
+const eventLogRequestBodies: string[] = [];
+
 const mockGetTransferLogs = jest.fn(async (): Promise<{ data: Operation[] }> => ({ data: [] }));
 const mockGetEventLogs = jest.fn(async (): Promise<{ data: Operation[] }> => ({ data: [] }));
-const mockGetAccount = jest.fn(
-  async (): Promise<{ data: AccountResponse }> => ({ data: mockAccount }),
-);
+const mockGetAccount = jest.fn(async (): Promise<{ data: AccountResponse }> => ({
+  data: mockAccount,
+}));
 const mockGetLastBlockCount = jest.fn(
   async (): Promise<{ data: { number: number; id: string } }> => ({
     data: { number: LAST_BLOCK_COUNT, id: "abcdefghiklmnopqrstuvwxyz" },
   }),
 );
-const mockGetFees = jest.fn(
-  async (): Promise<{ data: { paid?: string } }> => ({
-    data: { paid: "42" },
-  }),
-);
-const mockSubmit = jest.fn(
-  async (): Promise<{ data: { id?: string } }> => ({
-    data: { id: "123" },
-  }),
-);
+const mockGetFees = jest.fn(async (): Promise<{ data: { paid?: string } }> => ({
+  data: { paid: "42" },
+}));
+const mockSubmit = jest.fn(async (): Promise<{ data: { id?: string } }> => ({
+  data: { id: "123" },
+}));
 
+// This factory replaces the whole `../common-logic` barrel, so every binding `sdk.ts` imports
+// from it has to be listed here. `VIP180_TRANSFER_TOPIC` is taken from the real module instead of
+// being hardcoded, so it cannot drift: were it missing it would be `undefined`, JSON.stringify
+// would drop `topic0` from the criteria, and the token-operation tests below would silently
+// exercise a Thor query with no topic filter at all. `./vip180` is required directly rather than
+// through the barrel so the rest of it (and its network imports) stays out of the mock.
 jest.mock("../common-logic", () => ({
   mapTokenTransfersToOperations: jest.fn(() => [{}]),
   mapVetTransfersToOperations: jest.fn(() => [{}]),
-  padAddress: jest.fn(),
+  // Deterministic so the serialized criteria can be asserted below.
+  padAddress: jest.fn((address: string) => `0x${address.replace(/^0x/, "").padStart(64, "0")}`),
+  VIP180_TRANSFER_TOPIC: jest.requireActual("../common-logic/vip180").VIP180_TRANSFER_TOPIC,
 }));
 
 jest.mock("@ledgerhq/live-network", () => {
@@ -58,6 +70,7 @@ jest.mock("@ledgerhq/live-network", () => {
     }
 
     if (args.url.match(/\/logs\/event$/)) {
+      eventLogRequestBodies.push(args.data);
       return mockGetEventLogs();
     }
 
@@ -105,21 +118,21 @@ const throws500ServerError = () => {
 describe("sdk", () => {
   describe("getAccount", () => {
     test("retrieves an account", async () => {
-      const account = await getAccount("0xmy-address");
+      const account = await getAccount(mockVechainConfig, "0xmy-address");
       expect(account).toBe(mockAccount);
     });
   });
 
   describe("getLastBlockHeight", () => {
     test("retrieves the last block height", async () => {
-      const account = await getLastBlockHeight();
+      const account = await getLastBlockHeight(mockVechainConfig);
       expect(account).toBe(LAST_BLOCK_COUNT);
     });
   });
 
   describe("getBlockRef", () => {
     test("retrieves the block ref to use in transaction", async () => {
-      const account = await getBlockRef();
+      const account = await getBlockRef(mockVechainConfig);
       expect(account).toBe("abcdefghiklmnopqrs");
     });
   });
@@ -129,14 +142,14 @@ describe("sdk", () => {
       test("retrieves fees paid for the transaction", async () => {
         mockGetFees.mockImplementationOnce(async () => ({ data: {} }));
 
-        const account = await getFees("0xtransaxtion");
+        const account = await getFees(mockVechainConfig, "0xtransaxtion");
         expect(account).toStrictEqual(new BigNumber(0));
       });
     });
 
     describe("when the transaction's receipt has data.paid", () => {
       test("retrieves fees paid for the transaction", async () => {
-        const account = await getFees("0xtransaxtion");
+        const account = await getFees(mockVechainConfig, "0xtransaxtion");
         expect(account).toStrictEqual(new BigNumber(42));
       });
     });
@@ -145,7 +158,7 @@ describe("sdk", () => {
   describe("submit", () => {
     describe("when transaction id is included in the transaction payload returned by the server", () => {
       test("returns the transaction id", async () => {
-        const transactionId = await submit(mockTransaction);
+        const transactionId = await submit(mockVechainConfig, mockTransaction);
         expect(transactionId).toBe("123");
       });
     });
@@ -155,7 +168,7 @@ describe("sdk", () => {
         mockSubmit.mockImplementationOnce(async () => ({ data: {} }));
 
         try {
-          await submit(mockTransaction);
+          await submit(mockVechainConfig, mockTransaction);
         } catch (err: unknown) {
           const error = err as { message: string };
           expect(error.message).toMatch("Expected an ID");
@@ -175,6 +188,7 @@ describe("sdk", () => {
       test("rethrows the error", async () => {
         try {
           await getOperations(
+            mockVechainConfig,
             "my-account-id",
             "0xmy-address",
             LAST_BLOCK_COUNT - 1,
@@ -192,6 +206,7 @@ describe("sdk", () => {
     describe("when logs retrieved in each network request are within the maximum allowed limit", () => {
       test("retrieves all the operations", async () => {
         const operations = await getOperations(
+          mockVechainConfig,
           "my-account-id",
           "0xmy-address",
           LAST_BLOCK_COUNT - 1,
@@ -207,6 +222,7 @@ describe("sdk", () => {
       test("returns an empty array without querying the network", async () => {
         mockGetTransferLogs.mockClear();
         const operations = await getOperations(
+          mockVechainConfig,
           "my-account-id",
           "0xmy-address",
           LAST_BLOCK_COUNT + 1,
@@ -227,6 +243,7 @@ describe("sdk", () => {
         test("throws an error: Unable to split Vechain operations range further", async () => {
           try {
             await getOperations(
+              mockVechainConfig,
               "my-account-id",
               "0xmy-address",
               LAST_BLOCK_COUNT - 1,
@@ -244,6 +261,7 @@ describe("sdk", () => {
       describe("and Vechain operations range can be split further", () => {
         test("retrieves all the operations", async () => {
           const operations = await getOperations(
+            mockVechainConfig,
             "my-account-id",
             "0xmy-address",
             LAST_BLOCK_COUNT - 6,
@@ -266,6 +284,7 @@ describe("sdk", () => {
       test("rethrows the error", async () => {
         try {
           await getOperations(
+            mockVechainConfig,
             "my-account-id",
             "0xmy-address",
             LAST_BLOCK_COUNT - 1,
@@ -283,6 +302,7 @@ describe("sdk", () => {
     describe("when logs retrieved in each network request are within the maximum allowed limit", () => {
       test("retrieves all the operations", async () => {
         const operations = await getTokenOperations(
+          mockVechainConfig,
           "my-account-id",
           "0xmy-address",
           "0xmy-token-address",
@@ -295,10 +315,46 @@ describe("sdk", () => {
       });
     });
 
+    describe("the Thor query it sends", () => {
+      test("filters on the VIP-180 Transfer topic for both the sender and the recipient", async () => {
+        eventLogRequestBodies.length = 0;
+
+        await getTokenOperations(
+          mockVechainConfig,
+          "my-account-id",
+          "0xmy-address",
+          "0xmy-token-address",
+          LAST_BLOCK_COUNT - 1,
+          LAST_BLOCK_COUNT,
+        );
+
+        expect(eventLogRequestBodies).toHaveLength(1);
+        const { criteriaSet } = JSON.parse(eventLogRequestBodies[0]);
+
+        // Two criteria: the address as topic1 (sender) and as topic2 (recipient). `topic0` must be
+        // present on both -- an undefined topic is dropped by JSON.stringify, which would widen the
+        // query from the token's Transfer logs to every event it emits.
+        const paddedAddress = `0x${"my-address".padStart(64, "0")}`;
+        expect(criteriaSet).toEqual([
+          {
+            address: "0xmy-token-address",
+            topic0: TRANSFER_EVENT_SIGNATURE,
+            topic1: paddedAddress,
+          },
+          {
+            address: "0xmy-token-address",
+            topic0: TRANSFER_EVENT_SIGNATURE,
+            topic2: paddedAddress,
+          },
+        ]);
+      });
+    });
+
     describe("when the range is inverted (no new block since the last known operation)", () => {
       test("returns an empty array without querying the network", async () => {
         mockGetEventLogs.mockClear();
         const operations = await getTokenOperations(
+          mockVechainConfig,
           "my-account-id",
           "0xmy-address",
           "0xmy-token-address",
@@ -320,6 +376,7 @@ describe("sdk", () => {
         test("throws an error: Unable to split Vechain operations range further", async () => {
           try {
             await getTokenOperations(
+              mockVechainConfig,
               "my-account-id",
               "0xmy-address",
               "0xmt-token-address",
@@ -338,6 +395,7 @@ describe("sdk", () => {
       describe("and Vechain operations range can be split further", () => {
         test("retrieves all the operations", async () => {
           const operations = await getTokenOperations(
+            mockVechainConfig,
             "my-account-id",
             "0xmy-address",
             "0xmt-token-address",

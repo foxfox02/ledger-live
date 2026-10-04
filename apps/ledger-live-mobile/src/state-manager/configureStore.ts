@@ -1,38 +1,55 @@
 import Config from "react-native-config";
-import { configureStore, createListenerMiddleware, type StoreEnhancer } from "@reduxjs/toolkit";
+import { configureStore, type StoreEnhancer } from "@reduxjs/toolkit";
 import { setupListeners } from "@reduxjs/toolkit/query";
-import { authApiExtra } from "@shared/auth";
-import { AuthSDK } from "@ledgerhq/ledger-auth";
+import { authApiExtra, authEnvironmentSelector } from "@shared/auth";
+import { AuthSDK } from "@ledgerhq/auth";
 import { LkrpIdentityProvider } from "@ledgerhq/ledger-key-ring-protocol";
+import type { TrustchainStore } from "@ledgerhq/ledger-key-ring-protocol/store";
 import NetInfo from "@react-native-community/netinfo";
-import { Platform } from "react-native";
-import VersionNumber from "react-native-version-number";
 import reducers from "~/reducers";
 import { rebootMiddleware } from "~/middleware/rebootMiddleware";
 import { rozeniteDevToolsEnhancer } from "@rozenite/redux-devtools-plugin";
 import { applyLlmRTKApiMiddlewares } from "~/context/rtkQueryApi";
-import { setupCryptoAssetsStore } from "~/config/bridge-setup";
-import { setupRecentAddressesStore } from "LLM/storage/recentAddresses";
-import { createIdentitiesSyncMiddleware, pushDevicesApiExtra } from "@domain/api-push-devices";
+import { setupCryptoAssetsStore, setupRateLookups } from "~/config/bridge-setup";
+import { setSwapQuotesStore } from "@ledgerhq/live-common/wallet-api/Exchange/quotes/state-manager/store";
+import { connectRecentAddressesStore } from "@domain/entity-recent-addresses";
+import { recentAddressesSelector } from "~/reducers/wallet";
+import { createIdentitiesSyncMiddleware } from "@domain/api-push-devices";
 import { State } from "~/reducers/types";
-import { canPushDeviceIdsSelector, languageSelector } from "~/reducers/settings";
+import { canPushDeviceIdsSelector } from "~/reducers/settings";
 import { getEnv } from "@shared/env";
-import { calApiExtra } from "@domain/api-currency-token";
-import { cvsApiExtra } from "@domain/api-currency-fiat";
-import { marketSentimentApiExtra } from "@domain/api-market-sentiment";
-import { altcoinsSentimentApiExtra } from "@domain/api-altcoins-sentiment";
-import { payCardApiExtra } from "@domain/api-pay-card";
-import { createFeatureFlagsMiddleware, type PartialFeatures } from "@shared/feature-flags";
-import { fetchRemoteFlags } from "~/firebase/remoteConfig";
+import {
+  calApiExtra,
+  cardApi,
+  cardApiExtra,
+  coinMarketCapApiExtra,
+  cvsApiExtra,
+  pushDevicesApiExtra,
+  redactCardApiAction,
+  redactCardApiState,
+  swapApiExtra,
+} from "@shared/api-services";
+import {
+  configureCardSessionRenewal,
+  isCardSessionCurrent,
+  isCardUsEnv,
+  readCardSession,
+  refreshCardSession,
+} from "@features/platform-card";
+import { setSignedIn } from "@features/flow-pay-card-auth/state";
+import { selectFeature } from "@shared/feature-flags";
+import { sleepingListener } from "./sleepingListener";
+import { createMobileFeatureFlagsMiddleware } from "./middleware/feature-flags";
 import { createPkcePairWithExpoCrypto } from "~/helpers/pkce";
 
-// This listenerMiddleware is cross-scope as it is preferable to have one instance per store
-// Source: https://github.com/reduxjs/redux-toolkit/discussions/3665
-const listenerMiddleware = createListenerMiddleware<State>();
+/** Matches the `SWAP_API_BASE` default in `shared/env`, kept here at the point of use. */
+const SWAP_API_BASE_DEFAULT = "https://swap.ledger.com/v5";
 
 export const store = configureStore({
   reducer: reducers,
-  devTools: !!Config.DEBUG_RNDEBUGGER,
+  devTools: Config.DEBUG_RNDEBUGGER
+    ? { actionSanitizer: redactCardApiAction, stateSanitizer: redactCardApiState }
+    : false,
   middleware: getDefaultMiddleware =>
     applyLlmRTKApiMiddlewares(
       getDefaultMiddleware({
@@ -45,44 +62,54 @@ export const store = configureStore({
               ledgerClientVersion: getEnv("LEDGER_CLIENT_VERSION"),
             }),
             ...cvsApiExtra({
-              countervaluesServiceUrl: getEnv("LEDGER_COUNTERVALUES_API"),
+              getCountervaluesServiceUrl: () => getEnv("LEDGER_COUNTERVALUES_API"),
             }),
-            ...marketSentimentApiExtra({
+            ...coinMarketCapApiExtra({
               coinMarketCapApiUrl: getEnv("CMC_API_URL"),
             }),
-            ...altcoinsSentimentApiExtra({
-              coinMarketCapApiUrl: getEnv("CMC_API_URL"),
+            ...cardApiExtra({
+              // Read on every request, so the debug settings can change them without a restart.
+              getCardApiBaseUrl: () => getEnv("CARD_BAANX_API_URL"),
+              getCardBaanxClientKey: () => getEnv("CARD_BAANX_CLIENT_KEY"),
+              isCardUsEnv: () => isCardUsEnv(getEnv("CARD_BAANX_US_APP_ID")),
+              readCardSession,
+              isCardSessionCurrent,
+              refreshCardSession,
             }),
             ...pushDevicesApiExtra({
               pushDevicesServiceUrl: getEnv("PUSH_DEVICES_SERVICE_URL"),
               ledgerClientVersion: getEnv("LEDGER_CLIENT_VERSION"),
             }),
-            ...payCardApiExtra({
-              // LIVE-33829: force mocks until Pay Card API base URL is wired.
-              payCardApiMocksEnabled: true,
+            ...swapApiExtra({
+              // `Config`, not `getEnv`: the `@shared/env` copy only lands after
+              // `experimental.ts` awaits the stored envs, long after this read.
+              getSwapApiBaseUrl: () => Config.SWAP_API_BASE || SWAP_API_BASE_DEFAULT,
+              ledgerClientVersion: getEnv("LEDGER_CLIENT_VERSION"),
             }),
             ...authApiExtra({
-              authFeatureId: "lwmAuth",
-              startListening: listenerMiddleware.startListening,
-              providerParams: {
-                identityProvider: new LkrpIdentityProvider<State>({
-                  startListening: listenerMiddleware.startListening,
-                }),
-              },
-              createAuthProvider: (environment, { identityProvider }) =>
-                new AuthSDK(
-                  {
-                    clientId: getEnv("LEDGER_AUTH_CLIENT_ID"),
-                    keycloakBaseUrl: getEnv(`LEDGER_AUTH_KEYCLOAK_BASE_URL_${environment}`),
-                    keycloakRealm: getEnv("LEDGER_AUTH_KEYCLOAK_REALM"),
-                    disablePkce: true,
+              isFeatureEnabled: (): boolean =>
+                selectFeature(store.getState(), "lwmAuth").enabled ?? false,
+              authProvider: new AuthSDK(
+                {
+                  clientId: getEnv("LEDGER_AUTH_CLIENT_ID"),
+                  keycloakBaseUrl(): string | null {
+                    const environment = authEnvironmentSelector(store.getState());
+                    return environment && getEnv(`LEDGER_AUTH_KEYCLOAK_BASE_URL_${environment}`);
                   },
-                  { provider: identityProvider, createPkcePair: createPkcePairWithExpoCrypto },
-                ),
+                  keycloakRealm: getEnv("LEDGER_AUTH_KEYCLOAK_REALM"),
+                  disablePkce: true,
+                },
+                {
+                  provider: new LkrpIdentityProvider(
+                    (): TrustchainStore => store.getState().trustchain,
+                  ),
+                  createPkcePair: createPkcePairWithExpoCrypto,
+                },
+              ),
             }),
           },
         },
-      }).prepend(listenerMiddleware.middleware),
+      }),
     )
       .concat(rebootMiddleware)
       .concat(
@@ -92,17 +119,8 @@ export const store = configureStore({
           getAnalyticsConsent: canPushDeviceIdsSelector,
         }),
       )
-      .concat(
-        createFeatureFlagsMiddleware<State>({
-          resolutionConfig: {
-            platform: Platform.OS === "ios" ? "ios" : "android",
-            appVersion: VersionNumber.appVersion ?? undefined,
-            envFlags: getEnv("FEATURE_FLAGS") as PartialFeatures,
-          },
-          fetchRemoteFlags,
-          getAppLanguage: languageSelector,
-        }),
-      ),
+      .concat(createMobileFeatureFlagsMiddleware())
+      .concat(sleepingListener.middleware),
 
   enhancers: getDefaultEnhancers => {
     const enhancers = getDefaultEnhancers();
@@ -115,6 +133,14 @@ export const store = configureStore({
 export type StoreType = typeof store;
 export type AppDispatch = typeof store.dispatch;
 
+configureCardSessionRenewal({
+  dispatch: store.dispatch,
+  onCardSessionEnded: () => {
+    store.dispatch(setSignedIn(false));
+    setTimeout(() => store.dispatch(cardApi.util.resetApiState()), 0);
+  },
+});
+
 setupListeners(store.dispatch, (dispatch, { onOnline, onOffline }) => {
   const unsubscribe = NetInfo.addEventListener(state => {
     if (state.isConnected) {
@@ -125,5 +151,7 @@ setupListeners(store.dispatch, (dispatch, { onOnline, onOffline }) => {
   });
   return unsubscribe;
 });
-setupRecentAddressesStore(store);
+connectRecentAddressesStore(store, recentAddressesSelector);
 setupCryptoAssetsStore(store);
+setupRateLookups();
+setSwapQuotesStore(store.dispatch);

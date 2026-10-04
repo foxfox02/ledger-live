@@ -1,7 +1,7 @@
 import { BigNumber } from "bignumber.js";
 import React, { useState, useCallback } from "react";
 import { useTranslation } from "~/context/Locale";
-import i18next from "i18next";
+import i18next from "~/i18n/instance";
 import { Keyboard, StyleSheet, View } from "react-native";
 import SafeAreaView from "~/components/SafeAreaView";
 import { useTheme } from "@react-navigation/native";
@@ -14,7 +14,7 @@ import { SendFundsNavigatorStackParamList } from "~/components/RootNavigator/typ
 import { SignTransactionNavigatorParamList } from "~/components/RootNavigator/types/SignTransactionNavigator";
 import { SwapNavigatorParamList } from "~/components/RootNavigator/types/SwapNavigator";
 import { ScreenName } from "~/const";
-import { DEFAULT_GAS_LIMIT } from "@ledgerhq/coin-evm/utils";
+import { DEFAULT_GAS_LIMIT } from "@ledgerhq/coin-evm/logic-public";
 
 const options = {
   title: i18next.t("send.summary.gasLimit"),

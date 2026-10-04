@@ -1,0 +1,49 @@
+const SIGNUP_PATH = "/onboarding/signup";
+const TOP_UP_PATH = "/topup";
+const WITHDRAWAL_PATH = "/withdrawal";
+const MANAGE_PIN_PATH = "/set-pin";
+const ACCESS_BAANX_PATH = "/";
+const ADD_ASSET_PATH = "/dashboard/accounts/crypto";
+const ORDER_CARD_PATH = "/order-card";
+const CASHBACK_PATH = "/cashback";
+
+export { SIGNUP_PATH };
+
+export type CardAssetPathBuilder = (usAppId?: string | null, currency?: string | null) => string;
+
+function buildHostedPath(page: string, usAppId?: string | null, currency?: string | null): string {
+  const query = new URLSearchParams();
+
+  if (usAppId) query.set("app_id", usAppId);
+  if (currency) query.set("currency", currency);
+
+  const search = query.toString();
+
+  return search ? `${page}?${search}` : page;
+}
+
+export const buildTopUpPath: CardAssetPathBuilder = (usAppId, currency) =>
+  buildHostedPath(TOP_UP_PATH, usAppId, currency);
+
+export const buildWithdrawalPath: CardAssetPathBuilder = (usAppId, currency) =>
+  buildHostedPath(WITHDRAWAL_PATH, usAppId, currency);
+
+export function buildAccessBaanxPath(usAppId?: string | null): string {
+  return buildHostedPath(ACCESS_BAANX_PATH, usAppId);
+}
+
+export function buildManagePinPath(usAppId?: string | null): string {
+  return buildHostedPath(MANAGE_PIN_PATH, usAppId);
+}
+
+export function buildAddAssetPath(usAppId?: string | null): string {
+  return buildHostedPath(ADD_ASSET_PATH, usAppId);
+}
+
+export function buildOrderCardPath(usAppId?: string | null): string {
+  return buildHostedPath(ORDER_CARD_PATH, usAppId);
+}
+
+export function buildCashbackPath(usAppId?: string | null): string {
+  return buildHostedPath(CASHBACK_PATH, usAppId);
+}

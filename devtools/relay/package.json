@@ -1,6 +1,6 @@
 {
   "name": "@devtools/relay",
-  "version": "0.2.0",
+  "version": "0.5.0",
   "private": true,
   "description": "DevTools relay hub — localhost-only WebSocket forwarder (dev-only, never shipped)",
   "main": "src/index.ts",
@@ -10,19 +10,28 @@
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
     "test": "jest --config jest.config.js",
-    "coverage": "jest --config jest.config.js --coverage"
+    "coverage": "jest --config jest.config.js --coverage",
+    "lint": "oxlint src",
+    "format": "oxfmt src",
+    "format:check": "oxfmt --check src",
+    "unimported": "pnpm knip --directory ../.. -W devtools/relay"
   },
   "dependencies": {
     "@devtools/transport": "workspace:*",
+    "qrcode-terminal": "^0.12.0",
     "ws": "catalog:"
   },
   "devDependencies": {
+    "@devtools/protocols": "workspace:*",
+    "@ledgerhq/test-quarantine": "workspace:*",
     "@swc/core": "catalog:",
     "@swc/jest": "catalog:",
     "@types/jest": "catalog:",
     "@types/node": "catalog:",
+    "@types/qrcode-terminal": "^0.12.0",
     "@types/ws": "catalog:",
     "jest": "catalog:",
+    "oxfmt": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:"
   }

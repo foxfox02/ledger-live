@@ -1,21 +1,24 @@
 import { getCryptoCurrencyById } from "@ledgerhq/ledger-wallet-framework/currencies";
 import { setCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
-import type { CryptoAssetsStore } from "@ledgerhq/types-live";
-import { getJsonRpcFullnodeUrl, type StakeObject } from "@mysten/sui/jsonRpc";
+import { getEnv } from "@ledgerhq/live-env";
 import coinConfig from "../config";
-import { FIGMENT_SUI_VALIDATOR_ADDRESS } from "../constants";
-import { GRAPHQL_MAINNET_URL } from "../network/graphql/constants";
+import type { SuiTransport } from "../config";
+import { STAKE_DELEGATOR } from "../test/fixtures";
+import type { StakeObject } from "../types";
 import { getAccountShape } from "./synchronisation";
 
-const JSON_RPC_URL = getJsonRpcFullnodeUrl("mainnet");
-
 /** Bridge dispatch is keyed on `currency.id` (always "sui"), so we re-bind the config between runs. */
-function configureTransport(useGraphQL: boolean) {
+function configureTransport(transport: SuiTransport) {
   coinConfig.setCoinConfig(() => ({
     status: { type: "active" },
-    // Both URLs always present; the feature flag selects which dispatcher branch runs.
-    node: { url: JSON_RPC_URL, graphqlUrl: GRAPHQL_MAINNET_URL },
-    features: { graphql: useGraphQL },
+    // Every URL always present; the feature flag selects which dispatcher branch runs.
+    node: {
+      graphqlUrl: getEnv("API_SUI_GRAPHQL_PROXY"),
+      grpcUrl: getEnv("API_SUI_GRPC_PROXY"),
+    },
+    features: { transport },
+    name: "Sui",
+    unit: { name: "Sui", code: "SUI", magnitude: 9 },
   }));
 }
 
@@ -24,33 +27,28 @@ beforeAll(() => {
     findTokenByAddressInCurrency: async () => undefined,
     findTokenById: async () => undefined,
     getTokensSyncHash: async () => "0",
-  } as unknown as CryptoAssetsStore);
+  });
 });
 
 const SHAPE_INFO = {
   index: 0,
   derivationPath: "44'/784'/0'/0'/0'",
   currency: getCryptoCurrencyById("sui"),
-  address: FIGMENT_SUI_VALIDATOR_ADDRESS,
+  address: STAKE_DELEGATOR,
   initialAccount: undefined,
   derivationMode: "sui" as const,
 };
 
 const SYNC_CONFIG = { blacklistedTokenIds: [], paginationConfig: {} };
 
-// SKIP — Sui JSON-RPC public-endpoint shutdown. The JSON-RPC reference leg of this parity
-// suite hits the public mainnet fullnode (fullnode.mainnet.sui.io), retired by the Sui
-// Foundation (mainnet wk of 2026-07-20) as JSON-RPC is deprecated for gRPC/GraphQL, so
-// cross-transport parity can no longer run. Re-enable once a GraphQL-only live baseline
-// replaces the JSON-RPC reference.
-describe.skip("getAccountShape: JSON-RPC vs GraphQL parity (live mainnet)", () => {
-  // Two back-to-back syncs (JSON-RPC + GraphQL) on a high-traffic validator
-  // address; ~70s under normal mainnet latency. Bumped above the 60s default.
+// gRPC is the reference leg.
+describe("getAccountShape: gRPC vs GraphQL parity (live mainnet)", () => {
+  // Two back-to-back live syncs exceed the 90s default in `jest.integ.config.js` on slower CI runners.
   test("balance, spendable and suiResources.stakes match across transports", async () => {
-    configureTransport(false);
+    configureTransport("grpc");
     const rpc = await getAccountShape(SHAPE_INFO, SYNC_CONFIG);
 
-    configureTransport(true);
+    configureTransport("graphql");
     const gql = await getAccountShape(SHAPE_INFO, SYNC_CONFIG);
 
     expect(gql.balance!.toFixed()).toBe(rpc.balance!.toFixed());
@@ -65,6 +63,7 @@ describe.skip("getAccountShape: JSON-RPC vs GraphQL parity (live mainnet)", () =
     const r = sortStakes(flat(rpc.suiResources?.stakes));
     const g = sortStakes(flat(gql.suiResources?.stakes));
 
+    expect(r.length).toBeGreaterThan(0);
     expect(g.length).toBe(r.length);
     // Stake `status` flips Pending→Active at the epoch boundary. Back-to-back syncs ~70s apart
     // can straddle it, so we whitelist that one transition; any other mismatch still fails.
@@ -81,11 +80,11 @@ describe.skip("getAccountShape: JSON-RPC vs GraphQL parity (live mainnet)", () =
 
     expect(gql.subAccounts).toEqual(rpc.subAccounts);
 
-    // GraphQL fetches a single newest page (50 ops) while JSON-RPC accumulates up to 300 from
-    // FromAddress + ToAddress separately. On a high-traffic validator address the counts will
-    // differ; assert the GraphQL page is non-empty and a subset of recent activity exists in
-    // both. Tighten once GraphQL pagination accumulates further.
+    // Both arms walk up to `TRANSACTIONS_LIMIT`, but the counts are not required to match: gRPC
+    // classifies transaction kinds correctly and so drops SIP-58 settlement transactions that the
+    // GraphQL arm keeps. Only non-emptiness is asserted; per-operation identity is covered by
+    // `network/sdk.grpc.parity.integ.test.ts`.
     expect(gql.operationsCount ?? 0).toBeGreaterThan(0);
-    expect(rpc.operationsCount ?? 0).toBeGreaterThanOrEqual(gql.operationsCount ?? 0);
-  }, 90_000);
+    expect(rpc.operationsCount ?? 0).toBeGreaterThan(0);
+  }, 240_000);
 });

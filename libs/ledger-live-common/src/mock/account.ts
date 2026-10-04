@@ -14,7 +14,7 @@ import { CosmosAccount } from "../families/cosmos/types";
 import { BitcoinAccount } from "@ledgerhq/coin-bitcoin/types";
 import { PolkadotAccount } from "@ledgerhq/coin-polkadot/types/index";
 import type { TezosAccount } from "../families/tezos/types";
-import { TronAccount } from "@ledgerhq/coin-tron/types/index";
+import type { TronAccount } from "../families/tron/types";
 import { CardanoAccount, PaymentChain } from "@ledgerhq/coin-cardano/types";
 import { types } from "@stricahq/typhonjs";
 import { SolanaAccount } from "@ledgerhq/coin-solana/types";
@@ -54,9 +54,14 @@ export function genAccountLegacy(id: number | string, opts: GenAccountOptions = 
     (account: Account, currency: CryptoCurrency, address: string) => {
       switch (currency.family) {
         case "solana":
-          (account as SolanaAccount).solanaResources = {
-            stakes: [],
-            unstakeReserve: new BigNumber(0),
+          (account as SolanaAccount).stakingResources = {
+            delegations: [],
+            redelegations: [],
+            unbondings: [],
+            delegatedBalance: new BigNumber(0),
+            pendingRewardsBalance: new BigNumber(0),
+            unbondingBalance: new BigNumber(0),
+            actionFeeReserve: new BigNumber(0),
           };
           break;
         case "cosmos":
@@ -68,7 +73,6 @@ export function genAccountLegacy(id: number | string, opts: GenAccountOptions = 
             delegatedBalance: new BigNumber(0),
             pendingRewardsBalance: new BigNumber(0),
             unbondingBalance: new BigNumber(0),
-            withdrawAddress: address,
             sequence: 0,
             publicKey: "",
           };

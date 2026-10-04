@@ -1,16 +1,16 @@
+import { track } from "@shared/analytics";
 import React from "react";
 import BigNumber from "bignumber.js";
 import { CommonActions } from "@react-navigation/native";
 import { render, screen, waitFor } from "@tests/test-renderer";
 import { BASE_NAVIGATOR_ID, ScreenName } from "~/const";
-import { track } from "~/analytics";
 import type { State } from "~/reducers/types";
 import { PendingOperation } from "../PendingOperation";
 
 const mockNotifyFlowCompleted = jest.fn();
 
 jest.mock("LLM/features/NotificationsPrompt", () => ({
-  useNotificationsContext: () => ({
+  useNotificationsPrompt: () => ({
     notifyFlowCompleted: mockNotifyFlowCompleted,
   }),
 }));
@@ -79,7 +79,7 @@ describe("PendingOperation", () => {
       <PendingOperation route={route as never} navigation={navigation as never} />,
     );
 
-    await user.press(screen.getByText(/go to history/i));
+    await user.press(screen.getByText(/see details/i));
 
     expect(navigation.dispatch).toHaveBeenCalledWith(
       CommonActions.reset({
@@ -106,7 +106,7 @@ describe("PendingOperation", () => {
       <PendingOperation route={route as never} navigation={navigation as never} />,
     );
 
-    await user.press(screen.getByText(/go to history/i));
+    await user.press(screen.getByText(/see details/i));
 
     expect(navigation.dispatch).toHaveBeenCalledWith(
       CommonActions.reset({

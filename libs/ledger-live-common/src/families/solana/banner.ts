@@ -1,5 +1,4 @@
-import { getCurrentSolanaPreloadData } from "@ledgerhq/coin-solana/preload-data";
-import { stakeActions } from "@ledgerhq/coin-solana/logic";
+import { listSolanaStakingPositions, stakeActions } from "@ledgerhq/coin-solana/logic";
 import { LEDGER_VALIDATORS_VOTE_ACCOUNTS } from "@ledgerhq/coin-solana/utils";
 import type { SolanaAccount } from "@ledgerhq/coin-solana/types";
 import type { ValidatorsAppValidator } from "@ledgerhq/coin-solana/network/validator-app/index";
@@ -16,17 +15,10 @@ export function getAccountBannerState(
   account: SolanaAccount,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   bridge: ResolvedAccountBridge<any>,
+  validators: ValidatorsAppValidator[],
 ): AccountBannerState {
   // Group current validator
-  const solanaResources = account.solanaResources ? account.solanaResources : { stakes: [] };
-  const delegations = solanaResources?.stakes.map(delegation => {
-    return delegation;
-  });
-
-  // Get ledger validator data
-  const { validators } = getCurrentSolanaPreloadData(account.currency) ?? {
-    validators: [],
-  };
+  const delegations = listSolanaStakingPositions(account.stakingResources);
 
   const ledgerValidator = validators.find(validator =>
     LEDGER_VALIDATORS_VOTE_ACCOUNTS.includes(validator.voteAccount),
@@ -49,16 +41,19 @@ export function getAccountBannerState(
   // Find user current worst validator (default validator is ledger)
   let worstValidator = ledgerValidator;
   for (const delegation of delegations) {
-    const validatorAdress = delegation.delegation?.voteAccAddr;
+    const validatorAdress = delegation.validatorAddress;
     const validator = validators.find(validator => validator.voteAccount === validatorAdress);
     const actions = stakeActions(delegation);
+    const positionId = delegation.positionId;
     const isValidRedelegation =
+      positionId &&
       validator &&
+      validatorAdress &&
       !LEDGER_VALIDATORS_VOTE_ACCOUNTS.includes(validatorAdress) &&
       worstValidator.commission <= validator.commission &&
       actions.includes("deactivate");
     if (isValidRedelegation) {
-      stakeAccAddr = delegation.stakeAccAddr;
+      stakeAccAddr = positionId;
       worstValidator = validator;
     }
   }

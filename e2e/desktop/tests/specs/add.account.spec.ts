@@ -1,16 +1,16 @@
 import { test } from "tests/fixtures/common";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
 import { Currency } from "@ledgerhq/live-e2e-shared/enum/Currency";
-import { addTmsLink } from "tests/utils/allureUtils";
-import { getDescription } from "tests/utils/customJsonReporter";
 import { getModularSelector } from "tests/utils/modularSelectorUtils";
 import { isAssetSectionEnabled } from "tests/utils/featureFlagUtils";
 import { buildTags } from "tests/utils/tagsUtils";
+import type { PartialFeatures } from "@shared/feature-flags";
 
 type AddAccountTestCase = {
   readonly currency: Currency;
   readonly xrayTicket: string;
   readonly portfolioAssetName?: string;
+  readonly featureFlags?: PartialFeatures;
 };
 
 const currencies: AddAccountTestCase[] = [
@@ -42,18 +42,24 @@ const currencies: AddAccountTestCase[] = [
     portfolioAssetName: Currency.ETH.name,
   },
   { currency: Currency.ZEC, xrayTicket: "B2CQA-4296, B2CQA-4297, B2CQA-4298" },
+  {
+    currency: Currency.BABY,
+    xrayTicket: "B2CQA-6629",
+    featureFlags: { currencyBabylon: { enabled: true } },
+  },
 ];
 
 for (const currency of currencies) {
-  test.describe("Add Accounts", () => {
+  test.describe("Add account", () => {
     test.use({
-      teamOwner: Team.WALLET_XP,
+      teamOwner: Team.COIN_INTEGRATION,
       userdata: "skip-onboarding-with-last-seen-device",
       speculosApp: currency.currency.speculosApp,
+      featureFlags: currency.featureFlags,
     });
 
     test(
-      `[${currency.currency.name}] Add account`,
+      `[${currency.currency.testLabel}] - Add account`,
       {
         tag: buildTags({
           currencyId: currency.currency.id,
@@ -65,10 +71,9 @@ for (const currency of currencies) {
         },
       },
       async ({ app, userdataFile }) => {
-        await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
         const firstAccountName = `${currency.currency.name} 1`;
 
-        await app.portfolio.waitForPortfolioEmptyState();
+        await app.portfolio.expectPortfolioEmptyState();
         await app.portfolio.clickAddAccountButton();
 
         const selector = await getModularSelector(app, "ASSET");
@@ -117,9 +122,9 @@ for (const currency of currencies) {
   });
 }
 
-test.describe("Add Accounts - Aleo", () => {
+test.describe("Add account", () => {
   test.use({
-    teamOwner: Team.WALLET_XP,
+    teamOwner: Team.BST,
     userdata: "skip-onboarding-with-last-seen-device",
     speculosApp: Currency.ALEO.speculosApp,
     featureFlags: {
@@ -131,7 +136,7 @@ test.describe("Add Accounts - Aleo", () => {
   });
 
   test(
-    `[${Currency.ALEO.name}] Add account`,
+    `[${Currency.ALEO.testLabel}] - Add account`,
     {
       tag: buildTags({ currencyId: Currency.ALEO.id, skipLNS: true }),
       annotation: {
@@ -140,10 +145,9 @@ test.describe("Add Accounts - Aleo", () => {
       },
     },
     async ({ app, userdataFile }) => {
-      await addTmsLink(getDescription(test.info().annotations, "TMS").split(", "));
       const firstAccountName = `${Currency.ALEO.name} 1`;
 
-      await app.portfolio.waitForPortfolioEmptyState();
+      await app.portfolio.expectPortfolioEmptyState();
       await app.portfolio.clickAddAccountButton();
 
       const selector = await getModularSelector(app, "ASSET");

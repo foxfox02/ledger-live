@@ -6,8 +6,14 @@ import { BitcoinAccount, Transaction } from "@ledgerhq/live-common/families/bitc
 import { CryptoCurrency } from "@domain/entity-currency-crypto";
 import { FeeStrategy } from "@ledgerhq/types-live";
 import { useFeesStrategy } from "@ledgerhq/live-common/families/bitcoin/react";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import SendAmountFields from "../SendAmountFields";
+
+jest.mock("@shared/analytics", () => ({
+  ...jest.requireActual("@shared/analytics"),
+  track: jest.fn(),
+  trackPage: jest.fn(),
+}));
 
 // The bridge's updateTransaction merges the patch onto the transaction.
 // Mocking it also avoids the Suspense boundary that useAccountBridge (React `use`) requires.
@@ -22,6 +28,15 @@ jest.mock("@ledgerhq/live-common/bridge/useAccountBridge", () => ({
 jest.mock("@ledgerhq/live-common/families/bitcoin/react", () => ({
   ...jest.requireActual("@ledgerhq/live-common/families/bitcoin/react"),
   useFeesStrategy: jest.fn(),
+}));
+
+const mockStartShieldedSync = jest.fn();
+jest.mock("../useZcashShieldedSync", () => ({
+  useZcashShieldedSync: jest.fn(() => ({
+    startShieldedSync: mockStartShieldedSync,
+    stopShieldedSync: jest.fn(),
+    saveSyncState: jest.fn(),
+  })),
 }));
 
 const baseAccount = createFixtureAccount();
@@ -59,13 +74,14 @@ const buildTransaction = (overrides: Partial<Transaction> = {}): Transaction =>
 
 // A zcash account served by coin-zcash carries a slimmer transaction: no
 // utxoStrategy, networkInfo or feePerByte, since ZIP-317 prices the fee per action.
-const buildCoinZcashTransaction = (): Transaction =>
+const buildCoinZcashTransaction = (overrides: Record<string, unknown> = {}): Transaction =>
   ({
     family: "zcash",
     amount: new BigNumber(0),
     recipient: "",
     transferType: "shielded",
     feesStrategy: "medium",
+    ...overrides,
   }) as unknown as Transaction;
 
 const renderFields = ({
@@ -226,6 +242,59 @@ describe("bitcoin SendAmountFields", () => {
         "button_clicked2",
         expect.objectContaining({ button: "standard" }),
       );
+    });
+  });
+
+  describe("shielded sync trigger on mount", () => {
+    it("starts a shielded sync when mounting for a zcash account sending from the private pool", () => {
+      renderFields({
+        account: buildZcashAccount(),
+        transaction: buildCoinZcashTransaction({ sender: "private" }),
+        flagEnabled: true,
+      });
+
+      expect(mockStartShieldedSync).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not start a shielded sync when sending from the public pool", () => {
+      renderFields({
+        account: buildZcashAccount(),
+        transaction: buildCoinZcashTransaction({ sender: "public" }),
+        flagEnabled: true,
+      });
+
+      expect(mockStartShieldedSync).not.toHaveBeenCalled();
+    });
+
+    it("does not start a shielded sync for a non-zcash account", () => {
+      renderFields({
+        account: buildBitcoinAccount(),
+        transaction: buildTransaction(),
+      });
+
+      expect(mockStartShieldedSync).not.toHaveBeenCalled();
+    });
+
+    it("renders the shielded sync state banner for a zcash account sending from the private pool", () => {
+      renderFields({
+        account: buildZcashAccount(),
+        transaction: buildCoinZcashTransaction({ sender: "private" }),
+        flagEnabled: true,
+      });
+
+      // No privateInfo on the fixture account -> syncState defaults to
+      // "disabled", which the banner renders as its stopped/resume variant.
+      expect(screen.getByTestId("zcash-sync-banner-stopped")).toBeInTheDocument();
+    });
+
+    it("renders no banner when sending from the public pool", () => {
+      renderFields({
+        account: buildZcashAccount(),
+        transaction: buildCoinZcashTransaction({ sender: "public" }),
+        flagEnabled: true,
+      });
+
+      expect(screen.queryByTestId("zcash-sync-banner-stopped")).not.toBeInTheDocument();
     });
   });
 });

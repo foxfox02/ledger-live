@@ -19,6 +19,17 @@ export class NewSendModal extends Modal {
   readonly recipientInput = this.dialog.getByTestId("send-recipient-input");
   readonly editRecipientButton = this.dialog.getByTestId("send-edit-recipient-button");
 
+  // ========== BALANCE TYPE STEP ==========
+  readonly balanceTypeScreen = this.dialog.getByTestId("balance-type-screen");
+  balanceTypeOption(optionId: "public" | "private") {
+    return this.dialog.getByTestId(`balance-type-${optionId}`);
+  }
+
+  @step("Select balance type: $0")
+  async selectBalanceType(optionId: "public" | "private") {
+    await this.balanceTypeOption(optionId).click();
+  }
+
   // ========== RECIPIENT STEP ==========
   readonly addressMatchedTitle = this.dialog.getByTestId("send-address-matched-title");
   readonly introCard = this.dialog.getByTestId("send-recipient-intro-card");
@@ -48,12 +59,12 @@ export class NewSendModal extends Modal {
   readonly memoOptionId = this.page.getByTestId("send-memo-select-option-MEMO_ID");
   readonly memoOptionHash = this.page.getByTestId("send-memo-select-option-MEMO_HASH");
   readonly memoOptionReturn = this.page.getByTestId("send-memo-select-option-MEMO_RETURN");
-  readonly skipMemoProposal = this.dialog.getByTestId("send-skip-memo-proposal");
-  readonly skipMemoLink = this.dialog.getByTestId("send-skip-memo-link");
-  readonly skipMemoConfirmButton = this.dialog.getByTestId("send-skip-memo-confirm-button");
-  readonly neverAskAgainSkipMemoButton = this.dialog.getByTestId(
-    "send-skip-memo-never-ask-again-button",
-  );
+  // ========== SKIP MEMO CONFIRMATION STEP ==========
+  readonly skipMemoConfirmButton = this.dialog.getByTestId("send-skip-memo-confirm");
+  readonly skipMemoCancelButton = this.dialog.getByTestId("send-skip-memo-cancel");
+  readonly neverAskAgainSkipMemoCheckbox = this.dialog
+    .getByTestId("send-skip-memo-never-ask-again")
+    .getByRole("checkbox");
 
   // ========== AMOUNT STEP ==========
   readonly amountInput = this.dialog.getByTestId("send-amount-input");
@@ -159,13 +170,11 @@ export class NewSendModal extends Modal {
             return "recipientErrorBanner-visible";
           if (await this.senderErrorBanner.isVisible().catch(() => false))
             return "senderErrorBanner-visible";
-          if (await this.skipMemoProposal.isVisible().catch(() => false))
-            return "skipMemoProposal-visible";
           return null;
         },
         {
           timeout: timeoutMs,
-          message: `Recipient validation did not complete within ${timeoutMs}ms: none of the expected states (Send to button, address not found, validation status, sanctioned/recipient/sender error banners, skip memo proposal) became visible.`,
+          message: `Recipient validation did not complete within ${timeoutMs}ms: none of the expected states (Send to button, address not found, validation status, sanctioned/recipient/sender error banners) became visible.`,
         },
       )
       .not.toBeNull();
@@ -188,24 +197,22 @@ export class NewSendModal extends Modal {
     await this.page.waitForTimeout(300);
   }
 
-  @step("Skip memo")
-  async skipMemo({ confirm = true }: { confirm?: boolean } = {}) {
-    await this.skipMemoLink.click();
-    if (confirm) {
-      await this.confirmSkipMemo();
-    }
-  }
-
-  @step("Confirm skip memo")
+  @step("Confirm sending without memo")
   async confirmSkipMemo() {
     await this.skipMemoConfirmButton.waitFor({ state: "visible" });
     await this.skipMemoConfirmButton.click();
   }
 
+  @step("Cancel sending without memo")
+  async cancelSkipMemo() {
+    await this.skipMemoCancelButton.waitFor({ state: "visible" });
+    await this.skipMemoCancelButton.click();
+  }
+
   @step("Check never ask again memo")
   async checkNeverAskAgainSkipMemo() {
-    await this.neverAskAgainSkipMemoButton.waitFor({ state: "visible" });
-    await this.neverAskAgainSkipMemoButton.click();
+    await this.neverAskAgainSkipMemoCheckbox.waitFor({ state: "visible" });
+    await this.neverAskAgainSkipMemoCheckbox.click();
   }
 
   @step("Type memo")
@@ -443,10 +450,9 @@ export class NewSendModal extends Modal {
   async reachAmountStep(address: string, hasMemo: boolean = false) {
     await this.typeAddress(address);
     await this.waitForRecipientValidation();
+    await this.clickOnSendToButton();
     if (hasMemo) {
-      await this.skipMemo();
-    } else {
-      await this.clickOnSendToButton();
+      await this.confirmSkipMemo();
     }
     await expect(this.amountInput).toBeVisible({ timeout: 10000 });
   }

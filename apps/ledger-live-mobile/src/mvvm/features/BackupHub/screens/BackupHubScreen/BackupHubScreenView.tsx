@@ -1,10 +1,10 @@
+import { TrackScreen } from "@shared/analytics-react";
 import React from "react";
 import { ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Box, Subheader, SubheaderRow, SubheaderTitle, Text } from "@ledgerhq/lumen-ui-rnative";
 import { useTheme } from "@ledgerhq/lumen-ui-rnative/styles";
 import { useTranslation } from "~/context/Locale";
-import { TrackScreen } from "~/analytics";
 import { LedgerRecoverRow } from "../../components/LedgerRecoverRow";
 import { PhysicalBackupRow } from "../../components/PhysicalBackupRow";
 import { CompareBackupMethodsFooter } from "../../components/CompareBackupMethodsFooter";
@@ -99,12 +99,17 @@ export function BackupHubScreenView({
               </SubheaderRow>
             </Subheader>
             <Box lx={{ backgroundColor: "surface", borderRadius: "lg", overflow: "hidden" }}>
-              {physicalRows.map(({ id, image, onPress }) => (
+              {physicalRows.map(({ id, image, isWarning, onPress }) => (
                 <PhysicalBackupRow
                   key={id}
                   image={image}
                   title={t(PHYSICAL_ROW_I18N[id].titleKey)}
-                  description={t(PHYSICAL_ROW_I18N[id].descriptionKey)}
+                  description={t(
+                    isWarning
+                      ? "myWallet.backupHub.recoveryKey.incompatible"
+                      : PHYSICAL_ROW_I18N[id].descriptionKey,
+                  )}
+                  isWarning={isWarning}
                   onPress={onPress}
                   testID={`backup-hub-physical-row-${id}`}
                 />

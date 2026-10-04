@@ -3,6 +3,7 @@ import type { FeatureFlagsState } from "@shared/feature-flags";
 import type { Device } from "@ledgerhq/live-common/hw/actions/types";
 import type { ActionDialogParams } from "@ledgerhq/live-common/wallet-api/validation/actionDialogParams";
 import type { DeviceModelId } from "@ledgerhq/devices";
+import type { AnalyticsConsentInfo } from "@domain/entity-analytics-consent";
 import type { Currency } from "@domain/entity-currency";
 import type { Unit } from "@domain/entity-currency-unit";
 import { MarketListRequestParams } from "@ledgerhq/live-common/market/utils/types";
@@ -21,7 +22,7 @@ import {
 } from "../dynamicContent/types";
 import { ProtectStateNumberEnum } from "../components/ServicesWidget/types";
 import { ImageType } from "../components/CustomImage/types";
-import { WalletState } from "@ledgerhq/live-wallet/store";
+import type { WalletState } from "./wallet";
 import type { AuthEnvironmentState } from "@shared/auth";
 import type { TrustchainStore } from "@ledgerhq/ledger-key-ring-protocol/store";
 import { Steps } from "LLM/features/WalletSync/types/Activation";
@@ -33,12 +34,18 @@ import type { ModularDrawerState } from "./modularDrawer";
 import type { LLMRTKApiState } from "~/context/rtkQueryApi";
 import type { SupportedFiatsState } from "@domain/entity-currency-fiat";
 import type { ContactsState } from "@domain/entity-contact";
+import type { AppLockState } from "@features/platform-app-lock";
 import type { ReceiveOptionsDrawerState } from "./receiveOptionsDrawer";
 import type { TransferDrawerState } from "./transferDrawer";
 import type { SwapTransactionStatusDrawerState } from "./swapTransactionStatusDrawer";
+import type { CurrencyRegionRestrictedDrawerState } from "./currencyRegionRestrictedDrawer";
 import type { PostOnboardingHubDrawerState } from "./postOnboardingHubDrawer";
 import type { SendFlowState } from "./sendFlow";
-import type { PayCardState } from "@domain/entity-pay-card";
+import type { PayCardBalanceState } from "@features/flow-pay-balance/state";
+import type { PayCardFeatureTourState } from "@features/flow-pay-feature-tour/state";
+import type { PayRequestVerifyHintState } from "@features/flow-pay-request/state";
+import type { PayCardAuthState, PayCardLoginIntroState } from "@features/flow-pay-card-auth/state";
+import type { PayCardOnboardingWidgetState } from "@features/flow-pay-card-widget/state";
 import type { IdentitiesState } from "@domain/entity-client-identity";
 import type { FirebaseMessagingTypes } from "@react-native-firebase/messaging";
 import { RebornBuyDeviceDrawerState } from "./rebornBuyDeviceDrawer";
@@ -50,6 +57,7 @@ import type { LiveAppModalState } from "./liveAppModal";
 import type { KnownDevicesState } from "./knownDevices";
 import type { GenericAwarenessModalState } from "./genericAwarenessModal";
 import type { BackupHubFeatureIntroState } from "./backupHubFeatureIntro";
+import type { ProductTourDrawerState } from "./productTourDrawer";
 
 // === ACCOUNT STATE ===
 
@@ -308,20 +316,17 @@ export type SettingsState = {
   fromLedgerSyncOnboarding: boolean;
   mevProtection: boolean;
   selectedTabPortfolioAssets: TabPortfolioAssetsType;
-  hasSeenWalletV4Tour: boolean;
   hasDismissedContactsFeatureIntroduction: boolean;
   productTourCompleted: boolean;
   hasSeenQ2WalletV4Tour: boolean;
+  hasSeenQ3WalletV4Tour: boolean;
   doNotAskAgainSkipMemo: boolean;
   deprecationDoNotRemind: string[];
   analyticsConsentInfo: AnalyticsConsentInfo;
   hasClickedRecover: boolean;
 };
 
-export type AnalyticsConsentInfo = {
-  consentDate: string | null;
-  privacyPolicyVersion: number | null;
-};
+export type { AnalyticsConsentInfo };
 
 export type NotificationsSettings = {
   areNotificationsAllowed: boolean;
@@ -423,6 +428,7 @@ export type WalletSyncState = {
   isManageKeyDrawerOpen: boolean;
   isActivateDrawerOpen: boolean;
   activateDrawerStep: Steps;
+  returnsToEntryScreen: boolean;
 };
 
 // === LARGEMOVER STATE ===
@@ -454,6 +460,7 @@ export type State = LLMRTKApiState & {
   featureFlags: FeatureFlagsState;
   genericAwarenessModal: GenericAwarenessModalState;
   backupHubFeatureIntro: BackupHubFeatureIntroState;
+  productTourDrawer: ProductTourDrawerState;
   history: HistoryState;
   identities: IdentitiesState;
   inView: InViewState;
@@ -469,13 +476,19 @@ export type State = LLMRTKApiState & {
   rebornBuyDeviceDrawer: RebornBuyDeviceDrawerState;
   transferDrawer: TransferDrawerState;
   swapTransactionStatusDrawer: SwapTransactionStatusDrawerState;
+  currencyRegionRestrictedDrawer: CurrencyRegionRestrictedDrawerState;
   notifications: NotificationsState;
   postOnboarding: PostOnboardingState;
   postOnboardingHubDrawer: PostOnboardingHubDrawerState;
   protect: ProtectState;
   ratings: RatingsState;
   sendFlow: SendFlowState;
-  payCard: PayCardState;
+  payCardBalance: PayCardBalanceState;
+  payCardFeatureTour: PayCardFeatureTourState;
+  payRequestVerifyHint: PayRequestVerifyHintState;
+  payCardOnboardingWidget: PayCardOnboardingWidgetState;
+  payCardAuth: PayCardAuthState;
+  payCardLoginIntro: PayCardLoginIntroState;
   settings: SettingsState;
   toasts: ToastState;
   trustchain: TrustchainStore;
@@ -488,4 +501,5 @@ export type State = LLMRTKApiState & {
   liveAppModal: LiveAppModalState;
   supportedFiats: SupportedFiatsState;
   contacts: ContactsState;
+  appLock: AppLockState;
 };

@@ -1,21 +1,20 @@
-import { loadConfig, setFeatureFlags } from "../bridge/server";
+import { loadConfig, setFeatureFlags } from "@e2e/bridge/server";
 import { isObservable, lastValueFrom, Observable } from "rxjs";
 import { log } from "detox";
-import { allure } from "jest-allure2-reporter/api";
 import { SpeculosAppType } from "@ledgerhq/live-e2e-shared/enum/AppInfos";
-import { getMergedFeatureFlags } from "./featureFlagUtils";
-import { isSpeculosRemote } from "../helpers/commonHelpers";
+import { getMergedFeatureFlags } from "@e2e/utils/featureFlagUtils";
+import { isSpeculosRemote } from "@e2e/helpers/commonHelpers";
 import {
   deleteSpeculos,
   launchSpeculos,
   registerKnownSpeculos,
   registerSpeculos,
   removeSpeculosAndDeregisterKnownSpeculos,
-} from "./speculosUtils";
+} from "@e2e/utils/speculosUtils";
 import { waitForSpeculosReady } from "@ledgerhq/live-e2e-shared/speculosCI";
 import { sanitizeError } from "@ledgerhq/live-e2e-shared/index";
 
-import type { Features, OptionalFeatureMap } from "@shared/feature-flags";
+import type { PartialFeatures } from "@shared/feature-flags";
 
 function checkTestFailed(): void {
   if (globalThis.IS_FAILED) {
@@ -39,9 +38,9 @@ export type InitOptions = {
     app: SpeculosAppType;
     cmd: CliCommand;
   }[];
-  userdata?: string;
+  userdata?: string | null;
   testedCurrencies?: string[];
-  featureFlags?: OptionalFeatureMap;
+  featureFlags?: PartialFeatures;
   speculosForSetupOnly?: boolean;
 };
 
@@ -109,7 +108,7 @@ async function launchSpeculosDevices(toStart: SpeculosAppType[]): Promise<Record
     );
     throw new Error(
       `Failed to launch ${failures.length}/${toStart.length} Speculos device(s): ${failures
-        .map(sanitizeError)
+        .map(err => sanitizeError(err))
         .join("; ")}`,
     );
   }
@@ -275,22 +274,22 @@ async function executeCliCommands(
     } catch (err) {
       lastError = err;
 
-      if (speculosApp && entryMap) {
-        checkTestFailed();
-
-        const main = entryMap[speculosApp.name];
-
-        await removeSpeculosAndDeregisterKnownSpeculos(main.deviceId);
-        const device = await launchSpeculos(speculosApp.name);
-        entryMap[speculosApp.name] = {
-          name: speculosApp.name,
-          speculosPort: device.port,
-          deviceId: device.id,
-        };
-        await setupMainSpeculosApp(speculosApp, entryMap);
-      }
-
       if (attempt < maxRetries) {
+        if (speculosApp && entryMap) {
+          checkTestFailed();
+
+          const main = entryMap[speculosApp.name];
+
+          await removeSpeculosAndDeregisterKnownSpeculos(main.deviceId);
+          const device = await launchSpeculos(speculosApp.name);
+          entryMap[speculosApp.name] = {
+            name: speculosApp.name,
+            speculosPort: device.port,
+            deviceId: device.id,
+          };
+          await setupMainSpeculosApp(speculosApp, entryMap);
+        }
+
         log.info(`[Global CLI] Retrying full command run (attempt ${attempt + 1}/${maxRetries})`);
       }
     }
@@ -372,20 +371,29 @@ export class InitializationManager {
     await InitializationManager.finalizeSetup(userdataSpeculos);
   }
 
+  static async initializeFreshInstall(options: InitOptions): Promise<void> {
+    const { speculosApp, cliCommands = [], cliCommandsOnApp = [], featureFlags = {} } = options;
+
+    if (speculosApp || cliCommands.length > 0 || cliCommandsOnApp.length > 0) {
+      throw new Error(
+        "A fresh install has no userdata for Speculos or CLI commands to write into: pass a userdata fixture instead of null",
+      );
+    }
+
+    await InitializationManager.setFeatureFlags(featureFlags);
+  }
+
   private static async finalizeSetup(userdataSpeculos: string): Promise<void> {
     await loadConfig(userdataSpeculos, true);
   }
 
-  static async setFeatureFlags(featureFlags: OptionalFeatureMap) {
+  static async setFeatureFlags(featureFlags: PartialFeatures) {
     const mergedFeatureFlags = getMergedFeatureFlags({ testFlags: featureFlags });
-    const wallet40 = mergedFeatureFlags.lwmWallet40 as Features["lwmWallet40"];
+    const wallet40 = mergedFeatureFlags.lwmWallet40;
     isMyWalletEnabled = Boolean(wallet40?.enabled && wallet40?.params?.myWallet);
 
-    await allure.attachment(
-      "Merged Feature Flags",
-      JSON.stringify(mergedFeatureFlags, null, 2),
-      "application/json",
-    );
+    globalThis.mergedFeatureFlags = mergedFeatureFlags;
+
     await setFeatureFlags(mergedFeatureFlags);
   }
 }

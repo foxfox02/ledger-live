@@ -15,17 +15,27 @@ import { SyncConfig, SYNC_TYPE_SHIELDED, SYNC_TYPE_TRANSPARENT } from "@ledgerhq
 import type { TokenAccount } from "@ledgerhq/types-live";
 import invariant from "invariant";
 import { AleoApiConfigurationResetError } from "../errors";
-import { getBalance, lastBlock, listOperations } from "../logic";
+import { lastBlock } from "../logic";
+import { getPublicBalance } from "../logic/getPublicBalance";
 import {
   extractViewKey,
   isProvableApiConfigured,
   isRecordScannerReady,
+  isStakingOperation,
   splitPrivateAndPublicOperations,
   resolveConfig,
-  getCalTokens,
+  sumStakedBalance,
+  toStakingResources,
 } from "../logic/utils";
+import { listOperations } from "./listOperations";
+import { getCalTokens } from "./utils";
 import { aleoPrivateSyncProgress$ } from "./privateSyncProgress";
-import { accessProvableApi, fetchAllOwnedRecords, patchPublicOperations } from "../network/utils";
+import {
+  accessProvableApi,
+  fetchAllOwnedRecords,
+  getStakingPosition,
+  patchPublicOperations,
+} from "../network/utils";
 import {
   PROGRESS_AFTER_SCANNER,
   PROGRESS_AFTER_LIST_OPS,
@@ -35,13 +45,15 @@ import {
 } from "../constants";
 import type {
   AleoAccount,
+  AleoResources,
+  AleoStakingResources,
   AleoOperation,
   AleoUnspentRecord,
   Transaction as AleoTransaction,
   AleoPrivateRecord,
 } from "../types";
 import { getPrivateBalance } from "../logic/getPrivateBalance";
-import { listPrivateOperations } from "../logic/listPrivateOperations";
+import { listPrivateOperations } from "./listPrivateOperations";
 import {
   attachPrivateTokenOpsToParent,
   buildSubAccountsFromPrivateRecords,
@@ -75,9 +87,10 @@ export async function performPublicSync(
   });
   const config = resolveConfig(currency.id);
 
-  const [balances, latestBlock] = await Promise.all([
-    getBalance(config, address),
+  const [balances, latestBlock, stakingPosition] = await Promise.all([
+    getPublicBalance(config, address),
     lastBlock(config),
+    config.enableStaking ? getStakingPosition(config, address) : undefined,
   ]);
 
   const blockHeight = latestBlock?.height ?? initialAccount?.blockHeight ?? 0;
@@ -87,8 +100,8 @@ export async function performPublicSync(
   // Migration: if tokens were never synced (legacy account) or were previously disabled,
   // reset the cursor to 0 so the full history is re-fetched and all operations get
   // program id populated in a single pass — no extra network call needed.
-  const isTokenMigrationRequired =
-    config.enableTokens && initialAccount?.aleoResources?.hasMigratedPublicTokens !== true;
+  const { hasMigratedPublicTokens, hasMigratedStaking } = initialAccount?.aleoResources ?? {};
+  const isTokenMigrationRequired = config.enableTokens && hasMigratedPublicTokens !== true;
 
   // Sync hash tracks CAL + blacklist; only meaningful when tokens are enabled.
   // When disabled, preserve the stored hash so CAL changes don't trigger unnecessary full re-syncs.
@@ -97,20 +110,37 @@ export async function performPublicSync(
     : initialAccount?.syncHash;
   const shouldSyncFromScratch = !initialAccount || syncHash !== initialAccount?.syncHash;
 
-  const allOldOperations = shouldSyncFromScratch ? [] : (initialAccount?.operations ?? []);
+  const allOldOperations = (
+    shouldSyncFromScratch ? [] : (initialAccount?.operations ?? [])
+  ) as AleoOperation[];
 
   // Keep public and private ops separate so each cursor is derived from the correct op type.
   // Mixing them risks using a private op's blockHeight as the public sync cursor.
-  const [oldPrivateOps, oldPublicOps] = splitPrivateAndPublicOperations(allOldOperations);
+  const [oldPrivateOps, oldPublicOpsRaw] = splitPrivateAndPublicOperations(allOldOperations) as [
+    AleoOperation[],
+    AleoOperation[],
+  ];
+
+  // While staking is off the cached staking rows are dropped and the marker cleared, yet the
+  // cursor stays past the history that drop removed. Turning staking back on has to rewind it
+  // to 0, or that history is never fetched again.
+  const isStakingMigrationRequired = config.enableStaking && hasMigratedStaking !== true;
+  const shouldKeepCachedStakingOps = config.enableStaking && hasMigratedStaking === true;
+
+  const oldPublicOps = shouldKeepCachedStakingOps
+    ? oldPublicOpsRaw
+    : oldPublicOpsRaw.filter(op => !isStakingOperation(op));
+
   const lastBlockHeight =
-    shouldSyncFromScratch || isTokenMigrationRequired ? 0 : (oldPublicOps[0]?.blockHeight ?? 0);
+    shouldSyncFromScratch || isTokenMigrationRequired || isStakingMigrationRequired
+      ? 0
+      : (oldPublicOps[0]?.blockHeight ?? 0);
 
   const latestAccountPublicOperations = await listOperations({
     config,
     currencyId: currency.id,
     address,
     ledgerAccountId,
-    mode: "bridge",
     options: {
       minHeight: 0,
       order: "asc",
@@ -125,9 +155,7 @@ export async function performPublicSync(
   // Already-patched ops have modified senders/recipients that differ from raw API data.
   // Filter them from the incoming ops — mergeOps then simply keeps the patched version
   // from oldPublicOps untouched, and no patch-restoration pass is needed.
-  const patchedOpIds = new Set(
-    (oldPublicOps as AleoOperation[]).filter(op => op.extra?.patched).map(op => op.id),
-  );
+  const patchedOpIds = new Set(oldPublicOps.filter(op => op.extra?.patched).map(op => op.id));
 
   const filteredLatestPublicOperations = latestAccountPublicOperations.operations.filter(
     op => !patchedOpIds.has(op.id),
@@ -140,10 +168,14 @@ export async function performPublicSync(
   // Empty when shouldSyncFromScratch = true because allOldOperations is reset above.
   // Private ops for removed CAL tokens are cleared this way; private sync rebuilds
   // the rest from scratch on the next emission.
-  const preservedPrivateOps = oldPrivateOps as AleoOperation[];
+  const preservedPrivateOps = oldPrivateOps;
 
   const preservedPrivateBalance = initialAccount?.aleoResources?.privateBalance ?? null;
-  const totalBalance = transparentBalance.plus(preservedPrivateBalance ?? 0);
+  const stakingResources = stakingPosition ? toStakingResources(stakingPosition) : {};
+  // Bonded and unbonding funds are owned by the account but cannot be spent until they are
+  // unbonded and claimed, so they count towards `balance` but not `spendableBalance`.
+  const liquidBalance = transparentBalance.plus(preservedPrivateBalance ?? 0);
+  const totalBalance = liquidBalance.plus(sumStakedBalance(stakingResources));
 
   // Same reasoning as filteredLatestPublicOperations: patched token sub-account ops have
   // modified senders/recipients that differ from raw API data. sameOp detects the difference
@@ -182,7 +214,7 @@ export async function performPublicSync(
     type: "Account",
     id: ledgerAccountId,
     balance: totalBalance,
-    spendableBalance: totalBalance,
+    spendableBalance: liquidBalance,
     blockHeight,
     operations,
     operationsCount: operations.length,
@@ -195,7 +227,9 @@ export async function performPublicSync(
       privateBalance: preservedPrivateBalance,
       unspentPrivateRecords: initialAccount?.aleoResources?.unspentPrivateRecords ?? null,
       lastPrivateSyncDate: initialAccount?.aleoResources?.lastPrivateSyncDate ?? null,
+      ...stakingResources,
       ...(config.enableTokens && { hasMigratedPublicTokens: true }),
+      ...(config.enableStaking && { hasMigratedStaking: true }),
     },
   };
 }
@@ -234,12 +268,17 @@ export function createPublicSyncObservable(
  *   freshly-fetched data rather than the previous cycle's state.
  * @param freshTransparentBalance - The transparent balance from the current
  *   public sync cycle. Used to compute the correct total balance.
+ * @param freshStakingPosition - The staking fields fetched by the current public
+ *   sync cycle. The combined-sync emission spreads the private shape last, so it
+ *   must carry the fresh staking values or it would clobber them with the stale
+ *   initialAccount ones — same reasoning as freshTransparentBalance.
  */
 export async function performPrivateSync({
   info,
   syncConfig: _syncConfig,
   currentPublicOps,
   freshTransparentBalance,
+  freshStakingPosition,
   onProgress,
   signal,
   publicSubAccounts,
@@ -249,6 +288,7 @@ export async function performPrivateSync({
   syncConfig: SyncConfig;
   currentPublicOps: AleoOperation[];
   freshTransparentBalance?: BigNumber;
+  freshStakingPosition?: AleoStakingResources;
   onProgress?: (progress: number) => void;
   signal?: AbortSignal;
   publicSubAccounts?: TokenAccount[];
@@ -319,6 +359,16 @@ export async function performPrivateSync({
   // freshSyncHash being defined means this is a chained public→private run (not standalone).
   const publicSyncWasFromScratch =
     freshSyncHash !== undefined && freshSyncHash !== initialAccount.syncHash;
+  // Not `freshSyncHash`: that is only a fresh value while tokens are enabled, and is otherwise
+  // the stored hash — undefined on an account that never had one.
+  const publicSyncRanThisCycle = freshTransparentBalance !== undefined;
+
+  // The migration itself runs in the public sync, so only a chained run may report it happened.
+  // Staking being off has to clear the marker, since this run strips the cached staking rows:
+  // keeping it would let a later re-enable skip the migration and never re-fetch them.
+  const hasMigratedStaking =
+    config.enableStaking &&
+    (publicSyncRanThisCycle || initialAccount.aleoResources?.hasMigratedStaking === true);
   const allOldOperations = publicSyncWasFromScratch ? [] : (initialAccount.operations ?? []);
   const [oldPrivateOps] = splitPrivateAndPublicOperations(allOldOperations);
   const lastPrivateBlockHeight = publicSyncWasFromScratch
@@ -473,7 +523,14 @@ export async function performPrivateSync({
   // otherwise fall back to what the account last recorded.
   const transparentBalance =
     freshTransparentBalance ?? initialAccount.aleoResources?.transparentBalance ?? new BigNumber(0);
-  const totalBalance = transparentBalance.plus(privateBalance);
+
+  const stakingSource = freshStakingPosition ?? initialAccount.aleoResources;
+  const stakingResources =
+    config.enableStaking && BigNumber.isBigNumber(stakingSource?.bondedBalance)
+      ? toStakingResources(stakingSource)
+      : {};
+  const liquidBalance = transparentBalance.plus(privateBalance);
+  const totalBalance = liquidBalance.plus(sumStakedBalance(stakingResources));
 
   log("aleo/performPrivateSync", "Private sync completed", {
     ledgerAccountId,
@@ -510,9 +567,12 @@ export async function performPrivateSync({
     operations.sort((a, b) => b.date.getTime() - a.date.getTime());
   }
 
-  const finalOperations = config.enableTokens
-    ? operations
-    : operations.filter(op => (op.subOperations ?? []).length === 0);
+  const finalOperations = operations.filter(op => {
+    const isTokenOp = (op.subOperations ?? []).length > 0;
+    if (isTokenOp && !config.enableTokens) return false;
+    if (isStakingOperation(op) && !config.enableStaking) return false;
+    return true;
+  });
 
   onProgress?.(PROGRESS_DONE);
 
@@ -520,7 +580,7 @@ export async function performPrivateSync({
     type: "Account",
     id: ledgerAccountId,
     balance: totalBalance,
-    spendableBalance: totalBalance,
+    spendableBalance: liquidBalance,
     blockHeight,
     operations: finalOperations,
     operationsCount: finalOperations.length,
@@ -533,10 +593,12 @@ export async function performPrivateSync({
       privateBalance,
       unspentPrivateRecords,
       lastPrivateSyncDate: new Date(),
+      ...stakingResources,
       ...(config.enableTokens && {
         hasMigratedPublicTokens: true,
         hasMigratedPrivateTokens: true,
       }),
+      ...(hasMigratedStaking && { hasMigratedStaking: true }),
     },
   };
 }
@@ -548,6 +610,7 @@ export function createPrivateSyncObservable(
   freshTransparentBalance?: BigNumber,
   publicSubAccounts?: TokenAccount[],
   freshSyncHash?: string,
+  freshStakingPosition?: AleoStakingResources,
 ): Observable<Partial<AleoAccount>> {
   const { initialAccount } = info;
   const currencyId = info.currency.id;
@@ -580,6 +643,7 @@ export function createPrivateSyncObservable(
       currentPublicOps: publicOps,
       signal: controller.signal,
       ...(freshTransparentBalance !== undefined && { freshTransparentBalance }),
+      ...(freshStakingPosition !== undefined && { freshStakingPosition }),
       ...(onProgress !== undefined && { onProgress }),
       ...(publicSubAccounts !== undefined && { publicSubAccounts }),
       ...(freshSyncHash !== undefined && { freshSyncHash }),
@@ -610,6 +674,7 @@ export function createPrivateSyncObservable(
           subscriber.next({
             operations: initialAccount.operations,
             operationsCount: initialAccount.operationsCount,
+            lastSyncDate: initialAccount.lastSyncDate,
             aleoResources: {
               ...initialAccount.aleoResources,
               provableApi: null,
@@ -683,6 +748,7 @@ export function buildSyncObservables(
               publicResult.aleoResources?.transparentBalance,
               publicResult.subAccounts,
               publicResult.syncHash,
+              publicResult.aleoResources,
             ),
           ),
         ),
@@ -725,6 +791,66 @@ export function makeGetAccountShape(): GetAccountShapeStream<AleoAccount> {
     });
 }
 
+// A date saved while the clock ran ahead must not win, or it would discard every sync until then.
+const validTime = (date: Date | null | undefined) => {
+  const time = date?.getTime() ?? 0;
+  return time <= Date.now() ? time : 0;
+};
+
+const isNewer = (date: Date | null | undefined, than: Date | null | undefined) =>
+  validTime(date) > validTime(than);
+
+/**
+ * A shape is computed from the snapshot its sync started with, but is applied to `initialAccount`:
+ * the account as it is when the shape lands. The private sync runs for minutes and, from the sync
+ * button, outside the bridge queue, so a public and a private sync can overlap and each would
+ * restore its stale copy of the fields the other one owns. Only public syncs advance `lastSyncDate`
+ * and only private ones `lastPrivateSyncDate`, so whichever side `initialAccount` is newer on keeps
+ * its fields.
+ *
+ * Operations, `syncHash` and the migration markers still come from the landing shape: the markers
+ * and the hash decide the next sync's cursors, so they must describe the operations stored with them.
+ */
+function keepNewerSyncFields(initialAccount: AleoAccount, syncedAccount: AleoAccount): AleoAccount {
+  const initialResources = initialAccount.aleoResources;
+  const syncedResources = syncedAccount.aleoResources;
+  if (!initialResources || !syncedResources) return syncedAccount;
+
+  const keepInitialPublic = isNewer(initialAccount.lastSyncDate, syncedAccount.lastSyncDate);
+  const keepInitialPrivate = isNewer(
+    initialResources.lastPrivateSyncDate,
+    syncedResources.lastPrivateSyncDate,
+  );
+  if (!keepInitialPublic && !keepInitialPrivate) return syncedAccount;
+
+  const aleoResources: AleoResources = {
+    ...syncedResources,
+    ...(keepInitialPublic && {
+      transparentBalance: initialResources.transparentBalance,
+      bondedBalance: initialResources.bondedBalance,
+      bondedValidator: initialResources.bondedValidator,
+      unbondingBalance: initialResources.unbondingBalance,
+      unbondingHeight: initialResources.unbondingHeight,
+    }),
+    ...(keepInitialPrivate && {
+      provableApi: initialResources.provableApi,
+      privateBalance: initialResources.privateBalance,
+      unspentPrivateRecords: initialResources.unspentPrivateRecords,
+      lastPrivateSyncDate: initialResources.lastPrivateSyncDate,
+    }),
+  };
+  const liquidBalance = aleoResources.transparentBalance.plus(aleoResources.privateBalance ?? 0);
+
+  return {
+    ...syncedAccount,
+    balance: liquidBalance.plus(sumStakedBalance(aleoResources)),
+    spendableBalance: liquidBalance,
+    blockHeight: Math.max(initialAccount.blockHeight, syncedAccount.blockHeight),
+    ...(keepInitialPublic && { lastSyncDate: initialAccount.lastSyncDate }),
+    aleoResources,
+  };
+}
+
 /**
  * Aleo doesn't have a per-account transaction nonce, so there is no natural value
  * to assign to `transactionSequenceNumber` on confirmed operations.
@@ -740,7 +866,7 @@ export function makeGetAccountShape(): GetAccountShapeStream<AleoAccount> {
  * once a confirmed operation with the same id appears in the confirmed list,
  * the corresponding pending operation is no longer needed.
  */
-export function postSync(_initial: AleoAccount, synced: AleoAccount): AleoAccount {
+function removeConfirmedPendingOperations(synced: AleoAccount): AleoAccount {
   const pendingOperations = synced.pendingOperations ?? [];
   const pendingSubOperations = (synced.subAccounts ?? []).flatMap(sa => sa.pendingOperations ?? []);
 
@@ -763,6 +889,10 @@ export function postSync(_initial: AleoAccount, synced: AleoAccount): AleoAccoun
       })),
     }),
   };
+}
+
+export function postSync(initialAccount: AleoAccount, syncedAccount: AleoAccount): AleoAccount {
+  return removeConfirmedPendingOperations(keepNewerSyncFields(initialAccount, syncedAccount));
 }
 
 export const sync = makeSync<AleoTransaction, AleoAccount>({

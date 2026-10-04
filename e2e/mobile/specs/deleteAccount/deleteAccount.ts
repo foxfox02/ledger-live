@@ -1,6 +1,6 @@
 import { AccountType } from "@ledgerhq/live-e2e-shared/enum/Account";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { setTeamOwner } from "../../helpers/allure/allure-helper";
+import { setTeamOwner } from "@e2e/helpers/allure/allure-helper";
 
 export function runDeleteAccountTest(account: AccountType, tmsLinks: string[], tags: string[]) {
   describe("Delete account", () => {
@@ -16,7 +16,7 @@ export function runDeleteAccountTest(account: AccountType, tmsLinks: string[], t
     setTeamOwner(Team.WALLET_XP);
     tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
     tags.forEach(tag => $Tag(tag));
-    it(`Perform a delete account - ${account.accountName}`, async () => {
+    it(`[${account.currency.testLabel}] - Delete account`, async () => {
       await app.account.openViaDeeplink();
       await app.account.expectAccountName(account.accountName);
       await app.account.goToAccountByName(account.accountName);

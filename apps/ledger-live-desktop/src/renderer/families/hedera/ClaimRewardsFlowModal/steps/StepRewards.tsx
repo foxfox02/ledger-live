@@ -67,7 +67,7 @@ function StepRewards({ account, parentAccount, transaction, status, error }: Rea
         <ValidatorsSelect
           disabled
           account={account}
-          selectedValidatorNodeId={enrichedDelegation.validator.nodeId}
+          selectedValidatorId={enrichedDelegation.validator.id}
         />
       </Box>
       {feeError && (
@@ -96,6 +96,7 @@ export function StepRewardsFooter({
       </Button>
       <Button
         id="claim-rewards-continue-button"
+        isLoading={bridgePending}
         disabled={!canNext}
         primary
         onClick={() => transitionTo("connectDevice")}

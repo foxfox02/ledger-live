@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import TrackPage from "~/renderer/analytics/TrackPage";
+import { TrackPage } from "@shared/analytics-react";
 import { getMainAccount } from "@ledgerhq/live-common/account/index";
 import GenericStepConnectDevice from "./GenericStepConnectDevice";
 import { StepProps } from "../types";
@@ -18,7 +18,6 @@ export default function StepConnectDevice({
   onTransactionSigned,
   manifestId,
   manifestName,
-  isACRE,
   location,
 }: StepProps) {
   const connectDependencies = useMemo(() => {
@@ -50,7 +49,6 @@ export default function StepConnectDevice({
         dependencies={connectDependencies}
         manifestId={manifestId}
         manifestName={manifestName}
-        isACRE={isACRE}
         requireLatestFirmware={!isSwapDisableAppsInstall()}
         location={location}
       />

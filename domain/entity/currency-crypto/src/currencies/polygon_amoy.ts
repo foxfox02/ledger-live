@@ -7,15 +7,10 @@ export const polygon_amoy = currency({
   name: "Polygon Amoy",
   managerAppName: "Ethereum",
   ticker: "POL",
-  deviceTicker: "POL",
   scheme: "polygon_amoy",
   color: "#6d29de",
   family: "evm",
   isTestnetFor: "polygon",
-  disableCountervalue: true,
-  ethereumLikeInfo: {
-    chainId: 80002,
-  },
   units: [
     {
       name: "POL",
@@ -50,5 +45,4 @@ export const polygon_amoy = currency({
       token: "https://amoy.polygonscan.com/token/$contractAddress?a=$address",
     },
   ],
-  explorerId: "matic_amoy",
 });

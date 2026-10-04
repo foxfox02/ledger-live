@@ -1,6 +1,6 @@
 {
   "name": "@ledgerhq/coin-tester-cosmos",
-  "version": "0.3.1",
+  "version": "0.6.0",
   "private": true,
   "description": "Ledger Cosmos Coin Tester",
   "main": "src/scenarii.test.ts",
@@ -9,6 +9,7 @@
     "LedgerWallet",
     "Cosmos",
     "Babylon",
+    "Gonka",
     "Testing"
   ],
   "repository": {
@@ -40,6 +41,11 @@
       "require": "./lib/scenarii/Cosmos.js",
       "default": "./lib-es/scenarii/Cosmos.js"
     },
+    "./scenarii/Gonka": {
+      "@ledgerhq/source": "./src/scenarii/Gonka.ts",
+      "require": "./lib/scenarii/Gonka.js",
+      "default": "./lib-es/scenarii/Gonka.js"
+    },
     "./lib/*": "./lib/*.js",
     "./lib-es/*": "./lib-es/*.js",
     "./package.json": "./package.json"
@@ -67,11 +73,12 @@
     "@ledgerhq/coin-module-framework": "catalog:",
     "@ledgerhq/coin-tester": "workspace:^",
     "@ledgerhq/ledger-wallet-framework": "workspace:^",
+    "@ledgerhq/live-common": "workspace:^",
+    "@ledgerhq/live-config": "catalog:",
     "@ledgerhq/types-live": "workspace:^",
     "bignumber.js": "^9.1.2",
     "chalk": "^4.1.2",
     "docker-compose": "^1.1.0",
-    "expect": "catalog:",
     "msw": "catalog:"
   },
   "devDependencies": {

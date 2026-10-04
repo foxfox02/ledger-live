@@ -15,6 +15,7 @@ import { SEND_FLOW_CONFIG } from "./constants";
 import { RecipientScreen } from "./screens/Recipient";
 import { AmountScreen } from "./screens/Amount";
 import { ConfirmationScreen } from "./screens/Confirmation";
+import { PaySuccessScreen } from "./screens/PaySuccess";
 import { SignatureScreen } from "./screens/Signature";
 import { CoinControlScreen } from "./screens/CoinControl";
 import { CustomFeesScreen } from "./screens/CustomFees";
@@ -27,15 +28,18 @@ const stepRegistry: StepRegistry<SendFlowStep> = {
   [SEND_FLOW_STEP.COIN_CONTROL]: CoinControlScreen,
   [SEND_FLOW_STEP.SIGNATURE]: SignatureScreen,
   [SEND_FLOW_STEP.CONFIRMATION]: ConfirmationScreen,
+  [SEND_FLOW_STEP.PAY_SUCCESS]: PaySuccessScreen,
 };
 
 type SendWorkflowParams = Readonly<{
   account?: AccountLike;
   parentAccount?: Account;
   recipient?: string;
+  skipRecipientStep?: boolean;
   amount?: string;
   memo?: string;
   fromMAD?: boolean;
+  source?: string;
 }>;
 
 type SendWorkflowRouteParams = {
@@ -45,9 +49,11 @@ type SendWorkflowRouteParams = {
   account?: AccountLike;
   parentAccount?: Account;
   recipient?: string;
+  skipRecipientStep?: boolean;
   amount?: string;
   memo?: string;
   fromMAD?: boolean;
+  source?: string;
 };
 
 export default function SendWorkflow() {
@@ -72,9 +78,11 @@ export default function SendWorkflow() {
       account: params?.account ?? routeParams?.account,
       parentAccount: params?.parentAccount ?? routeParams?.parentAccount,
       recipient: params?.recipient ?? routeParams?.recipient,
+      skipRecipientStep: params?.skipRecipientStep ?? routeParams?.skipRecipientStep,
       amount: params?.amount ?? routeParams?.amount,
       memo: params?.memo ?? routeParams?.memo,
       fromMAD: params?.fromMAD ?? routeParams?.fromMAD ?? false,
+      source: params?.source ?? routeParams?.source,
     }),
     [params, routeParams],
   );

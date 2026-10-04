@@ -13,15 +13,14 @@
   "engines": {
     "node": ">=24.0.0"
   },
-  "resolutions": {
-    "node-abi": "^4.9.0"
-  },
   "scripts": {
     "nx:write-cache-config": "node tools/nx/write-nx-cache-config.mjs",
     "postinstall": "pnpm run nx:write-cache-config",
     "lint:boundaries": "nx run enforce-boundaries:lint:boundaries",
+    "lint:structure": "nx run-many -t lint:structure",
+    "lint:i18n-keys": "nx run enforce-i18n-keys:lint:i18n-keys",
     "bump": "changeset version",
-    "clean": "git clean -fdX",
+    "clean": "git clean -fdX && node tools/nx/write-nx-cache-config.mjs --force",
     "changelog": "changeset add",
     "prerelease": "pnpm run build:libs",
     "release": "changeset publish",
@@ -36,9 +35,6 @@
     "build:wallet-cli": "nx run-many -t build -p @ledgerhq/wallet-cli",
     "build:coin": "nx run-many -t build -p \"@ledgerhq/coin-*\"",
     "build:coin:deps": "nx run-many -t build -p \"@ledgerhq/coin-*\"",
-    "build:domain": "nx run-many -t build -p @ledgerhq/domain-service",
-    "build:network": "nx run-many -t build -p @ledgerhq/live-network",
-    "build:config": "nx run-many -t build -p @ledgerhq/live-config",
     "build:llc": "nx run-many -t build -p @ledgerhq/live-common",
     "build:lld": "nx run-many -t build -p ledger-live-desktop",
     "build:lld:deps": "nx run-many -t build -p ledger-live-desktop",
@@ -47,20 +43,18 @@
     "build:llm:deps": "nx run-many -t build -p live-mobile",
     "build:coin-modules:deps": "nx run-many -t build -p \"@ledgerhq/coin-*\"",
     "build:coin-tester-modules:deps": "nx run-many -t build -p \"@ledgerhq/coin-tester-*\"",
-    "build:ljs": "nx run-many -t build -p \"@ledgerhq/hw-*,@ledgerhq/devices,@ledgerhq/errors,@ledgerhq/types-*,@ledgerhq/logs,@ledgerhq/react-native-*,@ledgerhq/swift-bridge-*\"",
+    "build:ljs": "nx run-many -t build -p \"@ledgerhq/hw-*,@ledgerhq/types-*,@ledgerhq/react-native-*,@ledgerhq/swift-bridge-*\"",
     "build:hw-app": "nx run-many -t build -p \"@ledgerhq/hw-app-*\"",
     "build:web-tools": "nx run-many -t build -p @ledgerhq/web-tools",
     "build-ci:llm:ios": "nx run-many -t ios:ci:adhoc -p live-mobile",
     "build-ci:llm:android": "nx run-many -t android:apk -p live-mobile",
-    "clean:ljs": "nx run-many -t clean -p \"@ledgerhq/hw-*,@ledgerhq/devices,@ledgerhq/errors,@ledgerhq/types-*,@ledgerhq/logs,@ledgerhq/react-native-*,@ledgerhq/swift-bridge-*\"",
-    "doc:ljs": "nx run-many -t doc -p \"@ledgerhq/hw-*,@ledgerhq/devices,@ledgerhq/errors,@ledgerhq/types-*,@ledgerhq/logs,@ledgerhq/react-native-*,@ledgerhq/swift-bridge-*\"",
+    "clean:ljs": "nx run-many -t clean -p \"@ledgerhq/hw-*,@ledgerhq/types-*,@ledgerhq/react-native-*,@ledgerhq/swift-bridge-*\"",
     "watch:coin": "nx run-many -t watch -p \"@ledgerhq/coin-*\" --parallel=20",
     "watch:es:coin": "nx run-many -t watch:es -p \"@ledgerhq/coin-*\" --parallel=20",
-    "watch:ljs": "nx run-many -t watch -p \"@ledgerhq/hw-*,@ledgerhq/devices,@ledgerhq/errors,@ledgerhq/types-*,@ledgerhq/logs,@ledgerhq/react-native-*,@ledgerhq/swift-bridge-*\" --parallel=44",
-    "watch:es:ljs": "nx run-many -t watch:es -p \"@ledgerhq/hw-*,@ledgerhq/devices,@ledgerhq/errors,@ledgerhq/types-*,@ledgerhq/logs,@ledgerhq/react-native-*,@ledgerhq/swift-bridge-*\" --parallel=44",
+    "watch:ljs": "nx run-many -t watch -p \"@ledgerhq/hw-*,@ledgerhq/types-*,@ledgerhq/react-native-*,@ledgerhq/swift-bridge-*\" --parallel=44",
+    "watch:es:ljs": "nx run-many -t watch:es -p \"@ledgerhq/hw-*,@ledgerhq/types-*,@ledgerhq/react-native-*,@ledgerhq/swift-bridge-*\" --parallel=44",
     "watch:common": "nx run-many -t watch -p @ledgerhq/live-common",
     "watch:es:common": "nx run-many -t watch:es -p @ledgerhq/live-common",
-    "watch:countervalues": "nx run-many -t watch -p @ledgerhq/live-countervalues",
     "dev:cli": "nx run-many -t watch -p @ledgerhq/live-cli",
     "dev:lld": "nx run ledger-live-desktop:start",
     "dev:lld:msw": "nx run ledger-live-desktop:start:msw",
@@ -87,6 +81,7 @@
     "validate:renovate": "npx --yes --package renovate -- renovate-config-validator",
     "knip-check": "nx run-many -t knip-check",
     "unimported": "nx run-many -t unimported",
+    "deadcode": "nx run-many -t unimported -t knip-check",
     "desktop": "pnpm --filter ledger-live-desktop",
     "e2e:desktop": "pnpm --filter ledger-live-desktop-e2e-tests",
     "e2e-cli": "pnpm --filter @ledgerhq/live-e2e-shared e2e-cli",
@@ -109,7 +104,6 @@
     "coin:celo": "pnpm --filter coin-celo",
     "coin:concordium": "pnpm --filter coin-concordium",
     "coin:cosmos": "pnpm --filter coin-cosmos",
-    "coin:evm": "pnpm --filter coin-evm",
     "coin:filecoin": "pnpm --filter coin-filecoin",
     "coin:kaspa": "pnpm --filter coin-kaspa",
     "coin:tester": "pnpm --filter coin-tester",
@@ -123,27 +117,31 @@
     "coin:stacks": "pnpm --filter coin-stacks",
     "coin:icon": "pnpm --filter coin-icon",
     "coin:internet_computer": "pnpm --filter coin-internet_computer",
-    "coin:tezos": "pnpm --filter coin-tezos",
     "coin:tron": "pnpm --filter coin-tron",
     "coin:vechain": "pnpm --filter coin-vechain",
     "coin:xrp": "pnpm --filter coin-xrp",
     "coin:sui": "pnpm --filter coin-sui",
+    "coin:zcash": "pnpm --filter coin-zcash",
     "coin-modules:lint-fix": "nx run-many -t lint:fix -p \"@ledgerhq/coin-*\"",
     "coin-modules:test-integ": "nx run-many -t test-integ -p \"@ledgerhq/coin-*\"",
     "coin:modules:monitoring": "pnpm --filter coin-modules-monitoring",
     "coin:tester:cardano": "pnpm --filter coin-tester-cardano",
+    "coin:tester:casper": "pnpm --filter coin-tester-casper",
     "coin:tester:cosmos": "pnpm --filter coin-tester-cosmos",
     "coin:tester:evm": "pnpm --filter coin-tester-evm",
     "coin:tester:polkadot": "pnpm --filter coin-tester-polkadot",
     "coin:tester:solana": "pnpm --filter coin-tester-solana",
     "coin:tester:bitcoin": "pnpm --filter coin-tester-bitcoin",
+    "coin:tester:stacks": "pnpm --filter coin-tester-stacks",
     "coin:tester:stellar": "pnpm --filter coin-tester-stellar",
     "coin:tester:tezos": "pnpm --filter coin-tester-tezos",
     "coin:tester:multiversx": "pnpm --filter coin-tester-multiversx",
+    "coin:tester:near": "pnpm --filter coin-tester-near",
     "coin:tester:tron": "pnpm --filter coin-tester-tron",
+    "coin:tester:vechain": "pnpm --filter coin-tester-vechain",
+    "coin:tester:kaspa": "pnpm --filter coin-tester-kaspa",
     "coin:tester:xrp": "pnpm --filter coin-tester-xrp",
-    "evm-tools": "pnpm --filter evm-tools",
-    "domain": "pnpm --filter domain-service",
+    "coin:tester:zcash": "pnpm --filter coin-tester-zcash",
     "doc": "pnpm --filter docs",
     "mobile": "pnpm --filter live-mobile",
     "e2e:mobile": "pnpm --filter ledger-live-mobile-e2e-tests",
@@ -152,27 +150,17 @@
     "device-react": "pnpm --filter device-react",
     "client-ids": "pnpm --filter client-ids",
     "web-tools": "pnpm --filter web-tools",
-    "live-env": "pnpm --filter live-env",
     "wallet": "pnpm --filter live-wallet",
     "asset-aggregation": "pnpm --filter asset-aggregation",
-    "promise": "pnpm --filter live-promise",
-    "network": "pnpm --filter live-network",
-    "config": "pnpm --filter live-config",
     "utils": "pnpm --filter live-utils",
     "hooks": "pnpm --filter live-hooks",
-    "psbtv2": "pnpm --filter psbtv2",
-    "currency-format": "pnpm --filter live-currency-format",
-    "currency-format:format": "pnpm exec oxfmt -c libs/oxc-live-libs/.oxfmtrc.json libs/live-currency-format/src",
-    "currency-format:format:check": "pnpm exec oxfmt -c libs/oxc-live-libs/.oxfmtrc.json libs/live-currency-format/src --check",
-    "lkrp": "pnpm --filter ledger-key-ring-protocol",
-    "hw-lkrp": "pnpm --filter hw-ledger-key-ring-protocol",
-    "countervalues": "pnpm --filter live-countervalues",
+    "types-devices": "pnpm --filter types-devices",
+    "types-live": "pnpm --filter types-live",
+    "hw-transport-http": "pnpm --filter hw-transport-http",
     "countervalues-react": "pnpm --filter live-countervalues-react",
     "live-dmk-shared": "pnpm --filter live-dmk-shared",
     "live-dmk-mobile": "pnpm --filter live-dmk-mobile",
     "live-dmk-desktop": "pnpm --filter live-dmk-desktop",
-    "ljs:devices": "pnpm --filter devices",
-    "ljs:errors": "pnpm --filter errors",
     "ljs:hw-app:coverage": "nx run-many -t coverage -p \"@ledgerhq/hw-app-*\" --parallel=2",
     "ljs:hw-app:coverage:clean": "rm -rf coverage && rm -rf libs/ledgerjs/packages/hw-app-*/coverage",
     "ljs:hw-app-algorand": "pnpm --filter hw-app-algorand",
@@ -183,7 +171,6 @@
     "ljs:hw-app-eth": "pnpm --filter hw-app-eth",
     "ljs:hw-app-exchange": "pnpm --filter hw-app-exchange",
     "ljs:hw-app-hedera": "pnpm --filter hw-app-hedera",
-    "ljs:hw-app-helium": "pnpm --filter hw-app-helium",
     "ljs:hw-app-kaspa": "pnpm --filter hw-app-kaspa",
     "ljs:hw-app-multiversx": "pnpm --filter hw-app-multiversx",
     "ljs:hw-app-near": "pnpm --filter hw-app-near",
@@ -197,15 +184,6 @@
     "ljs:hw-app-vet": "pnpm --filter hw-app-vet",
     "ljs:hw-app-sui": "pnpm --filter hw-app-sui",
     "ljs:hw-bolos": "pnpm --filter hw-bolos",
-    "ljs:hw-transport": "pnpm --filter hw-transport",
-    "ljs:hw-transport-http": "pnpm --filter hw-transport-http",
-    "ljs:hw-transport-mocker": "pnpm --filter hw-transport-mocker",
-    "ljs:hw-transport-node-speculos": "pnpm --filter hw-transport-node-speculos",
-    "ljs:hw-transport-node-speculos-http": "pnpm --filter hw-transport-node-speculos-http",
-    "ljs:hw-transport-vault": "pnpm --filter hw-transport-vault",
-    "ljs:logs": "pnpm --filter logs",
-    "ljs:types-devices": "pnpm --filter types-devices",
-    "ljs:types-live": "pnpm --filter types-live",
     "service:cal": "pnpm --filter ledger-cal-service",
     "service:trust": "pnpm --filter ledger-trust-service",
     "speculos-transport": "pnpm --filter speculos-transport",
@@ -226,26 +204,22 @@
   "devDependencies": {
     "@changesets/changelog-github": "0.5.0",
     "@changesets/cli": "2.27.7",
-    "@commitlint/cli": "17.8.1",
-    "@commitlint/config-conventional": "17.8.1",
-    "@commitlint/prompt-cli": "17.8.1",
-    "@datadog/datadog-ci": "3.11.0",
+    "@commitlint/cli": "catalog:",
+    "@commitlint/config-conventional": "catalog:",
+    "@commitlint/prompt-cli": "catalog:",
     "@ledgerhq/create-release-hash": "workspace:*",
     "@ledgerhq/lumen-design-core": "catalog:",
-    "@ledgerhq/pnpm-utils": "workspace:*",
-    "@nx/s3-cache": "5.0.2",
-    "@react-native-community/cli": "15.1.0",
-    "@react-native-community/cli-platform-android": "15.1.0",
-    "@react-native-community/cli-platform-ios": "15.1.0",
+    "@nx/devkit": "catalog:",
+    "@nx/nx-linux-x64-gnu": "catalog:",
+    "@nx/s3-cache": "catalog:",
     "@react-native/babel-plugin-codegen": "catalog:",
     "@ton/crypto": "^3.3.0",
     "@typescript-eslint/parser": "catalog:",
-    "@vitest/mocker": "4.0.17",
     "chalk": "4.1.2",
     "eslint": "8.57.0",
     "jest-sonar": "0.2.16",
-    "knip": "5.34.1",
-    "nx": "22.5.1",
+    "knip": "6.32.2",
+    "nx": "catalog:",
     "nyc": "15.1.0",
     "oxfmt": "catalog:",
     "oxlint": "catalog:",
@@ -256,29 +230,17 @@
     "zx": "8.8.5"
   },
   "pnpm": {
-    "supportedArchitectures": {
-      "os": [
-        "current",
-        "darwin",
-        "linux",
-        "win32"
-      ],
-      "cpu": [
-        "current",
-        "x64",
-        "arm64"
-      ]
-    },
     "overrides": {
       "react": "catalog:",
       "react-dom": "catalog:",
+      "@types/react": "catalog:",
+      "@types/react-dom": "catalog:",
       "csstype": "3.2.3",
       "stellar-base>sodium-native": "^3.2.1",
       "remove-flow-types-loader>flow-remove-types": "^2",
       "remove-flow-types-loader>loader-utils": "*",
-      "@ledgerhq/devices": "workspace:*",
-      "@ledgerhq/errors": "workspace:*",
-      "@ledgerhq/hw-transport": "workspace:*",
+      "@ledgerhq/devices": "catalog:",
+      "@ledgerhq/hw-transport": "catalog:",
       "@ledgerhq/context-module": "catalog:",
       "tslib": "2.6.2",
       "@ethersproject/providers>ws": "7.5.10",
@@ -290,20 +252,27 @@
       "bignumber.js": "9.1.2",
       "@radix-ui/react-slot": "^1.2.4",
       "@ledgerhq/device-signer-kit-aleo>@ledgerhq/signer-utils": "1.1.3",
-      "@ton/ton>zod": "catalog:"
+      "@ton/ton>zod": "catalog:",
+      "jest-environment-node": "30.5.0",
+      "jest-mock": "30.5.0",
+      "jest-matcher-utils": "30.5.0",
+      "jest-diff": "30.5.0",
+      "jest-message-util": "30.5.0",
+      "jest-util": "30.5.0",
+      "@jest/expect-utils": "30.5.0",
+      "@jest/create-cache-key-function": "30.5.0",
+      "@jest/types": "30.5.0",
+      "expect": "30.5.0",
+      "pretty-format@^30.0.0": "30.5.0"
     },
     "patchedDependencies": {
       "@bunli/core@0.9.1": "patches/@bunli__core@0.9.1.patch",
-      "rn-fetch-blob@0.12.0": "patches/rn-fetch-blob@0.12.0.patch",
       "react-native-image-crop-tools@1.6.4": "patches/react-native-image-crop-tools@1.6.4.patch",
-      "asyncstorage-down@4.2.0": "patches/asyncstorage-down@4.2.0.patch",
       "@changesets/get-github-info@0.6.0": "patches/@changesets__get-github-info@0.6.0.patch",
       "buffer@6.0.3": "patches/buffer@6.0.3.patch",
       "react-native-fast-pbkdf2@0.3.1": "patches/react-native-fast-pbkdf2@0.3.1.patch",
-      "react-native-bundle-visualizer@3.1.3": "patches/react-native-bundle-visualizer@3.1.3.patch",
       "@ton/core": "patches/@ton__core.patch",
       "detox@20.51.3": "patches/detox@20.51.3.patch",
-      "@datadog/datadog-ci@3.11.0": "patches/@datadog__datadog-ci@3.11.0.patch",
       "@exodus/patch-broken-hermes-typed-arrays": "patches/@exodus__patch-broken-hermes-typed-arrays.patch",
       "@taquito/http-utils": "patches/@taquito__http-utils.patch",
       "react-native-webview@13.16.0": "patches/react-native-webview@13.16.0.patch",
@@ -317,43 +286,6 @@
       "react-native-worklets@0.8.1": "patches/react-native-worklets@0.8.1.patch",
       "@hiero-ledger/proto@2.25.0": "patches/@hiero-ledger__proto@2.25.0.patch"
     },
-    "packageExtensions": {
-      "detox-allure2-adapter": {
-        "dependencies": {
-          "tslib": "*"
-        }
-      },
-      "tronweb": {
-        "dependencies": {
-          "tslib": "*"
-        }
-      },
-      "detox": {
-        "dependencies": {
-          "expect": "*"
-        }
-      },
-      "@ledgerhq/coin-module-framework": {
-        "dependencies": {
-          "@ledgerhq/errors": "workspace:*"
-        }
-      },
-      "@ledgerhq/coin-stellar": {
-        "dependencies": {
-          "@ledgerhq/errors": "workspace:*"
-        }
-      },
-      "@ledgerhq/coin-xrp": {
-        "dependencies": {
-          "@ledgerhq/errors": "workspace:*"
-        }
-      },
-      "@ledgerhq/coin-hypercore": {
-        "dependencies": {
-          "@ledgerhq/errors": "workspace:*"
-        }
-      }
-    },
     "onlyBuiltDependencies": [
       "@apollo/protobufjs",
       "@datadog/mobile-react-native",
@@ -366,20 +298,13 @@
       "detox",
       "dtrace-provider",
       "electron",
-      "es5-ext",
       "esbuild",
       "keccak",
       "msw",
       "nx",
       "protobufjs",
-      "secp256k1",
       "sqlite3",
-      "ssh2",
-      "tiny-secp256k1",
       "utf-8-validate",
-      "web3",
-      "web3-bzz",
-      "web3-shh",
       "usb"
     ]
   },

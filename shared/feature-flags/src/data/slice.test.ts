@@ -6,6 +6,7 @@ import {
   setAllOverrides,
   setBannerVisible,
   setRemoteFlagsReady,
+  setCachedFlagsSettled,
   syncRemoteConfig,
   importState,
 } from "./slice";
@@ -67,6 +68,7 @@ describe("featureFlagsSlice reducers", () => {
       resolved: defaults,
       bannerVisible: false,
       remoteFlagsReady: false,
+      cachedFlagsSettled: false,
     });
   });
 
@@ -84,6 +86,7 @@ describe("featureFlagsSlice reducers", () => {
         resolved: { ...defaults, mockFeature: { enabled: true } },
         bannerVisible: false,
         remoteFlagsReady: false,
+        cachedFlagsSettled: false,
       });
       store.dispatch(
         setOverride({ key: "mockFeature", value: { enabled: false, params: { x: 1 } } }),
@@ -100,6 +103,7 @@ describe("featureFlagsSlice reducers", () => {
         resolved: { ...defaults, mockFeature: { enabled: true } },
         bannerVisible: false,
         remoteFlagsReady: false,
+        cachedFlagsSettled: false,
       });
       store.dispatch(setOverride({ key: "mockFeature", value: undefined }));
       expect(store.getState().featureFlags.overrides.mockFeature).toBeUndefined();
@@ -120,6 +124,7 @@ describe("featureFlagsSlice reducers", () => {
         resolved: { ...defaults, mockFeature: { enabled: true } },
         bannerVisible: false,
         remoteFlagsReady: false,
+        cachedFlagsSettled: false,
       });
       store.dispatch(setAllOverrides({ ptxCard: { enabled: false } }));
       expect(store.getState().featureFlags.overrides).toEqual({ ptxCard: { enabled: false } });
@@ -150,7 +155,21 @@ describe("featureFlagsSlice reducers", () => {
         resolved: defaults,
         bannerVisible: false,
         remoteFlagsReady: true,
+        cachedFlagsSettled: false,
       });
+    });
+  });
+
+  describe("setCachedFlagsSettled", () => {
+    it("starts false and flips to true once, idempotently", () => {
+      const store = createStore();
+      expect(store.getState().featureFlags.cachedFlagsSettled).toBe(false);
+
+      store.dispatch(setCachedFlagsSettled());
+      store.dispatch(setCachedFlagsSettled());
+
+      expect(store.getState().featureFlags.cachedFlagsSettled).toBe(true);
+      expect(store.getState().featureFlags.remoteFlagsReady).toBe(false);
     });
   });
 
@@ -162,6 +181,7 @@ describe("featureFlagsSlice reducers", () => {
         resolved: { ...defaults, mockFeature: { enabled: true, params: "test" } },
         bannerVisible: true,
         remoteFlagsReady: true,
+        cachedFlagsSettled: false,
       };
       store.dispatch(importState(newState));
       expect(store.getState().featureFlags).toEqual(newState);
@@ -461,5 +481,487 @@ describe("middleware behavior", () => {
     const before = store.getState().featureFlags.resolved;
     store.dispatch({ type: "settings/somethingElse" });
     expect(store.getState().featureFlags.resolved).toBe(before);
+  });
+});
+
+describe("cache prime", () => {
+  it("resolves flags from the cache without arming readiness", async () => {
+    // A fetch that never settles: anything resolved here can only come from the cache. Readiness
+    // keeps its original meaning and waits for that first call, so the boot gates are unchanged.
+    const store = createStore(undefined, {
+      readCachedFlags: () => Promise.resolve({ mockFeature: { enabled: true } }),
+      fetchRemoteFlags: () => new Promise<PartialFeatures>(() => {}),
+    });
+
+    await flushPromises();
+
+    expect(store.getState().featureFlags.resolved.mockFeature.enabled).toBe(true);
+    expect(store.getState().featureFlags.remoteFlagsReady).toBe(false);
+  });
+
+  it("arms readiness once the first fetch settles, cache or no cache", async () => {
+    let settle: (flags: PartialFeatures) => void = () => {};
+    const store = createStore(undefined, {
+      readCachedFlags: () => Promise.resolve({ mockFeature: { enabled: true } }),
+      fetchRemoteFlags: () => new Promise<PartialFeatures>(resolve => (settle = resolve)),
+    });
+
+    await flushPromises();
+    expect(store.getState().featureFlags.remoteFlagsReady).toBe(false);
+
+    settle({ mockFeature: { enabled: true } });
+    await flushPromises();
+
+    expect(store.getState().featureFlags.remoteFlagsReady).toBe(true);
+  });
+
+  it("arms readiness itself when there is no fetcher to wait for", async () => {
+    // Nothing else would ever settle, so leaving the gate shut would strand consumers.
+    const store = createStore(undefined, {
+      readCachedFlags: () => Promise.resolve({ mockFeature: { enabled: true } }),
+    });
+
+    await flushPromises();
+
+    expect(store.getState().featureFlags.resolved.mockFeature.enabled).toBe(true);
+    expect(store.getState().featureFlags.remoteFlagsReady).toBe(true);
+  });
+
+  it("arms readiness with env overrides applied when neither a reader nor a fetcher is set", async () => {
+    const store = createStore(undefined, {
+      resolutionConfig: { envFlags: { mockFeature: { enabled: true } } },
+    });
+    expect(store.getState().featureFlags.remoteFlagsReady).toBe(false);
+
+    await jest.advanceTimersByTimeAsync(0);
+
+    const { featureFlags } = store.getState();
+    expect(featureFlags.cachedFlagsSettled).toBe(true);
+    expect(featureFlags.remoteFlagsReady).toBe(true);
+    expect(featureFlags.resolved.mockFeature).toMatchObject({
+      enabled: true,
+      overriddenByEnv: true,
+    });
+  });
+
+  it("still applies envFlags when there is no fetcher and the cache is empty", async () => {
+    // On this branch the prime is the only thing that will ever open the gate, so it has to stand
+    // in for the first poll completely. Arming readiness without re-resolving would release
+    // consumers onto the raw compiled defaults, with env overrides and version filters never
+    // applied. An unreadable cache lands on this same branch.
+    const store = createStore(undefined, {
+      resolutionConfig: {
+        envFlags: { mockFeature: { enabled: true, params: { fromEnv: true } } },
+      },
+      readCachedFlags: () => Promise.resolve({}),
+    });
+
+    await flushPromises();
+
+    expect(store.getState().featureFlags.resolved.mockFeature).toEqual({
+      enabled: true,
+      params: { fromEnv: true },
+      overridesRemote: true,
+      overriddenByEnv: true,
+    });
+    expect(store.getState().featureFlags.remoteFlagsReady).toBe(true);
+  });
+
+  it("lets a successful poll overwrite the primed values", async () => {
+    const store = createStore(undefined, {
+      readCachedFlags: () => Promise.resolve({ mockFeature: { enabled: false } }),
+      fetchRemoteFlags: () => Promise.resolve({ mockFeature: { enabled: true } }),
+    });
+
+    await flushPromises();
+
+    expect(store.getState().featureFlags.resolved.mockFeature.enabled).toBe(true);
+  });
+
+  it("keeps the primed values and does not re-resolve when the first poll fails", async () => {
+    const dispatchedTypes: string[] = [];
+    const recorder: Middleware = () => next => action => {
+      dispatchedTypes.push((action as { type: string }).type);
+      return next(action);
+    };
+    const store = configureStore({
+      reducer: { featureFlags: featureFlagsReducer },
+      middleware: getDefaultMiddleware =>
+        getDefaultMiddleware()
+          .concat(recorder)
+          .concat(
+            createFeatureFlagsMiddleware({
+              resolutionConfig: {},
+              readCachedFlags: () => Promise.resolve({ mockFeature: { enabled: true } }),
+              fetchRemoteFlags: () => Promise.reject(new Error("network down")),
+              refreshInterval: 1_000,
+            }),
+          ),
+    });
+
+    await flushPromises();
+
+    expect(store.getState().featureFlags.resolved.mockFeature.enabled).toBe(true);
+    // The prime already spent the one-shot guard, so the failed poll must not re-resolve.
+    expect(dispatchedTypes.filter(type => type === syncRemoteConfig.type)).toHaveLength(1);
+  });
+
+  it("still arms readiness when the cache primed and the fetch then fails", async () => {
+    // The offline-with-a-warm-cache case, and the one that must never regress: readiness comes
+    // from the call settling, not from its outcome. Short-circuiting the poll because the prime
+    // already produced values would leave this user's boot gate shut forever.
+    const store = createStore(undefined, {
+      readCachedFlags: () => Promise.resolve({ mockFeature: { enabled: true } }),
+      fetchRemoteFlags: () => Promise.reject(new Error("network down")),
+      refreshInterval: 1_000,
+    });
+
+    await flushPromises();
+
+    expect(store.getState().featureFlags.remoteFlagsReady).toBe(true);
+    expect(store.getState().featureFlags.resolved.mockFeature.enabled).toBe(true);
+  });
+});
+
+describe("cachedFlagsSettled", () => {
+  const neverSettles = () => new Promise<PartialFeatures>(() => {});
+
+  it("is armed with the cached values already resolved, without waiting on the network", async () => {
+    // The guarantee a boot relies on: the first state in which the flag reads `true` must already
+    // hold the cached values, otherwise a consumer released by it would still see the defaults.
+    const store = createStore(undefined, {
+      readCachedFlags: () => Promise.resolve({ mockFeature: { enabled: true } }),
+      fetchRemoteFlags: neverSettles,
+    });
+    const resolvedWhenSettled: boolean[] = [];
+    store.subscribe(() => {
+      const { cachedFlagsSettled, resolved } = store.getState().featureFlags;
+      if (cachedFlagsSettled && resolvedWhenSettled.length === 0) {
+        resolvedWhenSettled.push(resolved.mockFeature.enabled);
+      }
+    });
+
+    expect(store.getState().featureFlags.cachedFlagsSettled).toBe(false);
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(resolvedWhenSettled).toEqual([true]);
+    expect(store.getState().featureFlags.remoteFlagsReady).toBe(false);
+  });
+
+  it("is armed on an empty cache, with env overrides already applied", async () => {
+    const store = createStore(undefined, {
+      resolutionConfig: { envFlags: { mockFeature: { enabled: true } } },
+      readCachedFlags: () => Promise.resolve({}),
+      fetchRemoteFlags: neverSettles,
+    });
+
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(store.getState().featureFlags.cachedFlagsSettled).toBe(true);
+    expect(store.getState().featureFlags.resolved.mockFeature).toMatchObject({
+      enabled: true,
+      overriddenByEnv: true,
+    });
+    expect(store.getState().featureFlags.remoteFlagsReady).toBe(false);
+  });
+
+  it("is armed when the cache cannot be read", async () => {
+    const store = createStore(undefined, {
+      readCachedFlags: () => Promise.reject(new Error("storage unavailable")),
+      fetchRemoteFlags: neverSettles,
+    });
+
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(store.getState().featureFlags.cachedFlagsSettled).toBe(true);
+    expect(store.getState().featureFlags.resolved.mockFeature).toEqual(defaults.mockFeature);
+  });
+
+  it("stays unarmed while the cache read is pending", async () => {
+    const store = createStore(undefined, {
+      readCachedFlags: neverSettles,
+      fetchRemoteFlags: () => Promise.resolve({ mockFeature: { enabled: true } }),
+    });
+
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(store.getState().featureFlags.cachedFlagsSettled).toBe(false);
+  });
+
+  it("is armed right away when no cache reader is configured, with env overrides applied", async () => {
+    // Nothing local to wait for, so a boot waiting on it must not be stranded.
+    const store = createStore(undefined, {
+      resolutionConfig: { envFlags: { mockFeature: { enabled: true } } },
+      fetchRemoteFlags: neverSettles,
+    });
+    const resolvedWhenSettled: unknown[] = [];
+    store.subscribe(() => {
+      const { cachedFlagsSettled, resolved } = store.getState().featureFlags;
+      if (cachedFlagsSettled && resolvedWhenSettled.length === 0) {
+        resolvedWhenSettled.push(resolved.mockFeature);
+      }
+    });
+
+    expect(store.getState().featureFlags.cachedFlagsSettled).toBe(false);
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(resolvedWhenSettled).toEqual([
+      expect.objectContaining({ enabled: true, overriddenByEnv: true }),
+    ]);
+  });
+
+  it("re-resolves only once when the cache is empty and the first poll fails", async () => {
+    const dispatchedTypes: string[] = [];
+    const recorder: Middleware = () => next => action => {
+      dispatchedTypes.push((action as { type: string }).type);
+      return next(action);
+    };
+    configureStore({
+      reducer: { featureFlags: featureFlagsReducer },
+      middleware: getDefaultMiddleware =>
+        getDefaultMiddleware()
+          .concat(recorder)
+          .concat(
+            createFeatureFlagsMiddleware({
+              resolutionConfig: {},
+              readCachedFlags: () => Promise.resolve({}),
+              fetchRemoteFlags: () => Promise.reject(new Error("network down")),
+              refreshInterval: 1_000,
+            }),
+          ),
+    });
+
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(dispatchedTypes.filter(type => type === syncRemoteConfig.type)).toHaveLength(1);
+    expect(dispatchedTypes).toContain(setCachedFlagsSettled.type);
+    expect(dispatchedTypes).toContain(setRemoteFlagsReady.type);
+  });
+});
+
+describe("onRemoteFlagsError", () => {
+  it("reports each failed poll with a 1-based attempt, cold while no values are held", async () => {
+    const onRemoteFlagsError = jest.fn();
+    createStore(undefined, {
+      fetchRemoteFlags: () => Promise.reject(new Error("network down")),
+      refreshInterval: 1_000,
+      onRemoteFlagsError,
+    });
+
+    await flushPromises();
+    expect(onRemoteFlagsError).toHaveBeenCalledWith(expect.any(Error), {
+      stage: "remote",
+      attempt: 1,
+      isCold: true,
+    });
+
+    jest.advanceTimersByTime(1_000);
+    await flushPromises();
+    expect(onRemoteFlagsError).toHaveBeenLastCalledWith(expect.any(Error), {
+      stage: "remote",
+      attempt: 2,
+      isCold: true,
+    });
+  });
+
+  it("reports a poll failure as warm once the cache has primed", async () => {
+    const onRemoteFlagsError = jest.fn();
+    createStore(undefined, {
+      readCachedFlags: () => Promise.resolve({ mockFeature: { enabled: true } }),
+      fetchRemoteFlags: () => Promise.reject(new Error("network down")),
+      refreshInterval: 1_000,
+      onRemoteFlagsError,
+    });
+
+    await flushPromises();
+
+    expect(onRemoteFlagsError).toHaveBeenCalledWith(expect.any(Error), {
+      stage: "remote",
+      attempt: 1,
+      isCold: false,
+    });
+  });
+
+  it("reports a later poll failure as warm once a fetch has succeeded", async () => {
+    const onRemoteFlagsError = jest.fn();
+    const networkError = new Error("network down");
+    const fetcher = jest
+      .fn()
+      .mockResolvedValueOnce({ mockFeature: { enabled: true } })
+      .mockRejectedValue(networkError);
+    const store = createStore(undefined, {
+      fetchRemoteFlags: fetcher,
+      refreshInterval: 1_000,
+      onRemoteFlagsError,
+    });
+
+    await jest.advanceTimersByTimeAsync(0);
+    expect(onRemoteFlagsError).not.toHaveBeenCalled();
+
+    await jest.advanceTimersByTimeAsync(1_000);
+
+    expect(onRemoteFlagsError.mock.calls).toEqual([
+      [networkError, { stage: "remote", attempt: 2, isCold: false }],
+    ]);
+    expect(store.getState().featureFlags.resolved.mockFeature.enabled).toBe(true);
+  });
+
+  it("reports a failing cache read and still runs the poll", async () => {
+    const onRemoteFlagsError = jest.fn();
+    const store = createStore(undefined, {
+      readCachedFlags: () => Promise.reject(new Error("storage unavailable")),
+      fetchRemoteFlags: () => Promise.resolve({ mockFeature: { enabled: true } }),
+      onRemoteFlagsError,
+    });
+
+    await flushPromises();
+
+    expect(onRemoteFlagsError).toHaveBeenCalledWith(expect.any(Error), {
+      stage: "cache",
+      attempt: 1,
+      isCold: true,
+    });
+    expect(store.getState().featureFlags.resolved.mockFeature.enabled).toBe(true);
+  });
+
+  it("boots on env-resolved defaults when both the cache and the first fetch fail", async () => {
+    const onRemoteFlagsError = jest.fn();
+    const storageError = new Error("storage unavailable");
+    const networkError = new Error("network down");
+    const store = createStore(undefined, {
+      resolutionConfig: { envFlags: { mockFeature: { enabled: true } } },
+      readCachedFlags: () => Promise.reject(storageError),
+      fetchRemoteFlags: () => Promise.reject(networkError),
+      refreshInterval: 1_000,
+      onRemoteFlagsError,
+    });
+
+    await jest.advanceTimersByTimeAsync(0);
+
+    const { featureFlags } = store.getState();
+    expect(featureFlags.cachedFlagsSettled).toBe(true);
+    expect(featureFlags.remoteFlagsReady).toBe(true);
+    expect(featureFlags.resolved.mockFeature).toMatchObject({
+      enabled: true,
+      overriddenByEnv: true,
+    });
+    expect(onRemoteFlagsError.mock.calls).toEqual([
+      [storageError, { stage: "cache", attempt: 1, isCold: true }],
+      [networkError, { stage: "remote", attempt: 1, isCold: true }],
+    ]);
+  });
+
+  it("keeps polling when the reporter itself throws", async () => {
+    const fetcher = jest.fn().mockRejectedValue(new Error("network down"));
+    createStore(undefined, {
+      fetchRemoteFlags: fetcher,
+      refreshInterval: 1_000,
+      onRemoteFlagsError: () => {
+        throw new Error("reporter blew up");
+      },
+    });
+
+    await flushPromises();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    jest.advanceTimersByTime(1_000);
+    await flushPromises();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("a re-resolution that throws", () => {
+  const neverSettles = () => new Promise<PartialFeatures>(() => {});
+  const failure = new Error("downstream middleware blew up");
+  const throwsOnSync: Middleware = () => next => action => {
+    if (syncRemoteConfig.match(action)) throw failure;
+    return next(action);
+  };
+
+  function createStoreThrowingOnSync(middlewareConfig: Partial<FeatureFlagsMiddlewareConfig>) {
+    return configureStore({
+      reducer: { featureFlags: featureFlagsReducer },
+      middleware: getDefaultMiddleware =>
+        getDefaultMiddleware()
+          .concat(createFeatureFlagsMiddleware({ resolutionConfig: {}, ...middlewareConfig }))
+          .concat(throwsOnSync),
+    });
+  }
+
+  it("still settles the cache, reported as a sync failure", async () => {
+    const onRemoteFlagsError = jest.fn();
+    const store = createStoreThrowingOnSync({
+      readCachedFlags: () => Promise.resolve({}),
+      fetchRemoteFlags: neverSettles,
+      onRemoteFlagsError,
+    });
+
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(store.getState().featureFlags.cachedFlagsSettled).toBe(true);
+    expect(onRemoteFlagsError).toHaveBeenCalledWith(failure, {
+      stage: "sync",
+      attempt: 1,
+      isCold: true,
+    });
+  });
+
+  it("still settles the cache when no cache reader is configured", async () => {
+    const onRemoteFlagsError = jest.fn();
+    const store = createStoreThrowingOnSync({ fetchRemoteFlags: neverSettles, onRemoteFlagsError });
+
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(store.getState().featureFlags.cachedFlagsSettled).toBe(true);
+    expect(onRemoteFlagsError).toHaveBeenCalledWith(
+      failure,
+      expect.objectContaining({ stage: "sync" }),
+    );
+  });
+
+  it("still arms readiness and keeps polling after the first fetch", async () => {
+    const onRemoteFlagsError = jest.fn();
+    const fetcher = jest.fn(() => Promise.resolve({ mockFeature: { enabled: true } }));
+    const store = createStoreThrowingOnSync({
+      readCachedFlags: () => Promise.resolve({}),
+      fetchRemoteFlags: fetcher,
+      refreshInterval: 1_000,
+      onRemoteFlagsError,
+    });
+
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(store.getState().featureFlags.remoteFlagsReady).toBe(true);
+    expect(onRemoteFlagsError).toHaveBeenCalledWith(failure, {
+      stage: "sync",
+      attempt: 1,
+      isCold: false,
+    });
+
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("reports a failure on a later poll with its attempt, and keeps polling", async () => {
+    const onRemoteFlagsError = jest.fn();
+    const fetcher = jest.fn(() => Promise.resolve({ mockFeature: { enabled: true } }));
+    createStoreThrowingOnSync({
+      readCachedFlags: () => Promise.resolve({}),
+      fetchRemoteFlags: fetcher,
+      refreshInterval: 1_000,
+      onRemoteFlagsError,
+    });
+
+    await jest.advanceTimersByTimeAsync(0);
+    onRemoteFlagsError.mockClear();
+
+    await jest.advanceTimersByTimeAsync(1_000);
+
+    expect(onRemoteFlagsError.mock.calls).toEqual([
+      [failure, { stage: "sync", attempt: 2, isCold: false }],
+    ]);
+
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(fetcher).toHaveBeenCalledTimes(3);
   });
 });

@@ -8,28 +8,80 @@ import type {
 } from "@ledgerhq/types-live";
 import { encodeOperationId } from "@ledgerhq/ledger-wallet-framework/operation";
 import type { Transaction, ZcashAccount, BtcInputRef, ZcashOperationExtra } from "../types/bridge";
+import { isShieldedTransfer } from "../types/bridge";
 import type { SignerContext } from "../types/signer";
-import { ZcashSignerNotSupported, ZcashSigningCancelled } from "../types/errors";
+import type { ZcashContext } from "../config";
+import {
+  ZcashNotesNotYetSpendable,
+  ZcashShieldedKeyMissing,
+  ZcashSignerNotSupported,
+  ZcashSigningCancelled,
+} from "../types/errors";
+import { accountPubkeyFromXpub } from "../signer/xpub";
 import { assertCanSend } from "../logic/engineClient";
 import { craftIronwoodTransaction, craftTransaction } from "../logic/transaction/craftTransaction";
 import { combine } from "../logic/transaction/combine";
 import { mapOutputs, mapSpends, mapTransparentInputs } from "./mapping";
 import { getWalletAccount } from "./getWalletAccount";
 import { resolveTransparentUtxos } from "./statusHelpers";
+import { reserveNotes } from "./note-reservation";
 
 // The V6 builder mirrors zcash-utils' own precondition: the transaction must carry
 // an Ironwood bundle, which an Ironwood spend or an Ironwood output creates. Those
-// are the flows below -- a shielded recipient resolves to the Ironwood pool there,
-// which is where NU6.3 sends newly shielded funds.
+// are the flows below -- a shielded send spends Ironwood notes ("shielded",
+// "shielded-to-transparent") and a shielded recipient resolves to the Ironwood
+// pool ("transparent-to-shielded"), which is where NU6.3 sends newly shielded funds.
 //
-// The other flows stay on the V5 builder: t→t has no shielded bundle at all, and
-// the Orchard flows spend Orchard notes, which the V6 builder cannot take (its
-// `spends` read each note's `position` from the Ironwood commitment tree).
+// Only t→t ("transparent") stays on the V5 builder: it has no shielded bundle at all.
 const IRONWOOD_BUNDLE_TRANSFER_TYPES = new Set<Transaction["transferType"]>([
-  "ironwood",
-  "ironwood-to-transparent",
+  "shielded",
+  "shielded-to-transparent",
   "transparent-to-shielded",
 ]);
+
+/**
+ * The builder's stable marker for a note whose leaf position is at or past the
+ * number of leaves the Ironwood tree held at its anchor -- the position-range
+ * rejection the maturity filter is meant to make unreachable (see
+ * `types/errors.ts`'s `ZcashNotesNotYetSpendable`). Matched on the message
+ * because the IPC wrapper carries the Rust error through verbatim, with no
+ * structured code.
+ */
+function isNotePositionPastAnchor(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("compute_ironwood_witnesses") && message.includes("anchor_total_leaves");
+}
+
+/**
+ * A shielded bundle can only be built from the account's shielded keys, so the
+ * UFVK is mandatory there -- and it only reaches the wallet through the export
+ * flow, which the user has to confirm on the device.
+ */
+function requireUfvk(ufvk: string | undefined): string {
+  if (!ufvk) throw new ZcashShieldedKeyMissing();
+  return ufvk;
+}
+
+/**
+ * The account key material a transparent send needs, in whichever form the
+ * account can supply: the UFVK when it has one, otherwise the account's
+ * transparent pubkey read off its xpub.
+ *
+ * Both forms describe the same account and derive the same change address and
+ * signing paths; the UFVK is preferred when present so that an account which has
+ * one keeps a single code path across all its flows.
+ */
+function resolveAccountKey(
+  account: ZcashAccount,
+  ufvk: string | undefined,
+): { ufvk: string } | { transparentAccountPubkey: string } {
+  // Truthiness, like `requireUfvk`: an empty viewing key is no key.
+  if (ufvk) return { ufvk };
+  // Every synced account is built from its xpub, so this is an invariant
+  // violation rather than a state the user can reach or resolve.
+  if (!account.xpub) throw new Error("Missing xpub -- cannot derive the account's transparent key");
+  return { transparentAccountPubkey: accountPubkeyFromXpub(account.xpub) };
+}
 
 /**
  * The only bespoke residue of this bridge (kaspa-style): builds the PCZT
@@ -39,16 +91,25 @@ const IRONWOOD_BUNDLE_TRANSFER_TYPES = new Set<Transaction["transferType"]>([
  * transparent t→t -- goes through this single PCZT path; there is no legacy
  * PSBT fallback in coin-zcash.
  *
- * `logic.combine` still finalizes through the V5 path: @ledgerhq/zcash-utils
- * exposes no V6 counterpart, so a V6 PCZT gets as far as device signing.
+ * Every shielded send spends the Ironwood pool, so z→z and z→t both build as V6
+ * PCZTs (Ironwood spends). The deprecated Sapling/Orchard send flows are gone.
  *
- * One flow has no builder at all past NU6.3: a shielded send to a third party
- * (z→z). It would need Orchard spends alongside an Ironwood output, and the V6
- * builder only takes Ironwood spends — NU6.3 makes the Orchard pool spendable but
- * no longer creditable.
+ * V5 and V6 share this path up to and including finalization: `logic.combine`
+ * finalizes either (@ledgerhq/zcash-utils >= 2.0.0 injects Ironwood spend-auth
+ * signatures and extracts a V6 transaction), and the device-signing step is
+ * identical -- only which bundle carries the spends differs.
+ *
+ * Broadcast is the exception, and it is the current end of the V6 road: the
+ * pinned zcash-utils (2.1.0) still derives the txid through a V5-only guard, so
+ * it rejects a V6 transaction after the user has already signed. Every shielded
+ * send therefore builds, signs and finalizes but cannot be broadcast until a
+ * zcash-utils release carries that fix.
  */
 export const buildSignOperation =
-  (signerContext: SignerContext): AccountBridge<Transaction, ZcashAccount>["signOperation"] =>
+  (
+    signerContext: SignerContext,
+    context: ZcashContext,
+  ): AccountBridge<Transaction, ZcashAccount>["signOperation"] =>
   ({ account, deviceId, transaction }) =>
     new Observable<SignOperationEvent>(subscriber => {
       let cancelled = false;
@@ -62,14 +123,25 @@ export const buildSignOperation =
       };
 
       (async () => {
-        const ufvk = account.privateInfo?.ufvk;
-        if (!ufvk) throw new Error("Missing UFVK -- account not yet synced");
+        const useIronwood = IRONWOOD_BUNDLE_TRANSFER_TYPES.has(transaction.transferType);
+        // Absent until the user exports it from the device, so only the flows
+        // that genuinely read shielded key material may depend on it: a
+        // transparent send identifies its account by the xpub instead, and stays
+        // available to an account that holds nothing but public funds.
+        //
+        // An account can carry an empty string rather than null, which is why the
+        // shielded scan gates on its length too (`sync.ts`'s `ufvkIsPresent`).
+        // Normalising here keeps the two readers below agreeing on what
+        // "present" means: without it a transparent send would forward `ufvk: ""`
+        // to the builder and fail decoding a viewing key it never needed.
+        const ufvk = account.privateInfo?.ufvk || undefined;
         if (!transaction.selectedNotes)
           throw new Error("Missing selectedNotes -- run prepareTransaction first");
         if (transaction.zcashFee === undefined)
           throw new Error("Missing zcashFee -- run prepareTransaction first");
 
-        await assertCanSend();
+        const currencyId = account.currency.id;
+        await assertCanSend(context, currencyId);
 
         const accountIndex = getWalletAccount(account).params.index;
         const transparentUtxos = resolveTransparentUtxos(account, transaction);
@@ -77,16 +149,27 @@ export const buildSignOperation =
         if (bailIfCancelled()) return;
 
         const plan = {
-          ufvk,
           accountIndex,
           feeZat: transaction.zcashFee.toFixed(0),
           spends: mapSpends(transaction.selectedNotes),
           transparentInputs,
           outputs: mapOutputs(transaction),
         };
-        const buildResult = IRONWOOD_BUNDLE_TRANSFER_TYPES.has(transaction.transferType)
-          ? await craftIronwoodTransaction(plan)
-          : await craftTransaction(plan);
+
+        const buildResult = useIronwood
+          ? await craftIronwoodTransaction(context, currencyId, {
+              ...plan,
+              ufvk: requireUfvk(ufvk),
+            }).catch(err => {
+              if (isNotePositionPastAnchor(err)) throw new ZcashNotesNotYetSpendable();
+              throw err;
+            })
+          : await craftTransaction(context, currencyId, {
+              ...plan,
+              ...resolveAccountKey(account, ufvk),
+            });
+
+        const { pcztTransaction } = buildResult;
 
         if (bailIfCancelled()) return;
 
@@ -97,7 +180,7 @@ export const buildSignOperation =
               "Zcash signing requires a signer exposing signPcztTransaction",
             );
           }
-          return signer.signPcztTransaction(buildResult.pcztTransaction);
+          return signer.signPcztTransaction(pcztTransaction);
         });
 
         subscriber.next({ type: "device-signature-granted" });
@@ -109,11 +192,15 @@ export const buildSignOperation =
         const transparentSignatures = sigResult.transparentInputSigs.map(sig =>
           Buffer.from(sig).toString("hex"),
         );
+        const ironwoodSignatures = sigResult.ironwood.map(a =>
+          Buffer.from(a.spendAuthSig).toString("hex"),
+        );
 
-        const finalizeResult = await combine({
+        const finalizeResult = await combine(context, currencyId, {
           pczt: buildResult.pcztHex,
           orchardSignatures,
           transparentSignatures,
+          ...(ironwoodSignatures.length > 0 ? { ironwoodSignatures } : {}),
         });
 
         if (bailIfCancelled()) return;
@@ -125,6 +212,12 @@ export const buildSignOperation =
         );
 
         const fee = new BigNumber(buildResult.feeZat);
+
+        const ironwoodNullifiers = transaction.selectedNotes.map(n => n.nullifier);
+        if (ironwoodNullifiers.length > 0) {
+          reserveNotes(account.id, finalizeResult.txid, ironwoodNullifiers);
+        }
+
         const operation: Operation = {
           id: encodeOperationId(account.id, finalizeResult.txid, "OUT"),
           hash: finalizeResult.txid,
@@ -139,10 +232,13 @@ export const buildSignOperation =
           date: new Date(),
           extra: {
             zcashShielded: true,
+            ...(isShieldedTransfer(transaction) && { zcashPrivate: true }),
+            ...(ironwoodNullifiers.length > 0 && { shieldedNullifiers: ironwoodNullifiers }),
             ...(inputRefs.length > 0 && {
               inputs: inputRefs.map(r => `${r.hash}-${r.outputIndex}`),
               inputRefs,
             }),
+            ...(transaction.memo && { memo: transaction.memo }),
           } satisfies ZcashOperationExtra,
         };
 

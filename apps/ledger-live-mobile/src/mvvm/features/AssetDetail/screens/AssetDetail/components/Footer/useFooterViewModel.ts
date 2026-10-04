@@ -1,9 +1,9 @@
+import { track } from "@shared/analytics";
 import { useCallback, useMemo, useState } from "react";
 import { useTradeAvailability } from "@ledgerhq/asset-detail";
 import { getAccountCurrency } from "@ledgerhq/live-common/account/index";
 import { useSelector } from "~/context/hooks";
 import { flattenAccountsSelector } from "~/reducers/accounts";
-import { track } from "~/analytics";
 import { useOpenBuySell } from "LLM/features/Buy";
 import { useOpenSwap } from "LLM/features/Swap";
 import { useOpenStakeDrawer } from "LLM/features/Stake";
@@ -84,11 +84,13 @@ export function useFooterViewModel(currency: AssetDetailCurrencyProps, ledgerIds
 
   const { handleOpenBuySell } = useOpenBuySell({
     currency,
+    currencyIds: ledgerIds,
     sourceScreenName: "Asset Detail",
   });
 
   const { handleOpenSwap } = useOpenSwap({
     currency,
+    currencyIds: ledgerIds,
     sourceScreenName: "Asset Detail",
   });
 

@@ -4,7 +4,7 @@ import { Account } from "@ledgerhq/types-live";
 import { Scenario, ScenarioTransaction } from "@ledgerhq/coin-tester/main";
 import { encodeTokenAccountId } from "@ledgerhq/ledger-wallet-framework/account/index";
 import { resetIndexer, setBlock, indexBlocks, initMswHandlers } from "../indexer";
-import { getCoinConfig, setCoinConfig } from "@ledgerhq/coin-evm/config";
+import type { EvmConfigInfo } from "@ledgerhq/coin-evm/config";
 import { makeAccount } from "../fixtures";
 import { callMyDealer, expectAddressInList, getBridges, scroll, VITALIK } from "../helpers";
 import { killAnvil, spawnAnvil } from "../anvil";
@@ -85,7 +85,7 @@ export const scenarioScroll: Scenario<GenericTransaction, Account> = {
   name: "Ledger Live Basic Scroll Transactions",
   setup: async () => {
     const signer = await buildSigner();
-    await spawnAnvil("https://rpc.scroll.io", signer.exportMnemonic());
+    await spawnAnvil("https://scroll-rpc.publicnode.com", signer.exportMnemonic());
 
     const provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545");
 
@@ -93,44 +93,31 @@ export const scenarioScroll: Scenario<GenericTransaction, Account> = {
     // start indexing at next block
     setBlock(lastBlockNumber + 1);
 
-    setCoinConfig(() => ({
-      info: {
-        status: {
-          type: "active",
-        },
-        node: {
-          type: "external",
-          uri: "http://127.0.0.1:8545",
-        },
-        explorer: {
-          type: "blockscout",
-          noCache: true,
-          uri: "https://scroll.blockscout.com/api",
-        },
-        showNfts: true,
+    const info: EvmConfigInfo = {
+      status: {
+        type: "active",
       },
-    }));
+      chainId: 534352,
+      name: "Scroll",
+      unit: { name: "ETH", code: "ETH", magnitude: 18 },
+      node: {
+        type: "external",
+        uri: "http://127.0.0.1:8545",
+      },
+      explorer: {
+        type: "blockscout",
+        noCache: true,
+        uri: "https://proxyblockscout.api.live.ledger.com/534352/api",
+      },
+      supportedTokens: ["erc721", "erc1155"],
+    };
     LiveConfig.setConfig({
       config_currency_scroll: {
         type: "object",
-        default: {
-          status: {
-            type: "active",
-          },
-          node: {
-            type: "external",
-            uri: "http://127.0.0.1:8545",
-          },
-          explorer: {
-            type: "blockscout",
-            noCache: true,
-            uri: "https://scroll.blockscout.com/api",
-          },
-          showNfts: true,
-        },
+        default: info,
       },
     });
-    initMswHandlers(getCoinConfig(scroll.id).info);
+    initMswHandlers(info);
 
     const { currencyBridge, accountBridge, getAddress } = await getBridges(signer);
     const { address } = await getAddress("", {
@@ -156,7 +143,7 @@ export const scenarioScroll: Scenario<GenericTransaction, Account> = {
   },
   getTransactions: address => makeScenarioTransactions({ address }),
   beforeSync: async () => {
-    await indexBlocks(scroll.ethereumLikeInfo?.chainId || 534352);
+    await indexBlocks(534352);
   },
   beforeAll: account => {
     expect(account.balance.toFixed()).toBe(ethers.parseEther("10000").toString());

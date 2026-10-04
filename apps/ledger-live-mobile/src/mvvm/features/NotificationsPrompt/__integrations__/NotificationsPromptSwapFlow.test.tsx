@@ -1,3 +1,4 @@
+import { track } from "@shared/analytics";
 import React, { useEffect } from "react";
 import { View } from "react-native";
 import BigNumber from "bignumber.js";
@@ -18,21 +19,11 @@ import SwapSubScreensNavigator from "~/components/RootNavigator/SwapSubScreensNa
 import type { BaseNavigatorStackParamList } from "~/components/RootNavigator/types/BaseNavigator";
 import { NavigatorName, ScreenName } from "~/const";
 import GlobalDrawers from "~/GlobalDrawers";
-import { track } from "~/analytics";
 import { closeSwapTransactionStatusDrawer } from "~/reducers/swapTransactionStatusDrawer";
 import { MockedAccounts } from "LLM/features/Accounts/__integrations__/mockedAccounts";
 import { createNotificationsPromptFeatureFlags } from "../testUtils";
 
-jest.mock("~/analytics", () => {
-  const track = jest.fn();
-
-  return {
-    track,
-    useTrack: () => track,
-    TrackScreen: () => null,
-    updateIdentify: jest.fn(),
-  };
-});
+jest.mock("~/analytics", () => ({ updateIdentify: jest.fn() }));
 
 // Exception: this test only needs native beforeRemove behavior; real SwapLiveAppWallet40
 // would boot the webview and require unrelated manifest/webview setup.
@@ -218,7 +209,7 @@ describe("NotificationsPrompt swap flow", () => {
         "attempt_to_trigger_push_notification_drawer_after_action",
       );
 
-      await user.press(screen.getByText(/go to history/i));
+      await user.press(screen.getByText(/see details/i));
       await waitFor(() => {
         expect(screen.getByText(/your previous swaps will appear here/i)).toBeVisible();
       });

@@ -3,7 +3,7 @@ import BigNumber from "bignumber.js";
 import { genAccount } from "@ledgerhq/ledger-wallet-framework/mocks/account";
 import { getCryptoCurrencyById } from "@domain/entity-currency-crypto";
 import { buildDistributionItem } from "tests/utils/distributionTestUtils";
-import { track } from "~/renderer/analytics/segment";
+import { track } from "@shared/analytics";
 import { computeFiatPortionsFromDistribution } from "LLD/features/AssetDetail/utils/computeFiatPortionsFromDistribution";
 import { useStakingSectionViewModel } from "../useStakingSectionViewModel";
 
@@ -17,7 +17,8 @@ jest.mock("LLD/hooks/useStake", () => ({
 
 jest.mock("~/renderer/screens/stake", () => () => mockStartStakeFlow);
 
-jest.mock("@ledgerhq/live-common/dada-client/hooks/useInterestRatesByCurrencies", () => ({
+jest.mock("@features/platform-aggregated-assets", () => ({
+  ...jest.requireActual("@features/platform-aggregated-assets"),
   useInterestRatesByCurrencies: (...args: unknown[]) => mockUseInterestRatesByCurrencies(...args),
 }));
 
