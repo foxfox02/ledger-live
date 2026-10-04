@@ -7,7 +7,7 @@ import {
 import { BigNumber } from "bignumber.js";
 import getAddressWrapper from "@ledgerhq/ledger-wallet-framework/bridge/getAddressWrapper";
 import { makeGetAccountShape, postSync } from "../synchronisation";
-import { assignFromAccountRaw, assignToAccountRaw } from "../serialization";
+import { assignToAccountRaw, makeAssignFromAccountRaw } from "../serialization";
 import { BitcoinAccount, Transaction, TransactionStatus } from "../types";
 import formatters from "../formatters";
 import { getTransactionStatus } from "../getTransactionStatus";
@@ -117,7 +117,7 @@ function buildCurrencyBridge(signerContext: SignerContext) {
   };
 }
 
-function buildAccountBridge(signerContext: SignerContext) {
+function buildAccountBridge(signerContext: SignerContext, coinConfig: CoinConfig) {
   const sync = makeSync<Transaction, BitcoinAccount, TransactionStatus>({
     getAccountShape: makeInjectedGetAccountShape(signerContext),
     postSync: injectedPostSync,
@@ -157,7 +157,7 @@ function buildAccountBridge(signerContext: SignerContext) {
     sync,
     signOperation: buildSignOperation(signerContext),
     broadcast: wrappedBroadcast,
-    assignFromAccountRaw,
+    assignFromAccountRaw: makeAssignFromAccountRaw(coinConfig),
     assignToAccountRaw,
     formatAccountSpecifics: formatters.formatAccountSpecifics,
     getSerializedAddressParameters,
@@ -172,7 +172,7 @@ export function createInjectedBridges(signerContext: SignerContext, coinConfig: 
 
   return {
     currencyBridge: buildCurrencyBridge(signerContext),
-    accountBridge: buildAccountBridge(signerContext),
+    accountBridge: buildAccountBridge(signerContext, coinConfig),
   };
 }
 

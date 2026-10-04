@@ -19,6 +19,7 @@ import type { CryptoCurrency } from "@ledgerhq/ledger-wallet-framework/types";
 import type { DerivationMode } from "@ledgerhq/types-live";
 import wallet, { DerivationModes as WalletDerivationModes } from "@ledgerhq/wallet-btc/index";
 import { toWalletBtcCurrency } from "../walletBtcCurrency";
+import { getCoinConfig } from "../config";
 import { mapTxToOperations } from "../logic";
 import type { BitcoinAccount, BitcoinOutput } from "../types";
 import {
@@ -113,7 +114,7 @@ export async function createCustomAccountShape(
       network: "mainnet",
       derivationMode: WalletDerivationModes.LEGACY,
     },
-    toWalletBtcCurrency(currency),
+    toWalletBtcCurrency(currency, getCoinConfig(currency.id).info),
   );
 
   if (data.source === "relay") {

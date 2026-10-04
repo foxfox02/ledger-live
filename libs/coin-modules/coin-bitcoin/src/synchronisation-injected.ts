@@ -12,6 +12,7 @@ import type {
 } from "@ledgerhq/ledger-wallet-framework/bridge/jsHelpers";
 import type { SyncConfig } from "@ledgerhq/types-live";
 import { makeGetAccountShape } from "./synchronisation";
+import { getCoinConfig } from "./config";
 import { createCustomAccountShape } from "./bridge/customAccountShape";
 import { RELAY_CONFIG, shouldUseCustomAccountShape } from "./bridge/blockchainApi";
 import { createRelaySocket } from "./bridge/relaySocket";
@@ -37,7 +38,7 @@ function ensureRelaySocket() {
 export function makeInjectedGetAccountShape(
   signerContext: SignerContext,
 ): GetAccountShapeStream<BitcoinAccount> {
-  const original = makeGetAccountShape(signerContext);
+  const original = makeGetAccountShape(signerContext, getCoinConfig);
 
   return (info: AccountShapeInfo<BitcoinAccount>, config: SyncConfig) => {
     const { currency, derivationMode, index } = info;

@@ -9,7 +9,7 @@ import {
 import getAddressWrapper from "@ledgerhq/ledger-wallet-framework/bridge/getAddressWrapper";
 import { postSync } from "../synchronisation";
 import { makeInjectedGetAccountShape } from "../synchronisation-injected";
-import { assignFromAccountRaw, assignToAccountRaw, makeAssignFromAccountRaw } from "../serialization";
+import { assignToAccountRaw, makeAssignFromAccountRaw } from "../serialization";
 import { BitcoinAccount, Transaction, TransactionStatus } from "../types";
 import formatters from "../formatters";
 import { getTransactionStatus } from "../getTransactionStatus";

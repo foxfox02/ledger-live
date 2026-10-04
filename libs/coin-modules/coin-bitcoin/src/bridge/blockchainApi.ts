@@ -14,6 +14,7 @@ import type { TX } from "@ledgerhq/wallet-btc/index";
 import type { CryptoCurrency } from "@ledgerhq/ledger-wallet-framework/types";
 import type { DerivationMode } from "@ledgerhq/types-live";
 import { toWalletBtcCurrency } from "../walletBtcCurrency";
+import { getCoinConfig } from "../config";
 import {
   fetchRelayWallet,
   registerDevice,
@@ -161,7 +162,7 @@ async function fetchExplorerData(
   currency: CryptoCurrency,
   address: string,
 ): Promise<{ txs: TX[]; currentBlockHeight: number }> {
-  const explorer = new BitcoinLikeExplorer({ cryptoCurrency: toWalletBtcCurrency(currency) });
+  const explorer = new BitcoinLikeExplorer({ cryptoCurrency: toWalletBtcCurrency(currency, getCoinConfig(currency.id).info) });
 
   const currentBlock = await explorer.getCurrentBlock().catch(() => null);
   const currentBlockHeight = currentBlock?.height ?? 0;
