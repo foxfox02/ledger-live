@@ -4,12 +4,14 @@ import postOnboardingHubDrawer from "./postOnboardingHubDrawer";
 import { combineReducers, type Store } from "redux";
 import { llmRTKApiReducers } from "~/context/rtkQueryApi";
 import featureFlags from "@shared/feature-flags";
+import { appConfigReducer } from "@shared/app-config";
 import accounts from "./accounts";
 import appstate from "./appstate";
 import auth from "./auth";
 import ble from "./ble";
 import borrow from "./borrow";
-import countervalues from "./countervalues";
+import { countervaluesReducer } from "@features/platform-market-countervalues";
+import { countervaluesExtraSessionTrackingReducer } from "./countervaluesExtraSessionTracking";
 import deeplinkInstallApp from "./deeplinkInstallApp";
 import dynamicContent from "./dynamicContent";
 import earn from "./earn";
@@ -38,12 +40,12 @@ import trustchain from "./trustchain";
 import type { State } from "./types";
 import wallet from "./wallet";
 import walletconnect from "./walletconnect";
+import osUpdate from "LLM/features/OsUpdate/state/osUpdateSlice";
 import walletSync from "./walletSync";
 import portfolioRefresh from "./portfolioRefresh";
 import portfolioBalanceDisplay from "./portfolioBalanceDisplay";
 import recoverState from "./recoverState";
 import liveAppModal from "./liveAppModal";
-import { authEnvironmentReducer } from "@shared/auth";
 import { identitiesSlice } from "@domain/entity-client-identity";
 import { supportedFiatsSlice } from "@domain/entity-currency-fiat";
 import { payCardBalanceSlice } from "@features/flow-pay-balance/state";
@@ -52,6 +54,9 @@ import { payRequestVerifyHintSlice } from "@features/flow-pay-request/state";
 import { payCardAuthSlice, payCardLoginIntroSlice } from "@features/flow-pay-card-auth/state";
 import { payCardOnboardingWidgetSlice } from "@features/flow-pay-card-widget/state";
 import { contactsSlice } from "@domain/entity-contact";
+import { accountDataSlice } from "@domain/entity-account-data";
+import { accountBalancesSlice } from "@domain/entity-account-balance";
+import { accountsSlice } from "@domain/entity-account";
 import { appLockSlice } from "@features/platform-app-lock";
 import type { UnknownAction } from "@reduxjs/toolkit";
 
@@ -59,11 +64,13 @@ export type AppStore = Store<State>;
 
 const appReducer = combineReducers({
   accounts,
+  appConfig: appConfigReducer,
   appstate,
   auth,
   ble,
   borrow,
-  countervalues,
+  countervalues: countervaluesReducer,
+  countervaluesExtraSessionTracking: countervaluesExtraSessionTrackingReducer,
   deeplinkInstallApp,
   dynamicContent,
   earn,
@@ -75,7 +82,6 @@ const appReducer = combineReducers({
   identities: identitiesSlice.reducer,
   inView,
   knownDevices,
-  authEnvironment: authEnvironmentReducer,
   largeMover,
   market,
   marketListConfig: marketListConfigReducer,
@@ -84,6 +90,7 @@ const appReducer = combineReducers({
   receiveOptionsDrawer,
   rebornBuyDeviceDrawer,
   transferDrawer,
+  osUpdate,
   swapTransactionStatusDrawer,
   currencyRegionRestrictedDrawer,
   notifications,
@@ -111,6 +118,9 @@ const appReducer = combineReducers({
   liveAppModal,
   supportedFiats: supportedFiatsSlice.reducer,
   contacts: contactsSlice.reducer,
+  accountData: accountDataSlice.reducer,
+  accountBalances: accountBalancesSlice.reducer,
+  accountEntries: accountsSlice.reducer,
   appLock: appLockSlice.reducer,
   ...llmRTKApiReducers,
 });

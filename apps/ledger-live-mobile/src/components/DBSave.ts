@@ -29,7 +29,7 @@ import {
   saveWalletExportState,
 } from "~/db";
 import { exportSelector as accountsExportSelector } from "~/reducers/accounts";
-import { countervaluesStateSelector } from "~/reducers/countervalues";
+import { countervaluesStateSelector } from "@features/platform-market-countervalues";
 import { exportSelector as bleSelector } from "~/reducers/ble";
 import { exportSelector as knownDevicesExportSelector } from "~/reducers/knownDevices";
 import { exportLargeMoverSelector } from "~/reducers/largeMover";
@@ -363,6 +363,7 @@ export const ConfigureDBSaveEffects = () => {
     throttle: 1000,
     getChangesStats: cryptoAssetsNotEquals,
     lense: extractPersistedCALFromState,
+    saveAtStart: true, // the background hash check can update the cache before this effect mounts
   });
 
   useDBSaveEffect({

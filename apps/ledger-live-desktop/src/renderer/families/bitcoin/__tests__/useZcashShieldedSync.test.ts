@@ -2,13 +2,14 @@ import { Observable, type Subscription } from "rxjs";
 import { DEFAULT_ZCASH_PRIVATE_INFO } from "@ledgerhq/coin-zcash/constants";
 import { createFixtureAccount } from "@ledgerhq/coin-bitcoin/fixtures/common.fixtures";
 import { CryptoCurrency } from "@domain/entity-currency-crypto";
-import type { ZcashAccount } from "@ledgerhq/live-common/families/bitcoin/types";
+import type { ZcashAccount } from "@ledgerhq/coin-zcash/types";
 import { getAccountBridge } from "@ledgerhq/live-common/bridge/index";
 import { SYNC_TYPE_SHIELDED } from "@ledgerhq/types-live";
 import { act, renderHook, waitFor } from "tests/testSetup";
 import { updateAccountWithUpdater } from "~/renderer/actions/accounts";
 import { upsertShieldedSubscription } from "~/renderer/reducers/shieldedSyncSubscriptions";
 import { syncStateUpdater } from "../ZCashExportKeyFlowModal/sync";
+import { markFirstSyncFailed } from "../zcashActivationTracking";
 import { useZcashShieldedSync } from "../useZcashShieldedSync";
 
 jest.mock("@ledgerhq/live-common/bridge/index", () => ({
@@ -17,7 +18,11 @@ jest.mock("@ledgerhq/live-common/bridge/index", () => ({
 jest.mock("../ZCashExportKeyFlowModal/sync", () => ({
   syncStateUpdater: jest.fn(() => ({ type: "test/syncStateUpdater" })),
 }));
+jest.mock("../zcashActivationTracking", () => ({
+  markFirstSyncFailed: jest.fn(),
+}));
 const mockedGetAccountBridge = jest.mocked(getAccountBridge);
+const mockedMarkFirstSyncFailed = jest.mocked(markFirstSyncFailed);
 const mockedSyncStateUpdater = jest.mocked(syncStateUpdater);
 
 const baseAccount = createFixtureAccount();
@@ -80,6 +85,65 @@ describe("useZcashShieldedSync", () => {
         subscription: expect.objectContaining({ unsubscribe: expect.any(Function) }),
       },
     ]);
+  });
+
+  it("starts a shielded sync for a zcash_testnet account too", async () => {
+    const account = {
+      ...buildAccount(),
+      currency: { id: "zcash_testnet" } as CryptoCurrency,
+    } as unknown as ZcashAccount;
+    const syncMock = jest.fn(
+      () =>
+        new Observable<(a: unknown) => unknown>(subscriber => {
+          subscriber.next(a => a);
+        }),
+    );
+    mockedGetAccountBridge.mockReturnValue({
+      sync: syncMock,
+    } as unknown as ReturnType<typeof getAccountBridge>);
+
+    const { result } = renderHook(() => useZcashShieldedSync(account), {
+      initialState: { shieldedSyncSubscriptions: [] },
+    });
+
+    act(() => {
+      result.current.startShieldedSync();
+    });
+
+    await waitFor(() => {
+      expect(syncMock).toHaveBeenCalledWith(expect.objectContaining({ id: account.id }), {
+        paginationConfig: {},
+        syncType: SYNC_TYPE_SHIELDED,
+      });
+    });
+  });
+
+  it("stops without a sync error when the sync fails, and reports the failure", async () => {
+    const account = buildAccount();
+    mockedGetAccountBridge.mockReturnValue({
+      sync: jest.fn(
+        () =>
+          new Observable<(a: unknown) => unknown>(subscriber => {
+            subscriber.error(new Error("engine down"));
+          }),
+      ),
+    } as unknown as ReturnType<typeof getAccountBridge>);
+
+    const { result } = renderHook(() => useZcashShieldedSync(account), {
+      initialState: { shieldedSyncSubscriptions: [] },
+    });
+
+    act(() => {
+      result.current.startShieldedSync();
+    });
+
+    await waitFor(() => {
+      expect(mockedSyncStateUpdater).toHaveBeenCalledWith(
+        expect.objectContaining({ id: account.id }),
+        { syncState: "stopped", progress: 0 },
+      );
+    });
+    expect(mockedMarkFirstSyncFailed).toHaveBeenCalledWith(account.id);
   });
 
   it("is a no-op when a sync is already in flight for the account", () => {

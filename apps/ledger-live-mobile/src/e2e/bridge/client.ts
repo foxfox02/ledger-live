@@ -40,15 +40,21 @@ import { bleDevicesSelector } from "~/reducers/ble";
 import { addKnownDevice, knownDevicesSelector, removeKnownDevices } from "~/reducers/knownDevices";
 import {
   buildSpeculosLegacyDeviceId,
+  configureMockServerTransport,
+  DEFAULT_MOCK_SERVER_TRANSPORT_URL,
+  getDeviceManagementKit,
+  getMockScriptRunnerBaseUrl,
   isSpeculosLegacyDeviceId,
+  mockserverIdentifier,
   speculosIdentifier,
   speculosTargetSubject,
 } from "@ledgerhq/live-dmk-mobile";
 import { ledgerToDmkDeviceIdMap } from "@ledgerhq/live-dmk-shared";
 import type { DeviceModelId } from "@ledgerhq/types-devices";
 import { DeviceManagementKitTransportSpeculos } from "@ledgerhq/live-dmk-speculos";
-import { setSpeculosDeviceModel } from "~/services/registerTransports";
+import { setSpeculosDeviceModel, setSpeculosSessionToken } from "~/services/registerTransports";
 import { appNetworkLogStore, initAppNetworkLogging } from "../appNetworkLogStore";
+import { readLaunchForceProvider } from "~/launchForceProvider";
 
 export const e2eBridgeClient = new Subject<MessageData>();
 
@@ -57,8 +63,19 @@ let retryCount = 0;
 const maxRetries = 5; // Maximum number of retry attempts
 const retryDelay = 500; // Initial retry delay in milliseconds
 
+async function disconnectDeviceIntentSpeculosSessions() {
+  const dmk = getDeviceManagementKit();
+  await Promise.all(
+    dmk
+      .listConnectedDevices()
+      .filter(device => device.transport === speculosIdentifier)
+      .map(({ sessionId }) => dmk.disconnect({ sessionId }).catch(() => {})),
+  );
+}
+
 async function disconnectAllSpeculosSessions() {
   await DeviceManagementKitTransportSpeculos.disconnectAll();
+  await disconnectDeviceIntentSpeculosSessions();
 }
 
 function removeKnownSpeculosDevices() {
@@ -87,8 +104,48 @@ function overrideLedgerSyncEnvironment() {
   );
 }
 
+function applyMockServerLaunchArgs() {
+  const args = LaunchArguments.value();
+  const token = args["mockServerToken"];
+  const model = args["mockServerModel"];
+  if (typeof token !== "string" || !token || typeof model !== "string" || !model) return;
+
+  const provider = readLaunchForceProvider(args["forceProvider"]);
+  if (provider !== undefined) {
+    setEnv("FORCE_PROVIDER", provider);
+  }
+  const launchUrl = args["mockServerUrl"];
+  const url =
+    typeof launchUrl === "string" && launchUrl ? launchUrl : DEFAULT_MOCK_SERVER_TRANSPORT_URL;
+  configureMockServerTransport({ url, token });
+  const scriptRunnerUrl = getMockScriptRunnerBaseUrl(url, token);
+  if (scriptRunnerUrl) {
+    setEnv("BASE_SOCKET_URL", scriptRunnerUrl);
+  }
+
+  seedMockServerKnownDevice(model as DeviceModelId);
+}
+
+function seedMockServerKnownDevice(model: DeviceModelId) {
+  const alreadySeeded = knownDevicesSelector(store.getState()).some(
+    device => device.transport === mockserverIdentifier && device.deviceModelId === model,
+  );
+  if (alreadySeeded) return;
+
+  store.dispatch(
+    addKnownDevice({
+      transport: mockserverIdentifier,
+      id: "",
+      name: null,
+      deviceModelId: model,
+    }),
+  );
+}
+
 export function init() {
+  applyMockServerLaunchArgs();
   const wsPort = LaunchArguments.value()["wsPort"] || "8099";
+  const wsToken = LaunchArguments.value()["wsToken"];
   const mock = LaunchArguments.value()["mock"];
   const disable_broadcast = LaunchArguments.value()["disable_broadcast"];
 
@@ -110,7 +167,7 @@ export function init() {
 
   const ipAddress = Platform.OS === "ios" ? "localhost" : "10.0.2.2";
   const path = `${ipAddress}:${wsPort}`;
-  ws = new WebSocket(`ws://${path}`);
+  ws = new WebSocket(`ws://${path}/?token=${wsToken}`);
 
   ws.onopen = () => {
     log(`Connection opened on ${path}`);
@@ -138,7 +195,9 @@ async function onMessage(event: WebSocketMessageEvent) {
     const msg: MessageData = JSON.parse(event.data);
     invariant(msg.type, "[E2E Bridge Client]: type is missing");
 
-    log(`Message recieved\n${JSON.stringify(msg, null, 2)}`);
+    // addKnownSpeculos carries the Speculinho session token.
+    const loggedMsg = msg.type === "addKnownSpeculos" ? { ...msg, payload: "[redacted]" } : msg;
+    log(`Message recieved\n${JSON.stringify(loggedMsg, null, 2)}`);
 
     e2eBridgeClient.next(msg);
 
@@ -258,10 +317,15 @@ async function onMessage(event: WebSocketMessageEvent) {
         break;
       }
       case "addKnownSpeculos": {
-        const { address, model }: { address: string; model: DeviceModelId } = JSON.parse(
+        const {
+          address,
+          model,
+          sessionToken,
+        }: { address: string; model: DeviceModelId; sessionToken?: string } = JSON.parse(
           msg.payload,
         );
         setSpeculosDeviceModel(model);
+        setSpeculosSessionToken(sessionToken);
         await disconnectAllSpeculosSessions();
         const speculosDeviceId = buildSpeculosLegacyDeviceId(address);
         const knownSpeculosIds = bleDevicesSelector(store.getState())
@@ -286,7 +350,11 @@ async function onMessage(event: WebSocketMessageEvent) {
           }),
         );
         // Device intents only offer DMK-known devices, so Speculos is registered here too.
-        speculosTargetSubject.next({ url: address, deviceModelId: ledgerToDmkDeviceIdMap[model] });
+        speculosTargetSubject.next({
+          url: address,
+          deviceModelId: ledgerToDmkDeviceIdMap[model],
+          bearerToken: sessionToken,
+        });
         removeKnownSpeculosDevices();
         store.dispatch(
           addKnownDevice({
@@ -302,6 +370,7 @@ async function onMessage(event: WebSocketMessageEvent) {
       case "removeKnownSpeculos": {
         const address = msg.payload;
         setSpeculosDeviceModel(undefined);
+        setSpeculosSessionToken(undefined);
         await disconnectAllSpeculosSessions();
         store.dispatch(removeKnownBleDevice(buildSpeculosLegacyDeviceId(address)));
         speculosTargetSubject.next(null);
@@ -352,8 +421,13 @@ export function sendEarnLiveAppReady() {
   });
 }
 
+const redactSecureChannelToken = (value: string): string =>
+  value
+    .replace(/(\/secure-channel\/)[^/?#"\\]+/g, "$1***")
+    .replace(/([?&]token=)[^&#"]+/g, "$1***");
+
 async function postMessage(message: ServerData) {
-  log(`Message sending\n${JSON.stringify(message, null, 2)}`);
+  log(`Message sending\n${redactSecureChannelToken(JSON.stringify(message, null, 2))}`);
   try {
     if (ws) {
       ws.send(JSON.stringify(message));

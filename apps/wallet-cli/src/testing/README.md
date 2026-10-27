@@ -12,7 +12,10 @@ binary.
 | `mock-server` | Serves canned HTTP routes on a local port |
 | `session-fixture` | Temp XDG state dir pre-populated with session entries |
 | `constants`, `cal-fixtures`, `eth-sync-routes` | Fixed addresses, descriptors, token info and sync routes |
+| `auth-routes`, `swap-quote-routes` | Keycloak + LKRP auth routes, and swap API routes recording each quote's `authorization` header |
+| `authenticated-quote-server` | Both of the above behind one server, with a helper that runs `swap quote` and returns its signed challenge |
 | `human-device-error-exit` | Standalone script spawned to assert human-output exit codes |
+| `os-keychain` | A failing Linux Secret Service probe, and a `process.platform` override |
 
 ## CLI tests
 

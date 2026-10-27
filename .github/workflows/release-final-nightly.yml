@@ -68,6 +68,9 @@ jobs:
       - name: build libs
         run: pnpm exec nx run-many -t build --projects=tag:scope:libs
 
+      - name: check packed packages
+        run: node tools/scripts/check-packed-packages.mjs
+
       - name: snapshot versioning
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -88,7 +91,7 @@ jobs:
 
       - name: publish nightly (JFrog)
         if: ${{ vars.ARTIFACTORY_PUBLISH_URL != '' }}
-        run: npm_config_registry="https://${{ vars.ARTIFACTORY_PUBLISH_URL }}/" pnpm changeset publish --tag nightly --no-git-tag
+        run: npm_config_registry="https://${{ vars.ARTIFACTORY_PUBLISH_URL }}/" pnpm_config_registry="https://${{ vars.ARTIFACTORY_PUBLISH_URL }}/" pnpm changeset publish --tag nightly --no-git-tag
 
         #NPM publishing - to be removed when all is migrated
 

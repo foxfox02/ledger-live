@@ -13,7 +13,6 @@ import type { SwapTransactionStatusDetails } from "@e2e/page/drawer/swapTransact
 setEnv("DISABLE_TRANSACTION_BROADCAST", true);
 
 async function handleAssetSwap(asset: Account, hasAccount: boolean) {
-  await app.modularDrawer.performSearchByTicker(asset.currency.ticker);
   await app.modularDrawer.selectCurrencyByTicker(asset.currency.ticker);
   const networkName = asset?.parentAccount
     ? asset.parentAccount.currency.name
@@ -80,7 +79,16 @@ export function runSwapWithDifferentSeedTest(
   addressTo: string,
   tmsLinks: string[],
   tags: string[],
+  lnsErrorMessage?: string,
 ) {
+  // LNS is frozen on Exchange 3.4.1, which rejects a payout address from another seed (0x6a83)
+  // instead of showing the "Receive address does not belong" warning added in 4.3.0. The payout
+  // check runs before the refund check, so LNS reports the receiving account first.
+  const expectedErrorMessage =
+    process.env.SPECULOS_DEVICE === Device.LNS.name && lnsErrorMessage
+      ? lnsErrorMessage
+      : errorMessage;
+
   describe("Swap - using a different seed", () => {
     beforeAll(async () => {
       await app.speculos.setExchangeDependencies(swap);
@@ -110,8 +118,8 @@ export function runSwapWithDifferentSeedTest(
       await app.swapLiveApp.checkQuoteCardCtaPresence(provider.uiName);
       await app.common.disableSynchronizationForiOS();
       await app.swapLiveApp.tapExecuteSwap(provider.uiName);
-      if (errorMessage) {
-        await app.swapLiveApp.checkErrorMessage(errorMessage);
+      if (expectedErrorMessage) {
+        await app.swapLiveApp.checkErrorMessage(expectedErrorMessage);
       } else {
         await app.swap.verifyAmountsAndAcceptSwapForDifferentSeed(swap, swapAmount, errorMessage);
         await app.swap.waitForSuccessAndContinue();
@@ -440,7 +448,6 @@ export function runSwapWithSendMaxTest(
     tags.forEach(tag => $Tag(tag));
     it(`[${fromAccount.currency.testLabel}-${toAccount.currency.testLabel}] - Swap max amount`, async () => {
       await app.swapLiveApp.tapFromCurrency();
-      await app.modularDrawer.performSearchByTicker(fromAccount.currency.ticker);
       await app.modularDrawer.selectCurrencyByTicker(fromAccount.currency.ticker);
       let networkName = fromAccount?.parentAccount
         ? fromAccount.parentAccount.currency.name
@@ -448,7 +455,6 @@ export function runSwapWithSendMaxTest(
       await app.modularDrawer.selectNetworkIfAsked(networkName);
       await app.modularDrawer.selectFirstAccount();
       await app.swapLiveApp.tapToCurrency();
-      await app.modularDrawer.performSearchByTicker(toAccount.currency.ticker);
       await app.modularDrawer.selectCurrencyByTicker(toAccount.currency.ticker);
       networkName = toAccount?.parentAccount
         ? toAccount.parentAccount.currency.name
@@ -600,6 +606,7 @@ export function runSwapDiscreetModeTest(
   tmsLinks: string[],
   tags: string[],
 ) {
+  setTeamOwner(Team.SWAP);
   describe("Swap - discreet mode", () => {
     beforeAll(async () => {
       await beforeAllFunctionSwap({
@@ -617,7 +624,6 @@ export function runSwapDiscreetModeTest(
       });
     });
 
-    setTeamOwner(Team.SWAP);
     tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
     tags.forEach(tag => $Tag(tag));
 
@@ -628,6 +634,7 @@ export function runSwapDiscreetModeTest(
       await app.modularDrawer.checkAssetAmountsAreDiscreet(tickers);
     });
 
+    tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
     it("Swap balance is hidden in the swap main form in discreet mode", async () => {
       // Masking is currency-agnostic, so a single account is enough here.
       await app.swapLiveApp.tapFromCurrency();

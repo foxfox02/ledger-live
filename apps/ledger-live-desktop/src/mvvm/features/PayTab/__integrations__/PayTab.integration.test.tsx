@@ -29,7 +29,6 @@ import {
   INIT_INPUT,
   USDC_TOKEN,
   defaultPayStablecoins,
-  dieEnabledState,
   fundedState,
   newSendFlowEnabledState,
   onboardedState,
@@ -60,7 +59,7 @@ jest.mock("react-router", () => ({
 }));
 
 const mockedUseNavigate = jest.mocked(useNavigate);
-const mockedTrackPage = jest.mocked(trackPage);
+const mockedTrackScreen = jest.mocked(trackPage);
 const mockedTrack = jest.mocked(track);
 const mockedUsePayStablecoins = jest.mocked(usePayStablecoins);
 
@@ -98,7 +97,7 @@ let capturedExecutor: CapturedExecutor | undefined;
 
 jest.mock("LLD/components/DeviceIntentExecutor", () => ({
   buildDeviceInitializationInput: jest.fn(),
-  DeviceIntentExecutorLWD: (props: CapturedExecutor) => {
+  DeviceIntentExecutor: (props: CapturedExecutor) => {
     capturedExecutor = props;
     return <div data-testid="device-intent-executor" />;
   },
@@ -200,7 +199,7 @@ describe("PayTab integration", () => {
       initialState: { ...onboardedState, ...tourSeenState, accounts: [BTC_ACCOUNT] },
     });
 
-    expect(mockedTrackPage).toHaveBeenCalledWith(
+    expect(mockedTrackScreen).toHaveBeenCalledWith(
       { category: "Pay", name: undefined, props: { balance_filter: "all" } },
       { mandatory: false, refreshSource: true, updateRoutes: true },
     );
@@ -295,7 +294,7 @@ describe("PayTab integration", () => {
         page: "Pay",
       }),
     );
-    expect(mockedTrackPage).toHaveBeenCalledWith(
+    expect(mockedTrackScreen).toHaveBeenCalledWith(
       expect.objectContaining({ category: "Feature Intro", name: "Cash to stable" }),
       expect.anything(),
     );
@@ -398,7 +397,7 @@ describe("PayTab integration", () => {
         page: "Pay",
       }),
     );
-    expect(mockedTrackPage.mock.calls.filter(([event]) => event.category === "Pay")).toHaveLength(
+    expect(mockedTrackScreen.mock.calls.filter(([event]) => event.category === "Pay")).toHaveLength(
       1,
     );
   });
@@ -406,7 +405,7 @@ describe("PayTab integration", () => {
   it("should mount the DIE on verify and restore the request card once the address is confirmed", async () => {
     mockFundedPayStablecoins();
     const { user } = renderWithMockedCounterValuesProvider(<PayTab />, {
-      initialState: dieEnabledState,
+      initialState: fundedState,
     });
 
     await openRequestReceive(user);

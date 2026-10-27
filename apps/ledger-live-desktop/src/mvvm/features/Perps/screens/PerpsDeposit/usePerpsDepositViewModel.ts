@@ -4,15 +4,18 @@ import type { AccountLike, TokenAccount } from "@ledgerhq/types-live";
 import { getAccountCurrency } from "@ledgerhq/live-common/account/index";
 import {
   useCalculateCountervalueCallback,
-  useCountervaluesState,
-} from "@ledgerhq/live-countervalues-react";
+  useCountervaluesCache,
+} from "@features/platform-market-countervalues";
 import { calculate } from "@domain/entity-market-countervalues";
 import type { CryptoOrTokenCurrency } from "@domain/entity-currency";
 import { formatCurrencyUnit, valueFromUnit } from "@ledgerhq/live-common/currencies/index";
 import type { PerpsDepositUiParams } from "@ledgerhq/live-common/wallet-api/Perps/server";
+import { getDepositMaxBuffer } from "@ledgerhq/live-common/wallet-api/Perps/depositMaxBuffer";
+import { useFeature } from "@features/platform-feature-flags";
 import { PERPS_UI_USE_CASE } from "@ledgerhq/live-common/wallet-api/ModularDrawer/uiUseCase";
-import { useSelector } from "LLD/hooks/redux";
+import { useDispatch, useSelector } from "LLD/hooks/redux";
 import { flattenAccountsSelector } from "~/renderer/reducers/accounts";
+import { setFlowValue } from "~/renderer/reducers/modularDialog";
 import {
   counterValueCurrencySelector,
   discreetModeSelector,
@@ -66,6 +69,7 @@ export type PerpsDepositViewModel = Readonly<{
   depositAccountName: string | null;
   depositAccountCounterValue: string | null;
   maxAmount: number;
+  maxBuffer: number;
   selectMax: () => void;
   statusError: DepositFormError | null;
   canReview: boolean;
@@ -88,6 +92,7 @@ export function usePerpsDepositViewModel(
 
   const [depositAccountId, setDepositAccountId] = useState(data.draft?.depositAccount.id);
   const [amountText, setAmountText] = useState(() => toAmountText(data.draft?.depositAmount));
+  const dispatch = useDispatch();
 
   useEffect(() => {
     setDepositAccountId(data.draft?.depositAccount.id);
@@ -139,7 +144,7 @@ export function usePerpsDepositViewModel(
   const counterValueUnit = counterValueCurrency.units[0];
   const maxDecimalLength = Math.max(0, counterValueUnit.magnitude);
   const calculateCountervalue = useCalculateCountervalueCallback({ to: counterValueCurrency });
-  const countervaluesState = useCountervaluesState();
+  const countervaluesState = useCountervaluesCache();
 
   /** Prices the typed amount back into `currency`, in its smallest unit. */
   const toCurrencyAmount = useCallback(
@@ -198,10 +203,28 @@ export function usePerpsDepositViewModel(
     [counterValueUnit.magnitude, depositAccountBalanceCounterValue],
   );
 
+  const tradeMaxConstant = useFeature("ptxTradeMaxConstant");
+  const maxBuffer = useMemo(() => {
+    if (!tradeMaxConstant?.enabled || !depositAccount || !depositCurrency) return 0;
+    const buffer = getDepositMaxBuffer(depositAccount, tradeMaxConstant.params?.constants);
+    if (buffer.isZero()) return 0;
+    return (
+      calculateCountervalue(depositCurrency, buffer)
+        ?.shiftedBy(-counterValueUnit.magnitude)
+        .toNumber() ?? 0
+    );
+  }, [
+    calculateCountervalue,
+    counterValueUnit.magnitude,
+    depositAccount,
+    depositCurrency,
+    tradeMaxConstant,
+  ]);
+
   const selectMax = useCallback(() => {
     if (maxAmount === null) return;
-    setAmountText(toAmountText(applyRatio(maxAmount, 1, maxDecimalLength)));
-  }, [maxAmount, maxDecimalLength]);
+    setAmountText(toAmountText(applyRatio(maxAmount, 1, maxDecimalLength, maxBuffer)));
+  }, [maxAmount, maxBuffer, maxDecimalLength]);
 
   const submitError = useMemo(
     () =>
@@ -261,6 +284,7 @@ export function usePerpsDepositViewModel(
   }, []);
 
   const pickDepositAccount = useCallback(() => {
+    dispatch(setFlowValue(PERPS_UI_USE_CASE.fund));
     void openAssetAndAccountPromise({
       uiUseCase: PERPS_UI_USE_CASE.fund,
       areCurrenciesFiltered: false,
@@ -269,7 +293,7 @@ export function usePerpsDepositViewModel(
         setDepositAccountId(account.id);
       })
       .catch(() => undefined);
-  }, [openAssetAndAccountPromise]);
+  }, [dispatch, openAssetAndAccountPromise]);
 
   const handleReview = useCallback(() => {
     if (!canReview || !depositAccount || !depositCurrency || !quote) return;
@@ -313,6 +337,7 @@ export function usePerpsDepositViewModel(
       : null,
     depositAccountCounterValue,
     maxAmount: maxAmount ?? 0,
+    maxBuffer,
     selectMax,
     statusError,
     canReview,

@@ -5,6 +5,7 @@ import { BigNumber } from "bignumber.js";
 import { isAccountEmpty } from "./helpers";
 import { txToOps } from "./logic/history/txToOps";
 import { CosmosAPI } from "./network/Cosmos";
+import { getCurrentCosmosPreloadData } from "./preloadedData";
 import { CosmosAccount } from "./types";
 
 export const getAccountShape: GetAccountShape<CosmosAccount> = async (info: any) => {
@@ -18,7 +19,7 @@ export const getAccountShape: GetAccountShape<CosmosAccount> = async (info: any)
   });
 
   const { accountInfo, balances, blockHeight, txs, delegations, redelegations, unbondings } =
-    await new CosmosAPI(currency.id).getAccountInfo(address, currency);
+    await new CosmosAPI(currency.id).getAccountInfo(address, currency.units[1].code);
 
   const oldOperations = initialAccount?.operations || [];
   const newOperations = txToOps({ address, unitCode: currency.units[1].code }, accountId, txs);
@@ -46,18 +47,11 @@ export const getAccountShape: GetAccountShape<CosmosAccount> = async (info: any)
     spendableBalance = new BigNumber(0);
   }
 
-  const cosmosResources = {
-    delegations,
-    redelegations,
-    unbondings,
-    delegatedBalance,
-    pendingRewardsBalance,
-    unbondingBalance,
-    sequence: accountInfo.sequence,
-    // Captured from the device at scan (hw-getAddress); plain re-syncs have no device,
-    // so carry the previously-persisted value forward.
-    publicKey: rest?.publicKey ?? initialAccount?.cosmosResources?.publicKey ?? "",
-  };
+  const preloadedValidators = getCurrentCosmosPreloadData()[currency.id]?.validators ?? [];
+  const validators =
+    preloadedValidators.length > 0
+      ? preloadedValidators
+      : (initialAccount?.stakingResources?.validators ?? []);
 
   const stakingResources: StakingResources = {
     delegations,
@@ -66,18 +60,21 @@ export const getAccountShape: GetAccountShape<CosmosAccount> = async (info: any)
     delegatedBalance,
     pendingRewardsBalance,
     unbondingBalance,
+    ...(validators.length > 0 ? { validators } : {}),
   };
 
   const shape = {
     id: accountId,
-    xpub: address,
+    // Captured from the device at scan (hw-getAddress); plain re-syncs have no device,
+    // so carry the previously-persisted value forward.
+    xpub: rest?.publicKey || initialAccount?.xpub || address,
     balance: balance,
     spendableBalance,
     operationsCount: operations.length,
     blockHeight,
-    cosmosResources,
+    sequence: accountInfo.sequence,
     stakingResources,
-    used: !isAccountEmpty({ balance, cosmosResources }),
+    used: !isAccountEmpty({ balance, sequence: accountInfo.sequence }),
   };
 
   if (shape.spendableBalance && shape.spendableBalance.lt(0)) {

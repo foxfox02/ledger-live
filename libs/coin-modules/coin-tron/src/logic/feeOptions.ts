@@ -5,12 +5,11 @@ import {
   STANDARD_FEE_OPTION_ID,
   TRONIFY_FEE_OPTION_ID,
   TRONIFY_PAY_ASSET,
-  TRX_CURRENCY_NAME,
-  TRX_UNIT,
   tronifyPayAsset,
 } from "./constants";
 import { estimateFees } from "./estimateFees";
 import { getEnergyProvider } from "./energyRent";
+import { tronifyPaymentAddresses } from "./energyRent/paymentPolicy";
 import { validateAddress } from "./validateAddress";
 
 type TronIntent = TransactionIntent<TronMemo, TronTxData>;
@@ -19,7 +18,7 @@ type TronIntent = TransactionIntent<TronMemo, TronTxData>;
 // mutating an option must never leak into the module-level constants.
 const standardOption = (): FeeOptionMeta => ({
   id: STANDARD_FEE_OPTION_ID,
-  feeAsset: { type: "native", name: TRX_CURRENCY_NAME, unit: { ...TRX_UNIT } },
+  feeAsset: { type: "native" },
 });
 const tronifyOption = (): FeeOptionMeta => ({
   id: TRONIFY_FEE_OPTION_ID,
@@ -70,9 +69,11 @@ export async function listFeeOptions(
     // Not enabled is the normal state, not a failure — return before the gate so it isn't logged below.
     if (!config.energyRent || awaitingSourceFlag(config)) return standardOnly();
 
-    // A malformed energyRent block (missing url, unknown provider) throws here, degrading
-    // to standard-only in the catch instead of advertising an option that only fails later.
+    // A malformed energyRent block (missing url, unknown provider, missing or invalid payment
+    // addresses) throws here, degrading to standard-only in the catch instead of advertising an
+    // option that only fails later.
     getEnergyProvider(config);
+    tronifyPaymentAddresses(config);
 
     const standard = await estimateFees(context.logger, config, intent);
     const energyRequired = standard.parameters?.energyRequired;

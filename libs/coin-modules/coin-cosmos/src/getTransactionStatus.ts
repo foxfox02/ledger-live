@@ -1,4 +1,3 @@
-import { findCryptoCurrencyById } from "@ledgerhq/ledger-wallet-framework/currencies";
 import {
   AmountRequired,
   FeeNotLoaded,
@@ -16,7 +15,7 @@ import {
   NotEnoughDelegationBalance,
   RecommendUndelegation,
 } from "./errors";
-import { AccountBridge } from "@ledgerhq/types-live";
+import { AccountBridge, isStakingAccount, type StakingAccount } from "@ledgerhq/types-live";
 import * as bech32 from "bech32";
 import { BigNumber } from "bignumber.js";
 import invariant from "invariant";
@@ -28,19 +27,17 @@ import {
   COSMOS_MAX_UNBONDINGS,
   getMaxEstimatedBalance,
 } from "./logic";
-import {
-  CosmosAccount,
-  CosmosLikeTransaction,
-  StatusErrorMap,
-  Transaction,
-  TransactionStatus,
-} from "./types";
+import { CosmosLikeTransaction, StatusErrorMap, Transaction, TransactionStatus } from "./types";
+
+// Legacy currency-registry keys whose canonical id differs (mirrors CRYPTO_CURRENCY_ALIASES).
+const LEGACY_ID_ALIASES: Record<string, string> = { osmosis: "osmo" };
 
 export class CosmosTransactionStatusManager {
   getTransactionStatus: AccountBridge<Transaction>["getTransactionStatus"] = async (
-    account: CosmosAccount,
+    account,
     transaction: CosmosLikeTransaction,
   ) => {
+    invariant(isStakingAccount(account), "cosmos staking account required");
     if (transaction.mode === "send") {
       // We isolate the send transaction that it's a little bit different from the rest
       return await this.getSendTransactionStatus(account, transaction);
@@ -134,7 +131,7 @@ export class CosmosTransactionStatusManager {
   };
 
   private getDelegateTransactionStatus = async (
-    account: CosmosAccount,
+    account: StakingAccount,
     transaction: CosmosLikeTransaction,
   ): Promise<TransactionStatus> => {
     const errors: StatusErrorMap = {};
@@ -195,7 +192,7 @@ export class CosmosTransactionStatusManager {
   };
 
   private getSendTransactionStatus = async (
-    account: CosmosAccount,
+    account: StakingAccount,
     transaction: CosmosLikeTransaction,
   ): Promise<TransactionStatus> => {
     const errors: StatusErrorMap = {};
@@ -212,11 +209,13 @@ export class CosmosTransactionStatusManager {
       } catch {
         isValid = false;
       }
-      const currency = findCryptoCurrencyById(account.currency.name.toLowerCase());
-      let prefix = "";
-      if (currency) {
-        prefix = cryptoFactory(currency.id as string).prefix;
-      }
+      // Only enforced when the lowercased name resolves to the currency id (e.g. "Cosmos" → "cosmos",
+      // "Osmosis" → "osmo"), matching the former registry lookup by name.
+      const nameKey = account.currency.name.toLowerCase();
+      const prefix =
+        (LEGACY_ID_ALIASES[nameKey] ?? nameKey) === account.currency.id
+          ? cryptoFactory(account.currency.id).prefix
+          : "";
       isValid = isValid && transaction.recipient.startsWith(prefix);
       if (!isValid) {
         errors.recipient = new InvalidAddress(undefined, {
@@ -261,7 +260,7 @@ export class CosmosTransactionStatusManager {
   };
 
   private redelegationStatusError = (
-    account: CosmosAccount,
+    account: StakingAccount,
     transaction: CosmosLikeTransaction,
   ) => {
     const { redelegations } = account.stakingResources;
@@ -292,7 +291,7 @@ export class CosmosTransactionStatusManager {
   };
 
   private isDelegable = (
-    account: CosmosAccount,
+    account: StakingAccount,
     address: string | undefined | null,
     amount: BigNumber,
   ) => {

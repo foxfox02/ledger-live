@@ -74,7 +74,7 @@ describe("AnalyticsMain Integration Tests", () => {
       overrideInitialState: mockState,
     });
 
-    expect(screen.getByText(/swap/i)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Swap" })).toBeVisible();
   });
 
   it("should not display swap button if exchange is disabled", () => {
@@ -82,7 +82,7 @@ describe("AnalyticsMain Integration Tests", () => {
       overrideInitialState: state => mockState(state, false),
     });
 
-    expect(screen.queryByText(/swap/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Swap" })).toBeNull();
   });
 
   it("should track and navigate to swap tab when swap button is pressed", async () => {
@@ -90,14 +90,14 @@ describe("AnalyticsMain Integration Tests", () => {
       overrideInitialState: mockState,
     });
 
-    await user.press(screen.getByText(/swap/i));
+    await user.press(screen.getByRole("button", { name: "Swap" }));
 
     expect(track).toHaveBeenCalledWith("button_clicked", {
       button: "Swap",
       page: "Analytics",
     });
 
-    expect(mockNavigate).toHaveBeenCalledWith(NavigatorName.Main, swapTabRoute);
+    expect(mockNavigate).toHaveBeenCalledWith(NavigatorName.Main, swapTabRoute, { pop: true });
   });
 
   it("should track and navigate to detailed allocation when allocation component is pressed", async () => {

@@ -76,9 +76,9 @@ export async function getTokenFromAsset(
   }
   const store = getCryptoAssetsStore();
   if (asset.type === "trc10") {
-    return store.findTokenById(trc10TokenId(currency.id, asset.assetReference));
+    return await store.findTokenById(trc10TokenId(currency.id, asset.assetReference));
   }
-  return store.findTokenByAddressInCurrency(asset.assetReference, currency.id);
+  return await store.findTokenByAddressInCurrency(asset.assetReference, currency.id);
 }
 
 export function getAssetFromToken(token: TokenCurrency, owner: string): AssetInfo {
@@ -88,8 +88,6 @@ export function getAssetFromToken(token: TokenCurrency, owner: string): AssetInf
     type: token.tokenType,
     assetReference,
     assetOwner: owner,
-    name: token.name,
-    unit: token.units[0],
   };
 }
 

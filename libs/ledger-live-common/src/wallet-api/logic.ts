@@ -24,11 +24,11 @@ import {
 import { Transaction } from "../coin-modules/transaction-types";
 import { prepareMessageToSign } from "../hw/signMessage/index";
 import { getAccountBridge } from "../bridge";
+import { resolveFamily } from "../bridge/zcashRouting";
 import { Exchange } from "../exchange/types";
 import { getCryptoAssetsStore } from "@ledgerhq/ledger-wallet-framework/cryptoAssetsStore";
 import { type AccountNamesState } from "@domain/entity-account-name";
 import { getWalletAccount } from "@ledgerhq/coin-bitcoin/getWalletAccount";
-import type { CosmosAccount } from "@ledgerhq/coin-cosmos/types/index";
 import { CryptoOrTokenCurrency } from "@domain/entity-currency";
 import { normalizePublicKeyForAddress } from "@ledgerhq/coin-tezos/logic-public";
 import { AccountPublicKeyUnavailable } from "../errors";
@@ -119,9 +119,10 @@ export async function signTransactionLogic(
 
     const parentAccount = getParentAccount(account, accounts);
 
-    const accountFamily = isTokenAccount(account)
-      ? parentAccount?.currency.family
-      : account.currency.family;
+    // The family of the bridge that serves the account, which the converted transaction
+    // carries: `zcash` for Zcash, whose currency family is `bitcoin`.
+    const accountCurrency = isTokenAccount(account) ? parentAccount?.currency : account.currency;
+    const accountFamily = accountCurrency && resolveFamily(accountCurrency);
 
     const mainAccount = getMainAccount(account, parentAccount);
     const currency = tokenCurrency
@@ -369,9 +370,7 @@ const ACCOUNT_PUBLIC_KEY_RESOLVERS: Partial<Record<string, AccountPublicKeyResol
     throw new AccountPublicKeyUnavailable();
   },
   cosmos: account =>
-    [(account as CosmosAccount).cosmosResources?.publicKey, account.xpub].find(
-      key => key !== undefined && COMPRESSED_SECP256K1_HEX.test(key),
-    ) ?? null,
+    account.xpub !== undefined && COMPRESSED_SECP256K1_HEX.test(account.xpub) ? account.xpub : null,
 };
 
 export const accountGetPublicKeyLogic = async (
@@ -667,7 +666,7 @@ export async function completeExchangeLogic(
 
   const accountBridge = await getAccountBridge(fromAccount, fromParentAccount);
   const mainFromAccount = getMainAccount(fromAccount, fromParentAccount);
-  const mainFromAccountFamily = mainFromAccount.currency.family;
+  const mainFromAccountFamily = resolveFamily(mainFromAccount.currency);
 
   const { liveTx } = await getWalletAPITransactionSignFlowInfos({
     walletApiTransaction: transaction,

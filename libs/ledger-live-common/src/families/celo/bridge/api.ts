@@ -12,7 +12,10 @@ export async function getTokenFromAsset(
   if (asset.type === "native" || !("assetReference" in asset) || !asset.assetReference) {
     return undefined;
   }
-  return getCryptoAssetsStore().findTokenByAddressInCurrency(asset.assetReference, currency.id);
+  return await getCryptoAssetsStore().findTokenByAddressInCurrency(
+    asset.assetReference,
+    currency.id,
+  );
 }
 
 export function getAssetFromToken(token: TokenCurrency, owner: string): AssetInfo {
@@ -20,8 +23,6 @@ export function getAssetFromToken(token: TokenCurrency, owner: string): AssetInf
     type: token.tokenType,
     assetReference: token.contractAddress,
     assetOwner: owner,
-    name: token.name,
-    unit: token.units[0],
   };
 }
 

@@ -7,12 +7,15 @@ import {
   buildTransaction,
   CosmosTransactionParams,
   messageParamsFromTransaction,
+  resolveSourceValidator,
+  resolveTransactionValidators,
   txToMessages,
 } from "./buildTransaction";
-import cryptoFactory from "./chain/chain";
+import cryptoFactory, { resolveChainCurrencyId } from "./chain/chain";
+import cosmosCoinConfig, { type CosmosCoinConfig } from "./config";
 import { getMaxEstimatedBalance } from "./logic";
 import { CosmosAPI } from "./network/Cosmos";
-import { CosmosAccount, Transaction } from "./types";
+import { Transaction } from "./types";
 
 export const calculateFees: CacheRes<
   Array<{
@@ -31,33 +34,37 @@ export const calculateFees: CacheRes<
     gasWanted: BigNumber;
     gasWantedFees: BigNumber;
   }> => {
-    return await getEstimatedFees(messageParamsFromTransaction(account, transaction));
+    return await getEstimatedFees(
+      cosmosCoinConfig.getCoinConfig(resolveChainCurrencyId(account.currency.id)),
+      messageParamsFromTransaction(account, transaction),
+    );
   },
   ({ account, transaction }) =>
     `${account.id}_${account.currency.id}_${transaction.amount.toFixed()}_${
       transaction.recipient
-    }_${String(transaction.useAllAmount)}_${transaction.mode}_${
-      transaction.validators
-        ? transaction.validators.map(v => `${v.address}-${v.amount}`).join("_")
-        : ""
-    }_${transaction.memo ? transaction.memo.toString() : ""}_${
-      transaction.sourceValidator ? transaction.sourceValidator : ""
-    }_${transaction.valAddress ?? ""}_${transaction.dstValAddress ?? ""}`,
+    }_${String(transaction.useAllAmount)}_${transaction.mode}_${resolveTransactionValidators(
+      transaction,
+    )
+      .map(v => `${v.address}-${v.amount}`)
+      .join("_")}_${transaction.memo ? transaction.memo.toString() : ""}_${
+      resolveSourceValidator(transaction) ?? ""
+    }`,
   {
     ttl: 1000 * 10, // 10 sec
   },
 );
 
 export const getEstimatedFees = async (
+  config: CosmosCoinConfig,
   params: CosmosTransactionParams,
 ): Promise<{
   gasWanted: BigNumber;
   gasWantedFees: BigNumber;
 }> => {
-  const chainInstance = cryptoFactory(params.currencyId);
+  const chainInstance = cryptoFactory(params.currencyId, config);
   let gasUsed = new BigNumber(chainInstance.defaultGas);
 
-  const cosmosAPI = new CosmosAPI(params.currencyId);
+  const cosmosAPI = new CosmosAPI(params.currencyId, undefined, config);
   const { protoMsgs } = txToMessages(params, chainInstance);
   const { sequence, pubKey, pubKeyType } = await cosmosAPI.getAccount(params.senderAddress);
 
@@ -120,7 +127,7 @@ export const prepareTransaction: AccountBridge<Transaction>["prepareTransaction"
   });
 
   if (transaction.useAllAmount) {
-    amount = getMaxEstimatedBalance(account as CosmosAccount, gasWantedFees);
+    amount = getMaxEstimatedBalance(account, gasWantedFees);
   }
 
   if (

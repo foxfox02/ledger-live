@@ -5,9 +5,6 @@ on:
     - cron: "9 16 * * 1-5"
 
   pull_request:
-    branches-ignore:
-      - "smartling-content-updated**"
-      - "smartling-translation-completed**"
   workflow_dispatch:
     inputs:
       chain:
@@ -19,7 +16,10 @@ permissions:
   contents: read
 
 env:
-  COIN_TESTER_CURRENCIES: "evm polkadot solana bitcoin tezos tron xrp stellar multiversx cosmos cardano casper vechain near stacks kaspa zcash"
+  COIN_TESTER_CURRENCIES: "evm polkadot solana bitcoin tezos tron xrp stellar multiversx cosmos cardano casper vechain near stacks kaspa zcash aleo"
+  # The coin testers that run against coin-sandbox, and the coin-sandbox networks whose images each one pulls
+  # from GHCR. Bitcoin runs Ledger's images (JFrog), pulled on `up`, so it has none to pull here
+  COIN_SANDBOX_NETWORKS: '{"solana": ["solana"], "tron": ["tron"], "evm": ["ethereum", "polygon", "bsc", "optimism", "scroll"], "bitcoin": []}'
 
 jobs:
   is-affected:
@@ -98,6 +98,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
+      packages: read # pulls the coin-sandbox images from GHCR
     continue-on-error: true
 
     strategy:
@@ -122,7 +123,8 @@ jobs:
       - name: Login to Ledger Artifactory
         id: jfrog-login
         timeout-minutes: 10
-        uses: LedgerHQ/actions-security/actions/jfrog-login@actions/jfrog-login-1
+        # Pinned to a commit SHA (not a branch or moving tag) to enable caching.
+        uses: LedgerHQ/actions-security/actions/jfrog-login@c927e3b6f81f35f3f11f54ff8df47b410186e7a3
 
       - name: Login to JFrog OCI Registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
@@ -138,6 +140,64 @@ jobs:
 
       - name: Setup environment
         uses: LedgerHQ/ledger-live/tools/actions/composites/setup-coin-tester-env@develop
+
+      # TODO: the deploy key below is NOT the final way to authenticate. It is a stopgap until the GitHub App behind
+      # GH_BOT_* is installed on LedgerHQ/coin-sandbox. Then uncomment this step, use its token in the checkout
+      # (`token:`) instead of `ssh-key:`, and delete the deploy key and the COIN_SANDBOX_DEPLOY_KEY secret.
+      # - name: Generate a GitHub App token for coin-sandbox
+      #   if: fromJSON(env.COIN_SANDBOX_NETWORKS)[matrix.chain] != null
+      #   id: coin-sandbox-token
+      #   uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      #   with:
+      #     client-id: ${{ secrets.GH_BOT_CLIENT_ID }}
+      #     private-key: ${{ secrets.GH_BOT_PRIVATE_KEY }}
+      #     repositories: coin-sandbox
+      #     permission-contents: read
+
+      - name: Checkout coin-sandbox
+        if: fromJSON(env.COIN_SANDBOX_NETWORKS)[matrix.chain] != null
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: LedgerHQ/coin-sandbox
+          ref: main
+          ssh-key: ${{ secrets.COIN_SANDBOX_DEPLOY_KEY }} # TODO: temporary, see above
+          # token: ${{ steps.coin-sandbox-token.outputs.token }}
+          path: coin-sandbox
+          persist-credentials: false
+
+      - name: Setup Deno
+        if: fromJSON(env.COIN_SANDBOX_NETWORKS)[matrix.chain] != null
+        uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: 2.9.7
+
+      - name: Login to GHCR
+        if: fromJSON(env.COIN_SANDBOX_NETWORKS)[matrix.chain] != null
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull the coin-sandbox images
+        if: fromJSON(env.COIN_SANDBOX_NETWORKS)[matrix.chain] != null
+        working-directory: coin-sandbox
+        env:
+          COIN_SANDBOX_REGISTRY: ghcr.io/ledgerhq/
+          NETWORKS: ${{ join(fromJSON(env.COIN_SANDBOX_NETWORKS)[matrix.chain], ' ') }}
+        run: |
+          for network in $NETWORKS; do
+            deno task pull "$network"
+          done
+
+      - name: Start coin-sandbox
+        if: fromJSON(env.COIN_SANDBOX_NETWORKS)[matrix.chain] != null
+        working-directory: coin-sandbox
+        env:
+          COIN_SANDBOX_REGISTRY: ghcr.io/ledgerhq/
+        run: |
+          deno task server &
+          curl -sf --retry 8 --retry-connrefused http://localhost:8000/openapi.json
 
       # coin-tester-stacks builds a patched clarinet from source (~13 min) when its binary is missing.
       # The key hashes docker/clarinet/**, which holds the pinned commit, patches and toolchain.

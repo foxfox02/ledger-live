@@ -18,14 +18,14 @@ import { initialStepId } from "~/renderer/screens/manager/FirmwareUpdate";
 import ErrorDrawer from "./ErrorDrawer";
 import DeviceNotGenuineDrawer from "./DeviceNotGenuineDrawer";
 import { useTranslation } from "react-i18next";
-import { TrackPage } from "@shared/analytics-react";
+import { TrackScreen } from "@shared/analytics-react";
 import { track } from "@shared/analytics";
 import { log } from "@ledgerhq/logs";
 import { useLocalizedUrl } from "~/renderer/hooks/useLocalizedUrls";
 import { FinalFirmware } from "@ledgerhq/types-live";
 import { useNavigate } from "react-router";
 import { NetworkDown } from "@ledgerhq/live-common/errors";
-import { NetworkStatus, useNetworkStatus } from "~/renderer/hooks/useNetworkStatus";
+import { useNetworkState } from "@shared/network-status";
 import { urls } from "~/config/urls";
 import { normalizeGenuineCheckError } from "./normalizeGenuineCheckError";
 import { useConnectManagerAction } from "~/renderer/hooks/useConnectAppAction";
@@ -42,6 +42,7 @@ import { renderAllowManager } from "../../../DeviceAction/rendering";
 
 export type Props = {
   onComplete: () => void;
+  onGenuineCheckPassed: (deviceId: string) => void;
   device: Device;
   /**
    * Security checks re-run after a firmware update.
@@ -76,6 +77,7 @@ const commonDrawerProps = {
  */
 const EarlySecurityChecks = ({
   onComplete,
+  onGenuineCheckPassed,
   device,
   restartChecksAfterUpdate,
   isInitialRunOfSecurityChecks,
@@ -121,7 +123,7 @@ const EarlySecurityChecks = ({
     deviceName: device.deviceName ?? null,
   });
 
-  const { networkStatus } = useNetworkStatus();
+  const { isConnected } = useNetworkState();
 
   const {
     state: {
@@ -331,6 +333,10 @@ const EarlySecurityChecks = ({
   }, [genuineCheckStatus, genuineState, devicePermissionState, genuineCheckError]);
 
   useEffect(() => {
+    if (genuineState === "genuine") onGenuineCheckPassed(deviceId);
+  }, [genuineState, deviceId, onGenuineCheckPassed]);
+
+  useEffect(() => {
     /**
      * for infinite loop firmware, we arbitrarily decide that the il2 -> il0
      * path does not exist. It allows testing this flow without being stuck
@@ -417,10 +423,7 @@ const EarlySecurityChecks = ({
         },
         commonDrawerProps,
       );
-    } else if (
-      networkStatus === NetworkStatus.OFFLINE &&
-      genuineCheckStatus !== SoftwareCheckStatus.inactive
-    ) {
+    } else if (isConnected === false && genuineCheckStatus !== SoftwareCheckStatus.inactive) {
       setDrawer(
         ErrorDrawer,
         {
@@ -469,7 +472,7 @@ const EarlySecurityChecks = ({
     productName,
     resetGenuineCheckState,
     navigate,
-    networkStatus,
+    isConnected,
     genuineCheckStatus,
   ]);
 
@@ -486,20 +489,20 @@ const EarlySecurityChecks = ({
         {renderAllowManager({ modelId: deviceModelId, type: themeType })}
       </Popin>
       {isInitialRunOfSecurityChecks && (
-        <TrackPage category="Genuine check and OS update check start" />
+        <TrackScreen category="Genuine check and OS update check start" />
       )}
       {isInitialRunOfSecurityChecks && genuineCheckStatus === SoftwareCheckStatus.cancelled && (
-        <TrackPage category="Error: user declined genuine check on their device" />
+        <TrackScreen category="Error: user declined genuine check on their device" />
       )}
       {isInitialRunOfSecurityChecks && genuineCheckStatus === SoftwareCheckStatus.completed && (
-        <TrackPage category="The genuine check is successful" />
+        <TrackScreen category="The genuine check is successful" />
       )}
       {genuineCheckStatus === SoftwareCheckStatus.completed &&
         firmwareUpdateStatus === SoftwareCheckStatus.completed && (
-          <TrackPage category="The device is genuine and up to date" />
+          <TrackScreen category="The device is genuine and up to date" />
         )}
       {firmwareUpdateStatus === SoftwareCheckStatus.updateAvailable && (
-        <TrackPage category="Download OS update" />
+        <TrackScreen category="Download OS update" />
       )}
       <Body
         genuineCheckStatus={

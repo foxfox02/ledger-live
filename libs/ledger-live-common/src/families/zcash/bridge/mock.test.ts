@@ -2,8 +2,9 @@ import { BigNumber } from "bignumber.js";
 import type { Account, AccountRaw } from "@ledgerhq/types-live";
 import type { ZcashAccount, ZcashAccountRaw } from "@ledgerhq/coin-zcash/types/bridge";
 import { createTransaction } from "@ledgerhq/coin-zcash/bridge/createTransaction";
-import { getTransactionStatus } from "@ledgerhq/coin-zcash/bridge/getTransactionStatus";
+import { LiveConfig } from "@ledgerhq/live-config/LiveConfig";
 import { classifyZcashRecipient } from "@ledgerhq/coin-zcash/logic/address";
+import { zcashConfig } from "../config";
 import zcashMockBridge from "./mock";
 
 const zcashAccount = (privateInfo?: Partial<ZcashAccount["privateInfo"]>) =>
@@ -22,7 +23,21 @@ describe("zcash mock bridge", () => {
 
   it("reuses the real, network-free coin-zcash bridge functions rather than reimplementing them", () => {
     expect(accountBridge.createTransaction).toBe(createTransaction);
-    expect(accountBridge.getTransactionStatus).toBe(getTransactionStatus);
+  });
+
+  it("prices a transaction with the real coin-zcash status logic and the currency's coin config", async () => {
+    LiveConfig.setConfig(zcashConfig);
+    const account = {
+      ...zcashAccount(),
+      blockHeight: 3450000,
+      bitcoinResources: { utxos: [] },
+    } as unknown as ZcashAccount;
+
+    const status = await accountBridge.getTransactionStatus(account, createTransaction(account));
+
+    // No prepared fee yet: the real status logic falls back to the ZIP-317 minimum at the
+    // fee the account's height and the coin config select (5,000 per action before ZIP 2009).
+    expect(status.estimatedFees).toEqual(new BigNumber(10_000));
   });
 
   it("round-trips bitcoinResources and privateInfo through assignFromAccountRaw/assignToAccountRaw", () => {
@@ -102,6 +117,7 @@ describe("zcash mock bridge", () => {
     it("exposes the whole zcash-only surface the host app calls unconditionally", () => {
       expect(typeof accountBridge.getFullViewingKey).toBe("function");
       expect(typeof accountBridge.deriveShieldedAddress).toBe("function");
+      expect(typeof accountBridge.findBlockHeightAtDate).toBe("function");
       expect(typeof accountBridge.getShieldedAddress).toBe("function");
     });
 
@@ -132,6 +148,12 @@ describe("zcash mock bridge", () => {
       expect(classifyZcashRecipient(address)).toEqual({
         recipientType: "private",
       });
+    });
+
+    it("findBlockHeightAtDate answers a fixed block height", async () => {
+      await expect(accountBridge.findBlockHeightAtDate(zcashAccount(), "2026-07-28")).resolves.toBe(
+        3_428_143,
+      );
     });
 
     it("getShieldedAddress echoes the account's own address, so receive verification matches", async () => {

@@ -8,11 +8,13 @@ import {
   POLLING_FINISHED_DELAY_MS,
   type WalletSyncUserState,
 } from "../useSyncSources";
-import * as countervaluesReact from "@ledgerhq/live-countervalues-react";
+import * as countervaluesReact from "@features/platform-market-countervalues";
 import * as context from "../context";
 import * as globalSyncStateModule from "../useGlobalSyncState";
 
-jest.mock("@ledgerhq/live-countervalues-react", () => ({
+jest.mock("@features/platform-market-countervalues", () => ({
+  ...jest.requireActual("@features/platform-market-countervalues"),
+  useCountervaluesLoadStatus: jest.fn(),
   useCountervaluesPolling: jest.fn(),
 }));
 
@@ -28,14 +30,14 @@ const mockPoll = jest.fn();
 const mockOnUserRefresh = jest.fn();
 const mockBridgeSync = jest.fn();
 
-const defaultPollingReturn = {
+const pollingControls = {
   poll: mockPoll,
-  pending: false,
-  error: null,
   wipe: jest.fn(),
   start: jest.fn(),
   stop: jest.fn(),
 };
+
+const idleLoadStatus = { pending: false, error: null };
 
 const defaultWalletSync: WalletSyncUserState = {
   onUserRefresh: mockOnUserRefresh,
@@ -44,6 +46,7 @@ const defaultWalletSync: WalletSyncUserState = {
 };
 
 const mockUseCountervaluesPolling = jest.mocked(countervaluesReact.useCountervaluesPolling);
+const mockUseCountervaluesLoadStatus = jest.mocked(countervaluesReact.useCountervaluesLoadStatus);
 const mockUseBridgeSync = jest.mocked(context.useBridgeSync);
 const mockUseGlobalSyncState = jest.mocked(globalSyncStateModule.useGlobalSyncState);
 
@@ -56,7 +59,8 @@ function renderSyncSources(walletSync: WalletSyncUserState = defaultWalletSync) 
 describe("useSyncSources", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockUseCountervaluesPolling.mockReturnValue(defaultPollingReturn);
+    mockUseCountervaluesPolling.mockReturnValue(pollingControls);
+    mockUseCountervaluesLoadStatus.mockReturnValue(idleLoadStatus);
     mockUseGlobalSyncState.mockReturnValue({ pending: false, error: null });
     mockUseBridgeSync.mockReturnValue(mockBridgeSync);
   });
@@ -73,7 +77,10 @@ describe("useSyncSources", () => {
     {
       label: "CV polling",
       setup: () =>
-        mockUseCountervaluesPolling.mockReturnValue({ ...defaultPollingReturn, pending: true }),
+        mockUseCountervaluesLoadStatus.mockReturnValue({
+          ...idleLoadStatus,
+          pending: true,
+        }),
     },
     {
       label: "bridge sync",
@@ -95,8 +102,8 @@ describe("useSyncSources", () => {
       {
         label: "CV",
         setup: () =>
-          mockUseCountervaluesPolling.mockReturnValue({
-            ...defaultPollingReturn,
+          mockUseCountervaluesLoadStatus.mockReturnValue({
+            ...idleLoadStatus,
             error: new Error("CV error"),
           }),
       },
@@ -115,8 +122,8 @@ describe("useSyncSources", () => {
     });
 
     it("should be false when pending even with CV error (error masked during polling)", () => {
-      mockUseCountervaluesPolling.mockReturnValue({
-        ...defaultPollingReturn,
+      mockUseCountervaluesLoadStatus.mockReturnValue({
+        ...idleLoadStatus,
         pending: true,
         error: new Error("CV error"),
       });
@@ -136,11 +143,17 @@ describe("useSyncSources", () => {
   });
 
   it("should expose cvPending from countervalues polling", () => {
-    mockUseCountervaluesPolling.mockReturnValue({ ...defaultPollingReturn, pending: true });
+    mockUseCountervaluesLoadStatus.mockReturnValue({
+      ...idleLoadStatus,
+      pending: true,
+    });
     const { result } = renderSyncSources();
     expect(result.current.cvPending).toBe(true);
 
-    mockUseCountervaluesPolling.mockReturnValue({ ...defaultPollingReturn, pending: false });
+    mockUseCountervaluesLoadStatus.mockReturnValue({
+      ...idleLoadStatus,
+      pending: false,
+    });
     const { result: result2 } = renderSyncSources();
     expect(result2.current.cvPending).toBe(false);
   });
@@ -164,12 +177,18 @@ describe("useSyncSources", () => {
   it("should stabilize pending via useStablePending (stays true briefly after pending drops)", () => {
     jest.useFakeTimers();
 
-    mockUseCountervaluesPolling.mockReturnValue({ ...defaultPollingReturn, pending: true });
+    mockUseCountervaluesLoadStatus.mockReturnValue({
+      ...idleLoadStatus,
+      pending: true,
+    });
 
     const { result, rerender } = renderSyncSources();
     expect(result.current.stablePending).toBe(true);
 
-    mockUseCountervaluesPolling.mockReturnValue({ ...defaultPollingReturn, pending: false });
+    mockUseCountervaluesLoadStatus.mockReturnValue({
+      ...idleLoadStatus,
+      pending: false,
+    });
     rerender(defaultWalletSync);
     expect(result.current.stablePending).toBe(true);
 

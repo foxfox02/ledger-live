@@ -1,27 +1,8 @@
-// `workerThreads: true` is required for validating object with `bigint` values
-module.exports = {
-  testEnvironment: "node",
-  transform: {
-    "^.+\\.(ts|tsx)$": [
-      "@swc/jest",
-      {
-        jsc: {
-          target: "esnext",
-        },
-      },
-    ],
-  },
-  passWithNoTests: true,
-  setupFilesAfterEnv: [
-    "@ledgerhq/wallet-framework-test-setup",
-    "@ledgerhq/disable-network-setup",
-    "@ledgerhq/test-quarantine/jest-retries",
-  ],
+const { createLibsCoinJestConfig } = require("@support/jest/libs-coin");
+
+module.exports = createLibsCoinJestConfig({
+  rootDir: __dirname,
   collectCoverageFrom: [
-    "src/**/*.ts",
-    "!src/**/*.test.ts",
-    "!src/**/*.spec.ts",
-    "!src/test/**/*.ts",
     // Type declarations and re-export barrels compile to nothing executable, so
     // istanbul cannot build a coverage object for them and drops them from the
     // report with an error. Left in, they only add noise.
@@ -33,13 +14,7 @@ module.exports = {
     "!src/index.ts",
     "!src/signer/index.ts",
   ],
-  coverageReporters: ["json", ["lcov", { file: "lcov.info", projectRoot: "../../../" }], "text"],
-  testPathIgnorePatterns: ["lib/", "lib-es/", ".*\\.integ\\.test\\.[tj]s"],
+  modulePathIgnorePatterns: ["__tests__/fixtures"],
+  // `workerThreads: true` is required for validating object with `bigint` values
   workerThreads: true,
-  reporters: [
-    "default",
-    ...(process.env.CI ? ["github-actions"] : []),
-    ["jest-sonar", { outputName: "sonar-executionTests-report.xml", reportedFilePath: "absolute" }],
-    "@ledgerhq/test-quarantine/jest",
-  ],
-};
+});

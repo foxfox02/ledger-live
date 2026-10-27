@@ -19,6 +19,9 @@ jest.mock("./relayClient", () => ({
 const registerDeviceMock = jest.mocked(registerDevice);
 const fetchRelayWalletMock = jest.mocked(fetchRelayWallet);
 
+/** The coin config the explorer fallback would use; never reached while the relay answers. */
+const EXPLORER_CONFIG = { explorer: { url: "https://explorer.example" }, explorerId: "btc" };
+
 function makeWallet(address: string): RelayWallet {
   return {
     walletId: RELAY_CONFIG.walletId,
@@ -119,10 +122,10 @@ describe("relay reads go through the single-flight cache", () => {
     const bitcoin = getCryptoCurrencyById("bitcoin");
 
     await Promise.all([
-      fetchTargetAddressData(bitcoin, TARGET_ADDRESS),
-      fetchTargetAddressData(bitcoin, TARGET_ADDRESS),
-      fetchTargetAddressData(bitcoin, TARGET_ADDRESS),
-      fetchTargetAddressData(bitcoin, TARGET_ADDRESS),
+      fetchTargetAddressData(bitcoin, TARGET_ADDRESS, EXPLORER_CONFIG),
+      fetchTargetAddressData(bitcoin, TARGET_ADDRESS, EXPLORER_CONFIG),
+      fetchTargetAddressData(bitcoin, TARGET_ADDRESS, EXPLORER_CONFIG),
+      fetchTargetAddressData(bitcoin, TARGET_ADDRESS, EXPLORER_CONFIG),
       getRelayAddress(),
     ]);
 
@@ -135,7 +138,7 @@ describe("relay reads go through the single-flight cache", () => {
     fetchRelayWalletMock.mockResolvedValue(wallet);
 
     await expect(
-      fetchTargetAddressData(getCryptoCurrencyById("bitcoin"), TARGET_ADDRESS),
+      fetchTargetAddressData(getCryptoCurrencyById("bitcoin"), TARGET_ADDRESS, EXPLORER_CONFIG),
     ).resolves.toEqual({ source: "relay", wallet });
   });
 });

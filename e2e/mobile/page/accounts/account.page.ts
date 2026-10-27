@@ -171,13 +171,13 @@ export default class AccountPage {
 
   @Step("Tap on receive button")
   async tapReceive() {
-    await waitForElementById(this.receiveButtonId); // Issue with RN75 : QAA-370
+    await revealForTap(this.receiveButtonId, { container: this.accountScreenScrollView });
     await tapById(this.receiveButtonId);
   }
 
   @Step("Tap on send button")
   async tapSend() {
-    await waitForElementById(this.sendButtonId); // Issue with RN75 : QAA-370
+    await revealForTap(this.sendButtonId, { container: this.accountScreenScrollView });
     await tapById(this.sendButtonId);
   }
 

@@ -1,5 +1,62 @@
 # @devtools/shell
 
+## 0.11.0
+
+### Minor Changes
+
+- [#23429](https://github.com/LedgerHQ/ledger-live/pull/23429) [`39529a8`](https://github.com/LedgerHQ/ledger-live/commit/39529a8a0df1a57d4e75218f098a4b367452627c) Thanks [@LucasWerey](https://github.com/LucasWerey)! - Bump Lumen to lumen-design-core 0.1.32, lumen-ui-react 0.1.64, lumen-ui-rnative 0.1.67 and lumen-utils-shared 0.1.16, and migrate `Spot` to its palette API (`icon` required, `appearance="icon"` dropped, `check`/`info`/`error`/`warning`/`loader` mapped to explicit icons, `number` moved to `SpotNumber`). The devtools native jest preset now mocks `react-native-gesture-handler`, which the new lumen `Toaster` imports.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @devtools/registry@0.5.3
+
+## 0.11.0-next.0
+
+### Minor Changes
+
+- [#23429](https://github.com/LedgerHQ/ledger-live/pull/23429) [`39529a8`](https://github.com/LedgerHQ/ledger-live/commit/39529a8a0df1a57d4e75218f098a4b367452627c) Thanks [@LucasWerey](https://github.com/LucasWerey)! - Bump Lumen to lumen-design-core 0.1.32, lumen-ui-react 0.1.64, lumen-ui-rnative 0.1.67 and lumen-utils-shared 0.1.16, and migrate `Spot` to its palette API (`icon` required, `appearance="icon"` dropped, `check`/`info`/`error`/`warning`/`loader` mapped to explicit icons, `number` moved to `SpotNumber`). The devtools native jest preset now mocks `react-native-gesture-handler`, which the new lumen `Toaster` imports.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @devtools/registry@0.5.3-next.0
+
+## 0.10.2
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @devtools/registry@0.5.2
+
+## 0.10.2-next.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @devtools/registry@0.5.2-next.0
+
+## 0.10.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @devtools/registry@0.5.1
+
+## 0.10.1-next.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @devtools/registry@0.5.1-next.1
+
+## 0.10.1-next.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @devtools/registry@0.5.1-next.0
+
 ## 0.10.0
 
 ### Minor Changes
@@ -140,74 +197,5 @@
 
 - Updated dependencies [[`6bb6cb0`](https://github.com/LedgerHQ/ledger-live/commit/6bb6cb058d79074de3d7f23a89074bef3311cf8d)]:
   - @devtools/registry@0.2.0
-
-## 0.8.0-next.0
-
-### Minor Changes
-
-- [#20487](https://github.com/LedgerHQ/ledger-live/pull/20487) [`5edd732`](https://github.com/LedgerHQ/ledger-live/commit/5edd732aa9fd1769667a349b513ebdb985a1475c) Thanks [@ysitbon](https://github.com/ysitbon)! - Move the duplicated jest wiring (dual web/native presets, React Native mocks, setup files and the themed testing-library render) into the shared `@support/jest-devtools` package. Each package now keeps only a one-line re-export plus its own package-specific fixtures. The feature-flags web tests gained the lumen ThemeProvider they were missing.
-
-### Patch Changes
-
-- Updated dependencies [[`6bb6cb0`](https://github.com/LedgerHQ/ledger-live/commit/6bb6cb058d79074de3d7f23a89074bef3311cf8d)]:
-  - @devtools/registry@0.2.0-next.0
-
-## 0.7.0
-
-### Minor Changes
-
-- [#20225](https://github.com/LedgerHQ/ledger-live/pull/20225) [`9051d74`](https://github.com/LedgerHQ/ledger-live/commit/9051d7495e55706e8fb8801107f9473f505cb395) Thanks [@Sebastien-Dav1d](https://github.com/Sebastien-Dav1d)! - Add native transport panel and expose footer slot on native DevTools shell
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @devtools/registry@0.1.9
-
-## 0.7.0-next.0
-
-### Minor Changes
-
-- [#20225](https://github.com/LedgerHQ/ledger-live/pull/20225) [`9051d74`](https://github.com/LedgerHQ/ledger-live/commit/9051d7495e55706e8fb8801107f9473f505cb395) Thanks [@Sebastien-Dav1d](https://github.com/Sebastien-Dav1d)! - Add native transport panel and expose footer slot on native DevTools shell
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @devtools/registry@0.1.9-next.0
-
-## 0.6.0
-
-### Minor Changes
-
-- [#20066](https://github.com/LedgerHQ/ledger-live/pull/20066) [`112b63f`](https://github.com/LedgerHQ/ledger-live/commit/112b63f8d33a8e26b316ce4542ef23460ae54937) Thanks [@Sebastien-Dav1d](https://github.com/Sebastien-Dav1d)! - Add @devtools/transport-panel package with TransportPanel, TransportPanelContent, TransportDebug, HistoryLine and TransportStateIndicator components. Expose sidebarFooter slot in @devtools/shell sidebar. Add origin field to TransportState. Wire transport panel in web-tools dev-tools page.
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @devtools/registry@0.1.8
-
-## 0.6.0-next.0
-
-### Minor Changes
-
-- [#20066](https://github.com/LedgerHQ/ledger-live/pull/20066) [`112b63f`](https://github.com/LedgerHQ/ledger-live/commit/112b63f8d33a8e26b316ce4542ef23460ae54937) Thanks [@Sebastien-Dav1d](https://github.com/Sebastien-Dav1d)! - Add @devtools/transport-panel package with TransportPanel, TransportPanelContent, TransportDebug, HistoryLine and TransportStateIndicator components. Expose sidebarFooter slot in @devtools/shell sidebar. Add origin field to TransportState. Wire transport panel in web-tools dev-tools page.
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @devtools/registry@0.1.8-next.0
-
-## 0.5.2
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @devtools/registry@0.1.7
-
-## 0.5.2-next.0
-
-### Patch Changes
-
-- Updated dependencies []:
-  - @devtools/registry@0.1.7-next.0
 
 <!-- changelog-pruned: older entries were removed to keep this file small. Full history is in `git log -p CHANGELOG.md` and in the GitHub release for each version. -->

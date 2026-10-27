@@ -8,12 +8,12 @@ import { makeSessionDir } from "../../testing/session-fixture";
 const SAMPLE_ENTRIES = [
   {
     label: "bitcoin-native-1",
-    descriptor: "account:1:utxo:bitcoin:main:xpub6BosfCnifzxcA:m/84h/0h/0h",
+    descriptor: "account:2:utxo:bitcoin:xpub6BosfCnifzxcA:m/84h/0h/0h",
   },
   {
     label: "ethereum-1",
     descriptor:
-      "account:1:address:ethereum:main:0x71C7656EC7ab88b098defB751B7401B5f6d8976F:m/44h/60h/0h/0/0",
+      "account:2:address:ethereum:0x71C7656EC7ab88b098defB751B7401B5f6d8976F:m/44h/60h/0h/0/0",
   },
 ];
 
@@ -102,14 +102,32 @@ describe("session reset — json", () => {
 });
 
 describe("session reset — corrupt file recovery", () => {
-  it("recovers an unreadable (non-YAML) session file into a clean empty session", async () => {
+  it("refuses to overwrite an unreadable (non-YAML) session file without --force", async () => {
+    const fixture = makeSessionDir([]);
+    cleanup = fixture.cleanup;
+    const path = join(fixture.env.XDG_STATE_HOME, "ledger-wallet-cli", "session.yaml");
+    writeFileSync(path, ": : :\n\t- ["); // not valid YAML → exercises the catch-branch fallback
+    const { stdout, exitCode } = await runCli(
+      ["session", "reset", "--output", "json"],
+      fixture.env,
+    );
+    expect(exitCode).not.toBe(0);
+    const err = JSON.parse(stdout);
+    expect(err.ok).toBe(false);
+    expect(err.error.message).toMatch(/Agent Intent profiles.*cannot be recovered/is);
+    expect(err.error.message).toMatch(/plaintext key files in .*agent-intent-keys/);
+    expect(err.error.message).toMatch(/--force/);
+    expect(await Bun.file(path).text()).toBe(": : :\n\t- [");
+  });
+
+  it("recovers an unreadable (non-YAML) session file into a clean empty session with --force", async () => {
     const fixture = makeSessionDir([]);
     cleanup = fixture.cleanup;
     writeFileSync(
       join(fixture.env.XDG_STATE_HOME, "ledger-wallet-cli", "session.yaml"),
       ": : :\n\t- [", // not valid YAML → exercises the catch-branch fallback
     );
-    const { exitCode } = await runCli(["session", "reset"], fixture.env);
+    const { exitCode } = await runCli(["session", "reset", "--force"], fixture.env);
     expect(exitCode).toBe(0);
     const session = await readSessionFile(fixture.env.XDG_STATE_HOME);
     expect(session).toEqual({ accounts: [] });

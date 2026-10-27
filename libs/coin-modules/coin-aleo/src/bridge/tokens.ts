@@ -410,6 +410,12 @@ export function filterHistoryRecords(records: AleoPrivateRecord[]): AleoPrivateR
   ];
 }
 
+export function isOutgoingTokenRecord(record: AleoPrivateRecord, address: string): boolean {
+  return (
+    record.sender === address && record.function_name !== EXPLORER_TRANSFER_TYPES.PUBLIC_TO_PRIVATE
+  );
+}
+
 /** Builds a single private AleoOperation from a per-transaction accumulator entry. */
 export function buildPrivateTokenOp(
   tokenAccountId: string,
@@ -636,8 +642,9 @@ export function attachPrivateTokenOpsToParent({
   privateTokenOpsByAccountId: Map<string, AleoOperation[]>;
   ledgerAccountId: string;
   address: string;
-}): void {
-  const coinOpsByHash = new Map<string, AleoOperation>(operations.map(op => [op.hash, op]));
+}): AleoOperation[] {
+  const updatedOperations = operations.map(op => ({ ...op }));
+  const coinOpsByHash = new Map<string, AleoOperation>(updatedOperations.map(op => [op.hash, op]));
 
   for (const privateOps of privateTokenOpsByAccountId.values()) {
     for (const privateOp of privateOps) {
@@ -646,7 +653,7 @@ export function attachPrivateTokenOpsToParent({
           ? ensureFeesParentCoinOp({
               privateOp,
               coinOpsByHash,
-              operations,
+              operations: updatedOperations,
               ledgerAccountId,
               address,
             })
@@ -659,6 +666,8 @@ export function attachPrivateTokenOpsToParent({
       }
     }
   }
+
+  return updatedOperations;
 }
 
 function upsertTxEntry({
@@ -762,11 +771,7 @@ export async function buildSubAccountsFromPrivateRecords({
     // Private self-transfer: the private record is the received output — decrypt it directly.
     // All other sender===address cases are OUT events (Priv2Pub change record, etc.) where
     // the record amount is the pre-send balance, so we read the transferred amount from inputs.
-    const isOutgoingRecord =
-      record.sender === address &&
-      record.function_name !== EXPLORER_TRANSFER_TYPES.PUBLIC_TO_PRIVATE;
-
-    if (isOutgoingRecord) {
+    if (isOutgoingTokenRecord(record, address)) {
       // OUT: read the actual sent amount and recipient address from the transition inputs.
       const outDetails = await getTokenOutDetails({ config, record, viewKey });
       if (outDetails.amount === null) {

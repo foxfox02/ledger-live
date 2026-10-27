@@ -1,6 +1,5 @@
 import type {
   Balance,
-  MemoNotSupported,
   StakingTransactionIntent,
   TransactionIntent,
 } from "@ledgerhq/coin-module-framework/api/index";
@@ -11,10 +10,11 @@ import {
   NotEnoughBalance,
   RecipientRequired,
 } from "@ledgerhq/coin-module-framework/errors";
-import { StacksStakeInPreparePhase } from "../../errors";
+import { StacksMemoTooLong, StacksStakeInPreparePhase } from "../../errors";
 import { fetchPoxInfo } from "../../network/pox";
-import type { StacksTxData } from "../../types";
-import { validateIntent } from "../validateIntent";
+import type { StacksMemo, StacksTxData } from "../../types";
+import { MAX_NUM_CYCLES as LEGACY_MAX_NUM_CYCLES, validateIntent } from "../validateIntent";
+import { MAX_NUM_CYCLES } from "../../common-logic/staking";
 
 jest.mock("../../network/pox");
 
@@ -32,8 +32,8 @@ const mockNextCycle = (blocksUntilPreparePhase: number, blocksUntilRewardPhase: 
   });
 
 function transferIntent(
-  overrides: Partial<TransactionIntent<MemoNotSupported, StacksTxData>> = {},
-): TransactionIntent<MemoNotSupported, StacksTxData> {
+  overrides: Partial<TransactionIntent<StacksMemo, StacksTxData>> = {},
+): TransactionIntent<StacksMemo, StacksTxData> {
   return {
     intentType: "transaction",
     type: "send",
@@ -47,6 +47,10 @@ function transferIntent(
 }
 
 describe("validateIntent", () => {
+  it("keeps exporting pox-5's MAX_NUM_CYCLES from its public subpath", () => {
+    expect(LEGACY_MAX_NUM_CYCLES).toBe(MAX_NUM_CYCLES);
+  });
+
   it("flags a missing recipient", async () => {
     const { errors } = await validateIntent(
       transferIntent({ recipient: "" }),
@@ -130,10 +134,26 @@ describe("validateIntent", () => {
     expect(result.errors.amount).toBeInstanceOf(NotEnoughBalance);
   });
 
+  it("flags a memo longer than the 34 bytes a Stacks transfer can carry", async () => {
+    const { errors } = await validateIntent(
+      transferIntent({ memo: { type: "string", kind: "memo", value: "x".repeat(35) } }),
+      nativeBalance(10000n),
+    );
+    expect(errors.transaction).toBeInstanceOf(StacksMemoTooLong);
+  });
+
+  it("accepts a memo within the limit", async () => {
+    const { errors } = await validateIntent(
+      transferIntent({ memo: { type: "string", kind: "memo", value: "1234" } }),
+      nativeBalance(10000n),
+    );
+    expect(errors).toEqual({});
+  });
+
   describe("staking", () => {
     function stakingIntent(
-      overrides: Partial<StakingTransactionIntent<MemoNotSupported, StacksTxData>> = {},
-    ): TransactionIntent<MemoNotSupported, StacksTxData> {
+      overrides: Partial<StakingTransactionIntent<StacksMemo, StacksTxData>> = {},
+    ): TransactionIntent<StacksMemo, StacksTxData> {
       return {
         intentType: "staking",
         type: "stake",
@@ -169,7 +189,26 @@ describe("validateIntent", () => {
         stakingIntent({ data: { type: "stacks-pox", numCycles: 97, startBurnHt: 961600 } }),
         nativeBalance(10000000n),
       );
-      expect(errors.data?.message).toMatch(/numCycles must be between/);
+      expect(errors.data?.message).toMatch(/numCycles must be an integer between/);
+    });
+
+    it("flags a fractional numCycles, which uintCV can't encode", async () => {
+      const { errors } = await validateIntent(
+        stakingIntent({ data: { type: "stacks-pox", numCycles: 1.5, startBurnHt: 961600 } }),
+        nativeBalance(10000000n),
+      );
+      expect(errors.data?.message).toMatch(/numCycles must be an integer between/);
+    });
+
+    it.each([
+      ["an invalid address part", "SP1not-an-address.signer-manager"],
+      ["an empty contract name", "SP3K8BC0PPEVCV7NZ6QSRWPQ2JE9E5B6N3PA0KBR9."],
+    ])("flags a delegate valAddress with %s", async (_, valAddress) => {
+      const { errors } = await validateIntent(
+        stakingIntent({ valAddress }),
+        nativeBalance(10000000n),
+      );
+      expect(errors.valAddress?.message).toMatch(/must be a contract principal/);
     });
 
     it("flags a zero amount for delegate (craftTransaction would otherwise stake 0 on-chain)", async () => {

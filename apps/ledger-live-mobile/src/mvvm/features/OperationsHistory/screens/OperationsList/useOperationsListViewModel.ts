@@ -8,12 +8,12 @@ import {
 } from "@ledgerhq/live-common/hideSmallValueTokenOperations/smallValueOperationsThreshold";
 import type { IconProps } from "@ledgerhq/lumen-ui-rnative";
 import { Eye, EyeCross } from "@ledgerhq/lumen-ui-rnative/symbols";
-import { addExtraSessionTrackingPair } from "~/actions/general";
+import { addExtraSessionTrackingPair } from "~/reducers/countervaluesExtraSessionTracking";
 import { setHideSmallValueTokenOperations } from "~/actions/settings";
 import { useSelector, useDispatch } from "~/context/hooks";
 import { useLocale, useTranslation } from "~/context/Locale";
-import { flattenAccountsSelector, shallowAccountsSelector } from "~/reducers/accounts";
-import { countervaluesStateSelector } from "~/reducers/countervalues";
+import { accountsSelector, flattenAccountsSelector } from "~/reducers/accounts";
+import { countervaluesStateSelector } from "@features/platform-market-countervalues";
 import { lastSeenOperationDateSelector, markOperationsAsSeen } from "~/reducers/history";
 import {
   counterValueCurrencySelector,
@@ -47,7 +47,7 @@ export function useOperationsListViewModel(
   cardAsset?: string,
 ) {
   const dispatch = useDispatch();
-  const allAccounts = useSelector(shallowAccountsSelector);
+  const allAccounts = useSelector(accountsSelector);
   const allFlattenedAccounts = useSelector(flattenAccountsSelector);
   const [opCount, setOpCount] = useState(INITIAL_OP_COUNT);
   const [isOptionsSheetOpen, setOptionsSheetOpen] = useState(false);
@@ -93,12 +93,14 @@ export function useOperationsListViewModel(
       return;
     }
 
-    addExtraSessionTrackingPair({
-      from: SMALL_VALUE_OPERATIONS_THRESHOLD_REFERENCE_CURRENCY,
-      to: counterValueCurrency,
-      startDate: new Date(),
-    });
-  }, [counterValueCurrency, isDustFilterFeatureEnabled, isReferenceCounterValue]);
+    dispatch(
+      addExtraSessionTrackingPair({
+        from: SMALL_VALUE_OPERATIONS_THRESHOLD_REFERENCE_CURRENCY,
+        to: counterValueCurrency,
+        startDate: new Date(),
+      }),
+    );
+  }, [counterValueCurrency, dispatch, isDustFilterFeatureEnabled, isReferenceCounterValue]);
 
   const allowedIds = useMemo(
     () => (accountIds && accountIds.length > 0 ? new Set(accountIds) : null),

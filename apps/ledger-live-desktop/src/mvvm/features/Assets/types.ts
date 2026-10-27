@@ -1,20 +1,20 @@
-import { CategorizedAssetItem } from "@ledgerhq/asset-aggregation/assetCategorization/types";
+import type { ReactNode } from "react";
 import type { MarketCurrencyData } from "@ledgerhq/live-common/market/utils/types";
+import type { AssetTableItem } from "LLD/components/AssetsTable/types";
 
 /** Router state hint so asset detail can resolve ledger id ≠ market id (e.g. xStocks). */
 export type AssetNavigationMarketState = Pick<MarketCurrencyData, "id" | "ledgerIds">;
 
-export type AssetTableItem = CategorizedAssetItem & {
-  isPlaceholder: boolean;
-  marketPrice?: number;
-  marketId?: string;
-  trend?: number | null;
+export type AssetsProps = {
+  readonly afterCryptosSection?: ReactNode;
 };
 
-export type AssetsViewProps = {
+export type AssetsViewModelResult = {
   readonly isLoading: boolean;
   readonly sections: AssetSectionData[];
 };
+
+export type AssetsViewProps = AssetsViewModelResult & AssetsProps;
 
 export type AssetSectionData = {
   readonly sectionId: string;

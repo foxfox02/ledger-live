@@ -1,5 +1,5 @@
 import BigNumber from "bignumber.js";
-import { PROGRAM_ID } from "../../constants";
+import { PROGRAM_ID, TRANSACTION_TYPE } from "../../constants";
 import type { DelegatedProvingResponse } from "../../types";
 import {
   AleoDecryptedRecordResponse,
@@ -10,6 +10,7 @@ import {
   AleoPublicTransactionsResponse,
   AleoRecordScannerStatusResponse,
   AleoTokenDetails,
+  AleoTransition,
   EnrichedPrivateRecord,
 } from "../../types";
 
@@ -218,6 +219,9 @@ export const testnetViewKey = "AViewKey1jyaKC65RhaGN3b6h79hLdwTBk3YAMbRL1MMeCArL
 
 export const testnetAddress = "aleo1uhf67fhy46jvv5hadf586pkdarax6ppuzq8xtpk7jdk9hhujku8sfa39ml";
 export const testnetLedgerAccountId = `js:2:aleo_testnet:${testnetAddress}:`;
+
+export const testnetSponsorAddress =
+  "aleo1xaytw2vtvhz2szhgjzqetadzjd92w2fdx233vq4fq3jdfd9ety8sna28t3";
 
 // Inbound native transfer_public from a third party.
 export const referenceTransferPublicTx = {
@@ -442,6 +446,26 @@ export const testnetOutgoingPrivateTokenRecord: AleoPrivateRecord = {
   tag: "4392512920219901218231725864729520973094519988822818816129624829367585023809field",
   transaction_id: "at1dj2hj6pufrcrqfzuuetg26h2sntpecn7jfc3lddqkkr8n5w9nqfqpwj874    ",
   transition_id: "au1l7gtqkk8knrwhfml5zq9pql3w9ajgcns8hjkh7merq8tuh9xqcxq8c4906    ",
+  transaction_index: 0,
+  transition_index: 0,
+};
+
+export const testnetRejectedFeePrivateRecord: AleoPrivateRecord = {
+  block_height: 20656603,
+  block_timestamp: 1792492512,
+  commitment: "4505465134862761021643503653731200046530219367402124313452775573574726492518field",
+  function_name: "fee_private",
+  output_index: 0,
+  owner: "4376890048891554766371961235062563625708746456629390535882860164705933280131field",
+  program_name: "credits.aleo",
+  record_ciphertext:
+    "record1qvqspgt05qckmjxus557tr0ur585cst9ea04lczxgn8e5awagcuew6srqyxx66trwfhkxun9v35hguerqqpqzq9huyq48lw3zs8zgv75xfacyazrpt9q93xpdx2y90723a245lr4q0cecn7m8uanwrdvqhsjze099xrgndjp6kw9cnvhfzsaux5phv33yk3yp6d",
+  record_name: "credits",
+  sender: testnetAddress,
+  spent: false,
+  tag: "2086831152375011096791603408492419483799495439756428028912427032740634880179field",
+  transaction_id: "at1d0ptg5xkeclply3g83mc93f4upqmnq7et3ydwcxdwpy6wzh7kypsn4u8ne    ",
+  transition_id: "au1ka3yp4qcg30tywcczlyxqzyaceg65a2t2psm0ymwjtlgr8svjyxssvfekm    ",
   transaction_index: 0,
   transition_index: 0,
 };
@@ -681,4 +705,74 @@ export const getMockedDelegatedProvingResponse = (): DelegatedProvingResponse =>
     status: "Accepted",
     status_code: 200,
   },
+});
+
+export const mockedFeePublicBase = 2725n;
+export const mockedFeePrivateBase = 2308n;
+
+export const getMockedFeePublicTransition = ({
+  payer,
+  base = mockedFeePublicBase,
+  priority = 0n,
+}: {
+  payer: string;
+  base?: bigint;
+  priority?: bigint;
+}): AleoTransition => ({
+  id: "au1feepublic",
+  scm: "scm1",
+  tcm: "tcm1",
+  tpk: "tpk1",
+  inputs: [
+    { id: "input1", type: "public", value: `${base}u64` },
+    { id: "input2", type: "public", value: `${priority}u64` },
+    { id: "input3", type: "public", value: "7513216field" },
+  ],
+  outputs: [
+    {
+      id: "output1",
+      type: "future",
+      value: `{\n  program_id: credits.aleo,\n  function_name: fee_public,\n  arguments: [\n    ${payer},\n    ${base + priority}u64\n  ]\n}`,
+    },
+  ],
+  program: PROGRAM_ID.CREDITS,
+  function: "fee_public",
+});
+
+export const getMockedFeePrivateTransition = ({
+  base = mockedFeePrivateBase,
+  priority = 0n,
+}: {
+  base?: bigint;
+  priority?: bigint;
+} = {}): AleoTransition => ({
+  id: "au1feeprivate",
+  scm: "scm1",
+  tcm: "tcm1",
+  tpk: "tpk1",
+  inputs: [
+    { id: "input1", type: "record", tag: "123field" },
+    { id: "input2", type: "public", value: `${base}u64` },
+    { id: "input3", type: "public", value: `${priority}u64` },
+    { id: "input4", type: "public", value: "7513216field" },
+  ],
+  outputs: [{ id: "output1", type: "record", tag: "456field" }],
+  program: PROGRAM_ID.CREDITS,
+  function: "fee_private",
+});
+
+export const getMockedBondTransition = (overrides?: Partial<AleoTransition>): AleoTransition => ({
+  id: "au1bond",
+  scm: "scm1",
+  tcm: "tcm1",
+  tpk: "tpk1",
+  inputs: [
+    { id: "input1", type: "public", value: testnetBondedValidator },
+    { id: "input2", type: "public", value: testnetAddress },
+    { id: "input3", type: "public", value: `${testnetBondedMicrocredits}u64` },
+  ],
+  outputs: [],
+  program: PROGRAM_ID.CREDITS,
+  function: TRANSACTION_TYPE.BOND_PUBLIC,
+  ...overrides,
 });

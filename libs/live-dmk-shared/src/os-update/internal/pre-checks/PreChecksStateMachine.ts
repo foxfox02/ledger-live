@@ -1,5 +1,6 @@
 import {
   BatteryStatusType,
+  type DeviceModelId,
   DeviceSessionId,
   GetBatteryStatusCommand,
   GetOsVersionCommand,
@@ -14,6 +15,7 @@ import {
   type WaitForAppAndVersionDAInput,
 } from "@ledgerhq/device-management-kit";
 import type { Backup } from "@ledgerhq/dmk-ledger-wallet";
+import { log } from "@ledgerhq/logs";
 import { assign, enqueueActions, fromPromise, sendTo, setup } from "xstate";
 import { createDeviceActionStateMachine } from "../../../device-action/CreateDeviceActionStateMachine/createDeviceActionStateMachine";
 import type { DeviceBackupStorage } from "../../api/model/DeviceBackupStorage";
@@ -21,7 +23,7 @@ import { PreChecksStateType, type PreChecksState } from "../../api/model/PreChec
 import { OsUpdatesOrchestratorStateMachineEventType } from "../orchestrator/types";
 import { checkErrorCauseStateMachine } from "../shared/checkErrorCauseStateMachine";
 import { POLL_INTERVAL_MS } from "../shared/constants";
-import { CheckErrorCauseResult, DeviceSituationEventType } from "../shared/types";
+import { DeviceSituationEventType, isRecovered } from "../shared/types";
 import {
   CHARGING_MODE_NONE,
   DEVICE_MODELS_WITH_BATTERY,
@@ -42,6 +44,8 @@ import { asBatteryFlags } from "./utils/asBatteryFlags";
 import { isSameState } from "./utils/isSameState";
 import { resumeTarget } from "./utils/resumeTarget";
 import { toPreChecksState } from "./utils/toPreChecksState";
+
+const LOG_TYPE = "OsUpdatesPreChecks";
 
 export const preChecksStateMachine = setup({
   types: {
@@ -111,10 +115,10 @@ export const preChecksStateMachine = setup({
       }: {
         input: {
           storage: DeviceBackupStorage;
-          deviceId: string;
+          deviceModelId: DeviceModelId;
         };
       }): Promise<Backup | undefined> => {
-        return input.storage.getBackup(input.deviceId);
+        return input.storage.getBackup(input.deviceModelId);
       },
     ),
   },
@@ -123,12 +127,22 @@ export const preChecksStateMachine = setup({
       if (context.lastSentState !== null && isSameState(context.lastSentState, state)) {
         return;
       }
+      log(LOG_TYPE, `state: ${state.type}`);
       enqueue.sendTo(context.parentRef, {
         type: OsUpdatesOrchestratorStateMachineEventType.STATE_UPDATE,
         state,
       });
       enqueue.assign({ lastSentState: state });
     }),
+    logState: (_, name: string) => {
+      log(LOG_TYPE, `state: ${name}`);
+    },
+    logError: ({ context }, name: string) => {
+      log(LOG_TYPE, `state: ${name}`, { error: context.error });
+    },
+    logData: (_, params: { message: string; data: Record<string, unknown> }) => {
+      log(LOG_TYPE, params.message, params.data);
+    },
     sendStop: sendTo(({ context }) => context.parentRef, {
       type: OsUpdatesOrchestratorStateMachineEventType.STOP,
     } as const),
@@ -154,7 +168,7 @@ export const preChecksStateMachine = setup({
     nextAction: null,
     send: self.send,
   }),
-  initial: "WaitingForAppAndVersion",
+  initial: "GetOsVersion",
   on: {
     [DeviceSituationEventType.DEVICE_SITUATION_UPDATE]: {
       actions: {
@@ -164,8 +178,37 @@ export const preChecksStateMachine = setup({
     },
   },
   states: {
+    GetOsVersion: {
+      entry: assign({ lastAction: PreChecksStateMachineLastAction.GetOsVersion }),
+      invoke: {
+        src: "getOsVersion",
+        input: ({ context }) => ({
+          dmk: context.dmk,
+          sessionId: context.connectedDevice.sessionId,
+        }),
+        onDone: {
+          actions: assign({ osVersion: ({ event }) => event.output }),
+          target: "CheckOsVersion",
+        },
+        onError: {
+          actions: assign({ error: ({ event }) => event.error }),
+          target: "CheckErrorCause",
+        },
+      },
+    },
+    CheckOsVersion: {
+      always: [
+        {
+          guard: "isBootloaderOrOsu",
+          actions: assign({ nextAction: PreChecksNextAction.PerformOsUpdates }),
+          target: "Done",
+        },
+        {
+          target: "WaitingForAppAndVersion",
+        },
+      ],
+    },
     WaitingForAppAndVersion: {
-      entry: assign({ lastAction: PreChecksStateMachineLastAction.WaitForAppAndVersion }),
       invoke: {
         src: "waitForAppAndVersion",
         input: ({ context }) => ({
@@ -202,7 +245,7 @@ export const preChecksStateMachine = setup({
           {
             guard: ({ event }) =>
               event.output.map(({ name }) => isDashboardName(name)).orDefault(false),
-            target: "GetOsVersion",
+            target: "CheckOsUpdates",
           },
           {
             target: "GoToDashboard",
@@ -250,35 +293,6 @@ export const preChecksStateMachine = setup({
         ],
       },
     },
-    GetOsVersion: {
-      invoke: {
-        src: "getOsVersion",
-        input: ({ context }) => ({
-          dmk: context.dmk,
-          sessionId: context.connectedDevice.sessionId,
-        }),
-        onDone: {
-          actions: assign({ osVersion: ({ event }) => event.output }),
-          target: "CheckOsVersion",
-        },
-        onError: {
-          actions: assign({ error: ({ event }) => event.error }),
-          target: "CheckErrorCause",
-        },
-      },
-    },
-    CheckOsVersion: {
-      always: [
-        {
-          guard: "isBootloaderOrOsu",
-          actions: assign({ nextAction: PreChecksNextAction.PerformOsUpdates }),
-          target: "Done",
-        },
-        {
-          target: "CheckOsUpdates",
-        },
-      ],
-    },
     CheckOsUpdates: {
       always: [
         {
@@ -307,7 +321,7 @@ export const preChecksStateMachine = setup({
         src: "getBackup",
         input: ({ context }) => ({
           storage: context.storage,
-          deviceId: context.connectedDevice.id,
+          deviceModelId: context.connectedDevice.modelId,
         }),
         onDone: [
           {
@@ -373,6 +387,7 @@ export const preChecksStateMachine = setup({
       },
     },
     CheckErrorCause: {
+      entry: { type: "logError", params: "CheckErrorCause" },
       invoke: {
         src: "checkErrorCause",
         input: ({ context, self }) => ({
@@ -383,7 +398,11 @@ export const preChecksStateMachine = setup({
         }),
         onDone: [
           {
-            guard: ({ event }) => event.output === CheckErrorCauseResult.Recovered,
+            guard: ({ event }) => isRecovered(event.output),
+            actions: assign({
+              connectedDevice: ({ context, event }) =>
+                isRecovered(event.output) ? event.output.connectedDevice : context.connectedDevice,
+            }),
             target: "ResumeLastAction",
           },
           {
@@ -396,10 +415,16 @@ export const preChecksStateMachine = setup({
       },
     },
     ResumeLastAction: {
-      entry: {
-        type: "sendStateUpdate",
-        params: { type: PreChecksStateType.LOADING },
-      },
+      entry: [
+        {
+          type: "logData",
+          params: ({ context }) => ({
+            message: "state: ResumeLastAction",
+            data: { lastAction: context.lastAction },
+          }),
+        },
+        { type: "sendStateUpdate", params: { type: PreChecksStateType.LOADING } },
+      ],
       always: Object.entries(resumeTarget).map(([lastAction, target]) => ({
         guard: ({ context }: { context: PreChecksStateMachineContext }) =>
           context.lastAction === lastAction,
@@ -407,22 +432,33 @@ export const preChecksStateMachine = setup({
       })),
     },
     UnrecoverableError: {
-      entry: {
-        type: "sendStateUpdate",
-        params: ({ context }) => ({
-          type: PreChecksStateType.UNEXPECTED_ERROR,
-          cancel: () => context.send({ type: PreChecksStateMachineEventType.CANCEL }),
-        }),
-      },
+      entry: [
+        { type: "logError", params: "UnrecoverableError" },
+        {
+          type: "sendStateUpdate",
+          params: ({ context }) => ({
+            type: PreChecksStateType.UNEXPECTED_ERROR,
+            error: context.error,
+            cancel: () => context.send({ type: PreChecksStateMachineEventType.CANCEL }),
+          }),
+        },
+      ],
       on: {
         [PreChecksStateMachineEventType.CANCEL]: "Canceled",
       },
     },
     Canceled: {
-      entry: "sendStop",
+      entry: [{ type: "logState", params: "Canceled" }, "sendStop"],
     },
     Done: {
       type: "final",
+      entry: {
+        type: "logData",
+        params: ({ context }) => ({
+          message: "state: Done",
+          data: { nextAction: context.nextAction },
+        }),
+      },
     },
   },
   output: ({ context }) => context.nextAction!,

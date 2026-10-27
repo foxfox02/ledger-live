@@ -3,15 +3,16 @@ import { useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
 import { useCategorizedAssetsFromPortfolio } from "LLD/hooks/useCategorizedAssets";
 import { useAssetsData } from "@features/platform-aggregated-assets";
-import { useUsdToFiatRate } from "@ledgerhq/live-common/counterValues/hooks/useUsdToFiatRate";
-import { AssetsViewProps, AssetTableItem } from "../types";
+import { useUsdToFiatRate } from "@features/platform-market-countervalues";
+import type { AssetsViewModelResult } from "../types";
+import type { AssetTableItem } from "LLD/components/AssetsTable/types";
 import { buildPlaceholderAssetItemsFromAssetsData } from "../utils/buildPlaceholderAssetItemsFromAssetsData";
 import { useSelector } from "LLD/hooks/redux";
 import {
   hasOnboardedDeviceSelector,
   counterValueCurrencySelector,
 } from "~/renderer/reducers/settings";
-import { useAllCurrencyTrends } from "./useAllCurrencyTrends";
+import { useAllCurrencyTrends } from "LLD/components/AssetsTable/useAllCurrencyTrends";
 import { useOnDemandCurrenciesCountervalues } from "~/renderer/hooks/useOnDemandCountervalues";
 import { useAccountStatus } from "LLD/hooks/useAccountStatus";
 import { setTrackingSource, track } from "@shared/analytics";
@@ -19,6 +20,7 @@ import {
   ASSETS_PAGE_CATEGORY_CRYPTOS,
   ASSETS_PAGE_CATEGORY_STABLECOINS,
   ASSETS_PRICE_REFRESH_INTERVAL_MS,
+  CRYPTOS_SECTION_ID,
   EMPTY_STATE_CRYPTOS,
   EMPTY_STATE_STABLECOINS,
   MAX_ITEM_DISPLAYED,
@@ -32,7 +34,7 @@ import {
   CRYPTO_TRACKING_PAGE_NAME,
 } from "../../CryptoAddresses/constants";
 
-export function useAssetsViewModel(): AssetsViewProps {
+export function useAssetsViewModel(): AssetsViewModelResult {
   const { shouldDisplayAggregatedAssets } = useWalletFeaturesConfig("desktop");
   const hasOnboardedDevice = useSelector(hasOnboardedDeviceSelector);
   const { hasAccount } = useAccountStatus();
@@ -61,6 +63,17 @@ export function useAssetsViewModel(): AssetsViewProps {
     if (!assetsData?.markets) return map;
     for (const [currencyId, market] of Object.entries(assetsData.markets)) {
       if (market?.price != null) map.set(currencyId, market.price);
+    }
+    return map;
+  }, [assetsData]);
+
+  const marketDayChangeByCurrencyId = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!assetsData?.markets) return map;
+    for (const [currencyId, market] of Object.entries(assetsData.markets)) {
+      if (market?.priceChangePercentage24h != null) {
+        map.set(currencyId, market.priceChangePercentage24h);
+      }
     }
     return map;
   }, [assetsData]);
@@ -149,7 +162,7 @@ export function useAssetsViewModel(): AssetsViewProps {
   );
   useOnDemandCurrenciesCountervalues(nonPlaceholderCurrencies, counterValueCurrency);
 
-  const trends = useAllCurrencyTrends(allItems, "day");
+  const trends = useAllCurrencyTrends(allItems, "day", marketDayChangeByCurrencyId);
 
   const cryptosWithTrend = useMemo(
     () =>
@@ -174,7 +187,7 @@ export function useAssetsViewModel(): AssetsViewProps {
   const sections = useMemo(
     () => [
       {
-        sectionId: "cryptos",
+        sectionId: CRYPTOS_SECTION_ID,
         title: t("assets.cryptos"),
         items: cryptosWithTrend,
         totalCount: isEmptyState ? paddedCryptos.length : categorizedAssets.cryptos.length,

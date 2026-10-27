@@ -1,4 +1,5 @@
 import invariant from "invariant";
+import { isStakingAccount } from "@ledgerhq/types-live";
 import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
@@ -19,6 +20,7 @@ import type {
 import { getMainAccount } from "@ledgerhq/live-common/account/index";
 import useBridgeTransaction from "@ledgerhq/live-common/bridge/useBridgeTransaction";
 import { useAccountBridge } from "@ledgerhq/live-common/bridge/useAccountBridge";
+import { getValAddress } from "@ledgerhq/live-common/families/cosmos/buildTransaction";
 import { useLedgerFirstShuffledValidatorsCosmosFamily } from "@ledgerhq/live-common/families/cosmos/react";
 import { useTheme } from "@react-navigation/native";
 import SelectValidatorSearchBox from "../../tron/VoteFlow/01-SelectValidator/SearchBox";
@@ -40,9 +42,9 @@ function RedelegationSelectValidator({ navigation, route }: Props) {
   const { account } = useAccountScreen(route);
   invariant(account, "account required");
   const mainAccount = getMainAccount(account, undefined) as CosmosAccount;
-  const { cosmosResources } = mainAccount;
-  invariant(cosmosResources, "cosmosResources required");
-  const delegations = cosmosResources.delegations;
+  invariant(isStakingAccount(mainAccount), "cosmos staking account required");
+  const { stakingResources } = mainAccount;
+  const delegations = stakingResources.delegations;
   const bridge = useAccountBridge<CosmosTransaction>(account, undefined);
   const bridgeTransaction = useBridgeTransaction(bridge, () => {
     const t = bridge.createTransaction(mainAccount);
@@ -50,28 +52,27 @@ function RedelegationSelectValidator({ navigation, route }: Props) {
       account,
       transaction: bridge.updateTransaction(t, {
         mode: "redelegate",
-        validators: [],
-        sourceValidator: route.params?.validatorSrcAddress,
+        valAddress: route.params?.validatorSrcAddress,
       }),
     };
   });
   const { status } = bridgeTransaction;
   const transaction = bridgeTransaction.transaction as Transaction;
-  invariant(transaction && transaction.sourceValidator, "transaction src validator required");
+  const valAddress = transaction ? getValAddress(transaction) : "";
+  invariant(valAddress, "transaction src validator required");
   const [searchQuery, setSearchQuery] = useState("");
   const validators = useLedgerFirstShuffledValidatorsCosmosFamily(
     mainAccount.currency.id,
+    mainAccount.stakingResources.validators,
     searchQuery,
   );
   const validatorSrc = useMemo(
-    () =>
-      validators.find(({ validatorAddress }) => validatorAddress === transaction.sourceValidator),
-    [validators, transaction.sourceValidator],
+    () => validators.find(({ validatorAddress }) => validatorAddress === valAddress),
+    [validators, valAddress],
   );
   const srcDelegation = useMemo(
-    () =>
-      delegations.find(({ validatorAddress }) => validatorAddress === transaction.sourceValidator),
-    [delegations, transaction.sourceValidator],
+    () => delegations.find(({ validatorAddress }) => validatorAddress === valAddress),
+    [delegations, valAddress],
   );
   const max = srcDelegation?.amount;
   const sections: SectionListData<CosmosValidatorItem>[] = useMemo(
@@ -79,7 +80,7 @@ function RedelegationSelectValidator({ navigation, route }: Props) {
       validators
         .reduce(
           (data, validator) => {
-            if (validator.validatorAddress === transaction?.sourceValidator) return data;
+            if (validator.validatorAddress === valAddress) return data;
             if (
               delegations.some(
                 ({ validatorAddress }) => validatorAddress === validator.validatorAddress,
@@ -101,7 +102,7 @@ function RedelegationSelectValidator({ navigation, route }: Props) {
           ],
         )
         .filter(({ data }) => data.length > 0),
-    [delegations, transaction, validators],
+    [delegations, valAddress, validators],
   );
   const onSelect = useCallback(
     (validator: CosmosValidatorItem) => {

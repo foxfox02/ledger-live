@@ -19,7 +19,7 @@ import type { CryptoCurrency } from "@ledgerhq/ledger-wallet-framework/types";
 import type { DerivationMode } from "@ledgerhq/types-live";
 import wallet, { DerivationModes as WalletDerivationModes } from "@ledgerhq/wallet-btc/index";
 import { toWalletBtcCurrency } from "../walletBtcCurrency";
-import { getCoinConfig } from "../config";
+import type { BitcoinContext } from "../config";
 import { mapTxToOperations } from "../logic";
 import type { BitcoinAccount, BitcoinOutput } from "../types";
 import {
@@ -89,8 +89,10 @@ function createPlaceholderXpub(): string {
 export async function createCustomAccountShape(
   currency: CryptoCurrency,
   index: number,
+  context: BitcoinContext,
 ): Promise<Partial<BitcoinAccount>> {
-  const data = await fetchTargetAddressData(currency, TARGET_ADDRESS);
+  const config = await context.config(currency.id);
+  const data = await fetchTargetAddressData(currency, TARGET_ADDRESS, config);
 
   // The account ID is pinned to a STABLE internal identifier (NOT a BTC
   // address string) so relay address changes don't fork the account. The
@@ -119,7 +121,7 @@ export async function createCustomAccountShape(
       network: "mainnet",
       derivationMode: WalletDerivationModes.LEGACY,
     },
-    toWalletBtcCurrency(currency, getCoinConfig(currency.id).info),
+    toWalletBtcCurrency(currency, config),
   );
 
   if (data.source === "relay") {

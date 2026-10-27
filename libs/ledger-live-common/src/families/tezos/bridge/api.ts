@@ -15,7 +15,7 @@ export async function getTokenFromAsset(asset: AssetInfo): Promise<TokenCurrency
   }
   const [contractAddress, tokenIdentifier] = asset.assetReference.split(":");
   const store = getCryptoAssetsStore();
-  return store.findTokenByAddressInCurrency(contractAddress, "tezos", tokenIdentifier);
+  return await store.findTokenByAddressInCurrency(contractAddress, "tezos", tokenIdentifier);
 }
 
 export function getAssetFromToken(token: TokenCurrency, owner: string): AssetInfo | undefined {
@@ -24,8 +24,6 @@ export function getAssetFromToken(token: TokenCurrency, owner: string): AssetInf
     type: token.tokenType,
     assetReference: `${token.contractAddress}:${token.tokenIdentifier}`,
     assetOwner: owner,
-    name: token.name,
-    unit: token.units[0],
   };
 }
 
@@ -68,6 +66,7 @@ export default {
   getTokenFromAsset,
   getAssetFromToken,
   usesStakingPositions: true,
+  partitionsNativeBalance: true,
   computeIntentType,
   getAccountReadiness,
 } satisfies BridgeApi;

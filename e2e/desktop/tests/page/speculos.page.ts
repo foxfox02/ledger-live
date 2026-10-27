@@ -17,7 +17,10 @@ import {
   acceptEnableTransactionCheck as acceptEnableTransactionCheckDevice,
   confirmContactAction,
   waitForAppReady,
+  enableBlindSigningOnNanoS,
+  resetSpeculosEvents,
 } from "@ledgerhq/live-e2e-shared/speculos";
+import { signTronRentPayment } from "@ledgerhq/live-e2e-shared/families/tronSponsored";
 import { Account } from "@ledgerhq/live-e2e-shared/enum/Account";
 import { AppInfos } from "@ledgerhq/live-e2e-shared/enum/AppInfos";
 import { Transaction } from "@ledgerhq/live-e2e-shared/models/Transaction";
@@ -51,6 +54,16 @@ export class SpeculosPage extends AppPage {
   @step("Sign Send Transaction")
   async signSendTransaction(tx: Transaction) {
     await signSendTransaction(tx);
+  }
+
+  @step("Sign the Tronify rent payment of $0 USDT to $1")
+  async signTronRentPayment(amount: string, payee: string) {
+    await signTronRentPayment(amount, payee);
+  }
+
+  @step("Clear the device screen events")
+  async resetSpeculosEvents() {
+    await resetSpeculosEvents();
   }
 
   @step("Sign Delegation Transaction")
@@ -101,6 +114,11 @@ export class SpeculosPage extends AppPage {
   @step("Share view key")
   async shareViewKey() {
     await shareViewKey();
+  }
+
+  @step("Enable blind signing if the device is a Nano S")
+  async enableBlindSigningOnNanoS() {
+    await enableBlindSigningOnNanoS();
   }
 
   @step("Sign token approval on device")

@@ -10,8 +10,9 @@ import {
   CosmosValidatorItem,
   Transaction as CosmosTransaction,
 } from "@ledgerhq/live-common/families/cosmos/types";
-import cosmosBase from "@ledgerhq/coin-cosmos/chain/cosmosBase";
-import { AccountLike } from "@ledgerhq/types-live";
+import { getValAddress } from "@ledgerhq/live-common/families/cosmos/buildTransaction";
+import cosmosBase from "@ledgerhq/live-common/families/cosmos/cosmosBase";
+import { AccountLike, isStakingAccount } from "@ledgerhq/types-live";
 import { Text, Icons } from "@ledgerhq/native-ui";
 import { useTheme } from "@react-navigation/native";
 import { BigNumber } from "bignumber.js";
@@ -51,14 +52,17 @@ export default function DelegationSummary({ navigation, route }: Props) {
   invariant(account, "account must be defined");
 
   const mainAccount = getMainAccount(account, parentAccount);
-  const validators = useLedgerFirstShuffledValidatorsCosmosFamily(mainAccount.currency.id);
+  const validators = useLedgerFirstShuffledValidatorsCosmosFamily(
+    mainAccount.currency.id,
+    isStakingAccount(mainAccount) ? mainAccount.stakingResources.validators : undefined,
+  );
   const bridge = useAccountBridge<CosmosTransaction>(account, undefined);
 
   const chosenValidator = useMemo(() => {
     if (validator !== undefined) {
       return validator;
     }
-    if (["persistence", "quicksilver", "osmo", "babylon"].includes(mainAccount.currency.id)) {
+    if (["persistence", "osmo", "babylon"].includes(mainAccount.currency.id)) {
       return undefined;
     }
     return validators[0];
@@ -75,7 +79,6 @@ export default function DelegationSummary({ navigation, route }: Props) {
           account,
           transaction: bridge.updateTransaction(t, {
             mode: "delegate",
-            validators: [],
           }),
         };
       }
@@ -96,15 +99,10 @@ export default function DelegationSummary({ navigation, route }: Props) {
       updateTransaction(_ => tmpTransaction);
     }
 
-    if (chosenValidator && chosenValidator.validatorAddress !== transaction.validators[0].address) {
+    if (chosenValidator && chosenValidator.validatorAddress !== getValAddress(transaction)) {
       setTransaction(
         bridge.updateTransaction(transaction, {
-          validators: [
-            {
-              address: chosenValidator.validatorAddress,
-              amount: transaction.amount,
-            },
-          ],
+          valAddress: chosenValidator.validatorAddress,
         }),
       );
     }

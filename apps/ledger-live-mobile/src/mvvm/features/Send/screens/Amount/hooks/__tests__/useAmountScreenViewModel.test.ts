@@ -34,10 +34,45 @@ jest.mock("../../../../hooks/useNetworkFees", () => ({
   })),
 }));
 
+jest.mock("../../../../context/SponsoredSendContext", () => ({
+  useSponsoredSend: jest.fn(),
+}));
+
 const { useSendFlowAmountReviewCore } = jest.requireMock(
   "@ledgerhq/live-common/flows/send/hooks/useSendFlowAmountReviewCore",
 );
 const { useAmountInputController } = jest.requireMock("../useAmountInputController");
+const { useSponsoredSend } = jest.requireMock("../../../../context/SponsoredSendContext");
+
+const SPONSORED_FEE = { value: "€2.80", secondaryValue: "3.2 USDT", originalValue: "€3.60" };
+
+function mockSponsored({
+  waivesNativeFee = false,
+  reviewReady = true,
+  available = false,
+  selected = false,
+  savingsFiatFormatted = null as string | null,
+  sponsoredFeeAmounts = null as { sponsored: typeof SPONSORED_FEE } | null,
+  sponsoredUnaffordable = false,
+  sponsoredCommitted = false,
+  committedRentFee = null as string | null,
+} = {}) {
+  (useSponsoredSend as jest.Mock).mockReturnValue({
+    waivesNativeFee,
+    reviewReady,
+    waivesErrorKeys: ["gasPrice"],
+    waivesWarningKeys: ["amount"],
+    available,
+    sponsoredSelected: selected,
+    providerName: "Provider",
+    feeCurrencyTicker: "USDT",
+    savingsFiatFormatted,
+    sponsoredFeeAmounts,
+    sponsoredUnaffordable,
+    sponsoredCommitted,
+    committedRentFee,
+  });
+}
 
 const mockAccount = {
   id: "mock-account",
@@ -107,6 +142,193 @@ describe("useAmountScreenViewModel", () => {
     });
 
     (useAmountInputController as jest.Mock).mockReturnValue(baseAmountInputController);
+    mockSponsored();
+  });
+
+  const renderViewModel = (status: TransactionStatus) =>
+    renderHook(() =>
+      useAmountScreenViewModel({
+        account: mockAccount,
+        parentAccount: null,
+        transaction: baseTransaction,
+        status,
+        bridgePending: false,
+        bridgeError: null,
+        uiConfig: { hasFeePresets: false } as never,
+        transactionActions: { updateTransaction: jest.fn() } as never,
+        onReview: jest.fn(),
+        onGetFunds: jest.fn(),
+        onSelectCoinControl: jest.fn(),
+      }),
+    );
+
+  describe("with the sponsored fee", () => {
+    const nativeFeeError = createNamedError("NotEnoughGas");
+    const energyWarning = createNamedError("TronNotEnoughEnergy");
+    const recipientError = createNamedError("InvalidAddress");
+    const statusWithWaivable = () =>
+      createBaseStatus({
+        errors: { gasPrice: nativeFeeError, recipient: recipientError },
+        warnings: { amount: energyWarning },
+      });
+
+    it("drops the errors and warnings it pays for", () => {
+      mockSponsored({ waivesNativeFee: true });
+
+      renderViewModel(statusWithWaivable());
+
+      const coreStatus = (useSendFlowAmountReviewCore as jest.Mock).mock.calls[0][0].status;
+      expect(Object.keys(coreStatus.errors)).toEqual(["recipient"]);
+      expect(coreStatus.warnings).toEqual({});
+    });
+
+    it("keeps them while it doesn't pay the native fee", () => {
+      mockSponsored({ waivesNativeFee: false });
+      const status = statusWithWaivable();
+
+      renderViewModel(status);
+
+      expect((useSendFlowAmountReviewCore as jest.Mock).mock.calls[0][0].status).toBe(status);
+    });
+
+    it.each([
+      [true, null],
+      [false, "error"],
+    ])("shows no native-fee message when waived (%s)", (waivesNativeFee, expectedType) => {
+      mockSponsored({ waivesNativeFee });
+
+      const { result } = renderViewModel(
+        createBaseStatus({
+          errors: { gasPrice: nativeFeeError },
+          warnings: { amount: energyWarning },
+        }),
+      );
+
+      if (!result.current.ready) throw new Error("view model should be ready");
+      expect(result.current.message?.type ?? null).toBe(expectedType);
+    });
+
+    describe("fee payment entry", () => {
+      const renderReady = () => {
+        const { result } = renderViewModel(createBaseStatus());
+        if (!result.current.ready) throw new Error("view model should be ready");
+        return result.current;
+      };
+
+      it("is absent while the sponsored fee isn't offered", () => {
+        mockSponsored({ available: false });
+
+        expect(renderReady().sponsoredFee).toBeNull();
+      });
+
+      it("nudges toward the saving while the standard fee is picked", () => {
+        mockSponsored({ available: true, savingsFiatFormatted: "€0.80" });
+
+        expect(renderReady().sponsoredFee).toEqual({
+          label: "send.newSendFlow.feePayment.nudge",
+          selected: false,
+          locked: false,
+          fee: null,
+          infoDescription: null,
+          error: null,
+        });
+      });
+
+      it("offers paying in the fee token when there is no saving", () => {
+        mockSponsored({ available: true });
+
+        expect(renderReady().sponsoredFee?.label).toBe("send.newSendFlow.feePayment.payIn");
+      });
+
+      it("shows the sponsored fee, the saved badge and the disclaimer once picked", () => {
+        mockSponsored({
+          available: true,
+          selected: true,
+          savingsFiatFormatted: "€0.80",
+          sponsoredFeeAmounts: { sponsored: SPONSORED_FEE },
+        });
+
+        expect(renderReady().sponsoredFee).toEqual({
+          label: "send.newSendFlow.feePayment.saved",
+          selected: true,
+          locked: false,
+          fee: SPONSORED_FEE,
+          infoDescription: "send.newSendFlow.feePayment.disclaimer",
+          error: null,
+        });
+      });
+
+      it("shows a pending fee and no badge while the picked option's quote reloads", () => {
+        mockSponsored({ available: true, selected: true });
+
+        expect(renderReady().sponsoredFee).toMatchObject({
+          label: null,
+          fee: { value: "-", secondaryValue: null, originalValue: null },
+        });
+      });
+
+      it("keeps a committed pick, locked at the paid rent, once the live option is withdrawn", () => {
+        mockSponsored({
+          available: false,
+          selected: true,
+          sponsoredCommitted: true,
+          committedRentFee: "3.2 USDT",
+        });
+
+        expect(renderReady().sponsoredFee).toEqual({
+          label: null,
+          selected: true,
+          locked: true,
+          fee: { value: "3.2 USDT", secondaryValue: null, originalValue: null },
+          infoDescription: "send.newSendFlow.feePayment.disclaimer",
+          error: null,
+        });
+      });
+
+      it("blocks Review and says why while the fee token can't cover the send", () => {
+        mockSponsored({ available: true, selected: true, sponsoredUnaffordable: true });
+
+        const viewModel = renderReady();
+
+        expect(viewModel.sponsoredFee?.error).toBe("send.newSendFlow.feePayment.insufficientFunds");
+        expect(viewModel.reviewButton.disabled).toBe(true);
+        expect(viewModel.reviewButton.loading).toBe(false);
+      });
+
+      it("keeps Get funds pressable when the amount itself exceeds the balance", () => {
+        mockSponsored({ available: true, selected: true, sponsoredUnaffordable: true });
+        (useSendFlowAmountReviewCore as jest.Mock).mockReturnValue({
+          ...(useSendFlowAmountReviewCore as jest.Mock)(),
+          hasInsufficientFundsError: true,
+        });
+
+        expect(renderReady().reviewButton.disabled).toBe(false);
+      });
+    });
+
+    it("holds Review until the sponsored pick is ready", () => {
+      mockSponsored({ reviewReady: false });
+
+      const { result } = renderViewModel(createBaseStatus());
+
+      if (!result.current.ready) throw new Error("view model should be ready");
+      expect(result.current.reviewButton.disabled).toBe(true);
+      expect(result.current.reviewButton.loading).toBe(true);
+    });
+
+    it("keeps Get funds pressable while the sponsored pick reloads its quote", () => {
+      mockSponsored({ available: true, selected: true, reviewReady: false });
+      (useSendFlowAmountReviewCore as jest.Mock).mockReturnValue({
+        ...(useSendFlowAmountReviewCore as jest.Mock)(),
+        hasInsufficientFundsError: true,
+      });
+
+      const { result } = renderViewModel(createBaseStatus());
+
+      if (!result.current.ready) throw new Error("view model should be ready");
+      expect(result.current.reviewButton.disabled).toBe(false);
+      expect(result.current.reviewButton.loading).toBe(false);
+    });
   });
 
   it("prioritizes blocking errors over fee info messages", () => {

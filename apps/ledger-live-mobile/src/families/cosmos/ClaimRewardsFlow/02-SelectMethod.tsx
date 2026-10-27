@@ -13,7 +13,7 @@ import { useAccountBridge } from "@ledgerhq/live-common/bridge/useAccountBridge"
 import { getMainAccount, getAccountCurrency } from "@ledgerhq/live-common/account/index";
 import useBridgeTransaction from "@ledgerhq/live-common/bridge/useBridgeTransaction";
 import { useTheme } from "@react-navigation/native";
-import cosmosBase from "@ledgerhq/coin-cosmos/chain/cosmosBase";
+import cosmosBase from "@ledgerhq/live-common/families/cosmos/cosmosBase";
 import {
   isCompoundRewardSupported,
   resolveClaimRewardMode,
@@ -35,7 +35,7 @@ import { useAccountScreen } from "LLM/hooks/useAccountScreen";
 
 const options = [
   {
-    value: "claimRewardCompound",
+    value: "compoundReward",
     label: <Trans i18nKey="cosmos.claimRewards.flow.steps.method.claimRewardCompound" />,
   },
   {
@@ -64,7 +64,7 @@ type Props = StackNavigatorProps<
 function ClaimRewardsAmount({ navigation, route }: Props) {
   const { colors } = useTheme();
   const account = useAccountScreen(route).account as CosmosAccount;
-  invariant(account && account.cosmosResources, "account and cosmos transaction required");
+  invariant(account, "account required");
   const bridge = useAccountBridge<CosmosTransaction>(account, undefined);
   const mainAccount = getMainAccount(account, undefined);
   const unit = useAccountUnit(mainAccount);
@@ -85,12 +85,8 @@ function ClaimRewardsAmount({ navigation, route }: Props) {
       account,
       transaction: bridge.updateTransaction(t, {
         mode: "claimReward",
-        validators: [
-          {
-            address: route.params.validator.validatorAddress,
-            amount: route.params.value,
-          },
-        ],
+        valAddress: route.params.validator.validatorAddress,
+        amount: route.params.value,
       }),
     };
   });
@@ -181,7 +177,12 @@ function ClaimRewardsAmount({ navigation, route }: Props) {
         </View>
         <View style={styles.sectionLabel}>
           <LText style={styles.desc}>
-            <Trans i18nKey={`cosmos.claimRewards.flow.steps.method.${mode}Info`} />
+            <Trans
+              i18nKey={`cosmos.claimRewards.flow.steps.method.${
+                // Translation keys keep the legacy "claimRewardCompound" name — only the mode value changed.
+                mode === "compoundReward" ? "claimRewardCompound" : mode
+              }Info`}
+            />
           </LText>
         </View>
         <View style={styles.spacer} />

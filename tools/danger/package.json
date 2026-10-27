@@ -2,11 +2,16 @@
   "name": "@tools/danger",
   "version": "0.0.0",
   "private": true,
+  "scripts": {
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"test/*.test.ts\""
+  },
   "devDependencies": {
     "@commitlint/config-conventional": "catalog:",
     "@commitlint/lint": "catalog:",
     "@commitlint/load": "catalog:",
     "@commitlint/types": "catalog:",
-    "danger": "13.0.10"
+    "@types/node": "catalog:",
+    "danger": "14.0.7",
+    "yaml": "2.8.3"
   }
 }

@@ -13,7 +13,6 @@ const FF_LWM_WALLET_40_Q1 = {
       operationsList: false,
       aggregatedAssets: false,
       myWallet: false,
-      pnl: false,
       earnUpselling: false,
       earnSimulator: false,
       assetDiscoverability: false,
@@ -31,7 +30,6 @@ export const FF_LWM_WALLET_40_Q2 = {
       operationsList: true,
       aggregatedAssets: true,
       myWallet: true,
-      pnl: true,
       earnUpselling: true,
       earnSimulator: true,
       assetDiscoverability: true,
@@ -50,17 +48,6 @@ export const FF_BORROW_ENABLED = {
     params: { manifest_id: "borrow" },
   },
   largeScreenUpsell: { enabled: false },
-  // Note: Prevent usage of DIE, which is not Speculos ready yet. The device-intent drawer bypasses
-  // the SignTransaction screens, so it also ignores the SWAP_DISABLE_APPS_INSTALL bypass swapSetup
-  // installs; leaving this to Firebase would make signing non-deterministic.
-  llmWalletApiDeviceIntentSign: { enabled: false },
-  lwmWallet40: {
-    ...FF_LWM_WALLET_40_Q2.lwmWallet40,
-    params: {
-      ...FF_LWM_WALLET_40_Q2.lwmWallet40.params,
-      pnl: true,
-    },
-  },
 } satisfies PartialFeatures;
 
 export const FF_NEW_SEND_FLOW_FIRST_INTERACTION_BANNER_ENABLED = {
@@ -82,7 +69,6 @@ export const FF_NEW_SEND_FLOW_ENABLED = {
       excludedCurrencyIds: [],
     },
   },
-  useDeviceActionSignatureSend: { enabled: true }, // Note: Prevent usage of DIE, which is not Speculos ready yet.
   ...FF_NEW_SEND_FLOW_FIRST_INTERACTION_BANNER_ENABLED,
 } satisfies PartialFeatures;
 
@@ -135,7 +121,6 @@ export const FF_PAY_TAB = {
       card_native: true,
       card_live_app: false,
       card_disclaimer: false,
-      legacyTopUp: false,
     },
   },
 } satisfies PartialFeatures;
@@ -163,8 +148,18 @@ export const getMergedFeatureFlags = ({
     releaseTour: { enabled: false },
     brazePushNotifications: { enabled: false },
     ratingsPrompt: { enabled: false },
+    // Mirrors the production flag; the stg swap manifest is added because e2e loads it unless PRODUCTION=true.
     llmWalletApiDeviceIntentSign: {
-      enabled: false, // Note: Prevent usage of DIE, which is not Speculos ready yet.
+      enabled: true,
+      params: {
+        variantId: "deviceIntentEnabled",
+        enabledManifestIds: [
+          "swap-live-app-aws",
+          "swap-live-app-stg-aws",
+          "earn-prd-eks",
+          "borrow",
+        ],
+      },
     },
     llmModularDrawer: {
       enabled: true,

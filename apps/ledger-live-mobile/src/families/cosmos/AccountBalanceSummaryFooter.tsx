@@ -3,10 +3,11 @@ import { ScrollView } from "react-native";
 import { useTranslation } from "~/context/Locale";
 import BigNumber from "bignumber.js";
 import CryptoIcon from "@ledgerhq/crypto-icons/native";
-import { CosmosAccount } from "@ledgerhq/coin-cosmos/types/index";
-import { CosmosAPI } from "@ledgerhq/coin-cosmos/network/Cosmos";
-import { Account } from "@ledgerhq/types-live";
-import cryptoFactory from "@ledgerhq/coin-cosmos/chain/chain";
+import { CosmosAccount } from "@ledgerhq/live-common/families/cosmos/types";
+import { CosmosAPI } from "@ledgerhq/live-common/families/cosmos/network";
+import { Account, isStakingAccount } from "@ledgerhq/types-live";
+import invariant from "invariant";
+import cryptoFactory from "@ledgerhq/live-common/families/cosmos/chain";
 import { Unit } from "@domain/entity-currency-unit";
 import InfoModal from "~/modals/Info";
 import type { ModalInfo } from "~/modals/Info";
@@ -27,12 +28,12 @@ const usdcUnit: Unit = {
 };
 
 function AccountBalanceSummaryFooter({ account }: Props) {
+  invariant(isStakingAccount(account), "cosmos staking account required");
   const { t } = useTranslation();
   const [infoName, setInfoName] = useState<InfoName | typeof undefined>();
   const info = useInfo(account);
-  const { spendableBalance, cosmosResources } = account;
-  const { delegatedBalance = new BigNumber(0), unbondingBalance = new BigNumber(0) } =
-    cosmosResources || {};
+  const { spendableBalance, stakingResources } = account;
+  const { delegatedBalance, unbondingBalance } = stakingResources;
   const unit = useAccountUnit(account);
   const onCloseModal = useCallback(() => {
     setInfoName(undefined);
@@ -115,7 +116,7 @@ function AccountBalanceSummaryFooter({ account }: Props) {
 }
 
 export default function AccountBalanceFooter({ account }: Props) {
-  if (!account.cosmosResources || account.balance.lte(0)) return null;
+  if (account.balance.lte(0)) return null;
   return <AccountBalanceSummaryFooter account={account} />;
 }
 

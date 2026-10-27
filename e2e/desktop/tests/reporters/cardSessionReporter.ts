@@ -19,15 +19,16 @@ class CardSessionReporter implements Reporter {
       console.info("[CardSessionReporter] Creating a card session for the run...");
       const result = spawnSync(
         "pnpm",
-        ["--silent", "--filter", "@ledgerhq/baanx-test-client", "token", "--session"],
+        ["--silent", "--filter", "@ledgerhq/baanx-test-client", "baanx-token", "--session"],
         { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
       );
       const session = result.stdout?.trim() ?? "";
       if (result.status !== 0 || session.length === 0) {
-        throw new Error(`Failed to create a card session!`);
+        console.warn("[CardSessionReporter] Failed to create a card session.");
+      } else {
+        process.env[CARD_SESSION_BOOTSTRAP_ENV] = session;
+        console.info("[CardSessionReporter] Card session created.");
       }
-      process.env[CARD_SESSION_BOOTSTRAP_ENV] = session;
-      console.info("[CardSessionReporter] Card session created.");
     }
   }
 

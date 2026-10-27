@@ -27,7 +27,7 @@ const makeAccount = (): CosmosAccount =>
     freshAddress: "cosmos1test",
     currency: getCryptoCurrencyById("cosmos"),
     spendableBalance: new BigNumber(0),
-    cosmosResources: undefined,
+    stakingResources: { delegations: [] },
   }) as unknown as CosmosAccount;
 
 function mockGetCurrencyConfiguration(currencyConfig: Record<string, unknown>) {
@@ -108,5 +108,15 @@ describe("cosmos accountActions.getMainActions", () => {
     expect(actions[0]).toMatchObject({ id: "stake" });
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  it("throws when the account has no staking resources", () => {
+    mockGetCurrencyConfiguration({});
+    const account = { ...makeAccount(), stakingResources: undefined } as unknown as CosmosAccount;
+    delete (account as { stakingResources?: unknown }).stakingResources;
+
+    expect(() =>
+      cosmosAccountActions.getMainActions({ account, parentAccount: undefined, parentRoute }),
+    ).toThrow("cosmos staking account required");
   });
 });

@@ -83,7 +83,7 @@ export function buildDotEnvDefine(envPath: string): Record<string, string> {
 /**
  * Env vars the app reads through `@shared/env` (getEnv/useEnv) instead of as a literal
  * `process.env.X` expression. DefinePlugin cannot reach those, so they travel as one object
- * that src/renderer/env.ts merges into `process.env` at boot.
+ * that src/renderer/bootstrap/process.ts merges into the renderer environment at boot.
  */
 const BUILD_ENV_NAMES = [
   "CARD_BAANX_API_URL",
@@ -133,6 +133,27 @@ export function buildMainEnv(
   return env;
 }
 
+const FIREBASE_ENVS = ["production", "staging", "testing", "development"];
+
+function firebaseConfigsByEnv() {
+  return Object.fromEntries(
+    FIREBASE_ENVS.map(env => {
+      const vars = readDotEnv(`.env.${env}`);
+      const config = vars.FIREBASE_API_KEY
+        ? {
+            apiKey: vars.FIREBASE_API_KEY,
+            authDomain: vars.FIREBASE_AUTH_DOMAIN,
+            projectId: vars.FIREBASE_PROJECT_ID,
+            storageBucket: vars.FIREBASE_STORAGE_BUCKET,
+            messagingSenderId: vars.FIREBASE_MESSAGING_SENDER_ID,
+            appId: vars.FIREBASE_APP_ID,
+          }
+        : null;
+      return [env, config];
+    }),
+  );
+}
+
 /**
  * Build environment defines for renderer process
  */
@@ -148,7 +169,14 @@ export function buildRendererEnv(mode: "development" | "production"): Record<str
     __PRERELEASE__: JSON.stringify(PRERELEASE),
     __CHANNEL__: JSON.stringify(CHANNEL),
     __BUILD_ENVS__: buildEnvsDefine(),
+    __FIREBASE_ENV_CONFIGS__: JSON.stringify(
+      mode === "development" ? firebaseConfigsByEnv() : null,
+    ),
     "process.env.NODE_ENV": JSON.stringify(mode),
+    // No `.env` file is committed for dev builds. A local one can still set another profile: the
+    // `buildDotEnvDefine()` entries come after these. Without one, a packaged build is prod: its
+    // profile never comes from the launch environment.
+    "process.env.CONFIG_PROFILE": JSON.stringify(mode === "development" ? "staging" : "prod"),
   };
 }
 
@@ -171,7 +199,7 @@ export const isRsdoctorEnabled = () =>
 export function getRsdoctorPlugin(bundleName: string): Plugins {
   if (isRsdoctorEnabled()) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { RsdoctorRspackPlugin } = require("@rsdoctor/rspack-plugin");
+    const { RsdoctorRspackPlugin } = require("@rsdoctor/core");
     const isCI = process.env.CI === "true" || process.env.CI === "1";
     const repoRoot = path.resolve(lldRoot, "..", "..");
     const reportDir = path.join(repoRoot, "rsdoctor", `desktop-${bundleName}`);

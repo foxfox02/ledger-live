@@ -1,7 +1,9 @@
 import { getCryptoCurrencyById } from "@domain/entity-currency-crypto";
 import type { CryptoOrTokenCurrency } from "@domain/entity-currency";
+import type { AccountLike } from "@ledgerhq/types-live";
 import { getCurrencyBridge } from "../impl";
-import { resolveFamily } from "../zcashRouting";
+import { isZcashShieldedEnabled, resolveFamily } from "../zcashRouting";
+import { descriptor as aleoDescriptor } from "../../families/aleo/descriptor";
 import { descriptor as algorandDescriptor } from "../../families/algorand/descriptor";
 import { descriptor as aptosDescriptor } from "../../families/aptos/descriptor";
 import { descriptor as bitcoinDescriptor } from "../../families/bitcoin/descriptor";
@@ -29,10 +31,14 @@ import { descriptor as tonDescriptor } from "../../families/ton/descriptor";
 import { descriptor as tronDescriptor } from "../../families/tron/descriptor";
 import { descriptor as vechainDescriptor } from "../../families/vechain/descriptor";
 import { descriptor as xrpDescriptor } from "../../families/xrp/descriptor";
-import { descriptor as zcashDescriptor } from "../../families/zcash/descriptor";
+import {
+  descriptor as zcashDescriptor,
+  transparentOnlyDescriptor as zcashTransparentOnlyDescriptor,
+} from "../../families/zcash/descriptor";
 import type { CoinDescriptor, SendDescriptor, StakeDescriptor } from "./types";
 
 const descriptorRegistry: Record<string, CoinDescriptor> = {
+  aleo: aleoDescriptor,
   algorand: algorandDescriptor,
   aptos: aptosDescriptor,
   bitcoin: bitcoinDescriptor,
@@ -80,8 +86,11 @@ export function getDescriptor(currency: CryptoOrTokenCurrency | undefined): Coin
     return bridge.getDescriptor(cryptoCurrency) as CoinDescriptor;
   }
 
-  // Fallback: same family resolution as the bridge layer.
-  const fullDescriptor = descriptorRegistry[resolveFamily(cryptoCurrency)];
+  // Fallback: same family resolution as the bridge layer. Zcash without its shielded
+  // engine sends transparent only.
+  const family = resolveFamily(cryptoCurrency);
+  if (family === "zcash" && !isZcashShieldedEnabled()) return zcashTransparentOnlyDescriptor;
+  const fullDescriptor = descriptorRegistry[family];
   if (fullDescriptor) {
     return fullDescriptor;
   }
@@ -108,4 +117,33 @@ export function getStakeDescriptor(
 ): StakeDescriptor | null {
   const descriptor = getDescriptor(currency);
   return descriptor?.stake ?? null;
+}
+
+const noAccountTrackingAttributes: Readonly<Record<string, string | boolean>> = Object.freeze({});
+
+/**
+ * Get the account-level tracking attributes declared by the coin of a given account.
+ * Empty for a coin that declares none.
+ */
+export function getAccountTrackingAttributes(
+  account: AccountLike,
+): Record<string, string | boolean> {
+  const currency = account.type === "TokenAccount" ? account.token : account.currency;
+  const descriptor = getDescriptor(currency);
+  return descriptor?.getAccountTrackingAttributes?.(account) ?? noAccountTrackingAttributes;
+}
+
+/**
+ * Get the user-level tracking attributes declared by every coin, over all the user's
+ * accounts. Empty when no coin declares any.
+ */
+export function getUserTrackingAttributes(
+  accounts: AccountLike[] | undefined,
+): Record<string, number> {
+  const userAccounts = accounts ?? [];
+  const attributes: Record<string, number> = {};
+  for (const descriptor of Object.values(descriptorRegistry)) {
+    Object.assign(attributes, descriptor.getUserTrackingAttributes?.(userAccounts));
+  }
+  return attributes;
 }

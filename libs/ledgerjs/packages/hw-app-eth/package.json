@@ -1,6 +1,6 @@
 {
   "name": "@ledgerhq/hw-app-eth",
-  "version": "7.9.0",
+  "version": "7.11.1",
   "description": "Ledger Hardware Wallet Ethereum Application API",
   "keywords": [
     "Ledger",
@@ -47,6 +47,13 @@
     "bignumber.js": "^9.1.2",
     "semver": "catalog:"
   },
+  "files": [
+    "lib",
+    "lib-es",
+    "src",
+    "erc20.js",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "clean": "rimraf lib lib-es",
     "build": "tsc --project tsconfig.build.json && tsc --project tsconfig.build.json -m esnext --moduleResolution bundler --outDir lib-es",
@@ -57,7 +64,6 @@
     "lint": "oxlint ./src",
     "lint:fix": "pnpm lint --fix",
     "test": "jest",
-    "unimported": "unimported",
     "format": "oxfmt src tests",
     "format:check": "oxfmt --check src tests"
   },

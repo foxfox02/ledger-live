@@ -12,7 +12,7 @@ jest.mock("@ledgerhq/live-common/portfolio/portfolioReact", () => ({
   ...jest.requireActual("@ledgerhq/live-common/portfolio/portfolioReact"),
   usePortfolioThrottled: jest.fn(),
 }));
-import * as countervaluesReact from "@ledgerhq/live-countervalues-react";
+import * as countervaluesReact from "@features/platform-market-countervalues";
 import { useNavigate } from "react-router";
 import { BTC_ACCOUNT, EMPTY_BTC_ACCOUNT } from "../../__mocks__/accounts.mock";
 import { createMockCategorizedAssets } from "@ledgerhq/asset-aggregation/mocks/categorizedAssets.mock";
@@ -96,10 +96,12 @@ let mockUseCountervaluesPolling: jest.SpyInstance<
   ReturnType<typeof countervaluesReact.useCountervaluesPolling>,
   Parameters<typeof countervaluesReact.useCountervaluesPolling>
 >;
+let mockUseCountervaluesLoadStatus: jest.SpyInstance<
+  ReturnType<typeof countervaluesReact.useCountervaluesLoadStatus>,
+  Parameters<typeof countervaluesReact.useCountervaluesLoadStatus>
+>;
 
 const defaultPollingMock = {
-  pending: false,
-  error: null,
   poll: jest.fn(),
   start: jest.fn(),
   stop: jest.fn(),
@@ -132,8 +134,8 @@ jest.mock("~/renderer/hooks/usePrice", () => {
   };
 });
 
-jest.mock("@ledgerhq/live-countervalues-react", () => ({
-  ...jest.requireActual("@ledgerhq/live-countervalues-react"),
+jest.mock("@features/platform-market-countervalues", () => ({
+  ...jest.requireActual("@features/platform-market-countervalues"),
   useCalculate: () => undefined,
 }));
 
@@ -166,12 +168,11 @@ describe("PortfolioView", () => {
     hasExchangeBannerCTA: true,
     shouldDisplayAssetSection: true,
     shouldDisplayAssetDiscoverability: false,
-    shouldDisplayOperationsList: true,
     shouldDisplayBorrowSection: false,
+    shouldDisplayPerpsEntryPoint: true,
+    shouldDisplayServicesEntryPoints: false,
     shouldDisplayBrazePlacement: false,
     isClearCacheBannerVisible: false,
-    filterOperations: () => true,
-    accounts: [],
     t: i18next.t,
   };
 
@@ -179,6 +180,8 @@ describe("PortfolioView", () => {
     jest.clearAllMocks();
     mockUsePortfolioThrottled = jest.mocked(portfolioReact.usePortfolioThrottled);
     mockUseCountervaluesPolling = jest.spyOn(countervaluesReact, "useCountervaluesPolling");
+    mockUseCountervaluesLoadStatus = jest.spyOn(countervaluesReact, "useCountervaluesLoadStatus");
+    mockUseCountervaluesLoadStatus.mockReturnValue({ pending: false, error: null });
     mockUsePortfolioThrottled.mockReturnValue(defaultPortfolioMock);
     mockUseCountervaluesPolling.mockReturnValue(defaultPollingMock);
     mockedUseNavigate.mockReturnValue(mockNavigate);
@@ -310,10 +313,7 @@ describe("PortfolioView", () => {
     });
 
     it("should display loading state when countervalues are being polled", () => {
-      mockUseCountervaluesPolling.mockReturnValue({
-        ...defaultPollingMock,
-        pending: true,
-      });
+      mockUseCountervaluesLoadStatus.mockReturnValue({ pending: true, error: null });
 
       render(<PortfolioView {...defaultProps} />, {
         initialState: {
@@ -518,6 +518,74 @@ describe("PortfolioView", () => {
         flow: "perps",
         page: PORTFOLIO_TRACKING_PAGE_NAME,
       });
+      expect(mockNavigate).toHaveBeenCalledWith("/perps");
+    });
+  });
+
+  describe("Services Entry Points", () => {
+    function renderPortfolioWithServices() {
+      return render(
+        <PortfolioView
+          {...defaultProps}
+          shouldDisplayPerpsEntryPoint={false}
+          shouldDisplayServicesEntryPoints
+        />,
+        {
+          initialState: {
+            settings: {
+              ...AFTER_ONBOARDING_STATE,
+            },
+            ...withFlagOverrides({
+              lwdWallet40: { enabled: true, params: { assetSection: true } },
+              entryPointsServices: { enabled: true, params: { services: ["borrow", "perps"] } },
+              ptxPerpsLiveApp: { enabled: true },
+              ptxBorrowLiveApp: { enabled: true },
+            }),
+          },
+        },
+      );
+    }
+
+    it("should render the services between the crypto and stablecoin sections", async () => {
+      renderPortfolioWithServices();
+
+      const services = await screen.findByTestId("portfolio-services-entry-points");
+
+      expect(screen.getByTestId("cryptos-section").compareDocumentPosition(services)).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+      expect(services.compareDocumentPosition(screen.getByTestId("stablecoins-section"))).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    });
+
+    it("should track the click on a service", async () => {
+      const { user } = renderPortfolioWithServices();
+
+      await user.click(await screen.findByText("Loans"));
+
+      expect(track).toHaveBeenCalledWith("button_clicked", {
+        button: "borrow_entry_point",
+        flow: "borrow",
+        page: PORTFOLIO_TRACKING_PAGE_NAME,
+      });
+    });
+
+    it("should navigate to borrow with the return path when clicking loans", async () => {
+      const { user } = renderPortfolioWithServices();
+
+      await user.click(await screen.findByText("Loans"));
+
+      expect(mockNavigate).toHaveBeenCalledWith("/borrow", {
+        state: { returnTo: expect.any(String) },
+      });
+    });
+
+    it("should navigate to perps when clicking perps", async () => {
+      const { user } = renderPortfolioWithServices();
+
+      await user.click(await screen.findByText("Perps"));
+
       expect(mockNavigate).toHaveBeenCalledWith("/perps");
     });
   });

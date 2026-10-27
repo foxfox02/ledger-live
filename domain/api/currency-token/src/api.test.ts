@@ -1,10 +1,12 @@
 import { configureStore } from "@reduxjs/toolkit";
+import { HttpResponse, http } from "msw";
+import { setupServer } from "msw/node";
 
 jest.mock("./converter", () => ({
   convertApiToken: jest.fn(),
 }));
 
-import { calApiExtra, calApi } from "@shared/api-services";
+import { calApiExtra, calApi, CAL_REQUEST_TIMEOUT_MS } from "@shared/api-services";
 import { convertApiToken } from "./converter";
 import {
   cryptoAssetsApi,
@@ -12,6 +14,7 @@ import {
   useFindTokenByIdQuery,
   useFindTokenByAddressInCurrencyQuery,
   useGetTokensSyncHashQuery,
+  useGetTokenListHashQuery,
 } from "./api";
 import { ApiResponseSchema } from "./schema";
 import type { TokenByIdParams, TokenByAddressInCurrencyParams } from "./types";
@@ -80,10 +83,11 @@ describe("cryptoAssetsApi configuration", () => {
     expect(cryptoAssetsApi).toBe(calApi);
   });
 
-  it("should expose all four endpoints", () => {
+  it("should expose all five endpoints", () => {
     expect(cryptoAssetsApi.endpoints.findTokenById).toBeDefined();
     expect(cryptoAssetsApi.endpoints.findTokenByAddressInCurrency).toBeDefined();
     expect(cryptoAssetsApi.endpoints.getTokensSyncHash).toBeDefined();
+    expect(cryptoAssetsApi.endpoints.getTokenListHash).toBeDefined();
     expect(cryptoAssetsApi.endpoints.getTokensData).toBeDefined();
   });
 
@@ -92,6 +96,7 @@ describe("cryptoAssetsApi configuration", () => {
     expect(useFindTokenByIdQuery).toBeDefined();
     expect(useFindTokenByAddressInCurrencyQuery).toBeDefined();
     expect(useGetTokensSyncHashQuery).toBeDefined();
+    expect(useGetTokenListHashQuery).toBeDefined();
   });
 });
 
@@ -116,24 +121,24 @@ describe("param interfaces", () => {
   });
 });
 
+// Wired the way the apps wire it: the store registers the *service api*, and the endpoints only
+// exist because importing this package injected them.
+const makeStore = () =>
+  configureStore({
+    reducer: { [calApi.reducerPath]: calApi.reducer },
+    middleware: gdm =>
+      gdm({
+        thunk: {
+          extraArgument: calApiExtra({
+            calServiceUrl: "https://cal.test",
+            ledgerClientVersion: "1.2.3",
+          }),
+        },
+      }).concat(calApi.middleware),
+  });
+
 describe("cryptoAssetsApi requests", () => {
   let fetchSpy: jest.SpyInstance;
-
-  // Wired the way the apps wire it: the store registers the *service api*, and the endpoints only
-  // exist because importing this package injected them.
-  const makeStore = () =>
-    configureStore({
-      reducer: { [calApi.reducerPath]: calApi.reducer },
-      middleware: gdm =>
-        gdm({
-          thunk: {
-            extraArgument: calApiExtra({
-              calServiceUrl: "https://cal.test",
-              ledgerClientVersion: "1.2.3",
-            }),
-          },
-        }).concat(calApi.middleware),
-    });
 
   function mockFetch(body: unknown, headers: Record<string, string> = {}) {
     fetchSpy = jest.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -202,10 +207,10 @@ describe("cryptoAssetsApi requests", () => {
     );
 
     expect(result.data).toBe("commit-hash");
-    // getTokensSyncHash calls fetch with a URL object; stringify before asserting.
-    const url = String(fetchSpy.mock.calls[0][0]);
-    expect(url).toContain("https://cal.test/v1/currencies");
-    expect(url).toContain("id=ethereum");
+    const request = fetchSpy.mock.calls[0][0] as Request;
+    expect(request.url).toContain("https://cal.test/v1/currencies");
+    expect(request.url).toContain("id=ethereum");
+    expect(request.headers.get("X-Ledger-Client-Version")).toBe("1.2.3");
   });
 
   it("getTokensSyncHash preserves a path prefix in the base URL (Gravitee /cal prefix)", async () => {
@@ -225,8 +230,8 @@ describe("cryptoAssetsApi requests", () => {
 
     await store.dispatch(cryptoAssetsApi.endpoints.getTokensSyncHash.initiate("ethereum"));
 
-    const url = String(fetchSpy.mock.calls[0][0]);
-    expect(url).toContain("https://global.api.prd.ledger.com/cal/v1/currencies");
+    const request = fetchSpy.mock.calls[0][0] as Request;
+    expect(request.url).toContain("https://global.api.prd.ledger.com/cal/v1/currencies");
   });
 
   it("getTokensSyncHash errors with 404 on an empty currency array", async () => {
@@ -250,4 +255,146 @@ describe("cryptoAssetsApi requests", () => {
 
     expect(result.isError).toBe(true);
   });
+
+  it("getTokenListHash returns the network token list hash from /v1/networks", async () => {
+    mockFetch([{ id: "solana", token_list_hash: "f61ca8f4b4123c59" }]);
+    const store = makeStore();
+
+    const result = await store.dispatch(
+      cryptoAssetsApi.endpoints.getTokenListHash.initiate("solana"),
+    );
+
+    expect(result.data).toBe("f61ca8f4b4123c59");
+    const url = new URL((fetchSpy.mock.calls[0][0] as Request).url);
+    expect(url.origin + url.pathname).toBe("https://cal.test/v1/networks");
+    expect(url.searchParams.get("id")).toBe("solana");
+    expect(url.searchParams.get("output")).toBe("id,token_list_hash");
+  });
+
+  it("getTokenListHash returns a fixed hash for a network without tokens", async () => {
+    mockFetch([{ id: "bitcoin" }]);
+    const store = makeStore();
+
+    const result = await store.dispatch(
+      cryptoAssetsApi.endpoints.getTokenListHash.initiate("bitcoin"),
+    );
+
+    expect(result.data).toBe("no-tokens");
+  });
+
+  it("getTokenListHash errors with 404 on an empty network array", async () => {
+    mockFetch([]);
+    const store = makeStore();
+
+    const result = await store.dispatch(
+      cryptoAssetsApi.endpoints.getTokenListHash.initiate("unknown"),
+    );
+
+    expect(result.error).toMatchObject({ status: 404 });
+  });
+
+  it("getTokenListHash errors on a malformed response", async () => {
+    mockFetch({ id: "ethereum", token_list_hash: "abc123" });
+    const store = makeStore();
+
+    const result = await store.dispatch(
+      cryptoAssetsApi.endpoints.getTokenListHash.initiate("ethereum"),
+    );
+
+    expect(result.error).toMatchObject({ status: "PARSING_ERROR" });
+  });
+
+  it("a metadata-only CAL update moves the commit but not the token list hash", async () => {
+    // Same token list, new commit: a token's decimals or name changed. The token cache must see the
+    // change (commit), the account history must not (token list hash).
+    const respond = (commit: string) => (input: RequestInfo | URL) =>
+      Promise.resolve(
+        (input as Request).url.includes("/v1/networks")
+          ? new Response(JSON.stringify([{ id: "solana", token_list_hash: "same-list" }]), {
+              headers: { "Content-Type": "application/json", "X-Ledger-Commit": commit },
+            })
+          : new Response(JSON.stringify([{ id: "solana" }]), {
+              headers: { "Content-Type": "application/json", "X-Ledger-Commit": commit },
+            }),
+      );
+    const readBoth = async () => {
+      const store = makeStore();
+      const commit = await store.dispatch(
+        cryptoAssetsApi.endpoints.getTokensSyncHash.initiate("solana"),
+      );
+      const list = await store.dispatch(
+        cryptoAssetsApi.endpoints.getTokenListHash.initiate("solana"),
+      );
+      return { commit: commit.data, list: list.data };
+    };
+
+    fetchSpy = jest.spyOn(globalThis, "fetch").mockImplementation(respond("commit-before"));
+    const before = await readBoth();
+    fetchSpy.mockImplementation(respond("commit-after"));
+    const after = await readBoth();
+
+    expect(after.commit).not.toBe(before.commit);
+    expect(after.list).toBe(before.list);
+  });
+});
+
+describe("cryptoAssetsApi hash requests when CAL does not answer", () => {
+  const cal = jest.fn();
+  const server = setupServer(
+    http.get("https://cal.test/v1/currencies", cal),
+    http.get("https://cal.test/v1/networks", cal),
+  );
+
+  beforeAll(() => {
+    server.listen({ onUnhandledRequest: "error" });
+  });
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    cal.mockReset();
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    server.resetHandlers();
+  });
+
+  afterAll(() => {
+    server.close();
+  });
+
+  it.each(["getTokensSyncHash", "getTokenListHash"] as const)(
+    "%s ends with a timeout error after CAL_REQUEST_TIMEOUT_MS",
+    async endpoint => {
+      cal.mockImplementation(() => new Promise(() => {}));
+      const store = makeStore();
+
+      const pending = store.dispatch(cryptoAssetsApi.endpoints[endpoint].initiate("ethereum"));
+      await jest.advanceTimersByTimeAsync(CAL_REQUEST_TIMEOUT_MS);
+      const result = await pending;
+
+      expect(result.error).toMatchObject({ status: "TIMEOUT_ERROR" });
+      expect(cal).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(["getTokensSyncHash", "getTokenListHash"] as const)(
+    "%s keeps the HTTP status of a non-JSON error page",
+    async endpoint => {
+      cal.mockImplementation(
+        () =>
+          new HttpResponse("<html>Bad Gateway</html>", {
+            status: 502,
+            headers: { "Content-Type": "text/html" },
+          }),
+      );
+      const store = makeStore();
+
+      const pending = store.dispatch(cryptoAssetsApi.endpoints[endpoint].initiate("ethereum"));
+      await jest.advanceTimersByTimeAsync(CAL_REQUEST_TIMEOUT_MS);
+      const result = await pending;
+
+      expect(result.error).toMatchObject({ status: 502 });
+    },
+  );
 });

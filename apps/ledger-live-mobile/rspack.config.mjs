@@ -93,7 +93,7 @@ const RSDOCTOR_LINTER = {
 
 function getRsdoctorPlugin() {
   if (!process.env.RSDOCTOR || process.env.RSDOCTOR === "0") return [];
-  const { RsdoctorRspackPlugin } = require("@rsdoctor/rspack-plugin");
+  const { RsdoctorRspackPlugin } = require("@rsdoctor/core");
   const isCI = process.env.CI === "true" || process.env.CI === "1";
   const reportDir = path.join(projectRootDir, "rsdoctor", "mobile");
   // Rsdoctor's loader interceptor crashes on Rspack v2's native resolver
@@ -242,6 +242,11 @@ export default withRozeniteUrlFix(
               "index.browser.mjs",
             ),
             "rpc-websockets": resolvePackageFile("rpc-websockets", "dist", "index.browser.mjs"),
+            // Segment, hiero and coin-evm still import it; route them to the expo-crypto shim (LIVE-37309)
+            "react-native-get-random-values": path.resolve(
+              __dirname,
+              "src/getRandomValuesPolyfill.ts",
+            ),
           },
           fallback: {
             ...require("node-libs-react-native"),

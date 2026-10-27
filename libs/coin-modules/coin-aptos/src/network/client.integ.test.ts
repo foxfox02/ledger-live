@@ -1,3 +1,4 @@
+import { gql } from "@apollo/client";
 import {
   Aptos,
   AptosConfig,
@@ -8,6 +9,64 @@ import {
   Hex,
 } from "@aptos-labs/ts-sdk";
 import { AptosAPI } from "./client";
+
+describe("richItemByVersion", () => {
+  const client = new AptosAPI("aptos");
+
+  it.each([
+    ["genesis", 0],
+    ["block metadata of block 1000000", 2031210],
+    ["state checkpoint of block 1000000", 2031211],
+  ])("returns null for the payload-less %s transaction", async (_, version) => {
+    await expect(client["richItemByVersion"](version)).resolves.toBeNull();
+  });
+
+  it("returns a user transaction with its block", async () => {
+    const tx = await client["richItemByVersion"](7422723293);
+
+    expect(tx).toMatchObject({
+      type: "user_transaction",
+      sender: "0x201cf09644cd5d88aa6db2d1670011325eea2c3198ddfd0c1aa549be0003bb24",
+      payload: { type: "entry_function_payload" },
+      block: { height: expect.any(Number), hash: expect.any(String) },
+    });
+  });
+});
+
+describe("getAllTransactions", () => {
+  const client = new AptosAPI("aptos");
+  // An account with ~5,000 transactions; versions above `gt` span several 100-row pages.
+  const address = "0x2031a03808c1201d71ab2d3c5fc52fc3347dfa251dcd9d2e60c92f371b8153d2";
+  const gt = "3046607837";
+
+  it("pages through every transaction once, in ascending version order", async () => {
+    const versions = (await client["getAllTransactions"](address, gt)).map(
+      ({ transaction_version }) => Number(transaction_version),
+    );
+
+    const { data } = await client["apolloClient"].query<{
+      account_transactions_aggregate: { aggregate: { count: number } };
+    }>({
+      query: gql`
+        query ($address: String, $gt: bigint) {
+          account_transactions_aggregate(
+            where: { account_address: { _eq: $address }, transaction_version: { _gt: $gt } }
+          ) {
+            aggregate {
+              count
+            }
+          }
+        }
+      `,
+      variables: { address, gt },
+      fetchPolicy: "network-only",
+    });
+
+    expect(versions.length).toBeGreaterThan(300);
+    expect(versions).toHaveLength(data.account_transactions_aggregate.aggregate.count);
+    versions.slice(1).forEach((version, i) => expect(version).toBeGreaterThan(versions[i]));
+  });
+});
 
 describe("Broadcast", () => {
   it("throws on insufficient funds", async () => {

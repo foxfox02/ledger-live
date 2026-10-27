@@ -57,6 +57,8 @@ import { listPrivateOperations } from "./listPrivateOperations";
 import {
   attachPrivateTokenOpsToParent,
   buildSubAccountsFromPrivateRecords,
+  filterHistoryRecords,
+  isOutgoingTokenRecord,
   patchTokenSubAccountOps,
   resolveTokenSubAccounts,
 } from "./tokens";
@@ -443,6 +445,13 @@ export async function performPrivateSync({
     record => record.block_height >= tokenSyncStartHeight,
   );
 
+  const knownTransactionIds = new Set([
+    ...[...currentPublicOps, ...oldPrivateOps.filter(op => op.type !== "FEES")].map(op => op.hash),
+    ...filterHistoryRecords(calTokenRecords)
+      .filter(record => isOutgoingTokenRecord(record, address))
+      .map(record => record.transaction_id.trim()),
+  ]);
+
   signal?.throwIfAborted();
 
   const [latestAccountPrivateOperations, patchedPublicOperations] = await Promise.all([
@@ -452,6 +461,7 @@ export async function performPrivateSync({
       address,
       ledgerAccountId,
       privateRecords: rawNewNativePrivateRecords,
+      knownTransactionIds,
       ...(calTokenRecords.length > 0 && { tokenRecords: newCalTokenRecords }),
       ...(onProgress
         ? {
@@ -515,7 +525,7 @@ export async function performPrivateSync({
   // deduplication is by operation id (encodeOperationId(accountId, txHash, type))
   const privateOperations = mergeOps(oldPrivateOps, latestAccountPrivateOperations.operations);
 
-  const operations = [...patchedPublicOperations, ...(privateOperations as AleoOperation[])].sort(
+  let operations = [...patchedPublicOperations, ...(privateOperations as AleoOperation[])].sort(
     (a, b) => b.date.getTime() - a.date.getTime(),
   );
 
@@ -557,14 +567,12 @@ export async function performPrivateSync({
 
     subAccounts = patchTokenSubAccountOps(tokenSubAccounts);
 
-    attachPrivateTokenOpsToParent({
+    operations = attachPrivateTokenOpsToParent({
       operations,
       privateTokenOpsByAccountId,
       ledgerAccountId,
       address,
-    });
-
-    operations.sort((a, b) => b.date.getTime() - a.date.getTime());
+    }).sort((a, b) => b.date.getTime() - a.date.getTime());
   }
 
   const finalOperations = operations.filter(op => {

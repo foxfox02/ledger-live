@@ -2,7 +2,7 @@ import { Flex, Text } from "@ledgerhq/react-ui";
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { AnalyticsPage, useLedgerSyncAnalytics } from "../../hooks/useLedgerSyncAnalytics";
-import { TrackPage } from "@shared/analytics-react";
+import { TrackScreen } from "@shared/analytics-react";
 import { TinyCard } from "../../components/TinyCard";
 import { useInstances } from "./useInstances";
 import { TrustchainMember } from "@ledgerhq/ledger-key-ring-protocol/types";
@@ -40,13 +40,20 @@ export default function ManageInstancesStep({ goToDeleteInstance }: Props) {
   };
 
   return (
-    <Flex flexDirection="column" rowGap="24px" paddingX="40px" flex={1}>
-      <TrackPage category={AnalyticsPage.ManageInstances} />
+    <Flex
+      flexDirection="column"
+      rowGap="24px"
+      paddingX="40px"
+      paddingBottom="24px"
+      flex={1}
+      minHeight={0}
+    >
+      <TrackScreen category={AnalyticsPage.ManageInstances} />
       <Text fontSize={23} variant="large" color="neutral.c100">
         {t("walletSync.manageInstances.title")}
       </Text>
 
-      <List rowGap="12px" flexDirection="column">
+      <List rowGap="12px" flexDirection="column" className="scrollbar-custom">
         {instances?.map(instance => (
           <TinyCard
             key={instance.id}
@@ -67,12 +74,6 @@ export default function ManageInstancesStep({ goToDeleteInstance }: Props) {
 }
 
 const List = styled(Flex)`
+  min-height: 0;
   overflow-y: auto;
-  padding-bottom: 12%;
-  max-height: calc(100vh - 12%);
-  ::-webkit-scrollbar {
-    width: 0;
-    height: 0;
-    background: transparent;
-  }
 `;

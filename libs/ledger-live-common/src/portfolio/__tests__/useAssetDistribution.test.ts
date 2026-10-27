@@ -6,11 +6,12 @@ import { useAssetDistribution } from "../useAssetDistribution";
 import type { Account, AssetsDistribution } from "@ledgerhq/types-live";
 import type { CryptoCurrency } from "@domain/entity-currency-crypto";
 import type { Currency } from "@domain/entity-currency";
-import type { CounterValuesState } from "@domain/entity-market-countervalues";
+import type { CounterValuesCacheView } from "@domain/entity-market-countervalues";
 
-const mockCvState = {} as CounterValuesState;
-jest.mock("@ledgerhq/live-countervalues-react", () => ({
-  useCountervaluesState: () => mockCvState,
+const mockCvState: CounterValuesCacheView = { cache: {} };
+jest.mock("@features/platform-market-countervalues", () => ({
+  ...jest.requireActual("@features/platform-market-countervalues"),
+  useCountervaluesCache: () => mockCvState,
 }));
 
 const mockBuildAssetDistribution = jest.fn<AssetsDistribution, unknown[]>();

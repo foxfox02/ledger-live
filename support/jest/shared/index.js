@@ -1,0 +1,224 @@
+const path = require("path");
+
+const swcTransform = {
+  "^.+\\.(t|j)sx?$": [
+    "@swc/jest",
+    { jsc: { target: "esnext", parser: { syntax: "typescript", tsx: true } } },
+  ],
+};
+
+const jestSonarReporter = [
+  "jest-sonar",
+  { outputName: "sonar-executionTests-report.xml", reportedFilePath: "absolute" },
+];
+
+const repositoryRoot = path.resolve(__dirname, "../../..");
+
+/** @param {string} projectRoot */
+const lcovCoverageReporters = projectRoot => [
+  "json",
+  ["lcov", { file: "lcov.info", projectRoot }],
+  "text",
+];
+
+const coverageReporters = lcovCoverageReporters("../../");
+
+/**
+ * Tail reporters shared by every config. Exported so callers that need to insert an extra
+ * reporter (e.g. github-actions) can spread this after their insertion:
+ *
+ *   reporters: ["default", ...(CI ? ["github-actions"] : []), ...sharedReporters]
+ */
+const sharedReporters = [jestSonarReporter, "@ledgerhq/test-quarantine/jest"];
+
+const reporters = ["default", ...sharedReporters];
+
+// ─── ESM-only dependencies ──────────────────────────────────────────────────
+
+/**
+ * ESM-only packages that CJS code reaches through `require`, and that jest has to transform.
+ * Matched against pnpm's store directory name, where a scope separator becomes a `+`
+ * (`@noble+hashes@2.4.0`), hence the escaped `\\+`.
+ */
+const esmDeps = ["@noble\\+"];
+
+/**
+ * Makes jest transform ESM-only dependencies instead of failing with
+ * `Must use import to load ES Module` when a CJS package `require`s them (e.g. `@noble/hashes` 2.x).
+ *
+ * Everything else in node_modules/.pnpm stays ignored. Merges into `config.transform` and replaces
+ * `config.transformIgnorePatterns`.
+ *
+ *   module.exports = withEsmDeps({ testEnvironment: "node" });
+ *   module.exports = withEsmDeps(config, { extraDeps: ["@ledgerhq\\+"] }); // also keep these transformed
+ *
+ * @param {import('@jest/types').Config.InitialOptions} config
+ * @param {{ extraDeps?: string[] }} [options]
+ * @returns {import('@jest/types').Config.InitialOptions}
+ */
+function withEsmDeps(config, { extraDeps = [] } = {}) {
+  const deps = [...esmDeps, ...extraDeps].join("|");
+  return {
+    ...config,
+    transform: {
+      ...config.transform,
+      [`node_modules[\\\\/]\\.pnpm[\\\\/](${esmDeps.join("|")}).+\\.(js|mjs)$`]: [
+        "@swc/jest",
+        { jsc: { target: "esnext" } },
+      ],
+    },
+    transformIgnorePatterns: [`node_modules[\\\\/]\\.pnpm[\\\\/](?!(${deps}))`],
+  };
+}
+
+// ─── shared/* and libs/* (node packages) ────────────────────────────────────
+
+/**
+ * Flat jest config for a node package: shared/* logic packages, and libs/* packages.
+ *
+ * `esm: true` applies `withEsmDeps` (with `extraEsmDeps`) to the result, after the overrides. The
+ * lcov `projectRoot` is the option when given, else derived from `overrides.rootDir` when set, else
+ * `../../` (a package two levels below the repository root).
+ *
+ *   module.exports = createSharedJestConfig();
+ *   module.exports = createSharedJestConfig({ rootDir: __dirname }, { esm: true });
+ *
+ * @param {import('@jest/types').Config.InitialOptions} [overrides]
+ * @param {{ esm?: boolean, extraEsmDeps?: string[], projectRoot?: string }} [options]
+ * @returns {import('@jest/types').Config.InitialOptions}
+ */
+function createSharedJestConfig(
+  overrides = {},
+  { esm = false, extraEsmDeps = [], projectRoot } = {},
+) {
+  const lcovRoot =
+    projectRoot ??
+    (overrides.rootDir === undefined
+      ? "../../"
+      : `${path.relative(overrides.rootDir, repositoryRoot)}/`);
+  const config = {
+    testEnvironment: "node",
+    roots: ["<rootDir>/src"],
+    testMatch: ["**/*.test.ts"],
+    testPathIgnorePatterns: ["lib/", "lib-es/", "node_modules/"],
+    transform: swcTransform,
+    coverageDirectory: "./coverage/",
+    coverageReporters: lcovCoverageReporters(lcovRoot),
+    reporters: ["default", ...(process.env.CI ? ["github-actions"] : []), ...sharedReporters],
+    setupFilesAfterEnv: ["@ledgerhq/test-quarantine/jest-retries"],
+    ...overrides,
+  };
+  return esm ? withEsmDeps(config, { extraDeps: extraEsmDeps }) : config;
+}
+
+// ─── shared/ui-* (UI packages) ──────────────────────────────────────────────
+
+const webMocks = {
+  "^@ledgerhq/lumen-ui-react(/.*)?$": path.join(__dirname, "mocks/passthrough-web.js"),
+  "^@ledgerhq/crypto-icons$": path.join(__dirname, "mocks/passthrough-web.js"),
+  "\\.(webp|png|jpg|jpeg|gif|svg)$": path.join(__dirname, "mocks/file-stub.js"),
+};
+
+const nativeMocks = {
+  "^react-native$": path.join(__dirname, "mocks/react-native.js"),
+  "^react-native-safe-area-context$": path.join(__dirname, "mocks/safe-area-context.js"),
+  "^@ledgerhq/lumen-ui-rnative(/.*)?$": path.join(__dirname, "mocks/passthrough-native.js"),
+  "^@ledgerhq/crypto-icons$": path.join(__dirname, "mocks/passthrough-native.js"),
+  "\\.(webp|png|jpg|jpeg|gif|svg)$": path.join(__dirname, "mocks/file-stub.js"),
+};
+
+const platformExtensions = platform => [
+  `${platform}.tsx`,
+  `${platform}.ts`,
+  "tsx",
+  "ts",
+  "js",
+  "jsx",
+  "json",
+];
+
+/**
+ * Dual-project jest config for a shared/ui-* package with web and native tests.
+ *
+ * - web project: jsdom, matches *.web.test.ts(x) — Desktop.
+ * - native project: node, matches *.native.test.ts(x) — Mobile.
+ *
+ * Per-project overrides via `webOverrides` / `nativeOverrides`.
+ * Providing `moduleNameMapper` inside an override replaces the default mocks for that project.
+ *
+ * @param {{ webOverrides?: object, nativeOverrides?: object } & import('@jest/types').Config.InitialOptions} [options]
+ * @returns {import('@jest/types').Config.InitialOptions}
+ */
+function createSharedUiJestConfig({
+  webOverrides = {},
+  nativeOverrides = {},
+  ...topOverrides
+} = {}) {
+  const base = {
+    testPathIgnorePatterns: ["lib/", "lib-es/", "node_modules/"],
+    transform: swcTransform,
+    coverageReporters,
+  };
+
+  return {
+    collectCoverage: true,
+    coverageDirectory: "./coverage/",
+    reporters,
+    projects: [
+      {
+        ...base,
+        displayName: "web",
+        testEnvironment: "jsdom",
+        moduleFileExtensions: platformExtensions("web"),
+        testMatch: ["**/*.web.test.ts?(x)", "**/*.web.spec.ts?(x)"],
+        moduleNameMapper: { ...webMocks },
+        setupFilesAfterEnv: [
+          "@testing-library/jest-dom",
+          path.join(__dirname, "setup/web.js"),
+          "@ledgerhq/test-quarantine/jest-retries",
+        ],
+        ...webOverrides,
+      },
+      {
+        ...base,
+        displayName: "native",
+        testEnvironment: "node",
+        moduleFileExtensions: platformExtensions("native"),
+        testMatch: ["**/*.native.test.ts?(x)", "**/*.native.spec.ts?(x)"],
+        moduleNameMapper: { ...nativeMocks },
+        setupFilesAfterEnv: ["@ledgerhq/test-quarantine/jest-retries"],
+        ...nativeOverrides,
+      },
+    ],
+    ...topOverrides,
+  };
+}
+
+/**
+ * Jest config for a shared/ui-* package with native-only tests (*.native.test.ts).
+ *
+ * Provides react-native, safe-area-context, Lumen native, and image stubs by default.
+ * Pass extra `moduleNameMapper` entries to add package-specific mocks alongside the base ones.
+ * Requires no web-only dependencies (jest-environment-jsdom, @testing-library/jest-dom).
+ *
+ * @param {{ moduleNameMapper?: object } & import('@jest/types').Config.InitialOptions} [overrides]
+ * @returns {import('@jest/types').Config.InitialOptions}
+ */
+function createSharedUiNativeJestConfig({ moduleNameMapper: extraMocks = {}, ...overrides } = {}) {
+  return createSharedJestConfig({
+    collectCoverage: true,
+    testMatch: ["**/*.native.test.ts?(x)", "**/*.native.spec.ts?(x)"],
+    moduleFileExtensions: platformExtensions("native"),
+    moduleNameMapper: { ...nativeMocks, ...extraMocks },
+    ...overrides,
+  });
+}
+
+module.exports = {
+  createSharedJestConfig,
+  createSharedUiJestConfig,
+  createSharedUiNativeJestConfig,
+  jestSonarReporter,
+  sharedReporters,
+  withEsmDeps,
+};

@@ -35,14 +35,14 @@
     "**/*.mock.*",
     "**/*.d.ts",
     "**/.eslintrc.guardrails.js",
-    "**/.eslintrc.i18n.js",
-    "**/.eslintrc.tailwind.js"
+    "**/.eslintrc.i18n.js"
   ],
   "workspaces": {
     "./apps/ledger-live-desktop": {
       "entry": [
         "src/index.ts",
         "src/renderer/index.ts",
+        "src/renderer/bootstrap/process.ts",
         "src/preloader/index.ts",
         "src/renderer/webworkers/workers/*.ts",
         "src/webviewPreloader/dappPreloader.ts",
@@ -54,11 +54,11 @@
       ],
       "ignoreDependencies": [
         "prop-types",
-        "allure-commandline",
         "ws",
         "@electron/fuses",
         "embla-carousel-autoplay",
         "embla-carousel-react",
+        "events",
         "@ledgerhq/zcash-utils"
       ]
     },
@@ -84,7 +84,6 @@
         "prop-types",
         "react-is",
         "react-native-fast-pbkdf2",
-        "react-native-navigation-bar-color",
         "react-native-randombytes",
         "stylis"
       ]

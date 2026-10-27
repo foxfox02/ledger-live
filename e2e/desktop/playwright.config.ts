@@ -1,12 +1,13 @@
 import { PlaywrightTestConfig } from "@playwright/test";
+import { TIMEOUT } from "@ledgerhq/live-e2e-shared/timeouts";
 
 const config: PlaywrightTestConfig = {
   testDir: "./tests/specs",
-  retries: process.env.CI ? 2 : 0,
+  retries: process.env.CI ? 1 : 0,
   timeout: process.env.CI ? 400000 : 1200000,
   outputDir: "./tests/artifacts/test-results",
   expect: {
-    timeout: 41000,
+    timeout: TIMEOUT.large,
   },
   globalTimeout: 0,
   globalSetup: require.resolve("./tests/utils/global.setup"),
@@ -22,7 +23,7 @@ const config: PlaywrightTestConfig = {
   maxFailures: process.env.CI ? 5 : undefined,
   reportSlowTests: process.env.CI ? { max: 0, threshold: 60000 } : null,
   fullyParallel: true,
-  workers: "100%",
+  workers: process.env.REMOTE_SPECULOS === "true" ? "150%" : "100%",
   reporter: process.env.CI
     ? [
         ["./tests/reporters/cardSessionReporter.ts"],
@@ -32,6 +33,7 @@ const config: PlaywrightTestConfig = {
           "allure-playwright",
           {
             detail: false,
+            suiteTitle: false,
             links: {
               issue: {
                 nameTemplate: "%s",
@@ -45,7 +47,10 @@ const config: PlaywrightTestConfig = {
           },
         ],
       ]
-    : [["./tests/reporters/cardSessionReporter.ts"], ["allure-playwright", { detail: false }]],
+    : [
+        ["./tests/reporters/cardSessionReporter.ts"],
+        ["allure-playwright", { detail: false, suiteTitle: false }],
+      ],
 };
 
 export default config;

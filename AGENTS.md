@@ -12,6 +12,10 @@ New code goes in the [monorepo layers](./docs/monorepo-architecture.md) — `sha
 
 When creating a new package, follow [docs/new-library.md](./docs/new-library.md) guidelines.
 
+## Third-party libraries
+
+New runtime third-party libraries are not added to apps directly (framework singletons, the design system and tooling excepted). The lowest valid package of the [monorepo layers](./docs/monorepo-architecture.md) (`shared/`, `domain/`, `features/`) owns each one and exposes our own API. Before adding a dependency to `apps/*/package.json`, read the [wrap-third-party-libs](./.agents/skills/wrap-third-party-libs/SKILL.md) skill.
+
 ## Repo Commands
 
 Prefer commands given in local README files. For example appls like [Ledger Wallet Desktop](./apps/ledger-live-desktop/README.md) and [Ledger Wallet Mobile](./apps/ledger-live-mobile/README.md) have very specific commands for setup, dev and build commands.
@@ -27,6 +31,16 @@ When a task involves GitHub — pull requests, issues, CI checks, or releases �
 ## Validate Before Finishing
 
 Always follow the [validate-before-finishing](/docs/validate-before-finishing.md) instructions before completing code changes.
+
+Before pushing a change under `shared/`, `domain/`, `features/`, `support/` or `devtools/`, run `pnpm lint:arch`. It runs the boundary, package-structure, tool-config and i18n-key checks that CI's required module-boundaries job blocks on.
+
+## CI runners
+
+Before adding or changing a `runs-on` in `.github/workflows/`, read the [ci-runners](./.agents/skills/ci-runners/SKILL.md) skill. Several `ledger-live-*` runners are deprecated.
+
+Reusable workflows and composite actions are called `@develop`, even from release and hotfix branches whose code is older. Before changing one, read the [ci-workflow-refs](./.agents/skills/ci-workflow-refs/SKILL.md) skill.
+
+Runner images bake the mise toolchain and the Android AVD. Before changing a version in `mise.toml` or the AVD configuration, read the [runner-images](./.agents/skills/runner-images/SKILL.md) skill.
 
 ## Configuration and environment variables
 

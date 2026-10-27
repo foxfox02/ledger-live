@@ -52,7 +52,7 @@ export function RecipientCard({
       appearance="gray"
       size="sm"
       disabled={!isReady || !hasAddressBook}
-      className="w-full"
+      className="w-full whitespace-nowrap"
       onClick={onAddContact}
       data-testid="send-recipient-card-add-contact"
     >
@@ -74,7 +74,7 @@ export function RecipientCard({
               testId="send-recipient-card-avatar"
             />
           ) : (
-            <Spot appearance="icon" icon={Wallet} />
+            <Spot icon={Wallet} />
           )}
           <CardContent className="min-w-0">
             <CardContentTitle className={contact ? undefined : "break-all whitespace-normal"}>

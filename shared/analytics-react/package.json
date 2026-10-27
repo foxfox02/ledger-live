@@ -1,8 +1,8 @@
 {
   "name": "@shared/analytics-react",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
-  "description": "React components tracking through the @shared/analytics pipeline: <Track>, <TrackPage> (web), <TrackScreen> (native)",
+  "description": "React components tracking through the @shared/analytics pipeline: <Track>, <TrackScreen>",
   "main": "src/index.ts",
   "react-native": "src/index.native.ts",
   "types": "src/index.ts",
@@ -15,15 +15,15 @@
   },
   "sideEffects": false,
   "scripts": {
-    "lint": "oxlint -c ../../libs/oxc-live-libs/.oxlintrc.json ./src",
-    "lint:fix": "pnpm exec oxfmt -c ../../libs/oxc-live-libs/.oxfmtrc.json ./src && oxlint -c ../../libs/oxc-live-libs/.oxlintrc.json ./src --fix --quiet",
-    "format": "pnpm exec oxfmt -c ../../libs/oxc-live-libs/.oxfmtrc.json ./src",
-    "format:check": "pnpm exec oxfmt -c ../../libs/oxc-live-libs/.oxfmtrc.json ./src --check",
+    "lint": "oxlint ./src",
+    "lint:fix": "pnpm exec oxfmt ./src && oxlint ./src --fix --quiet",
+    "format": "pnpm exec oxfmt ./src",
+    "format:check": "pnpm exec oxfmt ./src --check",
     "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.native.json",
     "test": "jest",
     "test:watch": "jest --watch",
     "coverage": "jest --coverage",
-    "unimported": "pnpm knip --directory ../.. -W shared/analytics-react"
+    "unimported": "pnpm knip --directory ../.. -c shared/analytics-react/knip.web.config.mjs -W shared/analytics-react --tsConfig tsconfig.web.json && pnpm knip --directory ../.. -c shared/analytics-react/knip.native.config.mjs -W shared/analytics-react --tsConfig tsconfig.native.json"
   },
   "dependencies": {
     "@shared/analytics": "workspace:*",
@@ -45,7 +45,7 @@
   "devDependencies": {
     "@ledgerhq/test-quarantine": "workspace:*",
     "@react-navigation/native": "catalog:",
-    "@support/jest-shared": "workspace:*",
+    "@support/jest": "workspace:*",
     "@swc/core": "catalog:",
     "@swc/jest": "catalog:",
     "@testing-library/dom": "catalog:",

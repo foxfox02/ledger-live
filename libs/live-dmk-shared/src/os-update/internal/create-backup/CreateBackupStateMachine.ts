@@ -1,16 +1,18 @@
-import { UserInteractionRequired, type DeviceId } from "@ledgerhq/device-management-kit";
+import { UserInteractionRequired, type DeviceModelId } from "@ledgerhq/device-management-kit";
 import {
   CreateBackupDeviceAction,
   type Backup,
   type CreateBackupDAInput,
 } from "@ledgerhq/dmk-ledger-wallet";
+import { log } from "@ledgerhq/logs";
 import { assign, enqueueActions, fromPromise, sendTo, setup } from "xstate";
 import { createDeviceActionStateMachine } from "../../../device-action/CreateDeviceActionStateMachine/createDeviceActionStateMachine";
 import { CreateBackupStateType, type CreateBackupState } from "../../api/model/CreateBackupState";
 import type { DeviceBackupStorage } from "../../api/model/DeviceBackupStorage";
 import { OsUpdatesOrchestratorStateMachineEventType } from "../orchestrator/types";
 import { checkErrorCauseStateMachine } from "../shared/checkErrorCauseStateMachine";
-import { CheckErrorCauseResult, DeviceSituationEventType } from "../shared/types";
+import { DeviceSituationEventType, isRecovered } from "../shared/types";
+import { isAllowSecureConnectionRefusedError } from "../shared/utils/isRefusedByUserError";
 import { BACKUP_MAX_AGE_MS } from "./constants";
 import {
   CreateBackupStateMachineEventType,
@@ -19,10 +21,11 @@ import {
   type CreateBackupStateMachineEvent,
   type CreateBackupStateMachineInput,
 } from "./types";
-import { isAllowSecureConnectionRefusedError } from "./utils/isAllowSecureConnectionRefusedError";
 import { isSameState } from "./utils/isSameState";
 import { resumeTarget } from "./utils/resumeTarget";
 import { toCreateBackupState } from "./utils/toCreateBackupState";
+
+const LOG_TYPE = "OsUpdatesCreateBackup";
 
 export const createBackupStateMachine = setup({
   types: {
@@ -35,9 +38,9 @@ export const createBackupStateMachine = setup({
       async ({
         input,
       }: {
-        input: { storage: DeviceBackupStorage; deviceId: DeviceId };
+        input: { storage: DeviceBackupStorage; deviceModelId: DeviceModelId };
       }): Promise<Backup | undefined> => {
-        return input.storage.getBackup(input.deviceId);
+        return input.storage.getBackup(input.deviceModelId);
       },
     ),
     createBackup: createDeviceActionStateMachine({
@@ -47,9 +50,9 @@ export const createBackupStateMachine = setup({
       async ({
         input,
       }: {
-        input: { storage: DeviceBackupStorage; deviceId: DeviceId; backup: Backup };
+        input: { storage: DeviceBackupStorage; deviceModelId: DeviceModelId; backup: Backup };
       }): Promise<void> => {
-        return input.storage.saveBackup(input.deviceId, input.backup);
+        return input.storage.saveBackup(input.deviceModelId, input.backup);
       },
     ),
     checkErrorCause: checkErrorCauseStateMachine,
@@ -59,12 +62,22 @@ export const createBackupStateMachine = setup({
       if (context.lastSentState !== null && isSameState(context.lastSentState, state)) {
         return;
       }
+      log(LOG_TYPE, `state: ${state.type}`);
       enqueue.sendTo(context.parentRef, {
         type: OsUpdatesOrchestratorStateMachineEventType.STATE_UPDATE,
         state,
       });
       enqueue.assign({ lastSentState: state });
     }),
+    logState: (_, name: string) => {
+      log(LOG_TYPE, `state: ${name}`);
+    },
+    logError: ({ context }, name: string) => {
+      log(LOG_TYPE, `state: ${name}`, { error: context.error });
+    },
+    logEvent: (_, name: string) => {
+      log(LOG_TYPE, `event: ${name}`);
+    },
     sendStop: sendTo(({ context }) => context.parentRef, {
       type: OsUpdatesOrchestratorStateMachineEventType.STOP,
     } as const),
@@ -101,7 +114,7 @@ export const createBackupStateMachine = setup({
         src: "getBackup",
         input: ({ context }) => ({
           storage: context.storage,
-          deviceId: context.connectedDevice.id,
+          deviceModelId: context.connectedDevice.modelId,
         }),
         onDone: {
           actions: assign({ existingBackup: ({ event }) => event.output }),
@@ -141,12 +154,21 @@ export const createBackupStateMachine = setup({
         }),
       },
       on: {
-        [CreateBackupStateMachineEventType.USE_EXISTING_BACKUP]: "Done",
-        [CreateBackupStateMachineEventType.CREATE_NEW_BACKUP]: "CreateBackup",
+        [CreateBackupStateMachineEventType.USE_EXISTING_BACKUP]: {
+          target: "Done",
+          actions: { type: "logEvent", params: "useExistingBackup" },
+        },
+        [CreateBackupStateMachineEventType.CREATE_NEW_BACKUP]: {
+          target: "CreateBackup",
+          actions: { type: "logEvent", params: "createNewBackup" },
+        },
       },
     },
     CreateBackup: {
-      entry: assign({ lastAction: CreateBackupStateMachineLastAction.CreateBackup }),
+      entry: [
+        { type: "logState", params: "CreateBackup" },
+        assign({ lastAction: CreateBackupStateMachineLastAction.CreateBackup }),
+      ],
       invoke: {
         src: "createBackup",
         input: ({ context }) => ({
@@ -196,15 +218,15 @@ export const createBackupStateMachine = setup({
       },
     },
     SaveBackup: {
-      entry: {
-        type: "sendStateUpdate",
-        params: { type: CreateBackupStateType.LOADING },
-      },
+      entry: [
+        { type: "logState", params: "SaveBackup" },
+        { type: "sendStateUpdate", params: { type: CreateBackupStateType.LOADING } },
+      ],
       invoke: {
         src: "saveBackup",
         input: ({ context }) => ({
           storage: context.storage,
-          deviceId: context.connectedDevice.id,
+          deviceModelId: context.connectedDevice.modelId,
           backup: context.backup!,
         }),
         onDone: {
@@ -226,11 +248,15 @@ export const createBackupStateMachine = setup({
         }),
       },
       on: {
-        [CreateBackupStateMachineEventType.RETRY]: "CreateBackup",
+        [CreateBackupStateMachineEventType.RETRY]: {
+          target: "CreateBackup",
+          actions: { type: "logEvent", params: "retry" },
+        },
         [CreateBackupStateMachineEventType.CANCEL]: "Canceled",
       },
     },
     CheckErrorCause: {
+      entry: { type: "logError", params: "CheckErrorCause" },
       invoke: {
         src: "checkErrorCause",
         input: ({ context, self }) => ({
@@ -241,7 +267,11 @@ export const createBackupStateMachine = setup({
         }),
         onDone: [
           {
-            guard: ({ event }) => event.output === CheckErrorCauseResult.Recovered,
+            guard: ({ event }) => isRecovered(event.output),
+            actions: assign({
+              connectedDevice: ({ context, event }) =>
+                isRecovered(event.output) ? event.output.connectedDevice : context.connectedDevice,
+            }),
             target: "ResumeLastAction",
           },
           {
@@ -254,10 +284,10 @@ export const createBackupStateMachine = setup({
       },
     },
     ResumeLastAction: {
-      entry: {
-        type: "sendStateUpdate",
-        params: { type: CreateBackupStateType.LOADING },
-      },
+      entry: [
+        { type: "logState", params: "ResumeLastAction" },
+        { type: "sendStateUpdate", params: { type: CreateBackupStateType.LOADING } },
+      ],
       always: Object.entries(resumeTarget).map(([lastAction, target]) => ({
         guard: ({ context }: { context: CreateBackupStateMachineContext }) =>
           context.lastAction === lastAction,
@@ -265,22 +295,27 @@ export const createBackupStateMachine = setup({
       })),
     },
     UnrecoverableError: {
-      entry: {
-        type: "sendStateUpdate",
-        params: ({ context }) => ({
-          type: CreateBackupStateType.UNEXPECTED_ERROR,
-          cancel: () => context.send({ type: CreateBackupStateMachineEventType.CANCEL }),
-        }),
-      },
+      entry: [
+        { type: "logError", params: "UnrecoverableError" },
+        {
+          type: "sendStateUpdate",
+          params: ({ context }) => ({
+            type: CreateBackupStateType.UNEXPECTED_ERROR,
+            error: context.error,
+            cancel: () => context.send({ type: CreateBackupStateMachineEventType.CANCEL }),
+          }),
+        },
+      ],
       on: {
         [CreateBackupStateMachineEventType.CANCEL]: "Canceled",
       },
     },
     Canceled: {
-      entry: "sendStop",
+      entry: [{ type: "logState", params: "Canceled" }, "sendStop"],
     },
     Done: {
       type: "final",
+      entry: { type: "logState", params: "Done" },
     },
   },
 });

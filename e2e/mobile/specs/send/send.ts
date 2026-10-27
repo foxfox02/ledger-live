@@ -10,6 +10,7 @@ import { BroadcastFlow, shouldRunSharedAccountFlow } from "@e2e/helpers/broadcas
 import type { LiveDataCommandOptions } from "@ledgerhq/live-e2e-shared/cliCommandsUtils";
 import type { InitOptions } from "@e2e/utils/initUtil";
 import { FF_DISABLE_NEW_SEND_FLOW } from "@e2e/utils/featureFlagUtils";
+import { describeIfNanoSSupports, describeIfNotNanoS } from "@e2e/helpers/commonHelpers";
 
 export const BST_SEND_CURRENCIES = new Set([
   "aptos",
@@ -37,6 +38,8 @@ export type SendTestOptions = {
    * on one platform per run once both broadcast, instead of racing the account's nonce.
    */
   sharedAccountFlow?: BroadcastFlow;
+  /** Skips the send on LNS even though its currency is supported there. */
+  skipLNS?: boolean;
 };
 
 export const beforeAllFunction = async (
@@ -143,8 +146,11 @@ export function runSendTest(
   tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
   tags.forEach(tag => $Tag(tag));
   const flow = options?.sharedAccountFlow;
+  const describeOnDevice = options?.skipLNS
+    ? describeIfNotNanoS
+    : describeIfNanoSSupports(transaction.accountToDebit.currency.id);
   const describeFlow =
-    flow === undefined || shouldRunSharedAccountFlow(flow) ? describe : describe.skip;
+    flow === undefined || shouldRunSharedAccountFlow(flow) ? describeOnDevice : describe.skip;
   describeFlow("Send from 1 account to another", () => {
     beforeAll(async () => {
       await beforeAllLegacyFunction(transaction, options);
@@ -161,14 +167,17 @@ export function runSendTest(
   });
 }
 
-export function runSendInvalidAddressTest(
-  transaction: TransactionType,
-  expectedErrorMessage: string,
-  address: string | undefined,
-  tmsLinks: string[],
-  tags: string[],
-  accountName?: string,
-) {
+type RunSendInvalidAddressTestOptions = {
+  transaction: TransactionType;
+  expectedErrorMessage: string;
+  address?: string;
+  tmsLinks: string[];
+  tags: string[];
+  accountName?: string;
+};
+
+export function runSendInvalidAddressTest(options: RunSendInvalidAddressTestOptions) {
+  const { transaction, expectedErrorMessage, address, tmsLinks, tags, accountName } = options;
   setTeamOwner(
     BST_SEND_INVALID_ADDRESS_CURRENCIES.has(transaction.accountToDebit.currency.id)
       ? Team.BST
@@ -176,12 +185,13 @@ export function runSendInvalidAddressTest(
   );
   tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
   tags.forEach(tag => $Tag(tag));
-  describe("Send - invalid address input", () => {
+  const describeOnDevice = describeIfNanoSSupports(transaction.accountToDebit.currency.id);
+  describeOnDevice("Send - invalid address input", () => {
     beforeAll(async () => {
       await beforeAllInvalidAddressFunction(transaction, address);
     });
 
-    it(`[${transaction.accountToDebit.currency.testLabel}] - Send invalid address error: ${expectedErrorMessage ?? "no error message"}`, async () => {
+    it(`[${transaction.accountToDebit.currency.testLabel}] - Send invalid address error: ${expectedErrorMessage || "no error message"}`, async () => {
       const recipientAddress = address ?? transaction.accountToCredit.address ?? "";
       await app.send.navigateToSendScreen(accountName || transaction.accountToDebit.accountName);
       await app.send.setRecipient(recipientAddress, transaction.memoTag);
@@ -207,7 +217,7 @@ export function runSendValidAddressTest(
   tags.forEach(tag => $Tag(tag));
   describe("Send - valid address input", () => {
     beforeAll(async () => {
-      await beforeAllLegacyFunction(transaction);
+      await beforeAllLegacyFunction(transaction, { liveDataOptions: { useScheme: true } });
     });
 
     it(`[${transaction.accountToDebit.currency.testLabel}] - Send valid address input - ${testName}`, async () => {
@@ -248,7 +258,8 @@ export function runSendInvalidAmountTest(
   );
   tmsLinks.forEach(tmsLink => $TmsLink(tmsLink));
   tags.forEach(tag => $Tag(tag));
-  describe("Send - invalid amount input", () => {
+  const describeOnDevice = describeIfNanoSSupports(transaction.accountToDebit.currency.id);
+  describeOnDevice("Send - invalid amount input", () => {
     beforeAll(async () => {
       await beforeAllLegacyFunction(transaction);
     });

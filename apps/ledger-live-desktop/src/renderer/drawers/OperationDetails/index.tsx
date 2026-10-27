@@ -8,8 +8,9 @@ import {
 import {
   getDefaultExplorerView,
   getTransactionExplorer as getDefaultTransactionExplorer,
-} from "@ledgerhq/live-common/explorers";
-import { getCryptoCurrencyById, CryptoCurrency } from "@domain/entity-currency-crypto";
+  getCryptoCurrencyById,
+  CryptoCurrency,
+} from "@domain/entity-currency-crypto";
 import { useFeature } from "@features/platform-feature-flags";
 import {
   findOperationInAccount,
@@ -32,7 +33,7 @@ import styled from "styled-components";
 import { urls } from "~/config/urls";
 import { openModal } from "~/renderer/actions/modals";
 import { setTrackingSource } from "@shared/analytics";
-import { TrackPage } from "@shared/analytics-react";
+import { TrackScreen } from "@shared/analytics-react";
 import AccountTagDerivationMode from "~/renderer/components/AccountTagDerivationMode";
 import Alert from "~/renderer/components/Alert";
 import Box from "~/renderer/components/Box";
@@ -78,6 +79,7 @@ import { dayAndHourFormat, useDateFormatted } from "~/renderer/hooks/useDateForm
 import { useAccountUnit } from "~/renderer/hooks/useAccountUnit";
 import { useAccountName } from "~/renderer/reducers/wallet";
 import { Divider } from "@ledgerhq/react-ui/index";
+import { OperationDetailsContact } from "LLD/features/OperationDetails/components/OperationDetailsContact";
 
 const mapStateToProps = (
   state: State,
@@ -177,6 +179,14 @@ const OperationD = (props: Props) => {
     : null;
 
   const getURLFeesInfo = specific?.operationDetails?.getURLFeesInfo;
+  const confirmationsI18nKey = specific?.operationDetails?.getConfirmationsI18nKey?.({
+    currencyId: mainAccount.currency.id,
+  });
+  const confirmationsLabel =
+    confirmationsI18nKey && confirmationsString
+      ? t(confirmationsI18nKey, { count: Number(confirmationsString) })
+      : confirmationsString;
+  const confirmationsSuffix = confirmationsLabel ? ` (${confirmationsLabel})` : "";
   const urlFeesInfo = getURLFeesInfo
     ? getURLFeesInfo({ op: operation, currencyId: cryptoCurrency.id })
     : null;
@@ -389,7 +399,7 @@ const OperationD = (props: Props) => {
 
   return (
     <Box flow={3} px={20} mt={20}>
-      <TrackPage
+      <TrackScreen
         category={location.pathname !== "/" ? "Account" : "Portfolio"}
         name="Operation Details"
         currencyName={currency.name}
@@ -481,9 +491,12 @@ const OperationD = (props: Props) => {
             fontSize={4}
             onClick={() =>
               url &&
-              openURL(url, "viewOperationInExplorer", {
-                currencyId: currencyName,
-              })
+              openURL(
+                url,
+                "viewOperationInExplorer",
+                { currencyId: currencyName },
+                { sensitive: true },
+              )
             }
             label={t("operationDetails.viewOperation")}
           />
@@ -620,11 +633,7 @@ const OperationD = (props: Props) => {
               : isConfirmed
                 ? t("operationDetails.confirmed")
                 : t("operationDetails.notConfirmed")}
-            {getEnv("PLAYWRIGHT_RUN")
-              ? ""
-              : hasFailed
-                ? null
-                : `${confirmationsString ? ` (${confirmationsString})` : ``}`}
+            {getEnv("PLAYWRIGHT_RUN") || hasFailed ? null : confirmationsSuffix}
           </Box>
         </OpDetailsData>
       </OpDetailsSection>
@@ -766,12 +775,14 @@ const OperationD = (props: Props) => {
       {uniqueSenders.length ? (
         <OpDetailsSection data-testid="operation-from">
           <OpDetailsTitle>{t("operationDetails.from")}</OpDetailsTitle>
-          <DataList
-            lines={uniqueSenders}
-            t={t}
-            cryptoCurrency={cryptoCurrency}
-            operation={operation}
-          />
+          <Box alignItems="flex-end" flex="1">
+            <DataList
+              lines={uniqueSenders}
+              t={t}
+              cryptoCurrency={cryptoCurrency}
+              operation={operation}
+            />
+          </Box>
         </OpDetailsSection>
       ) : null}
       {recipients.length ? (
@@ -868,23 +879,32 @@ const DataListLine = ({
   line,
   cryptoCurrencyFamily,
   operationType,
+  currencyId,
 }: {
   line: string;
   cryptoCurrencyFamily: string | undefined;
   operationType: OperationType | undefined;
+  currencyId: string | undefined;
 }) => {
   const specific = useLLDCoinFamily(cryptoCurrencyFamily);
   const SplitAddressComponent =
     specific?.operationDetails?.splitAddress?.[operationType as OperationType] || SplitAddress;
   return (
-    <OpDetailsData relative horizontal>
-      <HashContainer>
-        <SplitAddressComponent value={line} />
-      </HashContainer>
-      <GradientHover>
-        <CopyWithFeedback text={line} />
-      </GradientHover>
-    </OpDetailsData>
+    <OperationDetailsContact address={line} currencyId={currencyId}>
+      {matchedContact => (
+        <OpDetailsData relative horizontal>
+          <HashContainer>
+            <SplitAddressComponent
+              value={line}
+              color={matchedContact ? "neutral.c70" : undefined}
+            />
+          </HashContainer>
+          <GradientHover>
+            <CopyWithFeedback text={line} />
+          </GradientHover>
+        </OpDetailsData>
+      )}
+    </OperationDetailsContact>
   );
 };
 
@@ -917,6 +937,7 @@ export class DataList extends Component<{
         line={line}
         cryptoCurrencyFamily={cryptoCurrency?.family}
         operationType={operation?.type as OperationType | undefined}
+        currencyId={cryptoCurrency?.id}
       />
     );
     return (

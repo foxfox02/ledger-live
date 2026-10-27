@@ -2,6 +2,7 @@ import { ApolloClient, InMemoryCache } from "@apollo/client";
 import {
   type AccountData,
   Aptos,
+  AptosApiError,
   AptosConfig,
   Ed25519PublicKey,
   type GasEstimation,
@@ -12,6 +13,7 @@ import {
   type RawTransaction,
   type SimpleTransaction,
   type TransactionResponse,
+  TransactionResponseType,
   type UserTransactionResponse,
   type Block,
   type AptosSettings,
@@ -111,7 +113,7 @@ export class AptosAPI {
     });
   }
 
-  async getAccount(address: string): Promise<AccountData> {
+  getAccount(address: string): Promise<AccountData> {
     return this.aptosClient.getAccountInfo({ accountAddress: address });
   }
 
@@ -128,7 +130,7 @@ export class AptosAPI {
     };
   }
 
-  async estimateGasPrice(): Promise<GasEstimation> {
+  estimateGasPrice(): Promise<GasEstimation> {
     return this.aptosClient.getGasPriceEstimation();
   }
 
@@ -165,7 +167,7 @@ export class AptosAPI {
       });
   }
 
-  async simulateTransaction(
+  simulateTransaction(
     address: Ed25519PublicKey,
     tx: RawTransaction,
     options = {
@@ -292,10 +294,35 @@ export class AptosAPI {
 
   async listOperations(rawAddress: string, minHeight: number): Promise<Page<Operation>> {
     const address = normalizeAddress(rawAddress);
-    const transactions = await this.getAccountInfo(address, minHeight.toString());
+
+    // The indexer filters on transaction versions, not block heights: start from the first
+    // version of the minHeight block (inclusive).
+    let afterVersion: string | undefined;
+    if (minHeight > 0) {
+      const firstVersion = await this.getFirstVersionAtHeight(minHeight);
+      if (firstVersion === undefined) {
+        return { items: [], next: undefined };
+      }
+      afterVersion = (BigInt(firstVersion) - 1n).toString();
+    }
+
+    const transactions = await this.getAccountInfo(address, afterVersion);
     const newOperations = transactionsToOperations(address, transactions.transactions);
 
     return { items: newOperations, next: undefined };
+  }
+
+  /** First transaction version of the block at `height`, or undefined if that block doesn't exist yet. */
+  private async getFirstVersionAtHeight(height: number): Promise<string | undefined> {
+    try {
+      const block = await this.aptosClient.getBlockByHeight({ blockHeight: height });
+      return block.first_version;
+    } catch (error) {
+      if (error instanceof AptosApiError && error.status === 404) {
+        return undefined;
+      }
+      throw error;
+    }
   }
 
   private async getAllTransactions(address: string, gt?: string): Promise<TransactionVersion[]> {
@@ -360,11 +387,18 @@ export class AptosAPI {
       const tx: TransactionResponse = await this.aptosClient.getTransactionByVersion({
         ledgerVersion: version,
       });
+      if (tx.type !== TransactionResponseType.User) {
+        log("info", "richItemByVersion: skipping non-user transaction", {
+          version,
+          type: tx.type,
+        });
+        return null;
+      }
       const block = await this.getBlock(version);
       return {
         ...tx,
         block,
-      } as AptosTransaction;
+      };
     } catch (error) {
       log("error", "richItemByVersion", {
         error,

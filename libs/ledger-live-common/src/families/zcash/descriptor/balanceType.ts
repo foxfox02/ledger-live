@@ -15,6 +15,7 @@ import type {
   BalanceTypeSelfTransferTarget,
   TransactionPatch,
 } from "../../../bridge/descriptor/types";
+import { isZcashCurrencyId } from "../../../bridge/zcashRouting";
 
 /** The pool a spend draws from, as recorded on the transaction's `sender`. */
 type ZcashSender = NonNullable<ZcashTransaction["sender"]>;
@@ -28,11 +29,37 @@ function isZcashSender(optionId: string): optionId is ZcashSender {
 }
 
 function isZcashMainAccount(account: AccountLike): account is ZcashAccount {
-  return account.type === "Account" && account.currency.id === "zcash";
+  return account.type === "Account" && isZcashCurrencyId(account.currency.id);
 }
 
 function hasShieldedViewingKey(account: ZcashAccount): boolean {
   return Boolean(account.privateInfo?.ufvk);
+}
+
+/**
+ * Account-level tracking attributes: whether the shielded balance is enabled, i.e. the
+ * viewing key is present. Only the boolean leaves the account, never the key itself.
+ */
+export function getShieldedAccountAttributes(
+  account: AccountLike,
+): { shieldedEnabled: boolean } | Record<string, never> {
+  if (!isZcashMainAccount(account)) return {};
+  return { shieldedEnabled: hasShieldedViewingKey(account) };
+}
+
+/**
+ * User-level tracking attributes: how many Zcash accounts have their shielded balance
+ * enabled. Derived from the account state, so it also counts accounts enabled before
+ * this was tracked.
+ */
+export function getShieldedUserAttributes(accounts: AccountLike[]): {
+  zcashShieldedEnabledAccounts: number;
+} {
+  return {
+    zcashShieldedEnabledAccounts: accounts.filter(
+      account => isZcashMainAccount(account) && hasShieldedViewingKey(account),
+    ).length,
+  };
 }
 
 function isZcashTransaction(transaction: unknown): transaction is ZcashTransaction {

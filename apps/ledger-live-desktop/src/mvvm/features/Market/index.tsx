@@ -3,7 +3,7 @@ import { Flex, Dropdown } from "@ledgerhq/react-ui";
 import { Subheader, SubheaderRow, SubheaderTitle } from "@ledgerhq/lumen-ui-react";
 import styled from "styled-components";
 import { useMarket } from "LLD/features/Market/hooks/useMarket";
-import { TrackPage } from "@shared/analytics-react";
+import { TrackScreen } from "@shared/analytics-react";
 import SearchInputComponent from "./components/SearchInputComponent";
 import SideDrawerFilter from "~/renderer/screens/market/components/SideDrawerFilter";
 import CounterValueSelect from "~/renderer/screens/market/components/CountervalueSelect";
@@ -40,7 +40,6 @@ export default function Market() {
     toggleFilterByStarredAccounts,
     toggleLiveCompatible,
     resetMarketPage,
-    refetchData,
     marketParams,
     supportedCounterCurrencies,
     timeRangeValue,
@@ -48,8 +47,6 @@ export default function Market() {
     starredMarketCoins,
     timeRanges,
     timeRangeSelectOptions,
-    refreshRate,
-    marketCurrentPage,
     categories,
     shouldDisplayAssetDiscoverability,
     t,
@@ -59,17 +56,9 @@ export default function Market() {
    * Reset the page to 1 when the component mounts to only refetch first page
    * */
   useEffect(() => {
-    resetMarketPage(marketParams.page ?? 1);
+    resetMarketPage();
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  /**
-   * Try to Refetch data every REFRESH_RATE time
-   */
-  useEffect(() => {
-    const intervalId = setInterval(() => refetchData(marketCurrentPage ?? 1), refreshRate);
-    return () => clearInterval(intervalId);
-  }, [marketCurrentPage, refetchData, refreshRate]);
 
   const { order, range, counterCurrency, search = "", liveCompatible } = marketParams;
 
@@ -82,7 +71,7 @@ export default function Market() {
   return (
     <Container>
       {!shouldDisplayAssetDiscoverability && (
-        <TrackPage
+        <TrackScreen
           category="Market"
           sort={order !== "desc"}
           timeframe={range}

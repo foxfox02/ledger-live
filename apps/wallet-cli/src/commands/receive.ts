@@ -1,12 +1,7 @@
 import { defineCommand, option } from "@bunli/core";
 import { z } from "zod";
 import { WalletAdapter } from "../wallet";
-import {
-  serializeNetwork,
-  serializeV1,
-  toV0,
-  currencyIdFromNetwork,
-} from "../shared/accountDescriptor";
+import { serializeV1, toV0, currencyIdFromNetwork } from "../shared/accountDescriptor";
 import { WALLET_CLI_DMK_DEVICE_ID } from "../device/register-dmk-transport";
 import { WalletCliDeviceError } from "../device/wallet-cli-device-error";
 import {
@@ -24,10 +19,11 @@ import {
   resolveOutputFormat,
 } from "./inputs";
 import { trackAddressResolved } from "./accounts-analytics";
+import { commandDescription } from "./registry";
 
 export default defineCommand({
   name: "receive",
-  description: "Get receive address for an account (optionally verify on device)",
+  description: commandDescription("receive"),
   options: {
     account: accountOption,
     verify: option(z.boolean().default(true), {
@@ -47,7 +43,7 @@ export default defineCommand({
 
     await out.run(async () => {
       const v1 = await resolveAccountDescriptorV1(resolveAccountArg(flags.account, positional));
-      ctx.network = serializeNetwork(v1.network);
+      ctx.network = v1.network;
       ctx.account = serializeV1(v1);
       const currencyId = currencyIdFromNetwork(v1.network);
       const managerAppName = getManagerAppNameForCurrencyId(currencyId);
@@ -55,7 +51,7 @@ export default defineCommand({
         v1.type === "address"
           ? v1.address
           : await out.withActivity(
-              `Scanning ${v1.network.name} blockchain for fresh address…`,
+              `Scanning ${v1.network} blockchain for fresh address…`,
               "Fresh address resolved",
               () => wallet.getFreshAddress(toV0(v1)),
             );

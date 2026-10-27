@@ -1,6 +1,6 @@
 {
   "name": "@ledgerhq/hw-app-btc",
-  "version": "11.6.0",
+  "version": "12.0.0",
   "description": "Ledger Hardware Wallet Bitcoin Application API",
   "keywords": [
     "Ledger",
@@ -69,7 +69,7 @@
     "@noble/curves": "catalog:",
     "@noble/hashes": "catalog:",
     "bip32-path": "^0.4.2",
-    "bitcoinjs-lib": "^6.1.7",
+    "bitcoinjs-lib": "catalog:",
     "bs58": "catalog:",
     "bs58check": "catalog:",
     "invariant": "^2.2.4",
@@ -90,6 +90,12 @@
     "source-map-support": "^0.5.21",
     "ts-node": "^10.4.0"
   },
+  "files": [
+    "lib",
+    "lib-es",
+    "src",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "clean": "rimraf lib lib-es",
     "coverage": "jest --coverage --testPathIgnorePatterns='/.test.ts.disabled|node_modules|lib-es|lib/' --passWithNoTests",
@@ -100,7 +106,6 @@
     "lint": "oxlint ./src",
     "lint:fix": "pnpm lint --fix",
     "test": "jest",
-    "unimported": "unimported",
     "format": "oxfmt src tests",
     "format:check": "oxfmt --check src tests"
   },

@@ -1,6 +1,6 @@
 import { defineCommand } from "@bunli/core";
 import { WalletAdapter } from "../wallet";
-import { networkStringFromCurrencyId } from "../shared/accountDescriptor";
+import { networkFromCurrencyId } from "../shared/accountDescriptor";
 import { walletCliDebug } from "../shared/log";
 import { createCommandOutput } from "../output";
 import {
@@ -11,10 +11,11 @@ import {
   resolveOutputFormat,
 } from "./inputs";
 import { trackBalanceViewed } from "./accounts-analytics";
+import { commandDescription } from "./registry";
 
 export default defineCommand({
   name: "balances",
-  description: "Fetch native and token balances for an account (no device required)",
+  description: commandDescription("balances"),
   options: {
     account: accountOption,
     output: outputOption,
@@ -28,7 +29,7 @@ export default defineCommand({
       const descriptor = await resolveAccountDescriptor(
         resolveAccountArg(flags.account, positional),
       );
-      ctx.network = networkStringFromCurrencyId(descriptor.currencyId);
+      ctx.network = networkFromCurrencyId(descriptor.currencyId);
       ctx.account = descriptor.id;
       walletCliDebug(`balances: account=${descriptor.id}, output=${output}`);
       const wallet = new WalletAdapter();

@@ -5,9 +5,10 @@ import { Linking, Platform } from "react-native";
 import { urls } from "~/utils/urls";
 import { useTheme } from "styled-components/native";
 import { useAppVersionBlockCheck } from "@ledgerhq/live-common/hooks/useAppVersionBlockCheck";
-import VersionNumber from "react-native-version-number";
+import { appVersion } from "LLM/utils/appVersion";
 import { useTranslation } from "~/context/Locale";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useHideSplashScreen } from "LLM/features/LaunchScreen/useHideSplashScreen";
 
 const AppVersionBlocker: React.FC<React.PropsWithChildren> = ({ children }) => {
   const { colors } = useTheme();
@@ -17,9 +18,10 @@ const AppVersionBlocker: React.FC<React.PropsWithChildren> = ({ children }) => {
   const { shouldUpdate } = useAppVersionBlockCheck({
     appKey: "llm",
     platform: Platform.OS === "ios" ? "ios" : "android",
-    appVersion: VersionNumber.appVersion,
+    appVersion: appVersion,
     osVersion: `${Platform.Version}`,
   });
+  useHideSplashScreen(shouldUpdate);
 
   const storeUrl = Platform.OS === "ios" ? urls.applestore : urls.playstore;
   const handleOpenStore = () => {

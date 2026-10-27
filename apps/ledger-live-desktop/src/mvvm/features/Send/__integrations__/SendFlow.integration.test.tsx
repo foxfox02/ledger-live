@@ -1,10 +1,17 @@
+import React from "react";
 import BigNumber from "bignumber.js";
 import { fireEvent, within } from "tests/testSetup";
 import userEvent from "@testing-library/user-event";
+import { track } from "@shared/analytics";
 import { NotEnoughBalance } from "@ledgerhq/ledger-wallet-framework/errors";
 import { bitcoinPickingStrategy } from "@ledgerhq/live-common/families/bitcoin/types";
 import type { Transaction } from "@ledgerhq/live-common/generated/types";
 import { SEND_FLOW_SOURCE } from "@ledgerhq/live-common/flows/send/types";
+import {
+  recordPendingRent,
+  resetPendingRentsForTests,
+} from "@ledgerhq/live-common/flows/send/sponsored/pendingRents";
+import type { SponsoredCoinApi } from "@ledgerhq/live-common/bridge/generic-coin-framework/sponsored";
 import {
   SPONSORED_FAILURE_KIND,
   SPONSORED_PHASE,
@@ -39,6 +46,7 @@ import {
   setMockOrchestrationState,
   setMockScannedCode,
   setMockContacts,
+  setMockLLDCoinFamily,
   setMockSponsoredSeam,
   setMockStatus,
   setMockStatusResolver,
@@ -49,10 +57,16 @@ import {
   VALID_TRON_RECIPIENT,
 } from "../__mocks__/sendFlowTestUtils";
 
+const sponsoredEvents = () =>
+  jest
+    .mocked(track)
+    .mock.calls.filter(([event]) => event.startsWith("gas_sponsorship_"))
+    .map(([event, properties]) => ({ event, properties }));
+
 const setupFakeTimersUser = () =>
   userEvent.setup({ advanceTimers: jest.advanceTimersByTime, pointerEventsCheck: 0 });
 
-function mockTronifySeam() {
+function mockTronifySeam(overrides: Partial<SponsoredCoinApi> = {}) {
   setMockSponsoredSeam({
     listFeeOptions: jest.fn().mockResolvedValue([
       { id: "tronify", feeAsset: TRON_USDT_FEE_ASSET },
@@ -63,6 +77,7 @@ function mockTronifySeam() {
       value: 3_200_000n,
       originalValue: 6_430_000n,
     }),
+    ...overrides,
   });
 }
 
@@ -647,6 +662,70 @@ describe("Send Flow Integration", () => {
     });
   });
 
+  describe("Amount footer row slot", () => {
+    const FamilyFooterRow = ({ transaction }: { transaction: Transaction }) => (
+      <div data-testid="family-footer-row">{transaction.amount.toFixed()}</div>
+    );
+
+    it("renders the family row under the network fees and follows the amount", async () => {
+      setMockLLDCoinFamily({ SendAmountFooterRow: FamilyFooterRow });
+      setMockTransaction(
+        createMinimalEvmTransaction({ amount: new BigNumber(0), recipient: VALID_EVM_RECIPIENT }),
+      );
+
+      const { user } = renderSendFlow(ethereumAccount);
+      await navigateToAmountScreen(user);
+
+      const feesRow = screen.getByTestId("send-network-fees-row");
+      const footerRow = screen.getByTestId("family-footer-row");
+      expect(footerRow).toHaveTextContent("0");
+      expect(feesRow.compareDocumentPosition(footerRow)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(
+        within(screen.getByTestId("send-amount-footer")).getByTestId("family-footer-row"),
+      ).toBe(footerRow);
+
+      await user.click(screen.getByTestId("send-quick-actions-half"));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("family-footer-row")).toHaveTextContent(
+          ethereumAccount.spendableBalance.dividedBy(2).toFixed(),
+        ),
+      );
+    });
+
+    it("mounts both the amount effect and the footer row when a family declares both", async () => {
+      const FamilyAmountEffect = jest.fn(() => null);
+      setMockLLDCoinFamily({
+        SendAmountEffect: FamilyAmountEffect,
+        SendAmountFooterRow: FamilyFooterRow,
+      });
+      setMockTransaction(
+        createMinimalEvmTransaction({ amount: new BigNumber(0), recipient: VALID_EVM_RECIPIENT }),
+      );
+
+      const { user } = renderSendFlow(ethereumAccount);
+      await navigateToAmountScreen(user);
+
+      expect(screen.getByTestId("family-footer-row")).toBeVisible();
+      expect(FamilyAmountEffect).toHaveBeenCalledWith(
+        expect.objectContaining({ account: ethereumAccount }),
+        undefined,
+      );
+    });
+
+    it("adds no row for a family that declares none", async () => {
+      setMockTransaction(
+        createMinimalEvmTransaction({ amount: new BigNumber(0), recipient: VALID_EVM_RECIPIENT }),
+      );
+
+      const { user } = renderSendFlow(ethereumAccount);
+      await navigateToAmountScreen(user);
+
+      expect(screen.getByTestId("send-network-fees-row")).toBeVisible();
+      expect(screen.queryByTestId("family-footer-row")).not.toBeInTheDocument();
+    });
+  });
+
   describe("Custom fees", () => {
     it("should apply EVM custom fees on the happy path", async () => {
       setMockTransaction(
@@ -915,15 +994,12 @@ describe("Send Flow Integration", () => {
 
   describe("Sponsored send (TRON Tronify)", () => {
     // The rent is paid from this USDT sub-account; without it the sponsored option is unaffordable.
-    const tronAccount = createTronAccount({
-      subAccounts: [
-        createMockTronUsdtAccount({
-          parentId: "mock-tron-account-id",
-          balance: new BigNumber(10_000_000),
-          spendableBalance: new BigNumber(10_000_000),
-        }),
-      ],
+    const usdtAccount = createMockTronUsdtAccount({
+      parentId: "mock-tron-account-id",
+      balance: new BigNumber(10_000_000),
+      spendableBalance: new BigNumber(10_000_000),
     });
+    const tronAccount = createTronAccount({ subAccounts: [usdtAccount] });
     const rawDataHex = "0a02abcd";
     const combinedTxASignature = "0008" + rawDataHex + "SIGA";
     const rentOrder = {
@@ -936,6 +1012,7 @@ describe("Send Flow Integration", () => {
       },
       payCoinCode: "USDT",
       payCoinAmt: "3.2",
+      paymentExpiresAt: Date.now() + 6 * 60_000,
     };
     const RENT_PAYMENT = { asset: TRON_USDT_FEE_ASSET, amount: 3_200_000n };
 
@@ -956,6 +1033,7 @@ describe("Send Flow Integration", () => {
     });
 
     afterEach(() => {
+      resetPendingRentsForTests();
       jest.useRealTimers();
     });
 
@@ -998,6 +1076,68 @@ describe("Send Flow Integration", () => {
       expect(screen.getByTestId("send-fee-payment-entry")).toHaveTextContent("3.2 USDT");
       expect(screen.queryByTestId("send-sponsored-fee-nudge")).toBeNull();
       expect(screen.queryByTestId("send-sponsored-fee-saved-badge")).toBeNull();
+    });
+
+    it("holds back the Tronify offer and says why while a paid rent is still arriving", async () => {
+      let deliverEnergy!: () => void;
+      const estimateSponsoredFeeQuote = jest.fn().mockResolvedValue({
+        feeAsset: TRON_USDT_FEE_ASSET,
+        value: 3_200_000n,
+        originalValue: 6_430_000n,
+      });
+      mockTronifySeam({
+        estimateSponsoredFeeQuote,
+        awaitEnergyDelivery: jest.fn().mockReturnValue(
+          new Promise<void>(resolve => {
+            deliverEnergy = resolve;
+          }),
+        ),
+      });
+      // Left behind by an earlier Send of this account that paid its rent and was closed.
+      recordPendingRent(
+        {
+          mainAccountId: tronAccount.id,
+          orderId: "order-1",
+          payerAddress: "TPayerAddress",
+          paymentTxId: "tx-a-id",
+          receiverAddress: "TReceiverAddress",
+          energyNeeded: 1000n,
+        },
+        Date.now() + 6 * 60_000,
+      );
+      // A USDT send: the landed rent lowers its fee, unlike a TRX send's.
+      setMockTransaction(
+        createMinimalTronTransaction({
+          amount: new BigNumber("1000000"),
+          recipient: VALID_TRON_RECIPIENT,
+          subAccountId: usdtAccount.id,
+        }),
+      );
+
+      renderSendFlow(usdtAccount, { parentAccount: tronAccount }, [], {
+        flags: { gasSponsorship: { enabled: true } },
+      });
+      const user = setupFakeTimersUser();
+      await navigateToAmountScreen(user, VALID_TRON_RECIPIENT);
+
+      expect(await screen.findByTestId("send-sponsored-rent-arriving")).toHaveTextContent(
+        "Your energy rental is still on its way. Network fees will update once it arrives.",
+      );
+      // Long enough for the seam to resolve and the quote to load, were the offer not held back.
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(5_000);
+      });
+      expect(estimateSponsoredFeeQuote).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("send-sponsored-fee-nudge")).toBeNull();
+      expect(screen.queryByTestId("send-fee-payment-entry")).toBeNull();
+
+      await act(async () => {
+        deliverEnergy();
+      });
+
+      await waitFor(() => expect(screen.queryByTestId("send-sponsored-rent-arriving")).toBeNull());
+      expect(await screen.findByTestId("send-sponsored-fee-nudge")).toBeVisible();
+      expect(estimateSponsoredFeeQuote).toHaveBeenCalled();
     });
 
     it("runs the sponsored happy path: rent signature -> polling -> transfer signature -> confirmation", async () => {
@@ -1043,6 +1183,36 @@ describe("Send Flow Integration", () => {
 
       expect(await screen.findByTestId("send-confirmation-step")).toBeVisible();
       expect(screen.getByTestId("send-confirmation-success-content")).toBeVisible();
+
+      // The real orchestration reaches DONE through onTransferSuccess, which this suite mocks.
+      await act(async () => {
+        setMockOrchestrationState({ phase: SPONSORED_PHASE.DONE });
+      });
+
+      expect(track).toHaveBeenCalledWith(
+        "button_clicked",
+        expect.objectContaining({ button: "confirm", fee_option: "tronify" }),
+      );
+      expect(sponsoredEvents()).toEqual([
+        {
+          event: "gas_sponsorship_order_created",
+          properties: expect.objectContaining({
+            provider: "tronify",
+            order_status: "created",
+            fee_amount: 3.2,
+            fee_currency: "USDT",
+            flow_session_id: expect.any(String),
+          }),
+        },
+        {
+          event: "gas_sponsorship_energy_delivered",
+          properties: expect.objectContaining({ order_status: "delivered" }),
+        },
+        {
+          event: "gas_sponsorship_send_success",
+          properties: expect.objectContaining({ order_status: "delivered" }),
+        },
+      ]);
     });
 
     it("offers a retry when the rent payment is refused on the device, and re-signs it on retry", async () => {
@@ -1118,6 +1288,15 @@ describe("Send Flow Integration", () => {
       expect(screen.getByTestId("send-sponsored-failure-retry")).toBeVisible();
       expect(screen.getByTestId("send-sponsored-failure-cancel")).toBeVisible();
       expect(screen.getByText(/Energy was not delivered/i)).toBeVisible();
+
+      expect(sponsoredEvents().at(-1)).toEqual({
+        event: "gas_sponsorship_send_failed",
+        properties: expect.objectContaining({
+          order_status: "submitted",
+          failure_kind: SPONSORED_FAILURE_KIND.DELIVERY_FAILED,
+          error_name: "EnergyDelegationTimeoutError",
+        }),
+      });
     });
 
     it("shows the short-balance copy when the on-chain balance check refuses the rent", async () => {
@@ -1132,9 +1311,8 @@ describe("Send Flow Integration", () => {
         setMockOrchestrationState({
           phase: SPONSORED_PHASE.FAILED,
           failureKind: SPONSORED_FAILURE_KIND.RENT_PAYMENT,
-          failureError: Object.assign(new Error("not enough USDT"), {
-            name: "EnergyRentInsufficientBalance",
-          }),
+          failureError: new Error("not enough USDT"),
+          rentOrderRejection: { reason: "insufficientBalance" },
         });
       });
 
@@ -1144,6 +1322,72 @@ describe("Send Flow Integration", () => {
           /You don't have enough USDT to cover the amount and the Tronify energy rental fee/,
         ),
       ).toBeVisible();
+    });
+
+    it("shows the new price when the rent went up, and retries once the user accepts it", async () => {
+      mockTronifySeam();
+
+      renderSendFlow(tronAccount, {}, [], { flags: { gasSponsorship: { enabled: true } } });
+      const user = setupFakeTimersUser();
+
+      await navigateToRentSignature(user);
+
+      await act(async () => {
+        setMockOrchestrationState({
+          phase: SPONSORED_PHASE.FAILED,
+          failureKind: SPONSORED_FAILURE_KIND.RENT_PAYMENT,
+          failureError: new Error("too dear"),
+          rentOrderRejection: {
+            reason: "priceAboveApproved",
+            offered: { asset: TRON_USDT_FEE_ASSET, amount: 3_500_000n },
+          },
+        });
+      });
+
+      expect(await screen.findByTestId("send-sponsored-failure")).toBeVisible();
+      expect(screen.getByText(/The energy rental price went up to 3\.5\sUSDT/)).toBeVisible();
+      const acceptButton = screen.getByTestId("send-sponsored-failure-retry");
+      expect(acceptButton).toHaveTextContent("Accept new price");
+
+      await user.click(acceptButton);
+
+      expect(mockSponsoredOrchestrationActions.retry).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps Retry off while a sent payment may still land, then turns it on", async () => {
+      mockTronifySeam();
+
+      renderSendFlow(tronAccount, {}, [], { flags: { gasSponsorship: { enabled: true } } });
+      const user = setupFakeTimersUser();
+
+      await navigateToRentSignature(user);
+
+      await act(async () => {
+        setMockOrchestrationState({
+          phase: SPONSORED_PHASE.FAILED,
+          failureKind: SPONSORED_FAILURE_KIND.RENT_PAYMENT,
+          failureError: new Error("reported failed"),
+          retryLockedUntil: Date.now() + 60_000,
+        });
+      });
+
+      expect(await screen.findByTestId("send-sponsored-failure")).toBeVisible();
+      expect(
+        screen.getByText(
+          "Tronify reported the fee payment as failed, but it may still go through.",
+        ),
+      ).toBeVisible();
+      expect(screen.getByTestId("send-sponsored-failure-retry-blocked")).toHaveTextContent(
+        /you can retry after/,
+      );
+      expect(screen.getByTestId("send-sponsored-failure-retry")).toBeDisabled();
+
+      await act(async () => {
+        jest.advanceTimersByTime(60_000);
+      });
+
+      expect(screen.getByTestId("send-sponsored-failure-retry")).toBeEnabled();
+      expect(screen.queryByTestId("send-sponsored-failure-retry-blocked")).toBeNull();
     });
 
     it("disables the sponsored option and says why when the USDT balance can't cover the rent", async () => {

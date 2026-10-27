@@ -5,10 +5,13 @@ import {
   type ConnectedDevice,
   type DeviceManagementKit,
   type DeviceSessionId,
+  type DiscoveredDevice,
 } from "@ledgerhq/device-management-kit";
+import { log } from "@ledgerhq/logs";
 import { assign, enqueueActions, fromCallback, fromPromise, setup } from "xstate";
 import {
   DEVICE_CALL_TIMEOUT_MS,
+  DISCOVERY_TIMEOUT_MS,
   POLL_INTERVAL_MS,
   SESSION_SETTLE_TIMEOUT_MS,
   SESSION_TEARDOWN_TIMEOUT_MS,
@@ -26,6 +29,15 @@ import {
 } from "./types";
 import { isDeviceDisconnectedError } from "./utils/isDeviceDisconnectedError";
 import { isDeviceLockedError } from "./utils/isDeviceLockedError";
+import { matchesRebootedDevice } from "./utils/matchesRebootedDevice";
+
+const LOG_TYPE = "OsUpdatesCheckErrorCause";
+
+/** The device to reopen the session on, which discovery replaced when the link moved it. */
+const deviceToConnect = (context: CheckErrorCauseStateMachineContext) => ({
+  ...context.rediscoveredDevice!,
+  sessionId: context.connectedDevice.sessionId,
+});
 
 /**
  * Decides whether a device action that just failed can be resumed.
@@ -116,54 +128,47 @@ export const checkErrorCauseStateMachine: CheckErrorCauseStateMachine = setup({
         }
       },
     ),
-    // Polling `connect` rather than waiting for the device to show up in discovery. Discovery would
-    // only tell us the device is visible, whereas `connect` is both the test and what we need next,
-    // and it still works during the gap where the transport has not released its link yet, since a
-    // device it holds does not advertise. Passing the device we captured makes the DMK reopen the
-    // session under the same id, which is what lets the caller resume its device action.
-    // `connect` itself can hang, as it waits for a session ping the dead link never answers, so
-    // bound every attempt: without that, one hanging call would end the polling for good.
-    reconnectToSameDevice: fromCallback<
+    // A lost device cannot be reconnected on the id it was known under. BLE comes back under a new
+    // address, and USB re-enumerates under a new uid, so it has to be found again on the terms
+    // `matchesRebootedDevice` sets out. The session id is kept, which is what lets the caller resume.
+    discoverDevice: fromCallback<
       CheckErrorCauseStateMachineEvent,
       { dmk: DeviceManagementKit; connectedDevice: ConnectedDevice }
     >(({ input, sendBack }) => {
-      let isStopped = false;
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      let retryTimeout: ReturnType<typeof setTimeout> | undefined;
-      const connect = () =>
-        new Promise<void>((resolve, reject) => {
-          const attemptTimeout = setTimeout(
-            () => reject(new Error("connect timed out")),
-            DEVICE_CALL_TIMEOUT_MS,
-          );
-          timeout = attemptTimeout;
-          input.dmk
-            .connect({
-              device: input.connectedDevice,
-              sessionRefresherOptions: { isRefresherDisabled: true },
-            })
-            .then(() => resolve(), reject)
-            .finally(() => clearTimeout(attemptTimeout));
+      const subscription = input.dmk
+        .listenToAvailableDevices({ transport: input.connectedDevice.transport })
+        .subscribe({
+          next: devices => {
+            const match = devices.find(device =>
+              matchesRebootedDevice(input.connectedDevice, device),
+            );
+            if (match) {
+              sendBack({ type: CheckErrorCauseStateMachineEventType.DEVICE_FOUND, device: match });
+            }
+          },
+          error: () => undefined,
         });
-      const attemptConnection = async () => {
-        try {
-          await connect();
-          if (!isStopped) {
-            sendBack({ type: CheckErrorCauseStateMachineEventType.DEVICE_RECONNECTED });
-          }
-        } catch {
-          if (!isStopped) {
-            retryTimeout = setTimeout(attemptConnection, POLL_INTERVAL_MS);
-          }
-        }
-      };
-      attemptConnection();
       return () => {
-        isStopped = true;
-        clearTimeout(timeout);
-        clearTimeout(retryTimeout);
+        subscription.unsubscribe();
+        void input.dmk.stopDiscovering();
       };
     }),
+    connect: fromPromise(
+      async ({
+        input,
+      }: {
+        input: {
+          dmk: DeviceManagementKit;
+          device: DiscoveredDevice & { sessionId: DeviceSessionId };
+        };
+      }): Promise<ConnectedDevice> => {
+        const sessionId = await input.dmk.connect({
+          device: input.device,
+          sessionRefresherOptions: { isRefresherDisabled: true },
+        });
+        return input.dmk.getConnectedDevice({ sessionId });
+      },
+    ),
   },
   actions: {
     sendDeviceSituation: enqueueActions(({ context, enqueue }, params: DeviceSituation) => {
@@ -172,6 +177,12 @@ export const checkErrorCauseStateMachine: CheckErrorCauseStateMachine = setup({
         situation: params,
       });
     }),
+    logState: (_, name: string) => {
+      log(LOG_TYPE, `state: ${name}`);
+    },
+    logError: ({ context }, name: string) => {
+      log(LOG_TYPE, `state: ${name}`, { error: context.error });
+    },
   },
   guards: {
     isDeviceLocked: ({ context }) => isDeviceLockedError(context.error),
@@ -182,18 +193,21 @@ export const checkErrorCauseStateMachine: CheckErrorCauseStateMachine = setup({
     poll: POLL_INTERVAL_MS,
     sessionSettleTimeout: SESSION_SETTLE_TIMEOUT_MS,
     sessionTeardownTimeout: SESSION_TEARDOWN_TIMEOUT_MS,
+    discoveryTimeout: DISCOVERY_TIMEOUT_MS,
   },
 }).createMachine({
   id: "checkErrorCause",
   context: ({ input }) => ({
     ...input,
     result: null,
+    rediscoveredDevice: null,
   }),
   initial: "CheckErrorCause",
   states: {
     // Only a tagged error can be routed straight away. Everything else is treated as unclassified,
     // whatever its message says.
     CheckErrorCause: {
+      entry: { type: "logError", params: "CheckErrorCause" },
       always: [
         {
           guard: "isDeviceLocked",
@@ -214,6 +228,7 @@ export const checkErrorCauseStateMachine: CheckErrorCauseStateMachine = setup({
     // flip to NOT_CONNECTED. Wait the window out instead of guessing, and leave the host on the
     // state it was showing.
     IdentifyConnectionLoss: {
+      entry: { type: "logState", params: "IdentifyConnectionLoss" },
       invoke: {
         src: "listenUntilDisconnected",
         input: ({ context }) => ({
@@ -237,6 +252,7 @@ export const checkErrorCauseStateMachine: CheckErrorCauseStateMachine = setup({
     // error, which is unrecoverable. It never loops back to IdentifyConnectionLoss: the host stays
     // on its last state until this probe reaches a verdict.
     ProbeUnknownError: {
+      entry: { type: "logState", params: "ProbeUnknownError" },
       invoke: {
         src: "getAppAndVersion",
         input: ({ context }) => ({
@@ -253,6 +269,7 @@ export const checkErrorCauseStateMachine: CheckErrorCauseStateMachine = setup({
       },
     },
     CheckProbedErrorCause: {
+      entry: { type: "logError", params: "CheckProbedErrorCause" },
       always: [
         {
           guard: "isDeviceLocked",
@@ -270,10 +287,10 @@ export const checkErrorCauseStateMachine: CheckErrorCauseStateMachine = setup({
     // Nothing to do but probe until the user enters the PIN. A probe that fails on something else
     // goes back through classification, since the device may have dropped in the meantime.
     AwaitingDeviceUnlock: {
-      entry: {
-        type: "sendDeviceSituation",
-        params: DeviceSituation.LOCKED,
-      },
+      entry: [
+        { type: "logState", params: "AwaitingDeviceUnlock" },
+        { type: "sendDeviceSituation", params: DeviceSituation.LOCKED },
+      ],
       initial: "Waiting",
       states: {
         Waiting: {
@@ -299,40 +316,73 @@ export const checkErrorCauseStateMachine: CheckErrorCauseStateMachine = setup({
         },
       },
     },
-    // One cycle: drop the session, connect again, prove the device answers. As long as it does not,
-    // start the cycle over, since the transport may have handed back a link that is already dead.
+    // One cycle: drop the session, find the device again, connect it, prove it answers. As long as
+    // it does not, start the cycle over, since the transport may have handed back a link that is
+    // already dead.
     AwaitingDeviceReconnection: {
-      entry: {
-        type: "sendDeviceSituation",
-        params: DeviceSituation.DISCONNECTED,
-      },
+      entry: [
+        { type: "logState", params: "AwaitingDeviceReconnection" },
+        { type: "sendDeviceSituation", params: DeviceSituation.DISCONNECTED },
+      ],
       initial: "TearDownSession",
       states: {
         // Bounded by a timeout because the React Native HID transport hops the native bridge and
-        // can leave the disconnection unconfirmed. Connecting again beats waiting forever.
+        // can leave the disconnection unconfirmed. Discovering again beats waiting forever.
         TearDownSession: {
+          entry: assign({ rediscoveredDevice: null }),
           invoke: {
             src: "tearDownSession",
             input: ({ context }) => ({
               dmk: context.dmk,
               sessionId: context.connectedDevice.sessionId,
             }),
-            onDone: "Reconnecting",
+            onDone: "Discovering",
           },
           after: {
-            sessionTeardownTimeout: "Reconnecting",
+            sessionTeardownTimeout: "Discovering",
           },
         },
-        Reconnecting: {
+        Discovering: {
           invoke: {
-            src: "reconnectToSameDevice",
+            src: "discoverDevice",
             input: ({ context }) => ({
               dmk: context.dmk,
               connectedDevice: context.connectedDevice,
             }),
           },
           on: {
-            [CheckErrorCauseStateMachineEventType.DEVICE_RECONNECTED]: "VerifyingConnection",
+            [CheckErrorCauseStateMachineEventType.DEVICE_FOUND]: {
+              actions: assign({ rediscoveredDevice: ({ event }) => event.device }),
+              target: "Connecting",
+            },
+          },
+          after: {
+            discoveryTimeout: "AwaitingDiscoveryRetry",
+          },
+        },
+        AwaitingDiscoveryRetry: {
+          entry: { type: "logState", params: "AwaitingDiscoveryRetry" },
+          after: {
+            poll: "Discovering",
+          },
+        },
+        Connecting: {
+          invoke: {
+            src: "connect",
+            input: ({ context }) => ({
+              dmk: context.dmk,
+              device: deviceToConnect(context),
+            }),
+            // Never treat `connect` resolving as proof the device is back: the transport hands its
+            // cached link straight back. The read this goes to is what decides.
+            onDone: {
+              actions: assign({ connectedDevice: ({ event }) => event.output }),
+              target: "VerifyingConnection",
+            },
+            onError: "AwaitingDiscoveryRetry",
+          },
+          after: {
+            deviceCallTimeout: "AwaitingDiscoveryRetry",
           },
         },
         // `connect` resolving proves nothing on its own: the transport returns its cached link when
@@ -362,6 +412,7 @@ export const checkErrorCauseStateMachine: CheckErrorCauseStateMachine = setup({
         // Back through the teardown, so the session we could not use is dropped before we open the
         // next one.
         Retrying: {
+          entry: { type: "logState", params: "Retrying" },
           after: {
             poll: "TearDownSession",
           },
@@ -370,12 +421,21 @@ export const checkErrorCauseStateMachine: CheckErrorCauseStateMachine = setup({
     },
     Recovered: {
       type: "final",
-      entry: assign({ result: CheckErrorCauseResult.Recovered }),
+      entry: [
+        { type: "logState", params: "Recovered" },
+        assign({ result: CheckErrorCauseResult.Recovered }),
+      ],
     },
     Unrecoverable: {
       type: "final",
-      entry: assign({ result: CheckErrorCauseResult.Unrecoverable }),
+      entry: [
+        { type: "logError", params: "Unrecoverable" },
+        assign({ result: CheckErrorCauseResult.Unrecoverable }),
+      ],
     },
   },
-  output: ({ context }) => context.result!,
+  output: ({ context }): CheckErrorCauseStateMachineOutput =>
+    context.result === CheckErrorCauseResult.Recovered
+      ? { result: context.result, connectedDevice: context.connectedDevice }
+      : { result: CheckErrorCauseResult.Unrecoverable },
 });

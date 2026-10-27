@@ -138,6 +138,7 @@ export function createRelaySocket(config: RelayConfig): RelaySocket {
           // reflects the relay's latest state (new tx or new address) promptly.
           if (data?.type === "transfer_received" || data?.type === "address_changed") {
             dispatchTransferReceived(data);
+            transferHandler?.(data);
           }
         }
       } catch (e) {

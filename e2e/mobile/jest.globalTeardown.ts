@@ -18,6 +18,8 @@ import { Subject } from "rxjs";
 import { NativeElementHelpers } from "@e2e/helpers/elementHelpers";
 import { sanitizeError } from "@ledgerhq/live-e2e-shared/index";
 import { withTimeout } from "@e2e/utils/withTimeout";
+import { TIMEOUT } from "@e2e/utils/timeouts";
+import { releaseTrackedSpeculos } from "@e2e/utils/speculosSweep";
 
 /** Default Detox teardown, guarded against proper-lockfile CI hangs. */
 const GLOBAL_TEARDOWN_TIMEOUT = 60_000;
@@ -41,6 +43,12 @@ globalThis.webSocket = {
 globalThis.pendingCallbacks = new Map<string, { callback: (data: string) => void }>();
 
 export default async () => {
+  await withTimeout(
+    releaseTrackedSpeculos({ orphansOnly: true }),
+    TIMEOUT.xlarge,
+    "releaseTrackedSpeculos",
+  );
+
   if (process.env.CI && process.env.SHARD_INDEX === "1") {
     try {
       await initDetox();
@@ -62,7 +70,7 @@ export default async () => {
       log.warn("Error collecting env data for report in CI global teardown:", sanitizeError(err));
     }
     try {
-      closeBridge();
+      await closeBridge();
       await withTimeout(cleanupDetox(), GLOBAL_CLEANUP_TIMEOUT, "cleanupDetox");
     } catch (cleanupErr) {
       log.warn("Error during cleanup in CI global teardown:", sanitizeError(cleanupErr));

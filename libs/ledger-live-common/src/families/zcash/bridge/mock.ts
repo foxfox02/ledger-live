@@ -3,14 +3,16 @@ import type { Transaction, TransactionStatus } from "@ledgerhq/coin-zcash/types/
 import type { ZcashAccountBridge } from "@ledgerhq/coin-zcash/bridge";
 import { createTransaction } from "@ledgerhq/coin-zcash/bridge/createTransaction";
 import { updateTransaction } from "@ledgerhq/coin-zcash/bridge/updateTransaction";
-import { getTransactionStatus } from "@ledgerhq/coin-zcash/bridge/getTransactionStatus";
-import { prepareTransaction } from "@ledgerhq/coin-zcash/bridge/prepareTransaction";
-import { estimateMaxSpendable } from "@ledgerhq/coin-zcash/bridge/estimateMaxSpendable";
+import { buildGetTransactionStatus } from "@ledgerhq/coin-zcash/bridge/getTransactionStatus";
+import { buildPrepareTransaction } from "@ledgerhq/coin-zcash/bridge/prepareTransaction";
+import { buildEstimateMaxSpendable } from "@ledgerhq/coin-zcash/bridge/estimateMaxSpendable";
+import type { ZcashCoinConfig } from "@ledgerhq/coin-zcash/config";
 import { getSerializedAddressParameters } from "@ledgerhq/coin-zcash/bridge/exchange";
 import {
-  assignFromAccountRaw,
   assignToAccountRaw,
+  makeAssignFromAccountRaw,
 } from "@ledgerhq/coin-zcash/bridge/serialization";
+import { buildContext, contextLogger } from "../../../bridge/generic-coin-framework/api/context";
 import { validateAddress as validateZcashAddress } from "@ledgerhq/coin-zcash/logic/validateAddress";
 import { ZCASH_ESTIMATION_RECIPIENT } from "@ledgerhq/coin-zcash/constants";
 import {
@@ -37,8 +39,12 @@ import { delay } from "../../../promise";
 
 const receive = makeAccountBridgeReceive();
 
+// The same context the real bridge gets (families/zcash/setup.ts): it only reads the
+// currency's coin config, which the fee rules of the three builders below need.
+const context = buildContext<ZcashCoinConfig>("zcash");
+
 // Stand-ins for what the device (getFullViewingKey/getShieldedAddress) and the
-// Zaino client (deriveShieldedAddress) answer on the real bridge.
+// Zaino client (deriveShieldedAddress/findBlockHeightAtDate) answer on the real bridge.
 //
 // The UA is the Orchard-only test vector the device app derives for account 0
 // of its own test seed (firmware/app-zcash REF_ORCHARD_ADDRESS_ACC_0, also used
@@ -48,16 +54,21 @@ const receive = makeAccountBridgeReceive();
 // be rejected as an invalid recipient the moment a mock self-transfer targets
 // the account's own shielded address.
 const MOCK_UFVK = "uview1mock";
+// Fixed height standing in for the Zaino lookup.
+const MOCK_BIRTHDAY_BLOCK_HEIGHT = 3_428_143;
 const MOCK_SHIELDED_ADDRESS =
   "u1u2h4ce7e2cn3z4nzur95muq2dl4da9x8h8kdp2l80gm9nl9raj8zzpx79ycjnfvar4v5exea5pqr5y9qsnlp0cdunwf9yjjx5c4q7ar9";
 
-// `getFullViewingKey`, `deriveShieldedAddress` and `getShieldedAddress` are not
+// `getFullViewingKey`, `deriveShieldedAddress`, `findBlockHeightAtDate` and `getShieldedAddress` are not
 // part of `AccountBridge`: the UFVK export and shielded-receive flows reach them
 // by casting to `ZcashAccountBridge` and calling them unconditionally (LLD's
 // ZCashExportKeyFlowModal, ZcashShieldedReceiveBlock). Omitting them here is
 // therefore a TypeError under MOCK=true, not a flow that degrades gracefully.
 type ZcashMockAccountBridge = AccountBridge<Transaction, any, TransactionStatus> &
-  Pick<ZcashAccountBridge, "getFullViewingKey" | "deriveShieldedAddress" | "getShieldedAddress">;
+  Pick<
+    ZcashAccountBridge,
+    "getFullViewingKey" | "deriveShieldedAddress" | "findBlockHeightAtDate" | "getShieldedAddress"
+  >;
 
 // The second generic is widened to `any` (mirroring families/algorand/bridge/mock.ts):
 // `sync`/`receive` below come from the generic mockHelpers, typed over the base
@@ -65,15 +76,15 @@ type ZcashMockAccountBridge = AccountBridge<Transaction, any, TransactionStatus>
 const accountBridge: ZcashMockAccountBridge = {
   createTransaction,
   updateTransaction,
-  getTransactionStatus,
-  prepareTransaction,
-  estimateMaxSpendable,
+  getTransactionStatus: buildGetTransactionStatus(context),
+  prepareTransaction: buildPrepareTransaction(context),
+  estimateMaxSpendable: buildEstimateMaxSpendable(context),
   sync,
   receive,
   signOperation,
   signRawOperation,
   broadcast,
-  assignFromAccountRaw,
+  assignFromAccountRaw: makeAssignFromAccountRaw(contextLogger),
   assignToAccountRaw,
   getSerializedAddressParameters,
   validateAddress: (address: string) =>
@@ -93,6 +104,7 @@ const accountBridge: ZcashMockAccountBridge = {
     };
   },
   deriveShieldedAddress: async () => MOCK_SHIELDED_ADDRESS,
+  findBlockHeightAtDate: () => Promise.resolve(MOCK_BIRTHDAY_BLOCK_HEIGHT),
   // Echoes the account's own shielded address rather than deriving one, so the
   // receive flow's device/host comparison matches whatever the account holds --
   // the seeded fixture value as well as the one the export flow just wrote.

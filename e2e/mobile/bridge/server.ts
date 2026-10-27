@@ -2,6 +2,8 @@ import { Server } from "ws";
 import path from "path";
 import fs from "fs";
 import net from "net";
+import type { IncomingMessage } from "node:http";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import merge from "lodash/merge";
 
 import { NavigatorName } from "~/const";
@@ -13,6 +15,7 @@ import { log as detoxLog } from "detox";
 import { getSpeculosModel } from "@ledgerhq/live-e2e-shared/speculosAppVersion";
 import { v4 as uuid } from "uuid";
 import { TIMEOUT } from "@e2e/utils/timeouts";
+import { withTimeout } from "@e2e/utils/withTimeout";
 
 /** Round-trip to the app over the bridge. Exported so a caller can bound a bridge call from outside. */
 export const BRIDGE_RESPONSE_TIMEOUT = TIMEOUT.medium;
@@ -50,8 +53,23 @@ function isFeatureId(key: string): key is FeatureId {
   return FeatureIdSchema.safeParse(key).success;
 }
 
-export function init(port = 8099, onConnection?: () => void) {
-  webSocket.wss = new Server({ port });
+function hasBridgeToken(url: string | undefined, token: string): boolean {
+  const received = Buffer.from(
+    new URL(url ?? "/", "ws://localhost").searchParams.get("token") ?? "",
+  );
+  const expected = Buffer.from(token);
+  return received.length === expected.length && timingSafeEqual(received, expected);
+}
+
+/**
+ * Starts the bridge and returns the secret the app must connect with, passed to it as a launch arg.
+ */
+export function init(port = 8099, onConnection?: () => void): string {
+  const token = randomBytes(32).toString("hex");
+  webSocket.wss = new Server({
+    port,
+    verifyClient: ({ req }: { req: IncomingMessage }) => hasBridgeToken(req.url, token),
+  });
   webSocket.messages = {};
   log(`Start listening on localhost:${port}`);
 
@@ -72,24 +90,40 @@ export function init(port = 8099, onConnection?: () => void) {
       });
     }
   });
+  return token;
 }
 
-export function close() {
+export async function close(): Promise<void> {
   if (webSocket.ws) {
     webSocket.ws.removeAllListeners();
     webSocket.ws.close();
     webSocket.ws = undefined;
   }
 
-  if (webSocket.wss) {
-    webSocket.wss.clients.forEach(client => {
+  const wss = webSocket.wss;
+  if (wss) {
+    wss.clients.forEach(client => {
       client.removeAllListeners();
       client.terminate();
     });
 
-    webSocket.wss.close(() => {
-      webSocket.wss = undefined;
-    });
+    await withTimeout(
+      new Promise<void>((resolve, reject) => {
+        wss.close(error => {
+          if (webSocket.wss === wss) {
+            webSocket.wss = undefined;
+          }
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      }),
+      TIMEOUT.small,
+      "closeBridge",
+      { rethrow: false },
+    );
   }
   webSocket.messages = {};
 
@@ -145,7 +179,7 @@ export async function setFeatureFlags(flags: PartialFeatures) {
   await getFlags();
 }
 
-export async function setFeatureFlag(flag: OverrideFeatureFlagPayload) {
+export function setFeatureFlag(flag: OverrideFeatureFlagPayload) {
   postMessage({ type: "overrideFeatureFlag", id: uniqueId(), payload: flag });
 }
 
@@ -221,7 +255,11 @@ export async function addKnownSpeculos(address: string) {
   postMessage({
     type: "addKnownSpeculos",
     id: uniqueId(),
-    payload: JSON.stringify({ address, model: getSpeculosModel() }),
+    payload: JSON.stringify({
+      address,
+      model: getSpeculosModel(),
+      sessionToken: process.env.SPECULOS_SESSION_TOKEN,
+    }),
   });
 }
 

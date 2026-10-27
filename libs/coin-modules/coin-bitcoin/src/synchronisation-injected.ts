@@ -16,7 +16,7 @@ import type {
 } from "@ledgerhq/ledger-wallet-framework/bridge/jsHelpers";
 import type { SyncConfig } from "@ledgerhq/types-live";
 import { makeGetAccountShape } from "./synchronisation";
-import { getCoinConfig } from "./config";
+import type { BitcoinContext } from "./config";
 import { createCustomAccountShape } from "./bridge/customAccountShape";
 import { RELAY_CONFIG, shouldUseCustomAccountShape } from "./bridge/blockchainApi";
 import { createRelaySocket } from "./bridge/relaySocket";
@@ -41,8 +41,9 @@ function ensureRelaySocket() {
 
 export function makeInjectedGetAccountShape(
   signerContext: SignerContext,
+  context: BitcoinContext,
 ): GetAccountShapeStream<BitcoinAccount> {
-  const original = makeGetAccountShape(signerContext, getCoinConfig);
+  const original = makeGetAccountShape(signerContext, context);
 
   return (info: AccountShapeInfo<BitcoinAccount>, config: SyncConfig) => {
     const { currency, derivationMode, index, initialAccount } = info;
@@ -55,7 +56,7 @@ export function makeInjectedGetAccountShape(
       // real-time re-sync instead of waiting for the next poll.
       ensureRelaySocket();
       return new Observable<Partial<BitcoinAccount>>(observer => {
-        createCustomAccountShape(currency, index)
+        createCustomAccountShape(currency, index, context)
           .then(shape => {
             observer.next(shape);
             observer.complete();

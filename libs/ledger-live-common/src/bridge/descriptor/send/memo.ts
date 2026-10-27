@@ -24,6 +24,19 @@ export function cosmosMemoPatch(value: string | number | null | undefined): {
   return { memo, memoType: memo ? COSMOS_MEMO_KIND : null, memoValue: memo };
 }
 
+const STACKS_MEMO_KIND = "memo";
+
+// Stacks keeps `memo` for its legacy bridge (the `config_stacks_generic_bridge` fallback), while the
+// generic bridge only reads `memoType`/`memoValue`, so every Stacks memo site sets all three.
+export function stacksMemoPatch(value: string | number | null | undefined): {
+  memo: string | undefined;
+  memoType: string | null;
+  memoValue: string | undefined;
+} {
+  const memo = value === undefined || value === null || value === "" ? undefined : String(value);
+  return { memo, memoType: memo ? STACKS_MEMO_KIND : null, memoValue: memo };
+}
+
 const memoApplicationRegistry: Record<string, MemoApplicationFn> = {
   // Inlined like every other entry: `TEXT` mirrors `families/solana/transactions`.
   solana: memo => ({
@@ -35,6 +48,7 @@ const memoApplicationRegistry: Record<string, MemoApplicationFn> = {
     memo !== undefined
       ? { transferId: memo, memoType: "transferId", memoValue: memo }
       : { transferId: undefined, memoType: "transferId", memoValue: undefined },
+  hedera: memo => ({ memoType: "string", memoValue: memo }),
   xrp: memo => {
     if (typeof memo === "number") return { tag: memo };
     if (typeof memo === "string") return { tag: Number(memo) };
@@ -42,6 +56,7 @@ const memoApplicationRegistry: Record<string, MemoApplicationFn> = {
   },
   stellar: (memo, type) => ({ memoValue: memo, memoType: type }),
   cosmos: memo => cosmosMemoPatch(memo),
+  stacks: memo => stacksMemoPatch(memo),
   ton: (memo, _type, transaction) => {
     const currentComment = isRecord(transaction.comment) ? transaction.comment : {};
     return {

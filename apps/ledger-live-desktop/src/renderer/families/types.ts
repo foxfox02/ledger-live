@@ -184,6 +184,12 @@ export type LLDCoinFamily<
     getURLFeesInfo?: (_: { op: O; currencyId: string }) => string | null | undefined;
 
     /**
+     * i18n key for the confirmation count shown after the status in the details drawer
+     * (rendered with `{ count }`); return null to keep the bare "(N)".
+     */
+    getConfirmationsI18nKey?: (_: { currencyId: string }) => string | null | undefined;
+
+    /**
      * Add custom component after the Account section in operation details drawer
      */
     OperationDetailsPostAccountSection?: React.ComponentType<
@@ -429,6 +435,23 @@ export type LLDCoinFamily<
    * of Hooks satisfied across every family the generic mount point resolves to.
    */
   SendAmountEffect?: React.ComponentType<{ account: A; transaction: T }>;
+
+  /**
+   * Rendered as its own step of the new send flow, right after the user picks a
+   * balance pool and before the recipient step (e.g. Aleo refreshes its private
+   * records when the private balance is picked). The flow moves on only when
+   * `onComplete` is called, so a family with nothing to do for the picked pool
+   * calls it straight away; `onClose` closes the whole flow.
+   */
+  SendBalanceTypeSync?: React.ComponentType<{
+    account: A;
+    transaction: T;
+    onComplete: () => void;
+    onClose: () => void;
+  }>;
+
+  /** Extra row rendered in the Amount step footer, right under the network fees. */
+  SendAmountFooterRow?: React.ComponentType<{ account: A; transaction: T }>;
 
   /**
    *  One time modal that is trigger only one time on a account that never send

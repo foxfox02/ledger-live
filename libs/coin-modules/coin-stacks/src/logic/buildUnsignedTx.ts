@@ -1,5 +1,4 @@
 import type {
-  MemoNotSupported,
   StakingTransactionIntent,
   TransactionIntent,
 } from "@ledgerhq/coin-module-framework/api/index";
@@ -19,11 +18,13 @@ import {
   createStxTransferTransaction,
   createTokenTransferTransaction,
   getConfiguredStacksNetwork,
+  memoFromIntent,
+  MIN_NUM_CYCLES,
   validateAddress,
 } from "../common-logic";
-import { STACKS_DUMMY_ADDRESS } from "../constants";
+import { STACKS_DUMMY_ADDRESS, STACKS_DUMMY_PUBLIC_KEY } from "../constants";
 import { fetchPoxInfo } from "../network/pox";
-import type { StacksTxData } from "../types";
+import type { StacksMemo, StacksTxData } from "../types";
 import { getBalance } from "./getBalance";
 import { getStakes } from "./getStakes";
 
@@ -32,6 +33,22 @@ import { getStakes } from "./getStakes";
  * structurally in the tx with no "encode empty" fallback. Never reaches a real send. */
 function resolveRecipient(recipient: string): string {
   return validateAddress(recipient).isValid ? recipient : STACKS_DUMMY_ADDRESS;
+}
+
+function resolveSenderPublicKey(
+  senderPublicKey: string | undefined,
+  forEstimation: boolean,
+): string {
+  if (
+    senderPublicKey !== undefined &&
+    /^(?:0[23][0-9a-f]{64}|04[0-9a-f]{128})$/i.test(senderPublicKey)
+  ) {
+    return senderPublicKey;
+  }
+  if (forEstimation) {
+    return STACKS_DUMMY_PUBLIC_KEY;
+  }
+  throw new Error("stacks: senderPublicKey is required to craft a transaction");
 }
 
 function parseSip010AssetReference(assetReference: string): {
@@ -64,7 +81,7 @@ function parseContractPrincipal(value: string, context: string): { address: stri
  * general-purpose, unlike the framework's own `prepareTransaction`), so it's resolved
  * defensively here too. Fee is native STX, so only subtracted for a native sweep. */
 async function resolveAmount(
-  intent: TransactionIntent<MemoNotSupported, StacksTxData>,
+  intent: TransactionIntent<StacksMemo, StacksTxData>,
   fee: bigint,
 ): Promise<BigNumber> {
   if (!intent.useAllAmount) {
@@ -102,20 +119,22 @@ async function resolveAmount(
 }
 
 async function buildTransfer(
-  intent: TransactionIntent<MemoNotSupported, StacksTxData>,
+  intent: TransactionIntent<StacksMemo, StacksTxData>,
   fee: bigint,
   nonce: bigint,
+  forEstimation: boolean,
 ): Promise<StacksTransactionWire> {
-  if (!intent.senderPublicKey) {
-    throw new Error("stacks: senderPublicKey is required to craft a transaction");
-  }
+  const senderPublicKey = resolveSenderPublicKey(intent.senderPublicKey, forEstimation);
   const network = getConfiguredStacksNetwork();
   const feeAmount = new BigNumber(fee.toString());
   const nonceAmount = new BigNumber(nonce.toString());
   const amount = await resolveAmount(intent, fee);
+  const memo = memoFromIntent("memo" in intent ? intent.memo : undefined);
   // Only guards the sweep case -- a not-yet-filled-in draft (amount 0) must still build, since
   // callers probe estimateFees before the user enters anything; validateIntent owns that check.
-  if (intent.useAllAmount && amount.lte(0)) {
+  // An estimation probe skips it too: estimateMaxSpendable sweeps every account, an empty one
+  // included, and a zero-amount transfer has the same byte length, hence the same fee.
+  if (!forEstimation && intent.useAllAmount && amount.lte(0)) {
     throw new Error("stacks: transaction amount must be positive");
   }
 
@@ -125,10 +144,14 @@ async function buildTransfer(
       resolveRecipient(intent.recipient),
       AnchorMode.Any,
       network,
-      intent.senderPublicKey,
+      senderPublicKey,
       {
         fee: feeAmount,
         nonce: nonceAmount,
+        // A token-transfer memo is a fixed-width field, so leaving it out of a fee estimate keeps
+        // the length unchanged -- and keeps an oversized memo from throwing in `@stacks/transactions`
+        // before validateIntent can report it as `StacksMemoTooLong`.
+        memo: forEstimation ? undefined : memo,
       },
     );
   }
@@ -148,20 +171,20 @@ async function buildTransfer(
     recipientAddress: resolveRecipient(intent.recipient),
     anchorMode: AnchorMode.Any,
     network,
-    publicKey: intent.senderPublicKey,
+    publicKey: senderPublicKey,
     fee: feeAmount,
     nonce: nonceAmount,
+    memo,
   });
 }
 
 async function buildStaking(
-  intent: StakingTransactionIntent<MemoNotSupported, StacksTxData>,
+  intent: StakingTransactionIntent<StacksMemo, StacksTxData>,
   fee: bigint,
   nonce: bigint,
+  forEstimation: boolean,
 ): Promise<StacksTransactionWire> {
-  if (!intent.senderPublicKey) {
-    throw new Error("stacks: senderPublicKey is required to craft a transaction");
-  }
+  const senderPublicKey = resolveSenderPublicKey(intent.senderPublicKey, forEstimation);
   const network = getConfiguredStacksNetwork();
 
   const poxInfo = await fetchPoxInfo();
@@ -171,7 +194,14 @@ async function buildStaking(
   );
 
   if (intent.mode === "delegate") {
-    const { numCycles, startBurnHt, signerCalldata } = intent.data;
+    const { signerCalldata } = intent.data;
+    // The stake form probes the fee before the number of cycles is typed and while `startBurnHt`
+    // is still resolving; `validateIntent` reports those as status errors. A Clarity uint is
+    // fixed-size, so stand-ins leave the estimated length unchanged. Never reaches a real stake.
+    const numCycles = intent.data.numCycles ?? (forEstimation ? MIN_NUM_CYCLES : undefined);
+    const startBurnHt =
+      intent.data.startBurnHt ??
+      (forEstimation ? poxInfo.current_burnchain_block_height : undefined);
     if (numCycles === undefined || startBurnHt === undefined) {
       throw new Error("stacks: staking requires data.numCycles and data.startBurnHt");
     }
@@ -192,7 +222,7 @@ async function buildStaking(
         signerCalldata ? someCV(bufferCV(Buffer.from(signerCalldata, "hex"))) : noneCV(),
       ],
       network,
-      publicKey: intent.senderPublicKey,
+      publicKey: senderPublicKey,
       fee: fee.toString(),
       nonce: nonce.toString(),
       // `stake` needs the amount bound `ustxToLock()` provides, unlike willPerformPox/
@@ -218,7 +248,7 @@ async function buildStaking(
       functionName: "unstake",
       functionArgs: [contractPrincipalCV(signerAddress, signerName)],
       network,
-      publicKey: intent.senderPublicKey,
+      publicKey: senderPublicKey,
       fee: fee.toString(),
       nonce: nonce.toString(),
       postConditions: [Pc.principal(intent.sender).willNotPerformPox()],
@@ -231,16 +261,18 @@ async function buildStaking(
 }
 
 export async function buildUnsignedTx(
-  intent: TransactionIntent<MemoNotSupported, StacksTxData>,
+  intent: TransactionIntent<StacksMemo, StacksTxData>,
   fee: bigint,
   nonce: bigint,
+  { forEstimation = false }: { forEstimation?: boolean } = {},
 ): Promise<StacksTransactionWire> {
   if (intent.intentType === "staking") {
     return buildStaking(
-      intent as StakingTransactionIntent<MemoNotSupported, StacksTxData>,
+      intent as StakingTransactionIntent<StacksMemo, StacksTxData>,
       fee,
       nonce,
+      forEstimation,
     );
   }
-  return buildTransfer(intent, fee, nonce);
+  return buildTransfer(intent, fee, nonce, forEstimation);
 }

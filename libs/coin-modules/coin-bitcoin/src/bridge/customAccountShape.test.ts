@@ -1,6 +1,6 @@
 import walletBtc from "@ledgerhq/wallet-btc/index";
 import { getCryptoCurrencyById } from "@ledgerhq/ledger-wallet-framework/currencies";
-import { setCoinConfig } from "../config";
+import type { BitcoinContext } from "../config";
 import { fetchRelayWallet, registerDevice, type RelayWallet } from "./relayClient";
 import { invalidateRelayCache } from "./relayCache";
 import { RELAY_ACCOUNT_IDENTIFIER, TARGET_ADDRESS } from "./blockchainApi";
@@ -36,6 +36,11 @@ const NATIVE_SEGWIT = "bc1qeyy8fhp0tk2658p0nh8gk626d3e89f3fcksfhm";
 const TAPROOT = "bc1p5cyxnuxmeuwuvkwfem96lqzszd02n6xdcjrs20cac6yqjjwudpxqkedrcr";
 
 const bitcoin = getCryptoCurrencyById("bitcoin");
+
+const fakeContext = {
+  config: async () => ({ explorer: { url: "https://explorer.example" }, explorerId: "btc" }),
+  logger: () => {},
+} as unknown as BitcoinContext;
 
 function makeWallet(address: string): RelayWallet {
   return {
@@ -127,7 +132,6 @@ describe("buildExplorerShape (relay unreachable fallback)", () => {
 
 describe("createCustomAccountShape account id", () => {
   beforeEach(() => {
-    setCoinConfig(() => ({ info: { explorerId: "btc" } }) as never);
     registerDeviceMock.mockReset();
     registerDeviceMock.mockResolvedValue(undefined);
     fetchRelayWalletMock.mockReset();
@@ -143,7 +147,7 @@ describe("createCustomAccountShape account id", () => {
     for (const address of [LEGACY, P2SH, NATIVE_SEGWIT, TAPROOT]) {
       invalidateRelayCache();
       fetchRelayWalletMock.mockResolvedValueOnce(makeWallet(address));
-      const shape = await createCustomAccountShape(bitcoin, 0);
+      const shape = await createCustomAccountShape(bitcoin, 0, fakeContext);
       ids.push(shape.id as string);
     }
 
@@ -154,7 +158,7 @@ describe("createCustomAccountShape account id", () => {
   it("reports the address-derived mode while keeping the pinned id", async () => {
     fetchRelayWalletMock.mockResolvedValueOnce(makeWallet(NATIVE_SEGWIT));
 
-    const shape = await createCustomAccountShape(bitcoin, 0);
+    const shape = await createCustomAccountShape(bitcoin, 0, fakeContext);
 
     expect(shape.derivationMode).toBe("native_segwit");
     expect(shape.id).toContain(RELAY_ACCOUNT_IDENTIFIER);

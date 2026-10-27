@@ -1,8 +1,9 @@
 import "LLM/utils/logStartup/beforeJSImports";
+// Must run before any module that keeps a reference to the global WebSocket (e.g. isomorphic-ws)
+import "./iosWebsocketFix";
 require("./promise-polyfill");
 import "./polyfill";
 import "./live-common-setup";
-import "./iosWebsocketFix";
 import "./utils/tanstack-setup";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import React, { Component, useMemo, useEffect, useRef } from "react";
@@ -16,8 +17,10 @@ import { checkLibs } from "@ledgerhq/live-common/sanityChecks";
 import "./config/configInit";
 import "./config/bridge-setup";
 import "./analytics/registerTransactionObserver";
+import "./datadogObservers";
 import Config from "react-native-config";
 import useEnv from "@features/platform-env";
+import { AppAvailability } from "@features/flow-app-availability";
 import { init } from "~/e2e/bridge/client";
 import logger from "./logger";
 import { BridgeSyncProvider } from "~/bridge/BridgeSyncContext";
@@ -72,6 +75,10 @@ import { getVersionedRedirects } from "LLM/hooks/useStake/useVersionedStakeProgr
 import { selectFeature, type FeatureId } from "@shared/feature-flags";
 import { LiveConfig } from "@ledgerhq/live-config/LiveConfig";
 import { installEarnLifecycleHost } from "@ledgerhq/transaction-observability";
+import {
+  coinObservabilityConfigFor,
+  setCoinObservabilityConfigReader,
+} from "@features/platform-coin-observability";
 import { useSettings } from "~/hooks";
 import AppProviders from "./AppProviders";
 import { useAutoDismissPostOnboardingEntryPoint } from "@ledgerhq/live-common/postOnboarding/hooks/index";
@@ -80,7 +87,6 @@ import { registerTransports } from "~/services/registerTransports";
 import { useDeviceManagementKit } from "@ledgerhq/live-dmk-mobile";
 import { WaitForAppReady } from "LLM/contexts/WaitForAppReady";
 import AppVersionBlocker from "LLM/features/AppBlockers/components/AppVersionBlocker";
-import AppGeoBlocker from "LLM/features/AppBlockers/components/AppGeoBlocker";
 import { StoragePerformanceOverlay } from "LLM/storage/screens/PerformanceMonitor";
 import { logStartupEvent } from "LLM/utils/logStartupTime";
 import {
@@ -143,6 +149,14 @@ store.subscribe(
     apiBaseUrl: Config.EARN_API_BASE_URL,
   }),
 );
+setCoinObservabilityConfigReader(() => {
+  const state = store.getState();
+  return coinObservabilityConfigFor({
+    consentGranted: reportErrorsEnabledSelector(state),
+    datadogEnabled: selectFeature(state, "llmDatadog")?.enabled ?? false,
+    coinObservability: selectFeature(state, "coinObservability"),
+  });
+});
 
 const styles = StyleSheet.create({
   root: {
@@ -155,6 +169,7 @@ function App() {
   const accounts = useSelector(accountsSelector);
   const datadogFF = useFeature("llmDatadog");
   const providerNumber = useEnv("FORCE_PROVIDER");
+  const baseSocketUrl = useEnv("BASE_SOCKET_URL");
   const isOnboardingFlow = useSelector(isOnboardingFlowSelector);
   const isPostOnboardingFlow = useSelector(isPostOnboardingFlowSelector);
   const initiatedIsOnboardingFlow = useRef<boolean>(isOnboardingFlow);
@@ -240,6 +255,12 @@ function App() {
     // setting provider only at initialisation
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [dmk, providerNumber]);
+
+  useEffect(() => {
+    if (baseSocketUrl) {
+      dmk?.setWebSocketUrl(baseSocketUrl);
+    }
+  }, [dmk, baseSocketUrl]);
 
   useEffect(() => registerTransports(), []);
 
@@ -399,7 +420,7 @@ export default class Root extends Component {
     logStartupEvent("Root render");
     return (
       <LedgerStoreProvider onInitFinished={this.onInitFinished} store={store}>
-        {({ ready, initialCountervalues, currencyInitialized }) =>
+        {({ ready, currencyInitialized }) =>
           ready ? (
             <RebootProvider>
               <SetEnvsFromSettings />
@@ -426,15 +447,15 @@ export default class Root extends Component {
                                 <NavBarColorHandler />
                                 <GestureHandlerRootView style={styles.root}>
                                   <WaitForAppReady currencyInitialized={currencyInitialized}>
-                                    <AppProviders initialCountervalues={initialCountervalues}>
-                                      <AppGeoBlocker>
+                                    <AppProviders>
+                                      <AppAvailability>
                                         <AppVersionBlocker>
                                           <BridgeSyncProvider>
                                             <RelayTransferListener />
                                             <App />
                                           </BridgeSyncProvider>
                                         </AppVersionBlocker>
-                                      </AppGeoBlocker>
+                                      </AppAvailability>
                                     </AppProviders>
                                   </WaitForAppReady>
                                 </GestureHandlerRootView>

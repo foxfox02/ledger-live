@@ -1,4 +1,5 @@
 import { Account, AccountBridge } from "@ledgerhq/types-live";
+import { getMainAccount } from "@ledgerhq/ledger-wallet-framework/account/index";
 import { RELAY_ACCOUNT_IDENTIFIER, RELAY_CONFIG } from "./blockchainApi";
 import { simulateRelayOutgoing } from "./relayClient";
 import { invalidateRelayCache } from "./relayCache";
@@ -8,7 +9,7 @@ import {
   makeSync,
 } from "@ledgerhq/ledger-wallet-framework/bridge/jsHelpers";
 import getAddressWrapper from "@ledgerhq/ledger-wallet-framework/bridge/getAddressWrapper";
-import { postSync } from "../synchronisation";
+import { makePostSync } from "../synchronisation";
 import { makeInjectedGetAccountShape } from "../synchronisation-injected";
 import { assignToAccountRaw, makeAssignFromAccountRaw } from "../serialization";
 import { BitcoinAccount, Transaction, TransactionStatus } from "../types";
@@ -20,32 +21,25 @@ import { prepareTransaction } from "../prepareTransaction";
 import { updateTransaction } from "../updateTransaction";
 import { createTransaction } from "../createTransaction";
 import { buildSignOperation } from "../signOperation";
-import { CoinConfig, setCoinConfig } from "../config";
+import type { BitcoinContext } from "../config";
+import { resolveAccountConfig } from "../explorer";
 import { calculateFees } from "./../cache";
 import { SignerContext } from "../signer";
 import { broadcast } from "../broadcast";
 import { perCoinLogic } from "../logic";
 import resolver from "../hw-getAddress";
-import getFullViewingKeyResolver, { GetFullViewingKeyResult } from "../hw-getFullViewingKey";
-import { validateAddress } from "../validateAddress";
+import { validateAddress } from "../logic/validateAddress";
 import buildSignRawOperation from "../signRawOperation";
 import { getBitcoinEstimationRecipient } from "../constants";
 
-type GetFullViewingKeyFromBridgeFn = (
-  account: BitcoinAccount,
-  options: { deviceId: string; path?: string },
-) => Promise<GetFullViewingKeyResult>;
+export type BitcoinAccountBridge = AccountBridge<Transaction, BitcoinAccount, TransactionStatus>;
 
-export type BitcoinAccountBridge = AccountBridge<Transaction, BitcoinAccount> & {
-  getFullViewingKey: GetFullViewingKeyFromBridgeFn;
-};
-
-function buildCurrencyBridge(signerContext: SignerContext, coinConfig: CoinConfig) {
-  const getAddress = resolver(signerContext);
+function buildCurrencyBridge(signerContext: SignerContext, context: BitcoinContext) {
+  const getAddress = resolver(signerContext, context.logger);
   const scanAccounts = makeScanAccounts<BitcoinAccount>({
-    getAccountShape: makeInjectedGetAccountShape(signerContext),
+    getAccountShape: makeInjectedGetAccountShape(signerContext, context),
     getAddressFn: getAddressWrapper(getAddress),
-    postSync,
+    postSync: makePostSync(context),
   });
 
   return {
@@ -53,15 +47,14 @@ function buildCurrencyBridge(signerContext: SignerContext, coinConfig: CoinConfi
   };
 }
 
-function buildAccountBridge(signerContext: SignerContext, coinConfig: CoinConfig) {
+function buildAccountBridge(signerContext: SignerContext, context: BitcoinContext) {
   const sync = makeSync<Transaction, BitcoinAccount, TransactionStatus>({
-    getAccountShape: makeInjectedGetAccountShape(signerContext),
-    postSync,
+    getAccountShape: makeInjectedGetAccountShape(signerContext, context),
+    postSync: makePostSync(context),
     shouldMergeOps: false,
   });
 
-  const getAddress = resolver(signerContext);
-  const getFullViewingKey = getFullViewingKeyResolver(signerContext);
+  const getAddress = resolver(signerContext, context.logger);
   const injectGetAddressParams = (account: BitcoinAccount) => {
     const perCoin = perCoinLogic[account.currency.id];
 
@@ -105,6 +98,7 @@ function buildAccountBridge(signerContext: SignerContext, coinConfig: CoinConfig
       }
     }
 
+    await resolveAccountConfig(context, account);
     return broadcast({
       account,
       signedOperation,
@@ -112,39 +106,45 @@ function buildAccountBridge(signerContext: SignerContext, coinConfig: CoinConfig
     });
   };
 
-  const getFullViewingKeyFromBridge: GetFullViewingKeyFromBridgeFn = (account, options) =>
-    getFullViewingKey(options.deviceId, {
-      currency: account.currency,
-      path: options.path ?? account.freshAddressPath,
-    });
-
-  return {
-    estimateMaxSpendable,
+  // Every method below that reaches the explorer resolves the coin config first, which also binds
+  // the explorer of a deserialized account (see resolveAccountConfig).
+  const accountBridge: BitcoinAccountBridge = {
+    estimateMaxSpendable: async params => {
+      await resolveAccountConfig(context, getMainAccount(params.account, params.parentAccount));
+      return estimateMaxSpendable(context.logger, params);
+    },
     createTransaction,
-    prepareTransaction,
+    prepareTransaction: async (account, transaction) => {
+      await resolveAccountConfig(context, account);
+      return prepareTransaction(account, transaction);
+    },
     updateTransaction,
-    getTransactionStatus,
+    getTransactionStatus: async (account, transaction) =>
+      getTransactionStatus(
+        await resolveAccountConfig(context, account),
+        context.logger,
+        account,
+        transaction,
+      ),
     receive,
     sync,
-    signOperation: buildSignOperation(signerContext),
-    signRawOperation: buildSignRawOperation(signerContext),
+    signOperation: buildSignOperation(signerContext, context),
+    signRawOperation: buildSignRawOperation(signerContext, context.logger),
     broadcast: wrappedBroadcast,
-    assignFromAccountRaw: makeAssignFromAccountRaw(coinConfig),
+    assignFromAccountRaw: makeAssignFromAccountRaw(context.logger),
     assignToAccountRaw,
     formatAccountSpecifics: formatters.formatAccountSpecifics,
     getSerializedAddressParameters,
     validateAddress,
-    getFullViewingKey: getFullViewingKeyFromBridge,
     getEstimationRecipient: (account: Account) =>
       getBitcoinEstimationRecipient(account.currency.id),
   };
+  return accountBridge;
 }
 
-export function createBridges(signerContext: SignerContext, coinConfig: CoinConfig) {
-  setCoinConfig(coinConfig);
-
+export function createBridges(signerContext: SignerContext, context: BitcoinContext) {
   return {
-    currencyBridge: buildCurrencyBridge(signerContext, coinConfig),
-    accountBridge: buildAccountBridge(signerContext, coinConfig),
+    currencyBridge: buildCurrencyBridge(signerContext, context),
+    accountBridge: buildAccountBridge(signerContext, context),
   };
 }

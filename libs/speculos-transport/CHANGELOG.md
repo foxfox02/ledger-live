@@ -1,5 +1,27 @@
 # @ledgerhq/speculos-transport
 
+## 0.13.0
+
+### Minor Changes
+
+- [#23470](https://github.com/LedgerHQ/ledger-live/pull/23470) [`ba07b05`](https://github.com/LedgerHQ/ledger-live/commit/ba07b0562bf91bb0e5468d4806bc5d7781785248) Thanks [@abdurrahman-ledger](https://github.com/abdurrahman-ledger)! - Watch the Speculos screen during local E2E runs: `SPECULOS_SCREEN=web` opens the Speculos web page (through a local proxy that adds the Speculinho session token), `SPECULOS_SCREEN=vnc` a VNC viewer (through a local bridge to the Speculinho VNC websocket). Ignored in CI. Local Docker Speculos now always runs its VNC server, bound to 127.0.0.1.
+
+### Patch Changes
+
+- Updated dependencies [[`307d5c0`](https://github.com/LedgerHQ/ledger-live/commit/307d5c0da2fc42ee1699e6b48073255276456dd6), [`a8d48a9`](https://github.com/LedgerHQ/ledger-live/commit/a8d48a97f1bae0c2adad5d2790c9cc8ab5d7c2b0), [`ed89930`](https://github.com/LedgerHQ/ledger-live/commit/ed89930df1e705c535e5c4cccd62033654f5a145)]:
+  - @ledgerhq/live-dmk-speculos@0.12.0
+
+## 0.13.0-next.0
+
+### Minor Changes
+
+- [#23470](https://github.com/LedgerHQ/ledger-live/pull/23470) [`ba07b05`](https://github.com/LedgerHQ/ledger-live/commit/ba07b0562bf91bb0e5468d4806bc5d7781785248) Thanks [@abdurrahman-ledger](https://github.com/abdurrahman-ledger)! - Watch the Speculos screen during local E2E runs: `SPECULOS_SCREEN=web` opens the Speculos web page (through a local proxy that adds the Speculinho session token), `SPECULOS_SCREEN=vnc` a VNC viewer (through a local bridge to the Speculinho VNC websocket). Ignored in CI. Local Docker Speculos now always runs its VNC server, bound to 127.0.0.1.
+
+### Patch Changes
+
+- Updated dependencies [[`307d5c0`](https://github.com/LedgerHQ/ledger-live/commit/307d5c0da2fc42ee1699e6b48073255276456dd6), [`a8d48a9`](https://github.com/LedgerHQ/ledger-live/commit/a8d48a97f1bae0c2adad5d2790c9cc8ab5d7c2b0), [`ed89930`](https://github.com/LedgerHQ/ledger-live/commit/ed89930df1e705c535e5c4cccd62033654f5a145)]:
+  - @ledgerhq/live-dmk-speculos@0.12.0-next.0
+
 ## 0.12.0
 
 ### Minor Changes
@@ -235,25 +257,5 @@
   - @ledgerhq/devices@8.17.0-next.0
   - @ledgerhq/live-dmk-speculos@0.10.1-next.0
   - @ledgerhq/hw-transport-node-speculos@6.34.6-next.0
-
-## 0.10.6
-
-### Patch Changes
-
-- Updated dependencies [[`7fcf623`](https://github.com/LedgerHQ/ledger-live/commit/7fcf62387e642e10b23503a786e230b11d051cb6), [`13aeeb6`](https://github.com/LedgerHQ/ledger-live/commit/13aeeb6186997b433785e542ed1dafa6afde2267), [`798081d`](https://github.com/LedgerHQ/ledger-live/commit/798081db3e427c8d2d09930ceb836703146ca1ba), [`ebda9d8`](https://github.com/LedgerHQ/ledger-live/commit/ebda9d88805501f4c2c03fef0fe24f116a8a2a6c), [`e369e66`](https://github.com/LedgerHQ/ledger-live/commit/e369e66e9f4263229cd4b158e67ef9d66acd22d3)]:
-  - @ledgerhq/live-dmk-speculos@0.10.0
-  - @ledgerhq/live-env@2.40.0
-  - @ledgerhq/devices@8.16.0
-  - @ledgerhq/hw-transport-node-speculos@6.34.5
-
-## 0.10.6-next.0
-
-### Patch Changes
-
-- Updated dependencies [[`7fcf623`](https://github.com/LedgerHQ/ledger-live/commit/7fcf62387e642e10b23503a786e230b11d051cb6), [`13aeeb6`](https://github.com/LedgerHQ/ledger-live/commit/13aeeb6186997b433785e542ed1dafa6afde2267), [`798081d`](https://github.com/LedgerHQ/ledger-live/commit/798081db3e427c8d2d09930ceb836703146ca1ba), [`ebda9d8`](https://github.com/LedgerHQ/ledger-live/commit/ebda9d88805501f4c2c03fef0fe24f116a8a2a6c), [`e369e66`](https://github.com/LedgerHQ/ledger-live/commit/e369e66e9f4263229cd4b158e67ef9d66acd22d3)]:
-  - @ledgerhq/live-dmk-speculos@0.10.0-next.0
-  - @ledgerhq/live-env@2.40.0-next.0
-  - @ledgerhq/devices@8.16.0-next.0
-  - @ledgerhq/hw-transport-node-speculos@6.34.5-next.0
 
 <!-- changelog-pruned: older entries were removed to keep this file small. Full history is in `git log -p CHANGELOG.md` and in the GitHub release for each version. -->

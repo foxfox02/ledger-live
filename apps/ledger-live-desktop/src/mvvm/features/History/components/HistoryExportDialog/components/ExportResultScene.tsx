@@ -8,8 +8,9 @@ import {
   DialogBody,
   Spot,
 } from "@ledgerhq/lumen-ui-react";
+import { CheckmarkCircleFill, DeleteCircleFill } from "@ledgerhq/lumen-ui-react/symbols";
 import { useTranslation } from "react-i18next";
-import { TrackPage } from "@shared/analytics-react";
+import { TrackScreen } from "@shared/analytics-react";
 import {
   HISTORY_EXPORT_DIALOG_SUCCESS_TRACKING_PAGE,
   HISTORY_EXPORT_DIALOG_TRACKING_PAGE_NAME,
@@ -18,7 +19,8 @@ import {
 const VARIANTS = {
   success: {
     gradient: "bg-gradient-success",
-    spotAppearance: "check",
+    spotAppearance: "success",
+    spotIcon: CheckmarkCircleFill,
     titleKey: "history.exportDialog.successTitle",
     descriptionKey: "history.exportDialog.successDescription",
     buttonKey: "history.exportDialog.done",
@@ -26,6 +28,7 @@ const VARIANTS = {
   error: {
     gradient: "bg-gradient-error",
     spotAppearance: "error",
+    spotIcon: DeleteCircleFill,
     titleKey: "history.exportDialog.errorTitle",
     descriptionKey: "history.exportDialog.errorDescription",
     buttonKey: "history.exportDialog.tryAgain",
@@ -50,7 +53,7 @@ export function ExportResultScene({ variant, onButtonClick }: Props) {
   return (
     <DialogContent>
       {variant === "success" ? (
-        <TrackPage
+        <TrackScreen
           category={HISTORY_EXPORT_DIALOG_TRACKING_PAGE_NAME}
           name={HISTORY_EXPORT_DIALOG_SUCCESS_TRACKING_PAGE.name}
           refreshSource={false}
@@ -62,7 +65,7 @@ export function ExportResultScene({ variant, onButtonClick }: Props) {
           <div
             className={`pointer-events-none absolute inset-x-0 top-0 h-full ${config.gradient}`}
           />
-          <Spot appearance={config.spotAppearance} size={72} />
+          <Spot appearance={config.spotAppearance} icon={config.spotIcon} size={72} />
           <div className="flex flex-col items-center gap-12 text-center">
             <span
               className="heading-4-semi-bold text-base"

@@ -24,8 +24,9 @@ the host that minted the token.
 ## Assumption: our test users are authenticator-based, not SMS
 
 Baanx's [docs](https://docs.baanx.com/guides/user/authentication) describe `POST /v1/auth/login/otp`
-as an **SMS** trigger and mention TOTP nowhere. This package uses a TOTP setup key because our test
-users are provisioned with an authenticator secret — confirmed by the team, not by the docs.
+as an **SMS** trigger and mention TOTP nowhere. This client does not call that endpoint on purpose
+because it is rate limited. Test users are provisioned with an authenticator secret, so a required
+OTP is answered by deriving a TOTP code and resubmitting `/v1/auth/login`.
 
 If a user ever turns out to be SMS-only, a derived code cannot satisfy it: Baanx compares an SMS code
 against a stored random value, while TOTP is `HMAC(secret, time_counter)`. No shared state, no
@@ -71,7 +72,7 @@ yourself:
 
 ```bash
 # once, before the workers start
-export CARD_API_TOKEN=$(pnpm --silent --filter @ledgerhq/baanx-test-client token)
+export CARD_API_TOKEN=$(pnpm --silent --filter @ledgerhq/baanx-test-client baanx-token)
 ```
 
 ```ts
@@ -89,7 +90,7 @@ OAuth flow, and rotate), so nothing tries to renew. Re-authenticate per CI run.
 stdout carries the bare token and nothing else; failures go to stderr with a non-zero exit.
 
 ```bash
-TOKEN=$(pnpm --silent --filter @ledgerhq/baanx-test-client token)
+TOKEN=$(pnpm --silent --filter @ledgerhq/baanx-test-client baanx-token)
 ```
 
 `-- --json` prints the full session, `-- --help` lists the variables.
@@ -111,7 +112,7 @@ fine for a run shorter than the 6-hour token life but is not a substitute for th
 Desktop:
 
 ```bash
-export CARD_SESSION_BOOTSTRAP=$(pnpm --silent --filter @ledgerhq/baanx-test-client token -- --session)
+export CARD_SESSION_BOOTSTRAP=$(pnpm --silent --filter @ledgerhq/baanx-test-client baanx-token -- --session)
 export CARD_BAANX_API_URL=https://<the Baanx host that minted the token>
 export CARD_BAANX_CLIENT_KEY=baanx-client-key-that-minted-the-token
 pnpm --filter ledger-live-desktop start
@@ -122,7 +123,7 @@ substitutes it while bundling, so export it in the terminal that runs the bundle
 transform cache:
 
 ```bash
-export CARD_SESSION_BOOTSTRAP=$(pnpm --silent --filter @ledgerhq/baanx-test-client token -- --session)
+export CARD_SESSION_BOOTSTRAP=$(pnpm --silent --filter @ledgerhq/baanx-test-client baanx-token -- --session)
 pnpm mobile start --reset-cache
 # second terminal, no exports needed:
 pnpm mobile ios:staging
@@ -143,7 +144,7 @@ Mobile reads Detox launch arguments at runtime, and `process.env` only in `__DEV
 it in a development build, or in any build launched with `PLAYWRIGHT_RUN` (desktop) / `Config.DETOX`
 (mobile). Treat a machine where you export it as one holding a live credential. The runtime check is
 deliberate: release-mode E2E runs against the release bundle, where a build-time marker would be
-absent. Mint once per run and reuse it — Baanx rate limits the OTP trigger.
+absent. Mint once per run and reuse it — Baanx rate limits login and the OTP trigger endpoints.
 
 ## The login flow
 
@@ -152,9 +153,9 @@ response body; the status code is only used to map hard failures.
 
 1. `POST /v1/auth/login` with `{ email, password }`.
 2. **`phase` non-null** → onboarding never finished. `BaanxOnboardingIncompleteError`; no token exists.
-3. **`isOtpRequired: true`** → trigger via `/v1/auth/login/otp` with `{ userId }`, derive the code,
-   re-post the login with `{ email, password, otpCode }` (no `phoneNumber`). A second challenge means
-   the code was rejected — it stops rather than burning attempts and risking a lock.
+3. **`isOtpRequired: true`** → derive the otp code and re-post `/v1/auth/login` with
+   `{ email, password, otpCode }` (no `phoneNumber`, and no call to `/v1/auth/login/otp`). A second
+   challenge means the code was rejected — it stops rather than burning attempts and risking a lock.
 4. **`accessToken` present** → success.
 5. **Otherwise** → `BaanxNoTokenError` with the redacted body. Blank, `null` and whitespace tokens
    count as absent, so this never yields `Bearer null`.

@@ -2,6 +2,8 @@ import { useCallback, useMemo } from "react";
 import { BigNumber } from "bignumber.js";
 import { useTranslation } from "react-i18next";
 import type { Account, AccountLike } from "@ledgerhq/types-live";
+import { getAccountCurrency } from "@ledgerhq/ledger-wallet-framework/account/helpers";
+import { sendFeatures } from "@ledgerhq/live-common/bridge/descriptor/send/features";
 import type { Transaction, TransactionStatus } from "@ledgerhq/live-common/generated/types";
 import type {
   SendFlowTransactionActions,
@@ -20,7 +22,7 @@ import { useNetworkFees } from "../../../hooks/useNetworkFees";
 import { track } from "@shared/analytics";
 import { useSendFlowTrackingProperties } from "../../../hooks/useSendFlowTrackingProperties";
 import { useSponsoredSend } from "../../../context/SponsoredSendContext";
-import { isSponsoredFeeUnaffordable } from "../../../utils/sponsoredFeeAsset";
+import { withoutWaivedStatus } from "@ledgerhq/live-common/flows/send/sponsored/waivedStatus";
 import { FEE_PLACEHOLDER } from "LLD/features/Send/constants";
 import type { SponsoredFeeAmounts } from "LLD/features/Send/types";
 
@@ -29,13 +31,6 @@ const PENDING_SPONSORED_FEE: SponsoredFeeAmounts["sponsored"] = {
   secondaryValue: null,
   originalValue: null,
 };
-
-function withoutKeys(
-  record: Record<string, Error>,
-  keys: readonly string[],
-): Record<string, Error> {
-  return Object.fromEntries(Object.entries(record).filter(([key]) => !keys.includes(key)));
-}
 
 type UseAmountScreenViewModelParams = Readonly<{
   account: AccountLike;
@@ -75,25 +70,21 @@ export function useAmountScreenViewModel({
     savingsFiatFormatted,
     feeCurrencyTicker,
     feeTokenAccount,
+    sponsoredUnaffordable,
+    rentArriving,
   } = useSponsoredSend();
   const sponsoredSelected = selectedFeeOptionId === sponsoredFeeOptionId;
 
   const sendFlowTrackingProperties = useSendFlowTrackingProperties();
 
   const sponsoredCoversNativeFee = sponsoredSelected && available && !!quote;
-  const statusWithoutWaived = useMemo(() => {
-    const waivesAny =
-      waivesErrorKeys.some(key => status.errors?.[key]) ||
-      waivesWarningKeys.some(key => status.warnings?.[key]);
-    if (!sponsoredCoversNativeFee || !waivesAny) {
-      return status;
-    }
-    return {
-      ...status,
-      errors: withoutKeys(status.errors, waivesErrorKeys),
-      warnings: withoutKeys(status.warnings, waivesWarningKeys),
-    };
-  }, [sponsoredCoversNativeFee, waivesErrorKeys, waivesWarningKeys, status]);
+  const statusWithoutWaived = useMemo(
+    () =>
+      sponsoredCoversNativeFee
+        ? withoutWaivedStatus(status, waivesErrorKeys, waivesWarningKeys)
+        : status,
+    [sponsoredCoversNativeFee, waivesErrorKeys, waivesWarningKeys, status],
+  );
 
   const amountReviewCore = useSendFlowAmountReviewCore({
     account,
@@ -116,18 +107,9 @@ export function useAmountScreenViewModel({
     reviewShowIcon,
     reviewDisabled,
     amountComputationPending,
+    hasInsufficientFundsError,
     shouldPrepare,
   } = amountReviewCore;
-
-  const sponsoredFeeUnaffordable = useMemo(() => {
-    if (!sponsoredSelected || !available || !quote) return false;
-    return isSponsoredFeeUnaffordable({
-      account,
-      transaction,
-      feeTokenAccount,
-      rentValue: quote.value,
-    });
-  }, [sponsoredSelected, available, quote, account, transaction, feeTokenAccount]);
 
   const amountInput = useAmountInput({
     account,
@@ -313,7 +295,11 @@ export function useAmountScreenViewModel({
   );
 
   // No quote while the option stays available means one is loading: every failure withdraws it.
-  const sponsoredReviewNotReady = sponsoredSelected && available && (!intentReady || !quote);
+  // Get funds needs no quote, so only Review waits for it.
+  const sponsoredReviewNotReady =
+    !hasInsufficientFundsError && sponsoredSelected && available && (!intentReady || !quote);
+
+  const rentChangesFee = sendFeatures.rentChangesFee(getAccountCurrency(account));
 
   return {
     amountValue: amountInput.amountValue,
@@ -331,13 +317,19 @@ export function useAmountScreenViewModel({
     amountMessage,
     reviewLabel,
     reviewShowIcon,
-    reviewDisabled: reviewDisabled || sponsoredFeeUnaffordable || sponsoredReviewNotReady,
-    sponsoredFeeError: sponsoredFeeUnaffordable
+    // An insufficient amount turns Review into Get funds, which stays pressable.
+    reviewDisabled:
+      reviewDisabled ||
+      (sponsoredUnaffordable && !hasInsufficientFundsError) ||
+      sponsoredReviewNotReady,
+    sponsoredFeeError: sponsoredUnaffordable
       ? t("newSendFlow.feePayment.insufficientFunds", {
           feeCurrency: feeCurrencyTicker,
           provider: providerName,
         })
       : null,
+    sponsoredRentNotice:
+      rentArriving && rentChangesFee ? t("newSendFlow.feePayment.rentArriving") : null,
     reviewLoading: amountComputationPending || sponsoredReviewNotReady,
     ...networkFees,
     feeSelector: {

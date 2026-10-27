@@ -1,6 +1,6 @@
 {
   "name": "@ledgerhq/hw-app-multiversx",
-  "version": "6.31.0",
+  "version": "6.32.0",
   "description": "Ledger Hardware Wallet MultiversX Application API",
   "keywords": [
     "Ledger",
@@ -32,7 +32,7 @@
     "axios": "catalog:",
     "bignumber.js": "^9.0.1",
     "bip32-path": "^0.4.2",
-    "protobufjs": "^7.2.6"
+    "protobufjs": "^8.4.1"
   },
   "devDependencies": {
     "@ledgerhq/hw-transport-mocker": "catalog:",
@@ -46,6 +46,12 @@
     "source-map-support": "^0.5.21",
     "ts-node": "^10.4.0"
   },
+  "files": [
+    "lib",
+    "lib-es",
+    "src",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "clean": "rimraf lib lib-es",
     "build": "tsc --project tsconfig.build.json && tsc --project tsconfig.build.json -m esnext --moduleResolution bundler --outDir lib-es",
@@ -55,8 +61,7 @@
     "watch:es": "tsc --watch --project tsconfig.build.json -m esnext --moduleResolution bundler --outDir lib-es",
     "lint": "oxlint ./src",
     "lint:fix": "pnpm lint --fix",
-    "test": "jest",
-    "unimported": "unimported"
+    "test": "jest"
   },
   "exports": {
     ".": {

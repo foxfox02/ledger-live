@@ -11,24 +11,23 @@ Extracted so feature packages can consume a queued bottom sheet within the micro
 ```
 src/
   adapters.ts                 ← public adapter contract + defaults
-  components/                 ← public UI (`index.native` + `QueuedBottomSheet.native`)
+  components/                 ← public UI
   contexts/                   ← public React contexts
   hooks/                      ← public hooks
-  keyboard[.native].ts        ← platform-aware keyboard hook entry
+  keyboard.ts                 ← keyboard hook entry
   internals/                  ← package-private (not re-exported)
   testing/                    ← test double, exposed as `./testing` (see Testing)
-  index.ts                    ← default stub (QueuedBottomSheet throws outside RN)
-  index.native.ts             ← RN entry (unsuffixed imports; resolved via moduleSuffixes)
+  index.ts                    ← package entry
 ```
 
-- `package.json` `exports` expose `"."` (`react-native` → `index.native.ts`), `"./keyboard"`,
-  `"./testing"` and `"./testing/module-mock"`.
+- `package.json` `exports` expose `"."`, `"./keyboard"`, `"./testing"` and `"./testing/module-mock"`,
+  with no platform condition: the package has a single platform, so its entries are not universal.
 - RN-only package: `tsconfig.json` is platform-agnostic and `tsconfig.native.json` adds
   `moduleSuffixes: [".native", ""]`. There are no `.web` files or a web tsconfig.
-- Barrels import unsuffixed paths (`./QueuedBottomSheet/QueuedBottomSheet`); `moduleSuffixes`
-  (package `tsconfig.native.json` and LLM `tsconfig.json`) resolves `QueuedBottomSheet.native.tsx`.
-- Avoid a same-basename `.ts` stub next to `*.native.tsx` (Rspack tries `.ts` before
-  `.native.tsx`); keep the throw stub on the default `index.ts` only.
+- Imports use unsuffixed paths; `moduleSuffixes` (package `tsconfig.native.json` and LLM
+  `tsconfig.json`) resolves the remaining `*.native.*` internals.
+- Avoid a same-basename `.ts` file next to a `*.native.tsx` one (Re.Pack tries `.ts` before
+  `.native.tsx`).
 - Private helpers live in `internals/` and are tested there.
 
 ## Design: injected adapters
@@ -44,6 +43,8 @@ The package must not depend on `libs/*`, Redux, or React Navigation. App-specifi
 
 Adapters default to a no-op set (unlocked, focused, no gradient, no logging), so the package works without any wiring. Pass a **stable** adapters object (module scope or `useMemo`) — the adapter functions are called as hooks per sheet.
 
+A request the consumer drops and makes again while the previous presentation is still animating out waits for the next presentation: until then, the outgoing sheet ignores new `children` and `footer` and keeps rendering what it last rendered before the request came back (nothing, for a consumer that clears its content on close). A request held through the whole close (a backdrop press, a consumer that never drops it, `restoreOnFocus`) keeps its content until the sheet is gone. gorhom keeps the outgoing sheet mounted until its close animation ends, and content mounted into it (a field focusing itself, for one) can keep that sheet from ever reporting its dismissal.
+
 A sheet whose screen loses focus is closed and reported through `onClose`, like any other close, so its consumer stops requesting it. Pass `restoreOnFocus` when the sheet is expected back after a round trip to another screen: the sheet is then hidden without reporting a close, and it is presented again once the screen is focused.
 
 ## Exports (native)
@@ -58,7 +59,7 @@ A sheet whose screen loses focus is closed and reported through `onClose`, like 
 | `BottomSheetBackgroundContext`                                   | Descendants request a status-tone background                        |
 | `useBottomSheetBackgroundTone`                                   | Descendants request a status-tone background on the enclosing sheet |
 | `useBottomSheetFooterInset`                                      | Reserve space occupied by a sticky sheet footer                     |
-| `@shared/ui-queued-bottom-sheet/keyboard`                        | Platform-aware keyboard hook entry                                  |
+| `@shared/ui-queued-bottom-sheet/keyboard`                        | Keyboard hook entry                                                 |
 | `useBottomSheetKeyboardAwareInput` (from `/keyboard`)            | A plain `TextInput` lets the enclosing sheet react to the keyboard  |
 | `QueuedBottomSheetAdapters` / `defaultQueuedBottomSheetAdapters` | Adapter contract and defaults                                       |
 
@@ -112,7 +113,7 @@ import { QueuedBottomSheet } from "@shared/ui-queued-bottom-sheet";
 </QueuedBottomSheet>;
 ```
 
-This package is React Native only. The default (non-`react-native`) export stub throws if `QueuedBottomSheet` is imported outside RN.
+This package is React Native only: its entries import React Native and gorhom on every platform.
 
 ## Testing
 
@@ -124,7 +125,7 @@ test can't render it. This package ships the double instead of each consumer han
 | `./testing`                                 | `QueuedBottomSheetMock`, `QUEUED_BOTTOM_SHEET_MOCK_TEST_ID`             |
 | `./testing/module-mock`                     | Drop-in module replacement for a jest `moduleNameMapper`                 |
 
-`features/flow/*` packages get it for free: `@support/jest-features-flow` maps the package to
+`features/flow/*` packages get it for free: `@support/jest/features-flow` maps the package to
 `./testing/module-mock` in its native project, so their tests just render the view.
 
 The double renders its children unconditionally — whether content shows while closed is the

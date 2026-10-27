@@ -1,10 +1,11 @@
 import React from "react";
-import Clipboard from "@react-native-clipboard/clipboard";
+import { copyToClipboard } from "@shared/clipboard";
 import { Pressable, Text } from "react-native";
 import type { RouteProp } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -19,7 +20,7 @@ import {
   mockMeContact,
   mockPopulatedContacts,
 } from "@domain/entity-contact/schema.mock";
-import { ContactDetailView } from "@features/flow-contacts";
+import { ContactDetailView } from "@features/flow-contacts-detail";
 import { NavigatorName, ScreenName } from "~/const";
 import type { AccountsNavigatorParamList } from "~/components/RootNavigator/types/AccountsNavigator";
 import { ContactsButton, ContactsScreen } from "LLM/features/Contacts";
@@ -33,6 +34,10 @@ import { useModularDrawerController } from "LLM/features/ModularDrawer";
 import { mockEthCryptoCurrency } from "@ledgerhq/live-common/modularDrawer/__mocks__/currencies.mock";
 
 const mockHandleOpenSendFlow = jest.fn();
+jest.mock("@shared/clipboard", () => ({
+  copyToClipboard: jest.fn().mockResolvedValue(true),
+}));
+
 jest.mock("LLM/features/Send/hooks/useOpenSendFlow", () => ({
   useOpenSendFlow: () => ({ handleOpenSendFlow: mockHandleOpenSendFlow }),
 }));
@@ -196,7 +201,7 @@ function ContactsGatingTestApp() {
 function ContactDetailViewModelProbe() {
   const viewModel = useContactDetailScreenViewModel();
 
-  if (viewModel.status === "redirecting") {
+  if (viewModel.status !== "ready") {
     return null;
   }
 
@@ -266,7 +271,7 @@ function ContactDetailAddressEntryTestScreen() {
   const viewModel = useContactDetailScreenViewModel();
   const { handleCurrencySelected } = useModularDrawerController();
 
-  if (viewModel.status === "redirecting") {
+  if (viewModel.status !== "ready") {
     return null;
   }
 
@@ -537,7 +542,7 @@ describe("Contacts integration", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("contacts-search-no-results")).toHaveTextContent(
-        "No contact found",
+        "No contacts found by that nameTry another name or spelling.",
       );
       expect(screen.queryByTestId("contacts-me-item")).toBeNull();
       expect(screen.queryByTestId("contacts-add-contact-row")).toBeNull();
@@ -857,6 +862,7 @@ describe("Contacts integration", () => {
     expect(addressNameInput).toHaveProp("value", mockEthCryptoCurrency.name);
     expect(addressNameInput).toHaveProp("maxLength", 32);
     expect(screen.getByTestId("contacts-add-address-name-count")).toHaveTextContent("8/32");
+    expect(screen.getByTestId("contacts-add-address-name-privacy-policy")).toBeVisible();
     expect(screen.getByText("Name address")).toBeVisible();
     expect(
       screen.getByText(
@@ -1113,7 +1119,6 @@ describe("Contacts integration", () => {
   });
 
   it("should copy the address from the detail sheet", async () => {
-    const setString = jest.spyOn(Clipboard, "setString");
     const { user } = render(<MyWalletNavigator />, {
       overrideInitialState: withContactsPageReadyState(
         { lwmContacts: { enabled: true, params: { newBadge: false } } },
@@ -1127,7 +1132,7 @@ describe("Contacts integration", () => {
     await user.press(await screen.findByTestId("contacts-address-detail-copy"));
 
     await waitFor(() => {
-      expect(setString).toHaveBeenCalledWith("0x1ad23b2cf8d2e0591ea417eb82f7cd9746c53034");
+      expect(copyToClipboard).toHaveBeenCalledWith("0x1ad23b2cf8d2e0591ea417eb82f7cd9746c53034");
       expect(screen.getByTestId("contacts-address-detail-copy")).toHaveTextContent("Copied");
     });
   });
@@ -1275,6 +1280,7 @@ describe("Contacts integration", () => {
 
   it("should prefill the saved address and update the address value", async () => {
     const newAddress = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd";
+    const savedAddressPreview = "0xabcdef...cdefabcd";
     const { user } = render(<MyWalletNavigator />, {
       overrideInitialState: withContactsPageReadyState(
         { lwmContacts: { enabled: true, params: { newBadge: false } } },
@@ -1298,18 +1304,26 @@ describe("Contacts integration", () => {
     });
 
     await user.press(screen.getByTestId("contacts-rename-address-confirm"));
+
     await waitFor(() => {
       expect(screen.queryByTestId("contacts-rename-address-confirm")).toBeNull();
+      expect(screen.queryByTestId("contacts-address-detail-dialog")).toBeNull();
+      expect(
+        screen.getByTestId("contacts-detail-address-address-ethereum-value"),
+      ).toHaveTextContent(savedAddressPreview);
+    });
+
+    // The sheet mock never emits onDismiss, so a close stays leaving until this fallback.
+    // Reopening earlier reuses that sheet and keeps the previous address on screen.
+    act(() => {
+      jest.advanceTimersByTime(600);
     });
 
     await user.press(screen.getByTestId("contacts-detail-address-row-address-ethereum"));
 
-    // The sheet closes before the save lands, so wait on the saved value, not the sheet.
-    await waitFor(() => {
-      expect(screen.getByTestId("contacts-address-detail-full-address")).toHaveTextContent(
-        newAddress,
-      );
-    });
+    expect(await screen.findByTestId("contacts-address-detail-full-address")).toHaveTextContent(
+      newAddress,
+    );
   });
 
   it("should hide delete from the Me contact actions menu", async () => {

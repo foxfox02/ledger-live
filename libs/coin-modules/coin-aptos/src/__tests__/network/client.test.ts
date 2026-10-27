@@ -2,6 +2,7 @@ import { ApolloClient } from "@apollo/client";
 import {
   AccountAddress,
   Aptos,
+  AptosApiError,
   ChainId,
   Ed25519PublicKey,
   Hex,
@@ -394,6 +395,53 @@ describe("Aptos API", () => {
       expect(accountInfo.transactions).toEqual([null]);
       expect(accountInfo.blockHeight).toEqual(999);
     });
+
+    it.each([
+      TransactionResponseType.BlockMetadata,
+      TransactionResponseType.StateCheckpoint,
+      TransactionResponseType.Genesis,
+    ])(
+      "returns a null transaction without fetching its block when the indexed version is a %s",
+      async type => {
+        const getBlockByVersion = jest.fn();
+        mockedAptos.mockImplementation(() => ({
+          view: jest.fn().mockReturnValue(["123"]),
+          getTransactionByVersion: jest.fn().mockReturnValue({ type, version: "1" }),
+          getBlockByVersion,
+          getCurrentFungibleAssetBalances: jest.fn().mockResolvedValue([
+            {
+              asset_type: APTOS_ASSET_ID,
+              amount: new BigNumber(123),
+            },
+          ]),
+        }));
+
+        mockedNetwork.mockResolvedValue({
+          data: { block_height: "999" },
+          status: 200,
+          headers: {} as any,
+          statusText: "",
+          config: {
+            headers: {} as any,
+          },
+        });
+
+        mockedApolloClient.mockImplementation(() => ({
+          query: async () => ({
+            data: {
+              account_transactions: [{ transaction_version: 1 }],
+            },
+            loading: false,
+            networkStatus: 7,
+          }),
+        }));
+
+        const api = new AptosAPI("aptos");
+        const accountInfo = await api.getAccountInfo(APTOS_ASSET_ID, "1");
+        expect(accountInfo.transactions).toEqual([null]);
+        expect(getBlockByVersion).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe("estimateGasPrice", () => {
@@ -1292,6 +1340,60 @@ describe("Aptos API", () => {
 
       expect(ops.items).toHaveLength(2);
       expect(ops.next).toBeUndefined();
+    });
+
+    it("fetches the whole history without a block lookup when minHeight is 0", async () => {
+      const mockGetBlockByHeight = jest.fn();
+      mockedAptos.mockImplementation(() => ({ getBlockByHeight: mockGetBlockByHeight }));
+
+      const api = new AptosAPI("aptos");
+      api.getAccountInfo = jest.fn().mockResolvedValue({ transactions: [] });
+
+      await api.listOperations("0x12345", 0);
+
+      expect(mockGetBlockByHeight).not.toHaveBeenCalled();
+      expect(api.getAccountInfo).toHaveBeenCalledWith(expect.any(String), undefined);
+    });
+
+    it("starts from the first transaction version of the minHeight block, inclusive", async () => {
+      const mockGetBlockByHeight = jest.fn().mockResolvedValue({ first_version: "2788851123" });
+      mockedAptos.mockImplementation(() => ({ getBlockByHeight: mockGetBlockByHeight }));
+
+      const api = new AptosAPI("aptos");
+      api.getAccountInfo = jest.fn().mockResolvedValue({ transactions: [] });
+
+      await api.listOperations("0x12345", 352397553);
+
+      expect(mockGetBlockByHeight).toHaveBeenCalledWith({ blockHeight: 352397553 });
+      expect(api.getAccountInfo).toHaveBeenCalledWith(expect.any(String), "2788851122");
+    });
+
+    it("returns no operations when the minHeight block does not exist yet", async () => {
+      const notFound = Object.assign(Object.create(AptosApiError.prototype), { status: 404 });
+      mockedAptos.mockImplementation(() => ({
+        getBlockByHeight: jest.fn().mockRejectedValue(notFound),
+      }));
+
+      const api = new AptosAPI("aptos");
+      api.getAccountInfo = jest.fn();
+
+      const ops = await api.listOperations("0x12345", 999999999999);
+
+      expect(ops).toEqual({ items: [], next: undefined });
+      expect(api.getAccountInfo).not.toHaveBeenCalled();
+    });
+
+    it("rethrows any other block lookup error", async () => {
+      const serverError = Object.assign(Object.create(AptosApiError.prototype), { status: 500 });
+      mockedAptos.mockImplementation(() => ({
+        getBlockByHeight: jest.fn().mockRejectedValue(serverError),
+      }));
+
+      const api = new AptosAPI("aptos");
+      api.getAccountInfo = jest.fn();
+
+      await expect(api.listOperations("0x12345", 352397553)).rejects.toBe(serverError);
+      expect(api.getAccountInfo).not.toHaveBeenCalled();
     });
   });
 });

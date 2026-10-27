@@ -101,6 +101,34 @@ describe("genericGetTransactionStatus", () => {
     );
   });
 
+  it.each([[true], [undefined]])(
+    "rebuilds the balances with the family's partitionsNativeBalance (%p)",
+    async partitionsNativeBalance => {
+      const getAssetFromToken = jest.fn();
+      const getHeldNativeAmount = jest.fn();
+      mockGetBridgeApi.mockResolvedValue({
+        partitionsNativeBalance,
+        getHeldNativeAmount,
+        getAssetFromToken,
+      });
+      const getStatus = genericGetTransactionStatus("mainnet", "evm");
+
+      await getStatus(account, {
+        amount: new BigNumber(1),
+        useAllAmount: false,
+        recipient: "0x",
+        family: "evm",
+      } as any);
+
+      expect(mockExtractBalances).toHaveBeenCalledWith(
+        account,
+        getAssetFromToken,
+        partitionsNativeBalance,
+        getHeldNativeAmount,
+      );
+    },
+  );
+
   it("carries familySpecificData through the draft transaction to the family's buildIntentData", async () => {
     const familySpecificData = { chosenOption: "OPTION_A", chosenList: [], chosenCount: 3 };
     const buildIntentData = jest.fn().mockReturnValue({ type: "none" });
@@ -249,6 +277,33 @@ describe("genericGetTransactionStatus", () => {
       } as any);
 
       expect("gasLimit" in readParameters()).toBe(false);
+    });
+
+    it("hands the sponsoring context to validateIntent so a sponsored send is validated as sponsored", async () => {
+      const getStatus = genericGetTransactionStatus("mainnet", "tron");
+
+      await getStatus(account, {
+        amount: new BigNumber(100),
+        useAllAmount: false,
+        recipient: "TRecipient",
+        family: "tron",
+        sponsored: true,
+      } as any);
+
+      expect(readParameters().sponsored).toBe(true);
+    });
+
+    it("leaves the sponsored key out of the fee parameters when the transaction carries no sponsoring context", async () => {
+      const getStatus = genericGetTransactionStatus("mainnet", "tron");
+
+      await getStatus(account, {
+        amount: new BigNumber(100),
+        useAllAmount: false,
+        recipient: "TRecipient",
+        family: "tron",
+      } as any);
+
+      expect("sponsored" in readParameters()).toBe(false);
     });
   });
 });

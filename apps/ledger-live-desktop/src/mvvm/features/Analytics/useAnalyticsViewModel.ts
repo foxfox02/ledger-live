@@ -8,7 +8,7 @@ import {
 import { accountsSelector } from "~/renderer/reducers/accounts";
 import { useWalletFeaturesConfig } from "@features/platform-feature-flags";
 import { usePortfolioBalanceDisplayState } from "LLD/hooks/usePortfolioBalanceDisplayState";
-import { useCountervaluesState } from "@ledgerhq/live-countervalues-react";
+import { useCountervaluesCache } from "@features/platform-market-countervalues";
 import { resolveAnalyticsValueChange } from "@ledgerhq/wallet-analytics";
 import type { AnalyticsViewModel } from "./types";
 
@@ -17,16 +17,15 @@ export default function useAnalyticsViewModel(): AnalyticsViewModel {
   const counterValue = useSelector(counterValueCurrencySelector);
   const selectedTimeRange = useSelector(selectedTimeRangeSelector);
   const accounts = useSelector(accountsSelector);
-  const cvState = useCountervaluesState();
-  const { shouldDisplayAssetSection, shouldDisplayPnl: isPnlFlagOn } =
-    useWalletFeaturesConfig("desktop");
+  const cvState = useCountervaluesCache();
+  const { shouldDisplayAssetSection } = useWalletFeaturesConfig("desktop");
   const {
     balanceInfo: syncBalanceInfo,
     portfolio,
     isLoading,
   } = usePortfolioBalanceDisplayState({ legacyRange: true });
 
-  const shouldDisplayPnl = isPnlFlagOn && accounts.length > 0;
+  const shouldDisplayPnl = accounts.length > 0;
 
   const valueChange = useMemo(
     () =>

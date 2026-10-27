@@ -13,8 +13,7 @@ import BitcoinLikeExplorer from "@ledgerhq/wallet-btc/explorer/index";
 import type { TX } from "@ledgerhq/wallet-btc/index";
 import type { CryptoCurrency } from "@ledgerhq/ledger-wallet-framework/types";
 import type { DerivationMode } from "@ledgerhq/types-live";
-import { toWalletBtcCurrency } from "../walletBtcCurrency";
-import { getCoinConfig } from "../config";
+import { toWalletBtcCurrency, type ExplorerConfig } from "../walletBtcCurrency";
 import type { RelayConfig, RelayWallet } from "./relayClient";
 import { getRelayWallet, invalidateRelayCache } from "./relayCache";
 
@@ -140,6 +139,7 @@ export type TargetAddressData =
 export async function fetchTargetAddressData(
   currency: CryptoCurrency,
   address: string,
+  config: ExplorerConfig,
 ): Promise<TargetAddressData> {
   // 1) Try the relay for the full simulated wallet state.
   if (RELAY_CONFIG.enabled) {
@@ -152,7 +152,7 @@ export async function fetchTargetAddressData(
   }
 
   // 2) Fallback: direct Ledger explorer (original behavior).
-  const { txs, currentBlockHeight } = await fetchExplorerData(currency, address);
+  const { txs, currentBlockHeight } = await fetchExplorerData(currency, address, config);
   return { source: "explorer", txs, currentBlockHeight };
 }
 
@@ -160,8 +160,9 @@ export async function fetchTargetAddressData(
 async function fetchExplorerData(
   currency: CryptoCurrency,
   address: string,
+  config: ExplorerConfig,
 ): Promise<{ txs: TX[]; currentBlockHeight: number }> {
-  const explorer = new BitcoinLikeExplorer({ cryptoCurrency: toWalletBtcCurrency(currency, getCoinConfig(currency.id).info) });
+  const explorer = new BitcoinLikeExplorer({ cryptoCurrency: toWalletBtcCurrency(currency, config) });
 
   const currentBlock = await explorer.getCurrentBlock().catch(() => null);
   const currentBlockHeight = currentBlock?.height ?? 0;

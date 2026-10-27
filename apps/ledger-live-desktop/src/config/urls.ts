@@ -4,6 +4,7 @@ export const supportLinkByTokenType = {
   trc20: "https://support.ledger.com/article/360013062159-zd",
   asa: "https://support.ledger.com/article/360015896040-zd",
   spl: "https://support.ledger.com/article/7723954701469-zd",
+  plt: "https://support.ledger.com/article/Managing-PLT-Tokens-in-Ledger-Wallet",
 };
 
 const errors: Record<string, string> = {
@@ -64,6 +65,8 @@ export const urls = {
   feesMoreInfo: "https://support.ledger.com/article/360021039173-zd",
   feesEIP1559MoreInfo: "https://support.ledger.com/article/6018110754845-zd",
   feesTron: "https://support.ledger.com/article/6331588714141-zd",
+  // Support home until product publishes the gas sponsorship article.
+  gasSponsorship: "https://support.ledger.com/",
   recipientAddressInfo: "https://support.ledger.com/article/4404389453841-zd",
   managerAppLearnMore: "https://support.ledger.com/",
   privacyPolicy:
@@ -228,9 +231,6 @@ export const urls = {
   },
   memoTag: {
     learnMore: "https://support.ledger.com/article/4409603715217-zd",
-  },
-  geoBlock: {
-    learnMore: "https://support.ledger.com/article/Why-Ledger-Complies-with-Sanctions",
   },
   sanctionCompliance: {
     learnMore: "https://support.ledger.com/article/Why-Ledger-Complies-with-Sanctions",

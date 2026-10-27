@@ -11,6 +11,7 @@ import { doubleDecodeGoToURL } from "tests/utils/urlUtils";
 import { getAccountAddressesFromAppJson } from "tests/utils/getAccountAddressesUtils";
 import { ModularDialog } from "tests/page/dialog/modular.dialog";
 import { getModularSelectorFromInstance } from "tests/utils/modularSelectorUtils";
+import { TIMEOUT } from "@ledgerhq/live-e2e-shared/timeouts";
 
 interface ProviderConfig {
   buyParams: Record<string, (buySell: BuySell) => string | number>;
@@ -42,7 +43,7 @@ export class BuyAndSellPage extends WebViewAppPage {
   private fiatDrawer = "open-fiat-drawer";
   private fiatDrawerInput = "fiat-drawer-search-input";
   private saveRegionFiatOptionsSelector = "save-region-and-fiat-options";
-  private showMoreQuotes = "SHOW MORE QUOTES";
+  private expandQuotesButton = "expand-button";
   private amountInputError = "amount-input-section-error";
   private maxAmountButton = "max";
   private providerTitleCssSelector =
@@ -259,7 +260,7 @@ export class BuyAndSellPage extends WebViewAppPage {
     let balanceTooLow = false;
     if (operation === OperationType.Sell) {
       try {
-        await this.verifyElementIsVisible(this.amountInputError, 2000);
+        await this.verifyElementIsVisible(this.amountInputError, TIMEOUT.xsmall);
         balanceTooLow = true;
       } catch {
         // No error shown — balance covers the requested amount.
@@ -283,9 +284,7 @@ export class BuyAndSellPage extends WebViewAppPage {
 
   @step("Select provider quote")
   async selectProviderQuote(operation: string, provider: BuySellProvider) {
-    if (await this.isTextVisible(this.showMoreQuotes)) {
-      await this.clickElementByText(this.showMoreQuotes);
-    }
+    await this.expandQuotesIfCollapsed();
     await this.scrollToElement(this.provider(provider.name));
     await this.clickElement(this.provider(provider.name));
     await this.verifyElementText(this.formCta, `${operation} with ${provider.uiName}`);
@@ -293,11 +292,15 @@ export class BuyAndSellPage extends WebViewAppPage {
 
   @step("Get available providers")
   async getAvailableProviders(): Promise<string[]> {
-    if (await this.isTextVisible(this.showMoreQuotes)) {
-      await this.clickElementByText(this.showMoreQuotes);
-    }
+    await this.expandQuotesIfCollapsed();
     const titles = await this.getTextsByCssSelector(this.providerTitleCssSelector);
     return titles.map(title => title.trim());
+  }
+
+  private async expandQuotesIfCollapsed() {
+    if (await this.isElementVisible(this.expandQuotesButton)) {
+      await this.clickElement(this.expandQuotesButton);
+    }
   }
 
   @step("Select rotating provider")
@@ -366,7 +369,7 @@ export class BuyAndSellPage extends WebViewAppPage {
           return false;
         },
         {
-          timeout: 10_000,
+          timeout: TIMEOUT.medium,
           intervals: [200],
           message: "No settled GoTo URL found in webviewUrlHistory after waiting.",
         },

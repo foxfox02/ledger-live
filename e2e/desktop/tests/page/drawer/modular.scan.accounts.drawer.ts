@@ -1,6 +1,7 @@
 import { Drawer } from "tests/component/drawer.component";
 import { step } from "tests/misc/reporters/step";
 import { expect } from "@playwright/test";
+import { TIMEOUT } from "@ledgerhq/live-e2e-shared/timeouts";
 
 export class ModularScanAccountsDrawer extends Drawer {
   private confirmButton = this.page.getByRole("button", { name: "Confirm" });
@@ -9,7 +10,7 @@ export class ModularScanAccountsDrawer extends Drawer {
   private shareViewKeyButton = this.page.getByRole("button", { name: "Share view key" });
   private closeDrawerButton = this.page.getByRole("button", { name: "Close" });
   private deselectAllButton = this.page.getByText("Deselect all");
-  private checkbox = this.page.getByTestId("right-element-checkbox").first();
+  private firstAccountRow = this.page.getByTestId(/^account-row-/).first();
   private successAddLabel = this.page.getByTestId("accounts-added-title");
   private viewKeyWarningStep = this.page.getByTestId("view-key-warning-step");
   private viewKeyConfirmationStep = this.page.getByTestId("view-key-confirmation-step");
@@ -51,10 +52,11 @@ export class ModularScanAccountsDrawer extends Drawer {
 
   @step("Select first account")
   async selectFirstAccount() {
-    await this.confirmButton.waitFor({ state: "visible" });
+    // The button appears once the device has scanned the accounts.
+    await this.confirmButton.waitFor({ state: "visible", timeout: TIMEOUT.xxxlarge });
     if (await this.deselectAllButton.isVisible()) {
       await this.deselectAllButton.click();
-      await this.checkbox.click();
+      await this.firstAccountRow.click();
     }
     await this.clickConfirmButton();
     await this.expectSuccessStepVisibility();
@@ -66,7 +68,7 @@ export class ModularScanAccountsDrawer extends Drawer {
 
     if (await this.deselectAllButton.isVisible()) {
       await this.deselectAllButton.click();
-      await this.checkbox.click();
+      await this.firstAccountRow.click();
     }
 
     await this.clickShareViewKeyButton();

@@ -11,6 +11,7 @@ import type { NavigatorScreenParams } from "@react-navigation/native";
 import type { Transaction } from "@ledgerhq/live-common/generated/types";
 import { AppResult } from "@ledgerhq/live-common/hw/actions/app";
 import { Device } from "@ledgerhq/live-common/hw/actions/types";
+import type { Device as DmkDevice } from "@ledgerhq/live-dmk-shared";
 import type {
   PerpsDepositUiParams,
   PerpsSignResult,
@@ -58,6 +59,8 @@ import type { PolkadotSimpleOperationFlowParamList } from "../../../families/pol
 import type { PolkadotUnbondFlowParamList } from "../../../families/polkadot/UnbondFlow/type";
 import type { SolanaDelegationFlowParamList } from "../../../families/solana/DelegationFlow/types";
 import type { StellarAddAssetFlowParamList } from "../../../families/stellar/AddAssetFlow/types";
+import type { StacksStakingFlowParamList } from "../../../families/stacks/StakingFlow/types";
+import type { StacksUnstakingFlowParamList } from "../../../families/stacks/UnstakingFlow/types";
 import type { TezosDelegationFlowParamList } from "../../../families/tezos/DelegationFlow/types";
 import type { TezosStakeFlowParamList } from "../../../families/tezos/StakeFlow/types";
 import type { TezosUnstakeFlowParamList } from "../../../families/tezos/UnstakeFlow/types";
@@ -110,6 +113,7 @@ import type { WalletSyncNavigatorStackParamList } from "./WalletSyncNavigator";
 import { SignRawTransactionNavigatorParamList } from "./SignRawTransactionNavigator";
 import type { MyWalletNavigatorStackParamList } from "LLM/features/MyWallet/types";
 import type { BackupHubNavigatorParamList } from "LLM/features/BackupHub/types";
+import type { OsUpdateFlowMode } from "@ledgerhq/live-common/os-update/types";
 
 export type CommonAddAccountNavigatorParamsList = {
   currency?: CryptoCurrency | TokenCurrency | null;
@@ -280,6 +284,10 @@ export type BaseNavigatorStackParamList = {
   [NavigatorName.AleoClaimUnbondFlow]: NavigatorScreenParams<AleoClaimUnbondFlowParamList>;
   [NavigatorName.AleoUnbondFlow]: NavigatorScreenParams<AleoUnbondFlowParamList>;
 
+  // Stacks
+  [NavigatorName.StacksStakingFlow]: NavigatorScreenParams<StacksStakingFlowParamList>;
+  [NavigatorName.StacksUnstakingFlow]: NavigatorScreenParams<StacksUnstakingFlowParamList>;
+
   // Polkadot
   [NavigatorName.PolkadotSimpleOperationFlow]: NavigatorScreenParams<PolkadotSimpleOperationFlowParamList>;
   [NavigatorName.PolkadotNominateFlow]: NavigatorScreenParams<PolkadotNominateFlowParamList>;
@@ -402,6 +410,11 @@ export type BaseNavigatorStackParamList = {
     device?: Device | null;
     onBackFromUpdate: FirmwareUpdateProps["onBackFromUpdate"];
     isBeforeOnboarding?: boolean;
+    isDeviceOnboarded?: boolean;
+  };
+  [ScreenName.OsUpdate]: {
+    device: DmkDevice;
+    mode?: OsUpdateFlowMode;
   };
   [NavigatorName.LandingPages]: NavigatorScreenParams<LandingPagesNavigatorParamList>;
   [ScreenName.Portfolio]: undefined;

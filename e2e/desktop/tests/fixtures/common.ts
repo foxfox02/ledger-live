@@ -16,6 +16,7 @@ import {
   addTeamOwner,
   addAnnotationLinks,
   attachMergedFeatureFlags,
+  attachSpeculinhoLogs,
 } from "tests/utils/allureUtils";
 import { isLastRetry } from "tests/utils/testInfoUtils";
 import { PageLogCollector } from "tests/utils/pageLogCollector";
@@ -30,10 +31,12 @@ import {
   type CliCommand,
 } from "tests/utils/cliFixtureUtils";
 import { getSpeculosAddress, SpeculosDevice } from "@ledgerhq/live-e2e-shared/speculos";
+import { showSpeculosScreen } from "@ledgerhq/live-e2e-shared/speculosScreen";
 import { attachNetworkLogging } from "tests/utils/networkLogging";
 import type { LiveAppManifest } from "@ledgerhq/live-common/platform/types";
 import { unregisterAllTransportModules } from "@ledgerhq/live-common/hw/index";
 import { getMergedFeatureFlags } from "tests/utils/featureFlagUtils";
+import { TIMEOUT } from "@ledgerhq/live-e2e-shared/timeouts";
 import {
   CARD_SESSION_BOOTSTRAP_ENV,
   resolveCardSessionBootstrap,
@@ -46,6 +49,7 @@ type SpeculosFixtureHandle = {
   get current(): SpeculosDevice;
   get device(): SpeculosDevice | undefined;
   relaunch: (appName: string) => Promise<SpeculosDevice>;
+  onRelaunch?: (device: SpeculosDevice) => Promise<void>;
 };
 
 type TestFixtures = {
@@ -69,6 +73,8 @@ type TestFixtures = {
     cmd: CliCommand;
   }[];
   localManifestOverride?: LiveAppManifest[];
+  /** Coin-config keys merged over the default and remote config, as Developer settings would. */
+  coinConfigOverrides?: Record<string, unknown>;
   teamOwner?: Team;
   teamOwnerLabel: void;
   annotationLinks: void;
@@ -96,6 +102,7 @@ export const test = base.extend<TestFixtures>({
   cliCommands: [],
   cliCommandsOnApp: [],
   localManifestOverride: undefined,
+  coinConfigOverrides: undefined,
   teamOwner: undefined,
   speculosForSetupOnly: false,
 
@@ -123,7 +130,7 @@ export const test = base.extend<TestFixtures>({
   },
 
   userdataDestinationPath: async (
-    { userdataOriginalFile, settings, localManifestOverride },
+    { userdataOriginalFile, settings, localManifestOverride, coinConfigOverrides },
     use,
   ) => {
     const userdataDestinationPath = path.join(__dirname, "../artifacts/userdata", randomUUID());
@@ -136,10 +143,20 @@ export const test = base.extend<TestFixtures>({
 
     const perTestSettings = cloneDeep(settings);
     const userData = merge({ data: { settings: perTestSettings } }, fileUserData);
+    if (process.env.DEV_TOOLS) {
+      // Applied after the userdata file, which usually pins `developerMode: false`.
+      merge(userData, {
+        data: { settings: { developerMode: true, enablePlatformDevTools: true } },
+      });
+    }
     if (localManifestOverride?.length) {
       userData.data = userData.data || {};
       userData.data.discover = userData.data.discover || {};
       userData.data.discover.localLiveApp = localManifestOverride;
+    }
+    if (coinConfigOverrides) {
+      // Over any overrides the userdata file already carries, not in place of them.
+      merge(userData, { data: { coinConfigOverrides: { overrides: coinConfigOverrides } } });
     }
     await writeFile(`${userdataDestinationPath}/app.json`, JSON.stringify(userData));
     await use(userdataDestinationPath);
@@ -171,6 +188,8 @@ export const test = base.extend<TestFixtures>({
       },
       relaunch: async (appName: string) => {
         currentDevice = await launchSpeculos(appName, testInfo.title, currentDevice);
+        await showSpeculosScreen(currentDevice.id);
+        await handle.onRelaunch?.(currentDevice);
         return currentDevice;
       },
     };
@@ -185,7 +204,7 @@ export const test = base.extend<TestFixtures>({
       unregisterAllTransportModules();
 
       if (cliCommandsOnApp?.length) {
-        currentDevice = await runCliCommandsOnLaunchedApps(
+        await runCliCommandsOnLaunchedApps(
           cliCommandsOnApp,
           testInfo.title,
           userdataDestinationPath,
@@ -194,6 +213,7 @@ export const test = base.extend<TestFixtures>({
 
       if (speculosApp && !canSkipSpeculosLaunch(speculosForSetupOnly, cliCommands)) {
         currentDevice = await launchSpeculos(speculosApp.name, testInfo.title);
+        await showSpeculosScreen(currentDevice.id);
       }
 
       if (speculosApp) {
@@ -229,13 +249,14 @@ export const test = base.extend<TestFixtures>({
         PLAYWRIGHT_RUN: true,
         // Make CSV export filename unique per test (parallel-safe + traceable to a test id).
         PLAYWRIGHT_EXPORT_CSV_PATH: `./ledgerwallet-operations-${testInfo.testId}.csv`,
-        CRASH_ON_INTERNAL_CRASH: true,
         LEDGER_MIN_HEIGHT: 768,
         FEATURE_FLAGS: JSON.stringify(mergedFeatureFlags),
         MANAGER_DEV_MODE: true,
         SPECULOS_API_PORT: speculos.device ? String(speculos.device.port) : undefined,
         SPECULOS_ADDRESS: speculos.device ? getSpeculosAddress() : undefined,
+        SPECULOS_SESSION_TOKEN: speculos.device ? process.env.SPECULOS_SESSION_TOKEN : undefined,
         DISABLE_TRANSACTION_BROADCAST: process.env.DISABLE_TRANSACTION_BROADCAST || "1",
+        ...(process.env.DEV_TOOLS && { DEV_TOOLS_MODE: process.env.DEV_TOOLS_MODE || "detach" }),
       },
       env,
     );
@@ -251,6 +272,7 @@ export const test = base.extend<TestFixtures>({
 
     // launch app
     const windowSize = { width: 1024, height: 768 };
+    const isRetryOfFailedTest = testInfo.retry > 0;
 
     const electronApp: ElectronApplication = await launchApp({
       env,
@@ -259,7 +281,7 @@ export const test = base.extend<TestFixtures>({
       userdataDestinationPath,
       simulateCamera,
       windowSize,
-      recordVideo: isLastRetry(testInfo),
+      recordVideo: isRetryOfFailedTest && isLastRetry(testInfo),
     });
 
     await use(electronApp);
@@ -284,9 +306,7 @@ export const test = base.extend<TestFixtures>({
   page: async ({ electronApp, speculos, cliCommandsOnApp }, use, testInfo) => {
     // app is ready
     const page = await electronApp.firstWindow();
-
-    // we need to give enough time for the playwright app to start. when the CI is slow, 30s was apprently not enough.
-    page.setDefaultTimeout(120000);
+    page.setDefaultTimeout(TIMEOUT.xlarge);
 
     attachNetworkLogging(page, testInfo);
     // capture main app (Ledger Wallet) network logs, attached to Allure on failure
@@ -318,9 +338,19 @@ export const test = base.extend<TestFixtures>({
     const webviewCollector = new PageLogCollector();
     webviewCollector.attachWebview(electronApp);
 
-    // app is loaded
-    await page.waitForLoadState("domcontentloaded");
-    await page.waitForSelector("#loader-container", { state: "hidden" });
+    // app is loaded: on a slow CI runner, start-up takes longer than 30s
+    await page.waitForLoadState("domcontentloaded", { timeout: TIMEOUT.xxxlarge });
+    await page.waitForSelector("#loader-container", { state: "hidden", timeout: TIMEOUT.xxxlarge });
+
+    // A relaunched remote Speculos is a new session, on its own URL and token.
+    // A local one keeps its port, so the app needs no update.
+    if (process.env.REMOTE_SPECULOS === "true") {
+      speculos.onRelaunch = () =>
+        page.evaluate(({ address, token }) => window.ledger.setSpeculosTarget(address, token), {
+          address: getSpeculosAddress(),
+          token: process.env.SPECULOS_SESSION_TOKEN,
+        });
+    }
 
     // use page in the test
     await use(page);
@@ -338,6 +368,10 @@ export const test = base.extend<TestFixtures>({
         webviewCollector,
         appCollector,
       );
+
+      if (process.env.REMOTE_SPECULOS === "true" && speculos.device) {
+        await attachSpeculinhoLogs(testInfo, speculos.device.id);
+      }
     }
 
     // Remove video if test passed

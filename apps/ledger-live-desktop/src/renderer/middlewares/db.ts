@@ -19,6 +19,7 @@ import {
   trustchainStoreSelector,
 } from "@ledgerhq/ledger-key-ring-protocol/store";
 import {
+  cryptoAssetsApi,
   extractPersistedCALFromState,
   persistedCALContentEqual,
   type PersistedCAL,
@@ -56,12 +57,13 @@ function accountsExportSelector(state: State) {
 
 // Throttled save for crypto assets cache (save at most once per 5 seconds)
 // Only write when content actually changed to avoid redundant app.json resaves
+// Hashes alone are saved too, so a changed hash that evicts every token also clears them on disk
 let lastPersistedCryptoAssets: PersistedCAL | null = null;
 const saveCryptoAssetsCache = throttle((state: State) => {
   try {
     const persistedData = extractPersistedCALFromState(state);
     if (
-      persistedData.tokens.length > 0 &&
+      (persistedData.tokens.length > 0 || persistedData.hashes !== undefined) &&
       !persistedCALContentEqual(lastPersistedCryptoAssets, persistedData)
     ) {
       setKey("app", "cryptoAssets", persistedData);
@@ -139,7 +141,7 @@ const DBMiddleware: Middleware<object, State> = store => next => action => {
     return res;
   }
 
-  if (action.type.startsWith("cryptoAssetsApi/")) {
+  if (action.type.startsWith(`${cryptoAssetsApi.reducerPath}/`)) {
     const res = next(action);
     const state = store.getState();
     saveCryptoAssetsCache(state);

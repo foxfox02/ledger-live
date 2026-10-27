@@ -1,6 +1,7 @@
 import BigNumber from "bignumber.js";
 import { log } from "@ledgerhq/logs";
 import type { TransactionIntent } from "@ledgerhq/coin-module-framework/api/types";
+import { CryptoCurrencyIdSchema } from "@ledgerhq/ledger-wallet-framework/types";
 import aleoConfig from "../config";
 import {
   EXPLORER_TRANSFER_TYPES,
@@ -29,8 +30,19 @@ import {
 } from "../__tests__/fixtures/account.fixture";
 import {
   getMockedTransaction as getMockedPublicTransaction,
+  getMockedBondTransition,
+  getMockedEnrichedPrivateRecord,
+  getMockedFeePrivateTransition,
+  getMockedFeePublicTransition,
   getMockedRecord,
   getMockedTokenDetails,
+  getMockedTransactionDetails,
+  mockedFeePrivateBase,
+  mockedFeePublicBase,
+  testnetAddress,
+  testnetBondedMicrocredits,
+  testnetBondedValidator,
+  testnetSponsorAddress,
 } from "../__tests__/fixtures/api.fixture";
 import { getMockedOperation } from "../__tests__/fixtures/operation.fixture";
 import { getMockedPreparedRequestResponse } from "../__tests__/fixtures/sdk.fixture";
@@ -61,6 +73,7 @@ import type {
   AleoTransactionIntent,
   AleoPublicTransaction,
   AleoTokenType,
+  AleoTransition,
   ProvableApi,
   AleoAccount,
 } from "../types";
@@ -78,6 +91,11 @@ import {
   determineTransactionType,
   patchAccountWithViewKey,
   toPublicOperation,
+  toPrivateFeeOperation,
+  toPrivateOperation,
+  getFees,
+  findBondPublicTransition,
+  getBondArguments,
   hasPublicAddress,
   resolveConfig,
   getTransactionType,
@@ -118,6 +136,7 @@ import {
   findBestRecordForFee,
   selectPrivateRecordsForAmount,
   getEstimatedSigningTime,
+  getSigningRecordCount,
   sumPrivateRecords,
   getMaxPrivateRecordsForAccount,
   getStrategyConfig,
@@ -453,21 +472,36 @@ describe("hasPublicAddress", () => {
 });
 
 const NO_TOKENS = new Map<string, AleoTokenType>();
+const feePublicDetails = getMockedTransactionDetails("at1tx1", {
+  fee: { transition: getMockedFeePublicTransition({ payer: testnetAddress }) },
+});
+const publicOpArgs = {
+  details: feePublicDetails,
+  hasOwnedRecord: false,
+  hasOwnedFeeRecord: false,
+  tokenTypeByProgramName: NO_TOKENS,
+};
+
+function bondDetails(bond = getMockedBondTransition()) {
+  return getMockedTransactionDetails("at1bond", {
+    execution: { transitions: [bond] },
+    fee: { transition: getMockedFeePublicTransition({ payer: testnetAddress }) },
+  });
+}
 
 describe("toPublicOperation", () => {
   const recipientAddress = "aleo1rhgdu77hgyqd3xjj8ucu3jj9r2krwz6mnzyd80gncr5fxcwlh5rsvzp9px";
   const senderAddress = "aleo1a2ehlgqhvs3p7d4hqhs0tvgk954dr8gafu9kxse2mzu9a5sqxvpsrn98pr";
   const otherAddress = "aleo1test123address456";
 
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   it("should set type to IN when address is the recipient", () => {
     const rawTx = getMockedPublicTransaction();
 
-    const result = toPublicOperation({
-      rawTx,
-      address: recipientAddress,
-      hasOwnedRecord: false,
-      tokenTypeByProgramName: NO_TOKENS,
-    });
+    const result = toPublicOperation({ ...publicOpArgs, rawTx, address: recipientAddress });
 
     expect(result.type).toBe("IN");
   });
@@ -475,12 +509,7 @@ describe("toPublicOperation", () => {
   it("should set type to OUT when address is the sender", () => {
     const rawTx = getMockedPublicTransaction();
 
-    const result = toPublicOperation({
-      rawTx,
-      address: senderAddress,
-      hasOwnedRecord: false,
-      tokenTypeByProgramName: NO_TOKENS,
-    });
+    const result = toPublicOperation({ ...publicOpArgs, rawTx, address: senderAddress });
 
     expect(result.type).toBe("OUT");
   });
@@ -488,12 +517,7 @@ describe("toPublicOperation", () => {
   it("should set type to NONE when address is neither sender nor recipient", () => {
     const rawTx = getMockedPublicTransaction();
 
-    const result = toPublicOperation({
-      rawTx,
-      address: otherAddress,
-      hasOwnedRecord: false,
-      tokenTypeByProgramName: NO_TOKENS,
-    });
+    const result = toPublicOperation({ ...publicOpArgs, rawTx, address: otherAddress });
 
     expect(result.type).toBe("NONE");
   });
@@ -502,9 +526,9 @@ describe("toPublicOperation", () => {
     const rawTx = getMockedPublicTransaction({ program_id: "custom.aleo" });
 
     const result = toPublicOperation({
+      ...publicOpArgs,
       rawTx,
       address: recipientAddress,
-      hasOwnedRecord: false,
       tokenTypeByProgramName: new Map([["custom.aleo", "arc20"]]),
     });
 
@@ -515,12 +539,7 @@ describe("toPublicOperation", () => {
   it("should map a program missing from the registry to an unknown asset", () => {
     const rawTx = getMockedPublicTransaction({ program_id: "custom.aleo" });
 
-    const result = toPublicOperation({
-      rawTx,
-      address: recipientAddress,
-      hasOwnedRecord: false,
-      tokenTypeByProgramName: NO_TOKENS,
-    });
+    const result = toPublicOperation({ ...publicOpArgs, rawTx, address: recipientAddress });
 
     expect(result.asset).toEqual({ type: "unknown", assetReference: "custom.aleo" });
   });
@@ -528,12 +547,7 @@ describe("toPublicOperation", () => {
   it("should map core fields from rawTx", () => {
     const rawTx = getMockedPublicTransaction();
 
-    const result = toPublicOperation({
-      rawTx,
-      address: recipientAddress,
-      hasOwnedRecord: false,
-      tokenTypeByProgramName: NO_TOKENS,
-    });
+    const result = toPublicOperation({ ...publicOpArgs, rawTx, address: recipientAddress });
 
     expect(result.id).toBe(rawTx.transaction_id);
     expect(result.senders).toEqual([rawTx.sender_address]);
@@ -545,17 +559,13 @@ describe("toPublicOperation", () => {
     expect(result.tx.failed).toBe(false);
   });
 
-  it("should derive fees and blockHash from rawTx", () => {
+  it("should derive fees and feesPayer from the fee transition and blockHash from rawTx", () => {
     const rawTx = getMockedPublicTransaction();
 
-    const result = toPublicOperation({
-      rawTx,
-      address: recipientAddress,
-      hasOwnedRecord: false,
-      tokenTypeByProgramName: NO_TOKENS,
-    });
+    const result = toPublicOperation({ ...publicOpArgs, rawTx, address: recipientAddress });
 
-    expect(result.tx.fees).toBe(BigInt(rawTx.fee));
+    expect(result.tx.fees).toBe(mockedFeePublicBase);
+    expect(result.tx.feesPayer).toBe(testnetAddress);
     expect(result.tx.block.hash).toBe(rawTx.block_hash);
   });
 
@@ -563,12 +573,7 @@ describe("toPublicOperation", () => {
     const amountU128 = "123456789012345678901234567890";
     const rawTx = getMockedPublicTransaction({ amount: 10000000, amount_u128: amountU128 });
 
-    const result = toPublicOperation({
-      rawTx,
-      address: recipientAddress,
-      hasOwnedRecord: false,
-      tokenTypeByProgramName: NO_TOKENS,
-    });
+    const result = toPublicOperation({ ...publicOpArgs, rawTx, address: recipientAddress });
 
     expect(result.value).toBe(BigInt(amountU128));
   });
@@ -576,12 +581,7 @@ describe("toPublicOperation", () => {
   it("should set failed to true when transaction_status is not Accepted", () => {
     const rawTx = getMockedPublicTransaction({ transaction_status: "Rejected" });
 
-    const result = toPublicOperation({
-      rawTx,
-      address: recipientAddress,
-      hasOwnedRecord: false,
-      tokenTypeByProgramName: NO_TOKENS,
-    });
+    const result = toPublicOperation({ ...publicOpArgs, rawTx, address: recipientAddress });
 
     expect(result.tx.failed).toBe(true);
   });
@@ -589,12 +589,7 @@ describe("toPublicOperation", () => {
   it("should include functionId, transactionType, and ledgerOpType in details", () => {
     const rawTx = getMockedPublicTransaction();
 
-    const result = toPublicOperation({
-      rawTx,
-      address: recipientAddress,
-      hasOwnedRecord: false,
-      tokenTypeByProgramName: NO_TOKENS,
-    });
+    const result = toPublicOperation({ ...publicOpArgs, rawTx, address: recipientAddress });
 
     expect(result.details).toMatchObject({
       functionId: rawTx.function_id,
@@ -609,10 +604,10 @@ describe("toPublicOperation", () => {
     });
 
     const result = toPublicOperation({
+      ...publicOpArgs,
       rawTx,
       address: senderAddress,
       hasOwnedRecord: true,
-      tokenTypeByProgramName: NO_TOKENS,
     });
 
     expect(result.recipients).toEqual([senderAddress]);
@@ -627,27 +622,22 @@ describe("toPublicOperation", () => {
     });
 
     const result = toPublicOperation({
+      ...publicOpArgs,
       rawTx,
       address: recipientAddress,
       hasOwnedRecord: true,
-      tokenTypeByProgramName: NO_TOKENS,
     });
 
     expect(result.senders).toEqual([recipientAddress]);
     expect(result.type).toBe("OUT");
   });
 
-  it("should leave blank addresses alone when no record is owned", () => {
+  it("should return an empty list for a blank address when no record is owned", () => {
     const rawTx = getMockedPublicTransaction({ recipient_address: "" });
 
-    const result = toPublicOperation({
-      rawTx,
-      address: senderAddress,
-      hasOwnedRecord: false,
-      tokenTypeByProgramName: NO_TOKENS,
-    });
+    const result = toPublicOperation({ ...publicOpArgs, rawTx, address: senderAddress });
 
-    expect(result.recipients).toEqual([""]);
+    expect(result.recipients).toEqual([]);
   });
 
   it("should set type to IN for a self-transfer, as the classic bridge does", () => {
@@ -656,11 +646,84 @@ describe("toPublicOperation", () => {
       recipient_address: senderAddress,
     });
 
+    const result = toPublicOperation({ ...publicOpArgs, rawTx, address: senderAddress });
+
+    expect(result.type).toBe("IN");
+  });
+
+  const feePublicPaidBy = (payer: string) =>
+    getMockedTransactionDetails("at1tx1", {
+      fee: { transition: getMockedFeePublicTransition({ payer }) },
+    });
+
+  it("should set type to OUT for a rejected public self-transfer the account paid for", () => {
+    const rawTx = getMockedPublicTransaction({
+      sender_address: testnetAddress,
+      recipient_address: testnetAddress,
+      transaction_status: "Rejected",
+    });
+
     const result = toPublicOperation({
+      ...publicOpArgs,
       rawTx,
-      address: senderAddress,
-      hasOwnedRecord: false,
-      tokenTypeByProgramName: NO_TOKENS,
+      details: feePublicPaidBy(testnetAddress),
+      address: testnetAddress,
+    });
+
+    expect(result.type).toBe("OUT");
+  });
+
+  it("should keep a rejected public self-transfer IN when its fee was sponsored", () => {
+    const rawTx = getMockedPublicTransaction({
+      sender_address: testnetAddress,
+      recipient_address: testnetAddress,
+      transaction_status: "Rejected",
+    });
+
+    const result = toPublicOperation({
+      ...publicOpArgs,
+      rawTx,
+      details: feePublicPaidBy(testnetSponsorAddress),
+      address: testnetAddress,
+    });
+
+    expect(result.type).toBe("IN");
+  });
+
+  it("should set type to OUT for a rejected unshield to self paid with a private fee", () => {
+    const rawTx = getMockedPublicTransaction({
+      function_id: "transfer_private_to_public",
+      sender_address: "",
+      recipient_address: testnetAddress,
+      transaction_status: "Rejected",
+    });
+    const details = getMockedTransactionDetails("at1tx1", {
+      fee: { transition: getMockedFeePrivateTransition() },
+    });
+
+    const result = toPublicOperation({
+      ...publicOpArgs,
+      rawTx,
+      details,
+      address: testnetAddress,
+      hasOwnedFeeRecord: true,
+    });
+
+    expect(result.type).toBe("OUT");
+    expect(result.details).toMatchObject({ transactionType: "private" });
+  });
+
+  it("should keep a rejected incoming transfer IN when another address paid the fee", () => {
+    const rawTx = getMockedPublicTransaction({
+      recipient_address: recipientAddress,
+      transaction_status: "Rejected",
+    });
+
+    const result = toPublicOperation({
+      ...publicOpArgs,
+      rawTx,
+      details: feePublicPaidBy(testnetSponsorAddress),
+      address: recipientAddress,
     });
 
     expect(result.type).toBe("IN");
@@ -674,10 +737,10 @@ describe("toPublicOperation", () => {
     });
 
     const result = toPublicOperation({
+      ...publicOpArgs,
       rawTx,
       address: senderAddress,
       hasOwnedRecord: true,
-      tokenTypeByProgramName: NO_TOKENS,
     });
 
     expect(result.type).toBe("OUT");
@@ -691,10 +754,9 @@ describe("toPublicOperation", () => {
     });
 
     const result = toPublicOperation({
+      ...publicOpArgs,
       rawTx,
       address: senderAddress,
-      hasOwnedRecord: false,
-      tokenTypeByProgramName: NO_TOKENS,
       resolvedRecipient: recipientAddress,
     });
 
@@ -706,14 +768,309 @@ describe("toPublicOperation", () => {
     const rawTx = getMockedPublicTransaction({ recipient_address: recipientAddress });
 
     const result = toPublicOperation({
+      ...publicOpArgs,
       rawTx,
       address: senderAddress,
-      hasOwnedRecord: false,
-      tokenTypeByProgramName: NO_TOKENS,
       resolvedRecipient: "aleo1someoneelse",
     });
 
     expect(result.recipients).toEqual([recipientAddress]);
+  });
+
+  it("should set a BOND value to its fee and put the bond in details.stake", () => {
+    const bondTx = getMockedPublicTransaction({
+      function_id: "bond_public",
+      sender_address: "",
+      recipient_address: "",
+      amount: 0,
+    });
+
+    const result = toPublicOperation({
+      ...publicOpArgs,
+      rawTx: bondTx,
+      address: testnetAddress,
+      details: bondDetails(),
+    });
+
+    expect(result.type).toBe("BOND");
+    expect(result.value).toBe(mockedFeePublicBase);
+    expect(result.details).toMatchObject({
+      functionId: "bond_public",
+      stake: { address: testnetBondedValidator, amount: testnetBondedMicrocredits },
+    });
+  });
+
+  it("should log and leave out details.stake when the bond inputs are unreadable", () => {
+    const bondTx = getMockedPublicTransaction({ function_id: "bond_public" });
+    const bond = getMockedBondTransition();
+    const details = bondDetails(getMockedBondTransition({ inputs: bond.inputs.slice(0, 1) }));
+
+    const result = toPublicOperation({
+      ...publicOpArgs,
+      rawTx: bondTx,
+      address: testnetAddress,
+      details,
+    });
+
+    expect(result.value).toBe(mockedFeePublicBase);
+    expect(result.details).not.toHaveProperty("stake");
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledWith(
+      "aleo/listOperations",
+      `unreadable bond_public inputs for ${bondTx.transaction_id}`,
+    );
+  });
+
+  it("should set an UNBOND value to its fee and put the explorer amount in details.stake", () => {
+    const unbondTx = getMockedPublicTransaction({ function_id: "unbond_public", amount: 5000 });
+
+    const result = toPublicOperation({ ...publicOpArgs, rawTx: unbondTx, address: testnetAddress });
+
+    expect(result.type).toBe("UNBOND");
+    expect(result.value).toBe(mockedFeePublicBase);
+    expect(result.details).toMatchObject({ stake: { amount: 5000n } });
+  });
+
+  it("should set a WITHDRAW_UNBONDED value to its fee with no details.stake", () => {
+    const claimTx = getMockedPublicTransaction({ function_id: "claim_unbond_public" });
+
+    const result = toPublicOperation({ ...publicOpArgs, rawTx: claimTx, address: testnetAddress });
+
+    expect(result.type).toBe("WITHDRAW_UNBONDED");
+    expect(result.value).toBe(mockedFeePublicBase);
+    expect(result.details).not.toHaveProperty("stake");
+    expect(result.details).toMatchObject({
+      functionId: "claim_unbond_public",
+      ledgerOpType: "WITHDRAW_UNBONDED",
+    });
+  });
+
+  it("should set a staking value to 0 when another address paid the fee", () => {
+    const bondTx = getMockedPublicTransaction({ function_id: "bond_public" });
+    const details = getMockedTransactionDetails("at1bond", {
+      execution: { transitions: [getMockedBondTransition()] },
+      fee: { transition: getMockedFeePublicTransition({ payer: testnetSponsorAddress }) },
+    });
+
+    const result = toPublicOperation({
+      ...publicOpArgs,
+      rawTx: bondTx,
+      address: testnetAddress,
+      details,
+    });
+
+    expect(result.value).toBe(0n);
+    expect(result.tx.feesPayer).toBe(testnetSponsorAddress);
+  });
+
+  it("should set a staking value to its fee when the account paid it through a fee_private record", () => {
+    const bondTx = getMockedPublicTransaction({ function_id: "bond_public" });
+    const details = getMockedTransactionDetails("at1bond", {
+      execution: { transitions: [getMockedBondTransition()] },
+      fee: { transition: getMockedFeePrivateTransition() },
+    });
+
+    const result = toPublicOperation({
+      ...publicOpArgs,
+      rawTx: bondTx,
+      address: testnetAddress,
+      details,
+      hasOwnedFeeRecord: true,
+    });
+
+    expect(result.value).toBe(mockedFeePrivateBase);
+    expect(result.tx.feesPayer).toBe(testnetAddress);
+  });
+});
+
+function withFee(transition: AleoTransition) {
+  return getMockedTransactionDetails("at1tx1", { fee: { transition } });
+}
+
+describe("getFees", () => {
+  const feeArgs = { address: testnetAddress, hasOwnedFeeRecord: false };
+  const feePublic = getMockedFeePublicTransition({ payer: testnetAddress });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("should add base and priority fee of a fee_public transition and read its payer", () => {
+    const details = withFee(
+      getMockedFeePublicTransition({ payer: testnetSponsorAddress, base: 2725n, priority: 100n }),
+    );
+
+    expect(getFees({ ...feeArgs, details })).toEqual({
+      fees: 2825n,
+      feesPayer: testnetSponsorAddress,
+    });
+  });
+
+  it("should set the account as payer of a fee_private transaction it owns a fee record of", () => {
+    const details = withFee(getMockedFeePrivateTransition({ base: 2308n, priority: 10n }));
+
+    expect(getFees({ ...feeArgs, details, hasOwnedFeeRecord: true })).toEqual({
+      fees: 2318n,
+      feesPayer: testnetAddress,
+    });
+  });
+
+  it("should leave the payer unset for a fee_private transaction it owns no fee record of", () => {
+    const details = withFee(getMockedFeePrivateTransition({ base: 2308n }));
+
+    expect(getFees({ ...feeArgs, details })).toEqual({ fees: 2308n });
+  });
+
+  it("should be 0 with no payer when the transaction has no fee", () => {
+    const { fee: _, ...details } = getMockedTransactionDetails("at1tx1");
+
+    expect(getFees({ ...feeArgs, details })).toEqual({ fees: 0n });
+  });
+
+  it.each<[string, AleoTransition]>([
+    ["an unknown fee function", { ...feePublic, function: "fee_other" }],
+    [
+      "a fee input that is not an amount",
+      {
+        ...feePublic,
+        inputs: [
+          feePublic.inputs[0],
+          { id: "input2", type: "private", value: "ciphertext1" },
+          feePublic.inputs[2],
+        ],
+      },
+    ],
+  ])("should log and fall back to fee_value on %s", (_, transition) => {
+    const details = withFee(transition);
+
+    expect(getFees({ ...feeArgs, details })).toEqual({ fees: BigInt(details.fee_value) });
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledWith("aleo/listOperations", "unreadable fee transition in at1tx1");
+  });
+
+  it.each<[string, AleoTransition]>([
+    [
+      "a future with no arguments",
+      {
+        ...feePublic,
+        outputs: [{ id: "output1", type: "future", value: "{ program_id: credits.aleo }" }],
+      },
+    ],
+    [
+      "a future whose first argument is not an address",
+      getMockedFeePublicTransition({ payer: "1u64" }),
+    ],
+  ])("should keep the fee_public amount and leave the payer unset on %s", (_, transition) => {
+    const details = withFee(transition);
+
+    expect(getFees({ ...feeArgs, details })).toEqual({ fees: mockedFeePublicBase });
+    expect(log).not.toHaveBeenCalled();
+  });
+});
+
+describe("findBondPublicTransition", () => {
+  it("should find a bond_public transition wrapped by another program", () => {
+    const bond = getMockedBondTransition();
+    const wrapper = getMockedBondTransition({
+      id: "au1wrapper",
+      program: "staker.aleo",
+      function: "stake",
+    });
+    const details = getMockedTransactionDetails("at1bond", {
+      execution: { transitions: [wrapper, bond] },
+    });
+
+    expect(findBondPublicTransition(details)).toBe(bond);
+  });
+
+  it("should be undefined when the transaction has no bond_public transition", () => {
+    const details = getMockedTransactionDetails("at1bond", { execution: { transitions: [] } });
+
+    expect(findBondPublicTransition(details)).toBeUndefined();
+  });
+});
+
+describe("getBondArguments", () => {
+  it("should read the validator and amount of a bond_public transition", () => {
+    expect(getBondArguments(getMockedBondTransition())).toEqual({
+      validator: testnetBondedValidator,
+      amount: testnetBondedMicrocredits,
+    });
+  });
+
+  it("should be undefined when the inputs are unreadable", () => {
+    const bond = getMockedBondTransition();
+    const transition = getMockedBondTransition({
+      inputs: [{ id: "input1", type: "private", value: "ciphertext1" }, ...bond.inputs.slice(1)],
+    });
+
+    expect(getBondArguments(transition)).toBeUndefined();
+  });
+});
+
+describe("toPrivateOperation", () => {
+  it("should set fees and feesPayer from the fee transition", () => {
+    const record = getMockedEnrichedPrivateRecord({
+      details: {
+        fee: { transition: getMockedFeePrivateTransition({ base: 2308n, priority: 10n }) },
+      },
+    });
+
+    const result = toPrivateOperation({
+      enrichedRecord: record,
+      address: testnetAddress,
+      tokenTypeByProgramName: NO_TOKENS,
+      hasOwnedFeeRecord: true,
+    });
+
+    expect(result.tx.fees).toBe(2318n);
+    expect(result.tx.feesPayer).toBe(testnetAddress);
+  });
+});
+
+describe("toPrivateFeeOperation", () => {
+  const feeRecord = getMockedRecord({
+    transaction_id: "at1join  ",
+    block_height: 500,
+    block_timestamp: 1704067200,
+    function_name: "fee_private",
+  });
+  const fee = { transition: getMockedFeePrivateTransition({ base: 2308n, priority: 10n }) };
+
+  it("should charge the account the fee and nothing else", () => {
+    const result = toPrivateFeeOperation({
+      feeRecord,
+      details: getMockedTransactionDetails("at1join", { fee, block_hash: "ab1block" }),
+      address: testnetAddress,
+    });
+
+    expect(result).toEqual({
+      id: "at1join",
+      type: "FEES",
+      senders: [testnetAddress],
+      recipients: [],
+      value: 0n,
+      asset: { type: "native" },
+      details: { functionId: "fee_private", transactionType: "private", ledgerOpType: "FEES" },
+      tx: {
+        fees: 2318n,
+        feesPayer: testnetAddress,
+        hash: "at1join",
+        date: new Date(1704067200 * 1000),
+        block: { hash: "ab1block", height: 500, time: new Date(1704067200 * 1000) },
+        failed: false,
+      },
+    });
+  });
+
+  it("should mark a rejected transaction as failed", () => {
+    const result = toPrivateFeeOperation({
+      feeRecord,
+      details: getMockedTransactionDetails("at1join", { fee, status: "Rejected" }),
+      address: testnetAddress,
+    });
+
+    expect(result.tx).toEqual(expect.objectContaining({ fees: 2318n, failed: true }));
   });
 });
 
@@ -2324,8 +2681,6 @@ describe("createTransactionIntent", () => {
       asset: {
         type: tokenSubAccount.token.tokenType,
         assetReference: tokenSubAccount.token.contractAddress,
-        name: tokenSubAccount.token.name,
-        unit: tokenSubAccount.token.units[0],
       },
       type: mode,
       amount: BigInt(transaction.amount.toString()),
@@ -2388,8 +2743,6 @@ describe("createTransactionIntent", () => {
         asset: {
           type: tokenAccount.token.tokenType,
           assetReference: tokenAccount.token.contractAddress,
-          name: tokenAccount.token.name,
-          unit: tokenAccount.token.units[0],
         },
         data: {
           type: mode,
@@ -3090,6 +3443,50 @@ describe("getEstimatedSigningTime", () => {
   });
 });
 
+const privateTransaction = (
+  amountRecordCount: number,
+  feeRecordCommitment: string | null,
+  mode:
+    | typeof TRANSACTION_TYPE.TRANSFER_PRIVATE
+    | typeof TRANSACTION_TYPE.TRANSFER_TOKEN_PRIVATE = TRANSACTION_TYPE.TRANSFER_PRIVATE,
+) =>
+  getMockedTransaction({
+    mode,
+    properties: {
+      amountRecordCommitments: Array.from({ length: amountRecordCount }, (_, i) => `record-${i}`),
+      feeRecordCommitment,
+    },
+  });
+
+describe("getSigningRecordCount", () => {
+  it.each([TRANSACTION_TYPE.TRANSFER_PUBLIC, TRANSACTION_TYPE.TRANSFER_TOKEN_PUBLIC])(
+    "returns 0 for %s",
+    mode => {
+      expect(getSigningRecordCount(getMockedTransaction({ mode }))).toBe(0);
+    },
+  );
+
+  it("counts the amount records and the fee record of a private send", () => {
+    expect(getSigningRecordCount(privateTransaction(3, "fee-record"))).toBe(4);
+  });
+
+  it("leaves the fee record out when the fee is sponsored", () => {
+    expect(getSigningRecordCount(privateTransaction(3, null))).toBe(3);
+  });
+
+  it("counts records the same way for a private token send", () => {
+    expect(
+      getSigningRecordCount(
+        privateTransaction(2, "fee-record", TRANSACTION_TYPE.TRANSFER_TOKEN_PRIVATE),
+      ),
+    ).toBe(3);
+  });
+
+  it("returns 0 before any record is picked", () => {
+    expect(getSigningRecordCount(privateTransaction(0, null))).toBe(0);
+  });
+});
+
 describe("sumPrivateRecords", () => {
   it("returns BigNumber(0) for an empty array", () => {
     expect(sumPrivateRecords([]).isEqualTo(new BigNumber(0))).toBe(true);
@@ -3164,6 +3561,16 @@ describe("isAleoAccount", () => {
 
   it("returns true for an Aleo token account", () => {
     expect(isAleoAccount(getMockedTokenAccount())).toBe(true);
+  });
+
+  it("returns true for an Aleo testnet token account", () => {
+    const testnetTokenAccount = getMockedTokenAccount(undefined, {
+      token: {
+        ...getMockedTokenCurrency(),
+        parentCurrencyId: CryptoCurrencyIdSchema.parse("aleo_testnet"),
+      },
+    });
+    expect(isAleoAccount(testnetTokenAccount)).toBe(true);
   });
 
   it("returns false for an account of another family", () => {
@@ -3679,6 +4086,18 @@ describe("parseTransactionFields", () => {
 
     expect(parseTransactionFields(rawTx, rawTx.recipient_address).type).toBe("IN");
     expect(parseTransactionFields(rawTx, rawTx.sender_address).type).toBe("OUT");
+  });
+
+  it("types a self-transfer IN, unless it was rejected", () => {
+    const selfTx = (transaction_status: string) =>
+      getMockedPublicTransaction({
+        sender_address: address,
+        recipient_address: address,
+        transaction_status,
+      });
+
+    expect(parseTransactionFields(selfTx("Accepted"), address).type).toBe("IN");
+    expect(parseTransactionFields(selfTx("Rejected"), address).type).toBe("OUT");
   });
 });
 

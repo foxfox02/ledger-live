@@ -95,6 +95,11 @@ jobs:
       - name: build libs
         run: pnpm exec nx run-many -t build --projects=tag:scope:libs,@ledgerhq/live-e2e-shared
 
+      # Called @develop with an older ref checked out: skip until the script reaches main and hotfix.
+      - name: check packed packages
+        if: hashFiles('tools/scripts/check-packed-packages.mjs') != ''
+        run: node tools/scripts/check-packed-packages.mjs
+
       #JFrog publishing - if statements to be removed when all is migrated
       - name: JFrog npm auth (publish registry)
         if: ${{ vars.ARTIFACTORY_PUBLISH_URL != '' }}
@@ -104,7 +109,7 @@ jobs:
 
       - name: publish release (JFrog)
         if: ${{ vars.ARTIFACTORY_PUBLISH_URL != '' }}
-        run: npm_config_registry="https://${{ vars.ARTIFACTORY_PUBLISH_URL }}/" pnpm changeset publish
+        run: npm_config_registry="https://${{ vars.ARTIFACTORY_PUBLISH_URL }}/" pnpm_config_registry="https://${{ vars.ARTIFACTORY_PUBLISH_URL }}/" pnpm changeset publish
 
       #NPM publishing - to be removed when all is migrated
       - name: authenticate with npm

@@ -1,12 +1,25 @@
 import { test } from "tests/fixtures/common";
 import { Team } from "@ledgerhq/live-e2e-shared/enum/Team";
-import { TokenAccount, getParentAccountName } from "@ledgerhq/live-e2e-shared/enum/Account";
+import {
+  Account,
+  TokenAccount,
+  getParentAccountName,
+} from "@ledgerhq/live-e2e-shared/enum/Account";
 import { Transaction } from "@ledgerhq/live-e2e-shared/models/Transaction";
 import { getFamilyByCurrencyId } from "@ledgerhq/live-common/currencies/helpers";
-import { liveDataWithRecipientAddressCommand } from "@ledgerhq/live-e2e-shared/cliCommandsUtils";
-import { FF_NEW_SEND_FLOW_FIRST_INTERACTION_BANNER_ENABLED } from "tests/utils/featureFlagUtils";
+import {
+  type LiveDataCommandOptions,
+  liveDataWithRecipientAddressCommand,
+} from "@ledgerhq/live-e2e-shared/cliCommandsUtils";
+import {
+  FF_NEW_SEND_FLOW_ENABLED,
+  FF_NEW_SEND_FLOW_FIRST_INTERACTION_BANNER_ENABLED,
+} from "tests/utils/featureFlagUtils";
 import { Currency } from "@ledgerhq/live-e2e-shared/enum/Currency";
-import { buildTags } from "tests/utils/tagsUtils";
+import type { Application } from "tests/page";
+import { buildTags, shouldSkipLNSTag } from "tests/utils/tagsUtils";
+
+type BalanceType = "public" | "private";
 
 function getRequiredFamily(currencyId: string): string {
   const family = getFamilyByCurrencyId(currencyId);
@@ -15,37 +28,6 @@ function getRequiredFamily(currencyId: string): string {
   }
   return family;
 }
-
-export const NEW_SEND_FLOW_FAMILIES = Array.from(
-  new Set(
-    [
-      Currency.ADA,
-      Currency.ALGO,
-      Currency.APT,
-      Currency.ATOM,
-      Currency.BASE,
-      Currency.BCH,
-      Currency.BTC,
-      Currency.DOGE,
-      Currency.DOT,
-      Currency.ETH,
-      Currency.HBAR,
-      Currency.ICP,
-      Currency.KAS,
-      Currency.NEAR,
-      Currency.OSMO,
-      Currency.POL,
-      Currency.SOL,
-      Currency.SUI,
-      Currency.TRX,
-      Currency.VET,
-      Currency.XLM,
-      Currency.XRP,
-      Currency.XTZ,
-      Currency.ZEC,
-    ].map(currency => getRequiredFamily(currency.id)),
-  ),
-);
 
 const MEMO_STEP_FAMILIES = new Set(
   [
@@ -80,12 +62,77 @@ export type NewSendFlowEntry = {
    * entry, on entries that have actually been run.
    */
   verifyOperationAmount?: boolean;
+  disableBroadcast?: boolean;
+  balanceType?: BalanceType;
+  postSeedHook?: LiveDataCommandOptions["postSeedHook"];
 };
+
+function currencyRequiresMemoStep(currencyId: string): boolean {
+  const family = getFamilyByCurrencyId(currencyId);
+  return family ? MEMO_STEP_FAMILIES.has(family) : false;
+}
+
+export function requireRecipientAddress(tx: Transaction): string {
+  const recipientAddress = tx.accountToCredit.address;
+  if (!recipientAddress) {
+    throw new Error(
+      `Missing recipient address for ${tx.accountToCredit.accountName}. ` +
+        `Ensure the CLI setup populates the address.`,
+    );
+  }
+  return recipientAddress;
+}
+
+export async function openNewSendFromAccount(
+  app: Application,
+  tx: Transaction,
+  balanceType?: BalanceType,
+) {
+  await app.mainNavigation.openTargetFromMainNavigation("accounts");
+  await app.accounts.navigateToAccountByName(getParentAccountName(tx.accountToDebit));
+  if (tx.accountToDebit instanceof TokenAccount) {
+    await app.account.navigateToTokenInAccount(tx.accountToDebit);
+  }
+  await app.account.clickSend();
+  await app.newSendFlow.waitForDialog();
+  if (balanceType) {
+    await app.newSendFlow.selectBalanceType(balanceType);
+  }
+}
+
+export async function reachAmountStep(
+  app: Application,
+  tx: Transaction,
+  balanceType?: BalanceType,
+) {
+  await openNewSendFromAccount(app, tx, balanceType);
+  await passRecipientStep(app, tx);
+}
+
+/** Reaches the Amount step from the account page the app is already on. */
+export async function reachAmountStepFromCurrentAccount(app: Application, tx: Transaction) {
+  await app.account.clickSend();
+  await app.newSendFlow.waitForDialog();
+  await passRecipientStep(app, tx);
+}
+
+async function passRecipientStep(app: Application, tx: Transaction) {
+  await app.newSendFlow.typeAddress(requireRecipientAddress(tx));
+
+  const validMemoTag = tx.memoTag !== "noTag" ? tx.memoTag : undefined;
+  const requiresMemoStep = currencyRequiresMemoStep(tx.accountToDebit.currency.id);
+  if (requiresMemoStep && validMemoTag) {
+    await app.newSendFlow.typeMemo(validMemoTag);
+  }
+  await app.newSendFlow.clickOnSendToButton(tx.accountToCredit);
+  if (requiresMemoStep && !validMemoTag) {
+    await app.newSendFlow.confirmSkipMemo();
+  }
+}
 
 export function registerNewSendFlowTests(entries: NewSendFlowEntry[]) {
   for (const entry of entries) {
     const tx = entry.transaction;
-    const family = getFamilyByCurrencyId(tx.accountToDebit.currency.id);
     const validMemoTag = tx.memoTag !== "noTag" ? tx.memoTag : undefined;
     const currency = tx.accountToDebit.currency;
     const currencyLabel = currency.testLabel;
@@ -95,14 +142,17 @@ export function registerNewSendFlowTests(entries: NewSendFlowEntry[]) {
         teamOwner: entry.teamOwner ?? Team.COIN_INTEGRATION,
         userdata: "skip-onboarding-with-last-seen-device",
         speculosApp: tx.accountToDebit.currency.speculosApp,
-        cliCommands: [liveDataWithRecipientAddressCommand(tx)],
+        cliCommands: [
+          liveDataWithRecipientAddressCommand(tx, {
+            useScheme: true,
+            postSeedHook: entry.postSeedHook,
+          }),
+        ],
         featureFlags: {
           ...FF_NEW_SEND_FLOW_FIRST_INTERACTION_BANNER_ENABLED,
-          newSendFlow: {
-            enabled: true,
-            params: { families: NEW_SEND_FLOW_FAMILIES },
-          },
+          ...FF_NEW_SEND_FLOW_ENABLED,
         },
+        ...(entry.disableBroadcast && { env: { DISABLE_TRANSACTION_BROADCAST: "1" } }),
       });
 
       test(
@@ -110,45 +160,18 @@ export function registerNewSendFlowTests(entries: NewSendFlowEntry[]) {
           tx.accountToDebit.derivationMode ? ` - ${tx.accountToDebit.derivationMode}` : ""
         }${validMemoTag ? " with memo" : ""}`,
         {
-          tag: buildTags({ currencyId: tx.accountToDebit.currency.id }),
+          tag: buildTags({
+            currencyId: tx.accountToDebit.currency.id,
+            skipLNS: shouldSkipLNSTag(tx.accountToDebit.currency.id),
+            extraTags: tx.accountToDebit === Account.BTC_NATIVE_SEGWIT_1 ? ["@smoke"] : [],
+          }),
           annotation: [
             { type: "TMS", description: entry.xrayTicket },
             ...(entry.bugTicket ? [{ type: "BUG", description: entry.bugTicket }] : []),
           ],
         },
         async ({ app }) => {
-          const isTokenTransaction = tx.accountToDebit instanceof TokenAccount;
-
-          const requiresMemoStep = family ? MEMO_STEP_FAMILIES.has(family) : false;
-
-          await app.mainNavigation.openTargetFromMainNavigation("accounts");
-
-          const accountName = getParentAccountName(tx.accountToDebit);
-          await app.accounts.navigateToAccountByName(accountName);
-
-          if (isTokenTransaction) {
-            await app.account.navigateToTokenInAccount(tx.accountToDebit);
-          }
-
-          await app.account.clickSend();
-          await app.newSendFlow.waitForDialog();
-
-          const recipientAddress = tx.accountToCredit.address;
-          if (!recipientAddress) {
-            throw new Error(
-              `Missing recipient address for ${tx.accountToCredit.accountName}. ` +
-                `Ensure the CLI setup populates the address.`,
-            );
-          }
-          await app.newSendFlow.typeAddress(recipientAddress);
-
-          if (requiresMemoStep && validMemoTag) {
-            await app.newSendFlow.typeMemo(validMemoTag);
-          }
-          await app.newSendFlow.clickOnSendToButton(tx.accountToCredit);
-          if (requiresMemoStep && !validMemoTag) {
-            await app.newSendFlow.confirmSkipMemo();
-          }
+          await reachAmountStep(app, tx, entry.balanceType);
 
           await app.newSendFlow.fillCryptoAmount(tx.amount);
           if (entry.verifyAmountPrecision) {

@@ -1,7 +1,6 @@
 import type {
   Balance,
   FeeEstimation,
-  MemoNotSupported,
   StakingTransactionIntent,
   TransactionIntent,
   TransactionValidation,
@@ -13,14 +12,22 @@ import {
   NotEnoughBalance,
   RecipientRequired,
 } from "@ledgerhq/coin-module-framework/errors";
-import { validateAddress as isValidStacksAddress } from "../common-logic";
-import { StacksStakeInPreparePhase } from "../errors";
+import {
+  validateAddress as isValidStacksAddress,
+  isPoolAddress,
+  isValidNumCycles,
+  MAX_NUM_CYCLES,
+  memoFromIntent,
+  MIN_NUM_CYCLES,
+} from "../common-logic";
+import { StacksMemoTooLong, StacksStakeInPreparePhase } from "../errors";
 import { fetchPoxInfo } from "../network/pox";
-import type { StacksTxData } from "../types";
+import type { StacksMemo, StacksTxData } from "../types";
+import { validateMemo } from "./validateMemo";
 
-/** pox-5's `MAX_NUM_CYCLES` (`pox-5.clar:78`). Client-side check only -- the contract's own
- * `ERR_INVALID_NUM_CYCLES` guard is the ground truth, this just avoids a wasted-fee on-chain abort. */
-export const MAX_NUM_CYCLES = 96;
+// Kept for consumers of this module's public subpath, which exported it before the staking bounds
+// moved to `common-logic/staking`.
+export { MAX_NUM_CYCLES } from "../common-logic";
 
 function spendable(balances: Balance[], isToken: boolean, assetReference?: string): bigint {
   // Case-insensitive: same reasoning as `buildUnsignedTx.ts`'s `resolveAmount` -- `getBalance`'s
@@ -45,7 +52,7 @@ function maxSpendableAfterFees(available: bigint, estimatedFees: bigint): bigint
 }
 
 function validateStaking(
-  intent: StakingTransactionIntent<MemoNotSupported, StacksTxData>,
+  intent: StakingTransactionIntent<StacksMemo, StacksTxData>,
   balances: Balance[],
   estimatedFees: bigint,
   errors: Record<string, Error>,
@@ -60,9 +67,10 @@ function validateStaking(
     return { amount: 0n, totalSpent: estimatedFees };
   }
 
-  // buildUnsignedTx's delegate branch requires both, splitting valAddress on "." -- flag their
-  // absence/shape here too, so a caller doesn't get a false "valid" result that throws at craft time.
-  if (!intent.valAddress.includes(".")) {
+  // buildUnsignedTx's delegate branch requires both, splitting valAddress on "." and passing the
+  // parts to `contractPrincipalCV` -- flag their absence/shape here with the same check the staking
+  // forms use, so a caller doesn't get a false "valid" result that throws at craft time.
+  if (!isPoolAddress(intent.valAddress)) {
     errors.valAddress = new Error(
       "valAddress must be a contract principal (address.contract-name)",
     );
@@ -71,8 +79,12 @@ function validateStaking(
   const { numCycles, startBurnHt } = intent.data;
   if (numCycles === undefined || startBurnHt === undefined) {
     errors.data = new Error("numCycles and startBurnHt are required for a delegate intent");
-  } else if (numCycles < 1 || numCycles > MAX_NUM_CYCLES) {
-    errors.data = new Error(`numCycles must be between 1 and ${MAX_NUM_CYCLES}`);
+  } else if (!isValidNumCycles(numCycles)) {
+    // Client-side only: pox-5's own ERR_INVALID_NUM_CYCLES is the ground truth; this just avoids
+    // paying a fee for an on-chain abort.
+    errors.data = new Error(
+      `numCycles must be an integer between ${MIN_NUM_CYCLES} and ${MAX_NUM_CYCLES}`,
+    );
   }
 
   // The fee is paid from the unlocked balance, separately from the amount being locked -- so the
@@ -95,7 +107,7 @@ function validateStaking(
  * Checking this also covers a `startBurnHt` resolved just before a cycle boundary, since the chain
  * has to pass through the prepare phase to reach it. */
 async function validateNotInPreparePhase(
-  intent: StakingTransactionIntent<MemoNotSupported, StacksTxData>,
+  intent: StakingTransactionIntent<StacksMemo, StacksTxData>,
   errors: Record<string, Error>,
 ): Promise<void> {
   // Only a delegate intent that is otherwise ready to craft is worth the network round trip.
@@ -109,20 +121,12 @@ async function validateNotInPreparePhase(
   }
 }
 
-function validateTransfer(
-  intent: TransactionIntent<MemoNotSupported, StacksTxData>,
+function validateTransferAmount(
+  intent: TransactionIntent<StacksMemo, StacksTxData>,
   balances: Balance[],
   estimatedFees: bigint,
   errors: Record<string, Error>,
 ): { amount: bigint; totalSpent: bigint } {
-  if (!intent.recipient) {
-    errors.recipient = new RecipientRequired();
-  } else if (!isValidStacksAddress(intent.recipient).isValid) {
-    errors.recipient = new InvalidAddress("", { currencyName: "Stacks" });
-  } else if (intent.sender === intent.recipient) {
-    errors.recipient = new InvalidAddressBecauseDestinationIsAlsoSource();
-  }
-
   const isToken = intent.asset.type !== "native";
   const assetReference = "assetReference" in intent.asset ? intent.asset.assetReference : undefined;
   const available = spendable(balances, isToken, assetReference);
@@ -145,11 +149,35 @@ function validateTransfer(
   return { amount, totalSpent };
 }
 
+function validateTransfer(
+  intent: TransactionIntent<StacksMemo, StacksTxData>,
+  balances: Balance[],
+  estimatedFees: bigint,
+  errors: Record<string, Error>,
+): { amount: bigint; totalSpent: bigint } {
+  if (!intent.recipient) {
+    errors.recipient = new RecipientRequired();
+  } else if (!isValidStacksAddress(intent.recipient).isValid) {
+    errors.recipient = new InvalidAddress("", { currencyName: "Stacks" });
+  } else if (intent.sender === intent.recipient) {
+    errors.recipient = new InvalidAddressBecauseDestinationIsAlsoSource();
+  }
+
+  const { amount, totalSpent } = validateTransferAmount(intent, balances, estimatedFees, errors);
+
+  const memo = memoFromIntent("memo" in intent ? intent.memo : undefined);
+  if (memo && !validateMemo(memo)) {
+    errors.transaction = new StacksMemoTooLong();
+  }
+
+  return { amount, totalSpent };
+}
+
 /** Ports the legacy bridge's `getTransactionStatus` amount/balance/fee/recipient checks, plus
  * pox-5 staking-specific checks (client-side `num-cycles` bounds, no stake during the prepare
  * phase; no amount check for undelegate). */
 export async function validateIntent(
-  intent: TransactionIntent<MemoNotSupported, StacksTxData>,
+  intent: TransactionIntent<StacksMemo, StacksTxData>,
   balances: Balance[],
   customFees?: FeeEstimation,
 ): Promise<TransactionValidation> {
@@ -162,7 +190,7 @@ export async function validateIntent(
     return { errors, warnings, estimatedFees, amount, totalSpent };
   }
 
-  const stakingIntent = intent as StakingTransactionIntent<MemoNotSupported, StacksTxData>;
+  const stakingIntent = intent as StakingTransactionIntent<StacksMemo, StacksTxData>;
   const { amount, totalSpent } = validateStaking(stakingIntent, balances, estimatedFees, errors);
   await validateNotInPreparePhase(stakingIntent, errors);
 

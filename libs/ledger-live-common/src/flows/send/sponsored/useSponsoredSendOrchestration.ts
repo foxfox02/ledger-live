@@ -7,36 +7,58 @@ import {
   type Dispatch,
   type MutableRefObject,
 } from "react";
+import { log } from "@ledgerhq/logs";
 import { getSponsoredCoinApi } from "../../../bridge/generic-coin-framework/sponsored";
 import type {
   EnergyRentOrder,
+  RentOrderRejection,
   RentPayment,
   SponsoredCoinApi,
 } from "../../../bridge/generic-coin-framework/sponsored";
-import { SponsoredSendUnavailableError } from "./errors";
+import {
+  SponsoredFeeNotApprovedError,
+  SponsoredPaymentExpiredError,
+  SponsoredRentPendingError,
+  SponsoredSendUnavailableError,
+} from "./errors";
+import { PENDING_RENT_EXPIRY_MARGIN_MS, getPendingRent, recordPendingRent } from "./pendingRents";
 import { SPONSORED_FAILURE_KIND, SPONSORED_PHASE } from "./types";
 import type { SponsoredState } from "./types";
+
+const LOG_TYPE = "sponsored-send";
 
 export type UseSponsoredSendOrchestrationParams = Readonly<{
   network: string; // parent-chain currency id — NOT a token id
   kind: string;
   intent: unknown;
   pollOpts?: { intervalMs?: number; timeoutMs?: number };
+  /** Held from a payment's submit until it lands; another Send's pending rent blocks a new order
+   * and payment. */
+  mainAccountId?: string | null;
   // Fires even after reset/unmount: TX-A may already be on-chain.
   onRentPaymentBroadcast?: (info: {
     paymentTxId?: string;
     payerAddress: string;
     rentPayment: RentPayment;
+    orderId: string;
+    receiverAddress: string | null;
+    energyNeeded: bigint | null;
+    paymentExpiresAt: number;
+    /** The provider reported it failed, yet it may still land: remember it, but reserve nothing. */
+    reportedFailed?: boolean;
   }) => void;
 }>;
 
 export type SponsoredSendActions = Readonly<{
-  craftRent: () => Promise<void>;
+  /** `approvedFee` is the sponsored fee approved on Review. A cycle's first craft binds it and its
+   * retries reuse it; null with nothing bound fails the craft. */
+  craftRent: (approvedFee: bigint | null) => Promise<void>;
   // Callbacks pass the paymentTxId captured when their device step started; a stale cycle's is dropped.
   startRentPayment: (combinedSignature: string, signedPaymentTxId: string | null) => Promise<void>;
   onTransferSuccess: (signedPaymentTxId: string | null) => void;
-  setContractDataFailure: (error: Error, signedPaymentTxId: string | null) => void;
   onTransferError: (error: Error, signedPaymentTxId: string | null) => void;
+  /** A no-op while `retryLockedUntil` is ahead. After a price rise, retrying accepts the offered
+   * price and binds the next order to it. */
   retry: () => void;
   reset: () => void;
 }>;
@@ -52,7 +74,8 @@ const initialState: SponsoredState = {
   paymentTxId: null,
   failureKind: null,
   failureError: null,
-  contractDataResumePhase: SPONSORED_PHASE.RENT_SIGNING,
+  rentOrderRejection: null,
+  retryLockedUntil: null,
 };
 
 type Action =
@@ -66,14 +89,12 @@ type Action =
       receiverAddress: string;
       energyNeeded: bigint;
     }
-  | { type: "CRAFT_FAILURE"; error: Error }
-  | { type: "SUBMIT_FAILURE"; error: Error }
+  | { type: "CRAFT_FAILURE"; error: Error; rejection: RentOrderRejection | null }
+  | { type: "SUBMIT_FAILURE"; error: Error; paymentSent: boolean }
   | { type: "POLLING_START"; paymentTxId?: string }
   | { type: "DELIVERY_SUCCESS"; paymentTxId?: string }
-  | { type: "DELIVERY_TIMEOUT"; error: Error & { paymentTxId?: string } }
   | { type: "DELIVERY_FAILURE"; error: Error; paymentTxId?: string }
   | { type: "TRANSFER_SUCCESS"; signedPaymentTxId: string | null }
-  | { type: "CONTRACT_DATA_FAILURE"; error: Error; signedPaymentTxId: string | null }
   | { type: "TRANSFER_FAILURE"; error: Error; signedPaymentTxId: string | null }
   | { type: "RETRY" }
   | { type: "RESET" };
@@ -81,6 +102,12 @@ type Action =
 function isCurrentCycle(state: SponsoredState, signedPaymentTxId: string | null): boolean {
   return signedPaymentTxId !== null && signedPaymentTxId === state.paymentTxId;
 }
+
+const retryLockFor = (order: EnergyRentOrder | null): number | null =>
+  order ? order.paymentExpiresAt + PENDING_RENT_EXPIRY_MARGIN_MS : null;
+
+const showableRejection = (rejection: RentOrderRejection | null): RentOrderRejection | null =>
+  rejection?.reason === "priceAboveApproved" && !rejection.offered.asset.unit ? null : rejection;
 
 function reducer(state: SponsoredState, action: Action): SponsoredState {
   switch (action.type) {
@@ -97,14 +124,25 @@ function reducer(state: SponsoredState, action: Action): SponsoredState {
         paymentTxId: action.paymentTxId,
         failureKind: null,
         failureError: null,
+        rentOrderRejection: null,
+        retryLockedUntil: null,
       };
     case "CRAFT_FAILURE":
+      return {
+        ...state,
+        phase: SPONSORED_PHASE.FAILED,
+        failureKind: SPONSORED_FAILURE_KIND.RENT_PAYMENT,
+        failureError: action.error,
+        rentOrderRejection: action.rejection,
+      };
     case "SUBMIT_FAILURE":
       return {
         ...state,
         phase: SPONSORED_PHASE.FAILED,
         failureKind: SPONSORED_FAILURE_KIND.RENT_PAYMENT,
         failureError: action.error,
+        // The provider may still hold a payment it reported as failed.
+        retryLockedUntil: action.paymentSent ? retryLockFor(state.order) : null,
       };
     case "POLLING_START":
       return {
@@ -127,14 +165,6 @@ function reducer(state: SponsoredState, action: Action): SponsoredState {
         failureKind: null,
         failureError: null,
       };
-    case "DELIVERY_TIMEOUT":
-      return {
-        ...state,
-        phase: SPONSORED_PHASE.FAILED,
-        failureKind: SPONSORED_FAILURE_KIND.DELIVERY_FAILED,
-        failureError: action.error,
-        paymentTxId: action.error.paymentTxId ?? state.paymentTxId,
-      };
     case "DELIVERY_FAILURE":
       // Funds may have moved: never RENT_PAYMENT, or a retry would pay twice.
       return {
@@ -143,24 +173,7 @@ function reducer(state: SponsoredState, action: Action): SponsoredState {
         failureKind: SPONSORED_FAILURE_KIND.DELIVERY_FAILED,
         failureError: action.error,
         paymentTxId: action.paymentTxId ?? state.paymentTxId,
-      };
-    case "CONTRACT_DATA_FAILURE":
-      if (
-        state.phase !== SPONSORED_PHASE.RENT_SIGNING &&
-        state.phase !== SPONSORED_PHASE.TRANSFER
-      ) {
-        return state;
-      }
-      if (!isCurrentCycle(state, action.signedPaymentTxId)) return state;
-      return {
-        ...state,
-        phase: SPONSORED_PHASE.FAILED,
-        failureKind: SPONSORED_FAILURE_KIND.CONTRACT_DATA,
-        failureError: action.error,
-        contractDataResumePhase:
-          state.phase === SPONSORED_PHASE.TRANSFER
-            ? SPONSORED_PHASE.TRANSFER
-            : SPONSORED_PHASE.RENT_SIGNING,
+        retryLockedUntil: retryLockFor(state.order),
       };
     case "TRANSFER_FAILURE":
       if (state.phase !== SPONSORED_PHASE.TRANSFER) return state;
@@ -187,13 +200,8 @@ function reducer(state: SponsoredState, action: Action): SponsoredState {
             paymentTxId: null,
             failureKind: null,
             failureError: null,
-          };
-        case SPONSORED_FAILURE_KIND.CONTRACT_DATA:
-          return {
-            ...state,
-            phase: state.contractDataResumePhase,
-            failureKind: null,
-            failureError: null,
+            rentOrderRejection: null,
+            retryLockedUntil: null,
           };
         case SPONSORED_FAILURE_KIND.TRANSFER:
           return {
@@ -226,8 +234,9 @@ async function onChainDelivered(
 }
 
 /**
- * ADR-058 C4: delivered on-chain → TX-C; definitively unpaid → SUBMIT_FAILURE; otherwise
- * DELIVERY_FAILURE, so a retry never pays twice. NOTE(LIVE-32780): DELIVERY_FAILED still re-crafts.
+ * ADR-058 C4: delivered on-chain → TX-C; never sent, or reported failed → SUBMIT_FAILURE;
+ * otherwise DELIVERY_FAILURE, so a retry never pays twice. NOTE(LIVE-32780): DELIVERY_FAILED still
+ * re-crafts.
  */
 async function reconcileSubmitFailure(
   error: Error,
@@ -241,7 +250,7 @@ async function reconcileSubmitFailure(
   }>,
 ): Promise<Action> {
   const { submitAttempted, seam, orderId, payerAddress, paymentTxId, target } = ctx;
-  if (!submitAttempted || !seam) return { type: "SUBMIT_FAILURE", error };
+  if (!submitAttempted || !seam) return { type: "SUBMIT_FAILURE", error, paymentSent: false };
   const readFundsMayHaveMoved = async (): Promise<boolean> => {
     if (!payerAddress) return true;
     try {
@@ -265,10 +274,11 @@ async function reconcileSubmitFailure(
   }
   return fundsMayHaveMoved
     ? { type: "DELIVERY_FAILURE", error, paymentTxId }
-    : { type: "SUBMIT_FAILURE", error };
+    : { type: "SUBMIT_FAILURE", error, paymentSent: true };
 }
 
-/** A timeout isn't definitive: one last on-chain read can salvage it (ADR-058 C4). */
+/** A failed or timed-out delivery isn't definitive: one last on-chain read can salvage it
+ * (ADR-058 C4). */
 async function reconcileDeliveryOutcome(
   error: Error & { paymentTxId?: string },
   ctx: Readonly<{
@@ -276,12 +286,9 @@ async function reconcileDeliveryOutcome(
     target: { receiverAddress: string; energyNeeded: bigint };
   }>,
 ): Promise<Action> {
-  if (error?.name !== "EnergyDelegationTimeoutError") {
-    return { type: "DELIVERY_FAILURE", error };
-  }
   return (await onChainDelivered(ctx.seam, ctx.target))
     ? { type: "DELIVERY_SUCCESS" }
-    : { type: "DELIVERY_TIMEOUT", error };
+    : { type: "DELIVERY_FAILURE", error, paymentTxId: error?.paymentTxId };
 }
 
 type RentFlowContext = Readonly<{
@@ -299,7 +306,8 @@ async function submitRentPayment(
     paymentTxId?: string;
     target?: { receiverAddress: string; energyNeeded: bigint };
     getSeam: () => Promise<SponsoredCoinApi | null>;
-    reserveRentPayment: () => void;
+    acquireHold: () => boolean;
+    reserveRentPayment: (reportedFailed?: boolean) => void;
   }>,
   ctx: RentFlowContext,
 ): Promise<SponsoredCoinApi | null> {
@@ -310,13 +318,20 @@ async function submitRentPayment(
     // Checked before the irreversible submit, not after.
     if (ctx.generation !== ctx.generationRef.current) return null;
     if (!seam) throw new SponsoredSendUnavailableError();
+    // Signing can take long enough that the provider couldn't land the payment in time.
+    if (Date.now() >= args.order.paymentExpiresAt - PENDING_RENT_EXPIRY_MARGIN_MS) {
+      throw new SponsoredPaymentExpiredError();
+    }
     const signedTransaction = seam.buildSignedEnergyRentTransaction(
       args.order.transaction,
       combinedSignature,
     );
+    // Taken with no await before the submit, so no other Send can pay too.
+    if (!args.acquireHold()) throw new SponsoredRentPendingError();
     submitAttempted = true;
     await seam.submitEnergyRentPayment({ orderId: args.order.orderId, signedTransaction });
   } catch (error) {
+    log(LOG_TYPE, "rent payment submit failed", { error });
     const action = await reconcileSubmitFailure(error as Error, {
       submitAttempted,
       seam,
@@ -327,6 +342,9 @@ async function submitRentPayment(
     });
     if (action.type === "DELIVERY_SUCCESS" || action.type === "DELIVERY_FAILURE") {
       args.reserveRentPayment();
+    } else if (action.type === "SUBMIT_FAILURE" && action.paymentSent) {
+      // Before the generation check, so a Send closed meanwhile still holds it.
+      args.reserveRentPayment(true);
     }
     if (ctx.generation !== ctx.generationRef.current) return null;
     ctx.dispatch(action);
@@ -360,8 +378,10 @@ async function runDeliveryPoll(
     if (ctx.generation !== ctx.generationRef.current) return;
     ctx.dispatch({ type: "DELIVERY_SUCCESS" });
   } catch (err) {
+    // Aborted by reset/unmount: the flow that asked is gone.
+    if (abortController.signal.aborted) return;
+    log(LOG_TYPE, "energy delivery failed", { error: err });
     const error = err as Error & { paymentTxId?: string };
-    if (error?.name === "EnergyDeliveryAbortedError") return;
     const action = await reconcileDeliveryOutcome(error, {
       seam,
       target: { receiverAddress: args.receiverAddress, energyNeeded: args.energyNeeded },
@@ -400,6 +420,16 @@ export function useSponsoredSendOrchestration(params: UseSponsoredSendOrchestrat
   // Only the latest craftRent may commit: overlapping calls share a generation.
   const craftSeqRef = useRef(0);
 
+  // The live quote reloads and can be withdrawn mid-cycle; a retry keeps the fee the user approved.
+  const boundFeeRef = useRef<{ generation: number; fee: bigint } | null>(null);
+
+  // Payments sent since the last reset: their retry lock, not the pending-rent store, gates a retry.
+  const sentTxIdsRef = useRef(new Set<string>());
+  const heldByAnotherRent = useCallback((): boolean => {
+    const held = params.mainAccountId ? getPendingRent(params.mainAccountId) : null;
+    return held !== null && !sentTxIdsRef.current.has(held.paymentTxId);
+  }, [params.mainAccountId]);
+
   const seamCacheRef = useRef<{ key: string; promise: Promise<SponsoredCoinApi | null> } | null>(
     null,
   );
@@ -416,40 +446,54 @@ export function useSponsoredSendOrchestration(params: UseSponsoredSendOrchestrat
     return seamCacheRef.current.promise;
   }, [params.network, params.kind]);
 
-  const craftRent = useCallback(async () => {
-    const generation = generationRef.current;
-    const craftSeq = ++craftSeqRef.current;
-    const isStale = () => generation !== generationRef.current || craftSeq !== craftSeqRef.current;
-    try {
-      const seam = await getSeam();
-      if (!seam) throw new SponsoredSendUnavailableError();
-      const request = await seam.buildEnergyRentRequest(params.intent);
-      if (isStale()) return;
-      const order = await seam.craftEnergyRentTransaction(request);
-      if (isStale()) return;
-      if (!order || typeof order.transaction !== "object" || order.transaction === null) {
+  const craftRent = useCallback(
+    async (approvedFee: bigint | null) => {
+      const generation = generationRef.current;
+      const craftSeq = ++craftSeqRef.current;
+      const isStale = () =>
+        generation !== generationRef.current || craftSeq !== craftSeqRef.current;
+      let seam: SponsoredCoinApi | null = null;
+      try {
+        if (heldByAnotherRent()) throw new SponsoredRentPendingError();
+        const bound = boundFeeRef.current;
+        const fee = bound?.generation === generation ? bound.fee : approvedFee;
+        if (fee === null) throw new SponsoredFeeNotApprovedError();
+        boundFeeRef.current = { generation, fee };
+        seam = await getSeam();
+        if (!seam) throw new SponsoredSendUnavailableError();
+        const request = await seam.buildEnergyRentRequest(params.intent, fee);
+        if (isStale()) return;
+        const order = await seam.craftEnergyRentTransaction(request);
+        if (isStale()) return;
+        if (!order || typeof order.transaction !== "object" || order.transaction === null) {
+          throw new TypeError("Sponsored rent order is missing a signable transaction");
+        }
+        if (!Number.isFinite(order.paymentExpiresAt)) {
+          throw new TypeError("Sponsored rent order is missing its payment expiry");
+        }
+        const { toSign, paymentTxId } = seam.getEnergyRentSignaturePayload(order.transaction);
+        dispatch({
+          type: "CRAFT_SUCCESS",
+          order,
+          toSign,
+          paymentTxId,
+          rentPayment: seam.rentPayment(order),
+          payerAddress: request.payerAddress,
+          receiverAddress: request.receiverAddress,
+          energyNeeded: request.energy,
+        });
+      } catch (error) {
+        if (isStale()) return;
+        log(LOG_TYPE, "rent order failed", { error });
         dispatch({
           type: "CRAFT_FAILURE",
-          error: new Error("Sponsored rent order is missing a signable transaction"),
+          error: error as Error,
+          rejection: showableRejection(seam?.classifyRentOrderError(error) ?? null),
         });
-        return;
       }
-      const { toSign, paymentTxId } = seam.getEnergyRentSignaturePayload(order.transaction);
-      dispatch({
-        type: "CRAFT_SUCCESS",
-        order,
-        toSign,
-        paymentTxId,
-        rentPayment: seam.rentPayment(order),
-        payerAddress: request.payerAddress,
-        receiverAddress: request.receiverAddress,
-        energyNeeded: request.energy,
-      });
-    } catch (error) {
-      if (isStale()) return;
-      dispatch({ type: "CRAFT_FAILURE", error: error as Error });
-    }
-  }, [getSeam, params.intent]);
+    },
+    [getSeam, params.intent, heldByAnotherRent],
+  );
 
   const startRentPayment = useCallback(
     async (combinedSignature: string, signedPaymentTxId: string | null) => {
@@ -465,12 +509,51 @@ export function useSponsoredSendOrchestration(params: UseSponsoredSendOrchestrat
         const generation = generationRef.current;
         const paymentTxId = s.paymentTxId ?? undefined;
 
-        const reserveRentPayment = () => {
+        const holdAccount = (submitting: boolean) => {
+          const mainAccountId = params.mainAccountId;
+          if (
+            !mainAccountId ||
+            !paymentTxId ||
+            !s.payerAddress ||
+            !s.receiverAddress ||
+            s.energyNeeded == null
+          ) {
+            return;
+          }
+          recordPendingRent(
+            {
+              mainAccountId,
+              orderId: order.orderId,
+              payerAddress: s.payerAddress,
+              paymentTxId,
+              receiverAddress: s.receiverAddress,
+              energyNeeded: s.energyNeeded,
+              submitting,
+            },
+            order.paymentExpiresAt,
+          );
+        };
+
+        const acquireHold = (): boolean => {
+          if (heldByAnotherRent()) return false;
+          if (paymentTxId) sentTxIdsRef.current.add(paymentTxId);
+          holdAccount(true);
+          return true;
+        };
+
+        const reserveRentPayment = (reportedFailed = false) => {
+          // The submit returned, so the chain can now show this payment's energy.
+          holdAccount(false);
           if (!s.payerAddress || !s.rentPayment) return;
           params.onRentPaymentBroadcast?.({
             paymentTxId,
             payerAddress: s.payerAddress,
             rentPayment: s.rentPayment,
+            orderId: order.orderId,
+            receiverAddress: s.receiverAddress,
+            energyNeeded: s.energyNeeded,
+            paymentExpiresAt: order.paymentExpiresAt,
+            reportedFailed,
           });
         };
 
@@ -487,6 +570,7 @@ export function useSponsoredSendOrchestration(params: UseSponsoredSendOrchestrat
                 ? { receiverAddress: s.receiverAddress, energyNeeded: s.energyNeeded }
                 : undefined,
             getSeam,
+            acquireHold,
             reserveRentPayment,
           },
           ctx,
@@ -522,14 +606,16 @@ export function useSponsoredSendOrchestration(params: UseSponsoredSendOrchestrat
         inFlightRef.current = false;
       }
     },
-    // Reads go through stateRef; oxlint miscounts the member dep.
-    // oxlint-disable-next-line react/memo-dependencies
-    [getSeam, params.pollOpts, params.onRentPaymentBroadcast],
+    [
+      // Reads go through stateRef; oxlint miscounts the member dep.
+      // oxlint-disable-next-line react/memo-dependencies
+      getSeam,
+      params.pollOpts,
+      params.onRentPaymentBroadcast,
+      params.mainAccountId,
+      heldByAnotherRent,
+    ],
   );
-
-  const setContractDataFailure = useCallback((error: Error, signedPaymentTxId: string | null) => {
-    dispatch({ type: "CONTRACT_DATA_FAILURE", error, signedPaymentTxId });
-  }, []);
 
   const onTransferSuccess = useCallback((signedPaymentTxId: string | null) => {
     dispatch({ type: "TRANSFER_SUCCESS", signedPaymentTxId });
@@ -540,11 +626,20 @@ export function useSponsoredSendOrchestration(params: UseSponsoredSendOrchestrat
   }, []);
 
   const retry = useCallback(() => {
+    const { retryLockedUntil, rentOrderRejection } = stateRef.current;
+    if (retryLockedUntil !== null && Date.now() < retryLockedUntil) return;
+    if (rentOrderRejection?.reason === "priceAboveApproved") {
+      boundFeeRef.current = {
+        generation: generationRef.current,
+        fee: rentOrderRejection.offered.amount,
+      };
+    }
     dispatch({ type: "RETRY" });
   }, []);
 
   const reset = useCallback(() => {
     generationRef.current += 1;
+    sentTxIdsRef.current = new Set();
     pollAbortRef.current?.abort();
     dispatch({ type: "RESET" });
   }, []);
@@ -563,20 +658,11 @@ export function useSponsoredSendOrchestration(params: UseSponsoredSendOrchestrat
       craftRent,
       startRentPayment,
       onTransferSuccess,
-      setContractDataFailure,
       onTransferError,
       retry,
       reset,
     }),
-    [
-      craftRent,
-      startRentPayment,
-      onTransferSuccess,
-      setContractDataFailure,
-      onTransferError,
-      retry,
-      reset,
-    ],
+    [craftRent, startRentPayment, onTransferSuccess, onTransferError, retry, reset],
   );
 
   return { state, actions };

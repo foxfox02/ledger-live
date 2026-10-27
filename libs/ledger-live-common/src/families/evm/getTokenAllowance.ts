@@ -49,12 +49,11 @@ export async function getEvmTokenAllowance(
   }
 
   // Ensure EVM coin config is set (e.g. when CLI runs tokenAllowance without having used the bridge)
-  createApi(account.currency.id);
+  createApi();
   const evmCtx = buildContext<EvmConfigInfo>(account.currency.id);
   const config = await evmCtx.config();
-  const nodeApi = getNodeApi(config, account.currency.id, evmCtx.logger);
+  const nodeApi = getNodeApi(config, evmCtx.logger);
   const allowance = await nodeApi.getTokenAllowance(
-    account.currency.id,
     account.freshAddress,
     tokenCurrency.contractAddress,
     spender,

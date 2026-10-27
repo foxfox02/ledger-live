@@ -4,6 +4,7 @@ import { LedgerLogo } from "@ledgerhq/lumen-ui-react/symbols";
 import type { FeeSelectorOption, SponsoredFeeDisplay } from "../types";
 import { useSendFlowData } from "../../../context/SendFlowContext";
 import { AmountMessageText } from "./AmountMessageText";
+import { FamilySendAmountFooterRow } from "./FamilySendAmountFooterRow";
 import { NetworkFeesMenu } from "./Fees/NetworkFeesMenu";
 import type { SponsoredFeeNudgeProps } from "./Fees/SponsoredFeeNudge";
 
@@ -24,6 +25,7 @@ type AmountFooterProps = Readonly<{
   reviewDisabled: boolean;
   reviewLoading: boolean;
   sponsoredFeeError: string | null;
+  sponsoredRentNotice: string | null;
   onReview: () => void;
   onGetFunds?: () => void;
 }>;
@@ -41,6 +43,7 @@ export function AmountFooter({
   reviewDisabled,
   reviewLoading,
   sponsoredFeeError,
+  sponsoredRentNotice,
   onReview,
   onGetFunds,
 }: AmountFooterProps) {
@@ -55,13 +58,23 @@ export function AmountFooter({
   const ctaTestId = reviewShowIcon ? "send-review-button" : "send-get-funds-button";
 
   return (
-    <DialogFooter data-testid="send-amount-footer" className="flex flex-col">
-      {sponsoredFeeError ? (
-        <AmountMessageText
-          message={{ type: "error", text: sponsoredFeeError }}
-          testId="send-sponsored-fee-error"
-        />
-      ) : null}
+    <DialogFooter data-testid="send-amount-footer" className="flex flex-col gap-0">
+      {sponsoredFeeError && (
+        <div className="pb-8">
+          <AmountMessageText
+            message={{ type: "error", text: sponsoredFeeError }}
+            testId="send-sponsored-fee-error"
+          />
+        </div>
+      )}
+      {sponsoredRentNotice && (
+        <output className="block pb-8">
+          <AmountMessageText
+            message={{ type: "info", text: sponsoredRentNotice }}
+            testId="send-sponsored-rent-arriving"
+          />
+        </output>
+      )}
       <div className="border-t border-muted-subtle" />
       <NetworkFeesMenu
         display={{
@@ -74,6 +87,7 @@ export function AmountFooter({
         sponsoredNudge={sponsoredNudge}
         sponsoredFee={sponsoredFee}
       />
+      <FamilySendAmountFooterRow />
       <Button
         appearance="base"
         size="lg"
@@ -81,6 +95,7 @@ export function AmountFooter({
         onClick={reviewShowIcon ? onReview : onGetFunds}
         disabled={reviewDisabled}
         loading={reviewLoading}
+        aria-busy={reviewLoading}
         icon={reviewShowIcon ? LedgerLogo : undefined}
         data-testid={ctaTestId}
         className="rounded-full"
