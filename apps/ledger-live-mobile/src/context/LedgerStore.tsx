@@ -68,8 +68,10 @@ import { startCountervaluesWhenReady } from "./startCountervaluesWhenReady";
  * Default local override for the Wallet 4.0 (lwmWallet40) feature flag.
  * Local overrides take the HIGHEST priority in the resolution chain
  * (local override > env > remote config > default), so this keeps the new
- * Wallet 4.0 UI (asset sections, aggregated assets, PnL, stocks, stablecoins)
+ * Wallet 4.0 UI (asset sections, aggregated assets, stocks, stablecoins)
  * enabled even when Firebase remote config serves a disabled value.
+ *
+ * Note: the `pnl` param was removed from the flag schema upstream in 4.25.0.
  */
 const WALLET_40_DEFAULT_OVERRIDE: PartialFeatures = {
   lwmWallet40: {
@@ -80,7 +82,6 @@ const WALLET_40_DEFAULT_OVERRIDE: PartialFeatures = {
       operationsList: true,
       aggregatedAssets: true,
       myWallet: true,
-      pnl: true,
       assetDiscoverability: true,
       earnUpselling: false,
       earnSimulator: false,
